@@ -348,9 +348,9 @@ pub struct SpecificKey_<T, I> {
     _key: PhantomData<T>,
 }
 
-pub type SpecificKey<T> = SpecificKey_<T, <T as Key>::Index>;
+pub type SpecificKey<T> = SpecificKey_<T, <T as ValueToStdKey>::Index>;
 
-impl<T: Key> ToDisplayNE<'_> for SpecificKey<T>
+impl<T: ValueToStdKey> ToDisplayNE<'_> for SpecificKey<T>
 where
     Self: Into<StdKey> + Copy,
 {
@@ -360,7 +360,7 @@ where
     }
 }
 
-impl<T: Key> fmt::Display for SpecificKey<T>
+impl<T: ValueToStdKey> fmt::Display for SpecificKey<T>
 where
     for<'a> &'a Self: Into<StdKey>,
 {
@@ -369,13 +369,13 @@ where
     }
 }
 
-impl<T: Key> From<SpecificKey<T>> for StdKey {
+impl<T: ValueToStdKey> From<SpecificKey<T>> for StdKey {
     fn from(value: SpecificKey<T>) -> Self {
         T::std(&value.index)
     }
 }
 
-impl<'a, T: Key> From<&'a SpecificKey<T>> for StdKey {
+impl<'a, T: ValueToStdKey> From<&'a SpecificKey<T>> for StdKey {
     fn from(value: &'a SpecificKey<T>) -> Self {
         T::std(&value.index)
     }
@@ -393,15 +393,15 @@ impl<T> SpecificKey_<T, BiMeasIndex> {
 #[derive_where(Clone, Copy, Default, PartialEq, Eq, Debug; I)]
 pub struct DollarKey_<T, I>(pub SpecificKey_<T, I>);
 
-pub type DollarKey<T> = DollarKey_<T, <T as Key>::Index>;
+pub type DollarKey<T> = DollarKey_<T, <T as ValueToStdKey>::Index>;
 
-impl<T: Key> From<DollarKey<T>> for StdKey {
+impl<T: ValueToStdKey> From<DollarKey<T>> for StdKey {
     fn from(value: DollarKey<T>) -> Self {
         value.0.into()
     }
 }
 
-impl<K: Key> ToDisplayNE<'_> for DollarKey<K>
+impl<K: ValueToStdKey> ToDisplayNE<'_> for DollarKey<K>
 where
     SpecificKey<K>: for<'b> ToDisplayNE<'b> + Copy,
 {
@@ -609,7 +609,7 @@ pub(crate) struct ParsedKeywordsDiagnostic {
 
 // Declare traits which map rust values to standardized keywords.
 
-pub trait Key {
+pub trait ValueToStdKey {
     type Index;
     type Id: ToStd<Index = Self::Index>;
     const STD: Self::Id;

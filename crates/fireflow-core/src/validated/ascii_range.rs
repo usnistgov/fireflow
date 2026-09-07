@@ -6,7 +6,7 @@ use crate::data::{
 use crate::logging::{ResultExt as _, WarningsAndErrorsResult};
 use crate::text::byteord::WidthToFixedError;
 use crate::text::keywords::{RangeToIntError, TextRange, Width};
-use crate::validated::keys::Key as _;
+use crate::validated::keys::ValueToStdKey as _;
 
 use fireflow_types::std_key::{ParamKeySuffix, ToStd as _};
 use fireflow_types::{config::DisallowRangeTrunc, index::MeasIndex, other_width::MAX_CHARS};

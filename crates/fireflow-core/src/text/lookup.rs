@@ -1,7 +1,7 @@
 use crate::config::EvaledReadDataKeywordsConfig;
 use crate::logging::{DeferredSwitchableError, LogResult, ResultExt as _};
 use crate::validated::keys::{
-    DollarKey, DollarKey_, Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords,
+    DollarKey, DollarKey_, ValueToStdKey, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords,
     TruncatedNEString, ValidKeywords,
 };
 
@@ -54,7 +54,7 @@ pub enum ReqKeyErrorInner_<E, T, I> {
     Missing(MissingKeyError_<T, I>),
 }
 
-pub type ReqKeyErrorInner<E, T> = ReqKeyErrorInner_<E, T, <T as Key>::Index>;
+pub type ReqKeyErrorInner<E, T> = ReqKeyErrorInner_<E, T, <T as ValueToStdKey>::Index>;
 
 /// An error caused by parsing a string incorrectly for a standard key value.
 #[derive(new, Error)]
@@ -69,9 +69,9 @@ pub struct ParseKeyError_<E, T, I> {
     pub value: TruncatedNEString,
 }
 
-pub type ParseKeyError<E, T> = ParseKeyError_<E, T, <T as Key>::Index>;
+pub type ParseKeyError<E, T> = ParseKeyError_<E, T, <T as ValueToStdKey>::Index>;
 
-impl<E, T: Key> ParseKeyError<E, T> {
+impl<E, T: ValueToStdKey> ParseKeyError<E, T> {
     pub(crate) fn new1(error: E, index: T::Index, value: TruncatedNEString) -> Self {
         Self::new(error, DollarKey::new(index), value)
     }
@@ -86,9 +86,9 @@ impl<E, T: Key> ParseKeyError<E, T> {
 #[cfg_attr(feature = "python", bound(DollarKey_<T, I>: Display))]
 pub struct MissingKeyError_<T, I>(pub DollarKey_<T, I>);
 
-pub type MissingKeyError<T> = MissingKeyError_<T, <T as Key>::Index>;
+pub type MissingKeyError<T> = MissingKeyError_<T, <T as ValueToStdKey>::Index>;
 
-impl<T: Key> MissingKeyError<T> {
+impl<T: ValueToStdKey> MissingKeyError<T> {
     fn new1(index: T::Index) -> Self {
         Self(DollarKey::new(index))
     }
@@ -117,14 +117,14 @@ impl<T> Diagnosed<T, ()> {
 impl<T> Diagnosed<T, Trimmed> {
     pub(crate) fn into_root_pair(self) -> (T, Option<(StdKey, NEString)>)
     where
-        T: Key<Index = ()>,
+        T: ValueToStdKey<Index = ()>,
     {
         (self.inner, self.diagnostic.map(|t| (T::std(&()), t)))
     }
 
     pub(crate) fn into_indexed_pair(self, i: &T::Index) -> (T, Option<(StdKey, NEString)>)
     where
-        T: Key,
+        T: ValueToStdKey,
     {
         (self.inner, self.diagnostic.map(|t| (T::std(i), t)))
     }
@@ -133,7 +133,7 @@ impl<T> Diagnosed<T, Trimmed> {
 impl<T> Diagnosed<Option<T>, Trimmed> {
     pub(crate) fn into_opt_root_pair(self) -> (Option<T>, Option<(StdKey, NEString)>)
     where
-        T: Key<Index = ()>,
+        T: ValueToStdKey<Index = ()>,
     {
         (self.inner, self.diagnostic.map(|t| (T::std(&()), t)))
     }
@@ -143,7 +143,7 @@ impl<T> Diagnosed<Option<T>, Trimmed> {
         i: &T::Index,
     ) -> (Option<T>, Option<(StdKey, NEString)>)
     where
-        T: Key,
+        T: ValueToStdKey,
     {
         (self.inner, self.diagnostic.map(|t| (T::std(i), t)))
     }
@@ -241,7 +241,7 @@ pub(crate) use impl_from_str_with_delim;
 pub(crate) trait Required: Sized {
     fn get_req(kws: &StdKeywords, i: Self::Index) -> Result<Self, ReqKeyErrorInner<Self::Err, Self>>
     where
-        Self: FromStr + Key,
+        Self: FromStr + ValueToStdKey,
         Self::Index: Copy,
     {
         let v = Self::get_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
@@ -258,7 +258,7 @@ pub(crate) trait Required: Sized {
         conf: &Self::Config,
     ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self>>
     where
-        Self: FromStrWith + Key,
+        Self: FromStrWith + ValueToStdKey,
         Self::Index: Copy,
     {
         let v = Self::get_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
@@ -272,7 +272,7 @@ pub(crate) trait Required: Sized {
         i: Self::Index,
     ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self>>
     where
-        Self: FromStr + Key,
+        Self: FromStr + ValueToStdKey,
         Self::Index: Copy,
     {
         let v = Self::remove_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
@@ -289,7 +289,7 @@ pub(crate) trait Required: Sized {
         conf: &Self::Config,
     ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self>>
     where
-        Self: FromStrWith + Key,
+        Self: FromStrWith + ValueToStdKey,
         Self::Index: Copy,
     {
         let v = Self::remove_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
@@ -300,7 +300,7 @@ pub(crate) trait Required: Sized {
 
     fn get_req_inner(kws: &StdKeywords, i: Self::Index) -> Result<&NEString, MissingKeyError<Self>>
     where
-        Self: Key,
+        Self: ValueToStdKey,
     {
         match kws.get(&Self::std(&i)) {
             Some(v) => Ok(v),
@@ -313,7 +313,7 @@ pub(crate) trait Required: Sized {
         i: Self::Index,
     ) -> Result<NEString, MissingKeyError<Self>>
     where
-        Self: Key,
+        Self: ValueToStdKey,
     {
         match kws.remove(&Self::std(&i)) {
             Some(v) => Ok(v),
@@ -331,7 +331,7 @@ pub(crate) trait Optional: Sized {
         k: Self::Index,
     ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self>>
     where
-        Self: FromStr + Key,
+        Self: FromStr + ValueToStdKey,
     {
         kws.get(&Self::std(&k))
             .map(|v| {
@@ -369,7 +369,7 @@ pub(crate) trait Optional: Sized {
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, ParseKeyError<Self::Err, Self>>
     where
-        Self: FromStr + Key,
+        Self: FromStr + ValueToStdKey,
     {
         Self::get_opt(kws, k).into_deferred_switchable(conf.process_optional_failure)
     }
@@ -379,7 +379,7 @@ pub(crate) trait Optional: Sized {
         k: Self::Index,
     ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self>>
     where
-        Self: FromStr + Key,
+        Self: FromStr + ValueToStdKey,
     {
         kws.remove(&Self::std(&k))
             .map(|v| {
@@ -398,7 +398,7 @@ pub(crate) trait Optional: Sized {
         conf: &Self::Config,
     ) -> Result<Diagnosed<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self>>
     where
-        Self: FromStrWith + Key,
+        Self: FromStrWith + ValueToStdKey,
         Self::Diagnostic: Default,
     {
         kws.remove(&Self::std(&k))
@@ -412,7 +412,7 @@ pub(crate) trait Optional: Sized {
 
     fn remove_opt_nofail(kws: &mut StdKeywords, i: Self::Index) -> Self::Outer
     where
-        Self: FromStr<Err = Infallible> + Key,
+        Self: FromStr<Err = Infallible> + ValueToStdKey,
     {
         let Ok(res) = Self::remove_opt(kws, i);
         res
@@ -425,7 +425,7 @@ pub(crate) trait Optional: Sized {
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, ParseKeyError<Self::Err, Self>>
     where
-        Self: FromStr + Key,
+        Self: FromStr + ValueToStdKey,
         Self::Index: Copy,
     {
         let res = Self::remove_opt(&mut kws.std, k);
@@ -451,7 +451,7 @@ pub(crate) trait Optional: Sized {
         ParseKeyError<Self::Err, Self>,
     >
     where
-        Self: FromStrWith + Key,
+        Self: FromStrWith + ValueToStdKey,
         Self::Index: Copy,
         Self::Diagnostic: Default,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
@@ -469,17 +469,17 @@ pub(crate) trait Optional: Sized {
 }
 
 /// A required metaroot key
-pub(crate) trait ReqMetarootKey: Sized + Required + Key {
+pub(crate) trait ReqMetarootKey: Sized + Required + ValueToStdKey {
     fn get_metaroot_req(kws: &StdKeywords) -> ReqResult<Self>
     where
-        Self: Key<Index = ()> + FromStr,
+        Self: ValueToStdKey<Index = ()> + FromStr,
     {
         Self::get_req(kws, ())
     }
 
     fn remove_metaroot_req(kws: &mut StdKeywords) -> ReqResult<Self>
     where
-        Self: Key<Index = ()> + FromStr,
+        Self: ValueToStdKey<Index = ()> + FromStr,
     {
         Self::remove_req(kws, ())
     }
@@ -516,17 +516,17 @@ pub(crate) trait ReqMetarootKey: Sized + Required + Key {
 }
 
 /// An optional metaroot key
-pub(crate) trait OptMetarootKey: Sized + Optional + Key {
+pub(crate) trait OptMetarootKey: Sized + Optional + ValueToStdKey {
     fn get_root_opt(kws: &StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
     where
-        Self: Key<Index = ()> + FromStr,
+        Self: ValueToStdKey<Index = ()> + FromStr,
     {
         Self::get_opt(kws, ())
     }
 
     fn remove_root_opt_nofail(kws: &mut StdKeywords) -> Self::Outer
     where
-        Self: Key<Index = ()> + FromStr<Err = Infallible>,
+        Self: ValueToStdKey<Index = ()> + FromStr<Err = Infallible>,
     {
         Self::remove_opt_nofail(kws, ())
     }
@@ -537,7 +537,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptKeyError<Self>>
     where
-        Self: Key<Index = ()> + FromStr,
+        Self: ValueToStdKey<Index = ()> + FromStr,
     {
         Self::remove_or_transfer_opt(kws, dropped, (), conf)
     }
@@ -553,7 +553,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         OptStKeyError<Self>,
     >
     where
-        Self: Key<Index = ()> + FromStrWith,
+        Self: ValueToStdKey<Index = ()> + FromStrWith,
         Self::Diagnostic: Default,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
@@ -631,7 +631,7 @@ fn process_opt_key<E, K, X>(
     flag: ProcessOptionalFailure,
 ) -> DeferredSwitchableError<X, DummyTriFlag, ParseKeyError<E, K>>
 where
-    K: Key,
+    K: ValueToStdKey,
     X: Default,
 {
     let triflag = flag.as_triflag();

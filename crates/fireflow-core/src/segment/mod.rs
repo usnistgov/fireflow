@@ -3,7 +3,7 @@ pub(crate) mod write;
 
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::validated::ascii_uint::UintZeroPad20;
-use crate::validated::keys::Key;
+use crate::validated::keys::ValueToStdKey;
 
 use fireflow_types::segment::{AnalysisSegmentId, DataSegmentId, SupplementalTextSegmentId};
 
@@ -12,8 +12,8 @@ use std::str::FromStr;
 
 /// Operations to obtain optional segment from TEXT keywords
 pub trait KeyedOffsets: Sized + Copy {
-    type B: Key<Index = ()> + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
-    type E: Key<Index = ()> + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
+    type B: ValueToStdKey<Index = ()> + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
+    type E: ValueToStdKey<Index = ()> + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
 }
 
 impl KeyedOffsets for AnalysisSegmentId {

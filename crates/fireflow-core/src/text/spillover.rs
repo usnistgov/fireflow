@@ -1,7 +1,7 @@
 use crate::config::EvaledReadStdKeywordsConfig;
 use crate::core::TrimmedKeyword;
 use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
-use crate::validated::keys::{DollarKey, Key as _};
+use crate::validated::keys::{DollarKey, ValueToStdKey as _};
 use crate::validated::shortname::Shortname;
 
 use super::lookup::{Diagnosed, FromStrWith, FromStrWithResult};

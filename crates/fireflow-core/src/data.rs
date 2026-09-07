@@ -152,7 +152,7 @@ use crate::validated::finite_float::{
     DecimalToFloatError, FiniteF32, FiniteF64, FiniteF64toF32Error, FiniteFloat,
     U64ToFiniteFloatError,
 };
-use crate::validated::keys::{Key, StdKeywords, ValidKeywords};
+use crate::validated::keys::{ValueToStdKey, StdKeywords, ValidKeywords};
 use crate::validated::read_state::WriteFCSDigest;
 use crate::validated::row_buffer::{ReadBuffer, WriteBuffer};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
@@ -2435,7 +2435,7 @@ where
     L: Copy + HasByteOrd,
     for<'c> ReqRootKeyword<'c>: From<SplitKeyword<L::ByteOrd>>,
     TextRange: From<I::Inner>,
-    L::ByteOrd: Key<Index = ()>,
+    L::ByteOrd: ValueToStdKey<Index = ()>,
 {
     fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
         ReqRootKeyword::from_value(self.byteord.into())

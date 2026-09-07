@@ -43,7 +43,7 @@ use crate::validated::header_offsets::{
     SuppToHeaderOffsetsValidationError, TextToHeaderOrSuppOffsetsValidationError,
 };
 use crate::validated::keys::{
-    InvalidKeywordCharsError, Key as _, KeyOrBytes, KeywordInsertError, NEStringOrBytes, NonStdKey,
+    InvalidKeywordCharsError, ValueToStdKey as _, KeyOrBytes, KeywordInsertError, NEStringOrBytes, NonStdKey,
     ParsedKeywords, ParsedKeywordsDiagnostic, RepairDiagnostics, StdKeywords, StringOrBytes,
     TruncatedNEString, ValidKeywords,
 };

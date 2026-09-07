@@ -22,7 +22,7 @@ use crate::text::relational::{
     KeyToIndexLinkError, RemovedGateLink, RemovedGating, RemovedLink,
 };
 use crate::validated::keys::{
-    DollarKey, Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords, ValidKeywords,
+    DollarKey, ValueToStdKey, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords, ValidKeywords,
 };
 
 use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeySuffix};
@@ -348,7 +348,7 @@ impl<I> AppliedGatesPre3_2<I> {
         I: FromStr + LinkedMeasIndex + PartialEq + Copy,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
-        RegionGateIndex<I>: Key<Index = RegionIndex>
+        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>
             + OptMetarootKey
             + Optional<Outer = Option<RegionGateIndex<I>>>,
     {
@@ -387,7 +387,7 @@ impl<I> AppliedGatesPre3_2<I> {
     pub(crate) fn opt_keywords<'a>(&'a self) -> impl Iterator<Item = OptRootKeyword<'a>>
     where
         I: Copy,
-        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         let gate = self
@@ -680,7 +680,7 @@ impl<I> GatingScheme<I> {
         indices: &IndicesToRemove,
     ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<I>, MeasIndex>>
     where
-        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         I: LinkedMeasIndex,
     {
         self.meas_indices()
@@ -696,7 +696,7 @@ impl<I> GatingScheme<I> {
         par: &Par,
     ) -> impl Iterator<Item = BrokenRegionLinkError<I>>
     where
-        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         I: LinkedMeasIndex,
     {
         self.meas_indices()
@@ -772,7 +772,7 @@ impl<I> GatingScheme<I> {
         I: FromStr + LinkedMeasIndex + PartialEq + Copy,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
-        RegionGateIndex<I>: Key<Index = RegionIndex>
+        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>
             + OptMetarootKey
             + Optional<Outer = Option<RegionGateIndex<I>>>,
     {
@@ -815,7 +815,7 @@ impl<I> GatingScheme<I> {
     fn demote_keywords(self, nonstd: &mut NonStdKeywords)
     where
         I: Copy,
-        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         for (ri, r) in self.regions {
@@ -832,7 +832,7 @@ impl<I> GatingScheme<I> {
     fn drop_keywords(self, dropped: &mut StdKeywords)
     where
         I: Copy,
-        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         for (ri, r) in self.regions {
@@ -846,7 +846,7 @@ impl<I> GatingScheme<I> {
     pub(crate) fn opt_keywords<'a>(&'a self) -> impl Iterator<Item = OptRootKeyword<'a>>
     where
         I: Copy,
-        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         let gating = self.gating.as_ref().map(OptRootKeyword::from_ref);
@@ -923,7 +923,7 @@ impl<I> Region<I> {
         I: FromStr + LinkedMeasIndex + PartialEq,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
-        RegionGateIndex<I>: Key<Index = RegionIndex>
+        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>
             + OptMetarootKey
             + Optional<Outer = Option<RegionGateIndex<I>>>,
     {
@@ -1017,7 +1017,7 @@ impl<I> Region<I> {
     pub(crate) fn demote_keywords<'a>(&'a self, i: RegionIndex, nonstd: &mut NonStdKeywords)
     where
         I: Copy,
-        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         for r in self.opt_keywords(i) {
@@ -1029,7 +1029,7 @@ impl<I> Region<I> {
     pub(crate) fn drop_keywords<'a>(&'a self, i: RegionIndex, dropped: &mut StdKeywords)
     where
         I: Copy,
-        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         for r in self.opt_keywords(i) {
@@ -1040,7 +1040,7 @@ impl<I> Region<I> {
     pub(crate) fn opt_keywords<'a>(&'a self, i: RegionIndex) -> [RegionKeyword<'a>; 2]
     where
         I: Copy,
-        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         let ri = match self {

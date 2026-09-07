@@ -33,7 +33,7 @@ use std::fmt::{self, Write as _};
 use std::num::NonZeroU32;
 
 #[cfg(feature = "serde")]
-use crate::validated::keys::Key;
+use crate::validated::keys::ValueToStdKey;
 
 #[cfg(feature = "python")]
 use {
@@ -520,7 +520,7 @@ pub type KeyLossError<T> = KeyLossError_<DollarKey<T>>;
 pub(crate) trait Keyword0FromValue<'a> {
     fn from_value<T>(x: T) -> Self
     where
-        T: Key<Index = ()>,
+        T: ValueToStdKey<Index = ()>,
         Self: From<SplitKeyword<T>>,
     {
         Self::from(SplitKeyword::from_value0(x))
@@ -528,7 +528,7 @@ pub(crate) trait Keyword0FromValue<'a> {
 
     fn from_ref<T>(x: &'a T) -> Self
     where
-        T: Key<Index = ()>,
+        T: ValueToStdKey<Index = ()>,
         Self: From<RefKeyword<'a, T>>,
     {
         Self::from(RefKeyword::from_ref0(x))
@@ -536,7 +536,7 @@ pub(crate) trait Keyword0FromValue<'a> {
 
     fn from_str<T>(x: &'a T) -> Option<Self>
     where
-        T: Key<Index = ()> + AsRef<str>,
+        T: ValueToStdKey<Index = ()> + AsRef<str>,
         Self: From<NEStringKeyword<'a, T>>,
     {
         NEStringKeyword::try_new_ne_str0(x).map(Self::from)
@@ -546,7 +546,7 @@ pub(crate) trait Keyword0FromValue<'a> {
 pub(crate) trait Keyword1FromValue<'a> {
     fn from_value<T>(x: T, i: T::Index) -> Self
     where
-        T: Key,
+        T: ValueToStdKey,
         Self: From<SplitKeyword<T>>,
     {
         Self::from(SplitKeyword::from_value1(x, i))
@@ -554,7 +554,7 @@ pub(crate) trait Keyword1FromValue<'a> {
 
     fn from_ref<T>(x: &'a T, i: T::Index) -> Self
     where
-        T: Key,
+        T: ValueToStdKey,
         Self: From<RefKeyword<'a, T>>,
     {
         Self::from(RefKeyword::from_ref1(x, i))
@@ -562,7 +562,7 @@ pub(crate) trait Keyword1FromValue<'a> {
 
     fn from_str<T>(x: &'a T, i: T::Index) -> Option<Self>
     where
-        T: Key + AsRef<str>,
+        T: ValueToStdKey + AsRef<str>,
         Self: From<NEStringKeyword<'a, T>>,
     {
         NEStringKeyword::try_new_ne_str1(x, i).map(Self::from)
@@ -571,7 +571,7 @@ pub(crate) trait Keyword1FromValue<'a> {
     fn from_opt_zst<T, Z>(x: T, i: T::Index) -> Option<Self>
     where
         Z: Copy,
-        T: Key + AsRef<Option<Z>>,
+        T: ValueToStdKey + AsRef<Option<Z>>,
         Self: From<OptZSTKeyword<T, Z>>,
     {
         let y: &Option<Z> = x.as_ref();
@@ -622,10 +622,10 @@ trait DisplayEscaped {
     fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
-impl<T: Key> SplitKeyword<T> {
+impl<T: ValueToStdKey> SplitKeyword<T> {
     pub(crate) fn from_value0(value: T) -> Self
     where
-        T: Key<Index = ()>,
+        T: ValueToStdKey<Index = ()>,
     {
         Self::new(DollarKey::<T>::default(), value)
     }
@@ -635,10 +635,10 @@ impl<T: Key> SplitKeyword<T> {
     }
 }
 
-impl<'a, T: Key> RefKeyword<'a, T> {
+impl<'a, T: ValueToStdKey> RefKeyword<'a, T> {
     pub(crate) fn from_ref0(value: &'a T) -> Self
     where
-        T: Key<Index = ()>,
+        T: ValueToStdKey<Index = ()>,
     {
         Self::new(DollarKey::<T>::default(), value)
     }
@@ -648,10 +648,10 @@ impl<'a, T: Key> RefKeyword<'a, T> {
     }
 }
 
-impl<'a, T: Key> NEStringKeyword<'a, T> {
+impl<'a, T: ValueToStdKey> NEStringKeyword<'a, T> {
     pub(crate) fn try_new_ne_str0(kw: &'a T) -> Option<Self>
     where
-        T: Key<Index = ()> + AsRef<str>,
+        T: ValueToStdKey<Index = ()> + AsRef<str>,
     {
         let value = NEStr::try_new(kw.as_ref())?;
         Some(Self::new(DollarKey::<T>::default(), value))
@@ -666,10 +666,10 @@ impl<'a, T: Key> NEStringKeyword<'a, T> {
     }
 }
 
-impl<T: Key> NonZeroU32Keyword<T> {
+impl<T: ValueToStdKey> NonZeroU32Keyword<T> {
     pub(crate) fn try_new_nz_u32(kw: &T) -> Option<Self>
     where
-        T: Key<Index = ()> + AsRef<u32>,
+        T: ValueToStdKey<Index = ()> + AsRef<u32>,
     {
         let value = NonZeroU32::new(*kw.as_ref())?;
         Some(Self::new(DollarKey::<T>::default(), value))
@@ -679,7 +679,7 @@ impl<T: Key> NonZeroU32Keyword<T> {
 impl<'a> OptRootKeyword<'a> {
     pub(crate) fn from_u32<T>(x: &T) -> Option<Self>
     where
-        T: Key<Index = ()> + AsRef<u32>,
+        T: ValueToStdKey<Index = ()> + AsRef<u32>,
         Self: From<NonZeroU32Keyword<T>>,
     {
         NonZeroU32Keyword::try_new_nz_u32(x).map(Self::from)
@@ -713,7 +713,7 @@ impl Keyword1FromValue<'_> for OptPeakKeyword {}
 impl<'a> Keyword1FromValue<'a> for GateMeasKeyword<'a> {}
 impl Keyword1FromValue<'_> for RegionKeyword<'_> {}
 
-impl<T: Key, V> AsStdKeywordPair for SplitKeyword_<DollarKey<T>, V>
+impl<T: ValueToStdKey, V> AsStdKeywordPair for SplitKeyword_<DollarKey<T>, V>
 where
     for<'a> V: ToDisplayNE<'a>,
 {
@@ -745,7 +745,7 @@ where
 }
 
 #[cfg(feature = "serde")]
-impl<V: Key, X> AsHeader for SplitKeyword_<DollarKey<V>, X>
+impl<V: ValueToStdKey, X> AsHeader for SplitKeyword_<DollarKey<V>, X>
 where
     V::Id: BlankKeyword,
 {
@@ -1218,7 +1218,7 @@ impl fmt::Write for EscapedFormatter<'_, '_> {
     }
 }
 
-impl<K: Key, V> DisplayEscaped for SplitKeyword_<DollarKey<K>, V>
+impl<K: ValueToStdKey, V> DisplayEscaped for SplitKeyword_<DollarKey<K>, V>
 where
     for<'a> DollarKey<K>: ToDisplayNE<'a>,
     for<'a> V: ToDisplayNE<'a>,

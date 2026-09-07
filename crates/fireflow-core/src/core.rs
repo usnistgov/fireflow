@@ -111,7 +111,7 @@ use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
-    DollarKey, Key as _, NonStdKeywords, NonStdKeywordsExt as _, RepairCollisionError,
+    DollarKey, ValueToStdKey as _, NonStdKeywords, NonStdKeywordsExt as _, RepairCollisionError,
     RepairDiagnostics, StdKeywords, StringOrBytes, ValidKeywords,
 };
 use crate::validated::read_state::{

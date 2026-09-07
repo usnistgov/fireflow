@@ -29,7 +29,7 @@ use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZe
 use crate::validated::header_offsets::{
     FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
 };
-use crate::validated::keys::{DollarKey, Key as _, StdKeywords};
+use crate::validated::keys::{DollarKey, ValueToStdKey as _, StdKeywords};
 use crate::validated::read_state::{DatasetOffset, HeaderReadState, WriteFCSDigest};
 
 use fireflow_types::std_key::RootKey;

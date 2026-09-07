@@ -19,7 +19,9 @@ use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_st
 use crate::validated::header_offsets::{
     FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
 };
-use crate::validated::keys::{Key, NEStringOrBytes, SpecificKey, StdKeywords, TruncatedNEString};
+use crate::validated::keys::{
+    NEStringOrBytes, SpecificKey, StdKeywords, TruncatedNEString, ValueToStdKey,
+};
 use crate::validated::read_state::{
     DatasetOffset, HeaderReadState, ReadDatasetState, TEXTReadState,
 };
@@ -451,8 +453,8 @@ pub struct DatasetOverflowError<N>(pub OffsetsOverflow<N>);
 /// Error when parsing or creating required segment offsets from TEXT
 #[derive(Clone, Debug, PartialEq, Display, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(B: Key<Index = ()>))]
-#[cfg_attr(feature = "python", bound(E: Key<Index = ()>))]
+#[cfg_attr(feature = "python", bound(B: ValueToStdKey<Index = ()>))]
+#[cfg_attr(feature = "python", bound(E: ValueToStdKey<Index = ()>))]
 pub enum ReqOffsetsError<B, E> {
     Key(ReqSegmentKeyError<B, E>),
     Segment(SegmentOffsetError),
@@ -461,8 +463,8 @@ pub enum ReqOffsetsError<B, E> {
 /// Error when parsing required segment offsets from TEXT
 #[derive(Clone, Display, Debug, Error, PartialEq)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(B: Key<Index = ()>))]
-#[cfg_attr(feature = "python", bound(E: Key<Index = ()>))]
+#[cfg_attr(feature = "python", bound(B: ValueToStdKey<Index = ()>))]
+#[cfg_attr(feature = "python", bound(E: ValueToStdKey<Index = ()>))]
 pub enum ReqSegmentKeyError<B, E> {
     Begin(ReqKeyErrorInner_<ParseIntError, B, ()>),
     End(ReqKeyErrorInner_<ParseIntError, E, ()>),
@@ -471,8 +473,8 @@ pub enum ReqSegmentKeyError<B, E> {
 /// Error when parsing optional segment offsets from TEXT
 #[derive(Clone, Display, Debug, Error, PartialEq)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(B: Key<Index = ()>))]
-#[cfg_attr(feature = "python", bound(E: Key<Index = ()>))]
+#[cfg_attr(feature = "python", bound(B: ValueToStdKey<Index = ()>))]
+#[cfg_attr(feature = "python", bound(E: ValueToStdKey<Index = ()>))]
 pub enum OptOffsetsError<B, E> {
     Key(OptSegmentKeyError<B, E>),
     Segment(SegmentOffsetError),
@@ -481,8 +483,8 @@ pub enum OptOffsetsError<B, E> {
 /// Error when parsing or creating optional segment offsets from TEXT
 #[derive(Clone, Display, Debug, Error, PartialEq)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(B: Key<Index = ()>))]
-#[cfg_attr(feature = "python", bound(E: Key<Index = ()>))]
+#[cfg_attr(feature = "python", bound(B: ValueToStdKey<Index = ()>))]
+#[cfg_attr(feature = "python", bound(E: ValueToStdKey<Index = ()>))]
 pub enum OptSegmentKeyError<B, E> {
     Begin(ParseKeyError_<ParseIntError, B, ()>),
     End(ParseKeyError_<ParseIntError, E, ()>),
@@ -618,8 +620,8 @@ pub struct OffsetsMismatchError<I> {
 #[derive(Clone, From, Display, Debug, Error, PartialEq)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(I: HasRegion))]
-#[cfg_attr(feature = "python", bound(B: Key<Index = ()>))]
-#[cfg_attr(feature = "python", bound(E: Key<Index = ()>))]
+#[cfg_attr(feature = "python", bound(B: ValueToStdKey<Index = ()>))]
+#[cfg_attr(feature = "python", bound(E: ValueToStdKey<Index = ()>))]
 pub enum ReqOffsetsWithDefaultErrorInner<I, B, E> {
     Req(ReqOffsetsError<B, E>),
     Mismatch(OffsetsMismatchError<I>),
@@ -631,8 +633,8 @@ pub enum ReqOffsetsWithDefaultErrorInner<I, B, E> {
 #[derive(Clone, From, Display, Debug, Error, PartialEq)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(I: HasRegion))]
-#[cfg_attr(feature = "python", bound(B: Key<Index = ()>))]
-#[cfg_attr(feature = "python", bound(E: Key<Index = ()>))]
+#[cfg_attr(feature = "python", bound(B: ValueToStdKey<Index = ()>))]
+#[cfg_attr(feature = "python", bound(E: ValueToStdKey<Index = ()>))]
 pub enum ReqOffsetsWithDefaultWarning_<I, B, E> {
     Error(ReqOffsetsWithDefaultErrorInner<I, B, E>),
     Default(SegmentOffsetsDefaultWarning<I>),
@@ -642,8 +644,8 @@ pub enum ReqOffsetsWithDefaultWarning_<I, B, E> {
 #[derive(Clone, From, Display, Debug, Error, PartialEq)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(I: HasRegion))]
-#[cfg_attr(feature = "python", bound(B: Key<Index = ()>))]
-#[cfg_attr(feature = "python", bound(E: Key<Index = ()>))]
+#[cfg_attr(feature = "python", bound(B: ValueToStdKey<Index = ()>))]
+#[cfg_attr(feature = "python", bound(E: ValueToStdKey<Index = ()>))]
 pub enum OptOffsetsWithDefaultWarningInner<I, B, E> {
     Opt(OptOffsetsError<B, E>),
     Mismatch(OffsetsMismatchError<I>),
@@ -927,14 +929,14 @@ where
 
     fn get_req<K>(kws: &StdKeywords) -> Result<i128, ReqKeyErrorInner<ParseIntError, K>>
     where
-        K: Key<Index = ()>,
+        K: ValueToStdKey<Index = ()>,
     {
         lookup_req!(kws, get)
     }
 
     fn remove_req<K>(kws: &mut StdKeywords) -> Result<i128, ReqKeyErrorInner<ParseIntError, K>>
     where
-        K: Key<Index = ()>,
+        K: ValueToStdKey<Index = ()>,
     {
         lookup_req!(kws, remove)
     }
@@ -1208,14 +1210,14 @@ where
 
     fn get_opt<K>(kws: &StdKeywords) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
     where
-        K: Key<Index = ()>,
+        K: ValueToStdKey<Index = ()>,
     {
         lookup_opt!(kws, get)
     }
 
     fn remove_opt<K>(kws: &mut StdKeywords) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
     where
-        K: Key<Index = ()>,
+        K: ValueToStdKey<Index = ()>,
     {
         lookup_opt!(kws, remove)
     }

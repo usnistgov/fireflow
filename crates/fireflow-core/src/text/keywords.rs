@@ -8,8 +8,8 @@ use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, N
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::keyword_enum::{AsStdKeywordPair as _, OptRootKeyword, SplitKeyword_};
 use crate::text::lookup::{
-    Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, OptKeyError, OptMetarootKey,
-    Optional, ParseKeyError, ReqKeyError, ReqKeyErrorInner, ReqMetarootKey, Required, Trimmed,
+    Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, OptKeyError, OptMetarootKey, Optional,
+    ParseKeyError, ReqKeyError, ReqKeyErrorInner, ReqMetarootKey, Required, Trimmed,
     impl_from_str_with_delim,
 };
 use crate::text::named_vec::{NameMapping, NamedSet, NamedSetMembership};
@@ -27,8 +27,8 @@ use crate::validated::bitmask::BitmaskValue;
 use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
 use crate::validated::keys::{
-    DollarKey, Key, NonStdKeywordsExt as _, StdKeywords, StdOptKeyword, TruncatedNEString,
-    ValidKeywords,
+    DollarKey, NonStdKeywordsExt as _, StdKeywords, StdOptKeyword, TruncatedNEString,
+    ValidKeywords, ValueToStdKey,
 };
 use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
@@ -3119,7 +3119,7 @@ macro_rules! newtype_opt_bool {
 
 macro_rules! kw_meta {
     ($t:ident, $k:expr) => {
-        impl crate::validated::keys::Key for $t {
+        impl crate::validated::keys::ValueToStdKey for $t {
             type Index = ();
             type Id = fireflow_types::std_key::RootKey;
             const STD: Self::Id = $k;
@@ -3129,7 +3129,7 @@ macro_rules! kw_meta {
 
 macro_rules! kw_meas {
     ($t:ident, $sfx:expr) => {
-        impl $crate::validated::keys::Key for $t {
+        impl $crate::validated::keys::ValueToStdKey for $t {
             type Index = MeasIndex;
             type Id = fireflow_types::std_key::ParamKeySuffix;
             const STD: Self::Id = $sfx;
@@ -3262,7 +3262,7 @@ macro_rules! kw_time {
 
 macro_rules! kw_opt_gate {
     ($t:ident, $sfx:expr, $outer:path) => {
-        impl $crate::validated::keys::Key for $t {
+        impl $crate::validated::keys::ValueToStdKey for $t {
             type Index = fireflow_types::index::GateIndex;
             type Id = fireflow_types::std_key::GateKeySuffix;
             const STD: Self::Id = $sfx;
@@ -3468,7 +3468,7 @@ kw_opt_meas!(Calibration3_2, ParamKeySuffix::Calibration, Option<Self>);
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Dfc(pub f32);
 
-impl Key for Dfc {
+impl ValueToStdKey for Dfc {
     type Index = BiMeasIndex;
     type Id = DfcKeyMarker;
     const STD: Self::Id = DfcKeyMarker;
@@ -3512,7 +3512,7 @@ kw_opt_meta_opt_u32!(CSVBits, RootKey::Csvbits);
 newtype_int!(CSVFlag, u32);
 opt_meas!(CSVFlag, SubsetIndex, Option<Self>);
 
-impl Key for CSVFlag {
+impl ValueToStdKey for CSVFlag {
     type Index = SubsetIndex;
     type Id = CsvFlagKeyMarker;
     const STD: Self::Id = CsvFlagKeyMarker;
@@ -3521,7 +3521,7 @@ impl Key for CSVFlag {
 newtype_int!(PeakBin, u32);
 opt_meas!(PeakBin, MeasIndex, Option<Self>);
 
-impl Key for PeakBin {
+impl ValueToStdKey for PeakBin {
     type Index = MeasIndex;
     type Id = PeakKeyPrefix;
     const STD: Self::Id = PeakKeyPrefix::Pk;
@@ -3531,7 +3531,7 @@ impl Key for PeakBin {
 newtype_int!(PeakIndex, MeasIndex);
 opt_meas!(PeakIndex, MeasIndex, Option<Self>);
 
-impl Key for PeakIndex {
+impl ValueToStdKey for PeakIndex {
     type Index = MeasIndex;
     type Id = PeakKeyPrefix;
     const STD: Self::Id = PeakKeyPrefix::Pkn;
@@ -3550,7 +3550,7 @@ kw_opt_gate_string!(GateDetectorType, GateKeySuffix::T);
 kw_opt_gate_other!(GateDetectorVoltage, GateKeySuffix::V);
 kw_opt_meta!(Gating, RootKey::Gating, Option<Self>);
 
-impl Key for RegionWindow {
+impl ValueToStdKey for RegionWindow {
     type Index = RegionIndex;
     type Id = RegionKeySuffix;
     const STD: Self::Id = RegionKeySuffix::W;
@@ -3560,7 +3560,7 @@ opt_meas!(RegionWindow, RegionIndex, Option<Self>);
 
 macro_rules! impl_region_index {
     ($t:path, $m:expr) => {
-        impl crate::validated::keys::Key for $t {
+        impl crate::validated::keys::ValueToStdKey for $t {
             type Index = fireflow_types::index::RegionIndex;
             type Id = fireflow_types::std_key::RegionKeySuffix;
             const STD: Self::Id = fireflow_types::std_key::RegionKeySuffix::I;

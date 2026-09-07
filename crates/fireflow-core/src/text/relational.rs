@@ -40,7 +40,7 @@ use crate::text::keywords::{
     RegionWindow, Trigger, UnstainedCenters,
 };
 use crate::text::spillover::Spillover;
-use crate::validated::keys::{DollarKey, DollarKey_, Key, NonStdKeywords, NonStdKeywordsExt as _};
+use crate::validated::keys::{DollarKey, DollarKey_, ValueToStdKey, NonStdKeywords, NonStdKeywordsExt as _};
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeySuffix};
@@ -131,7 +131,7 @@ pub struct ExistingNamedLinkError_<T, I> {
     pub names: NEVec<Shortname>,
 }
 
-pub type ExistingNamedLinkError<T> = ExistingNamedLinkError_<T, <T as Key>::Index>;
+pub type ExistingNamedLinkError<T> = ExistingNamedLinkError_<T, <T as ValueToStdKey>::Index>;
 
 /// Error when a keyword has indexed references to it which would be broken if dropped
 #[derive(Display, Error, new)]
@@ -150,7 +150,7 @@ pub struct ExistingIndexedLinkError_<T, I, J> {
     pub indices: NEVec<J>,
 }
 
-pub type ExistingIndexedLinkError<T, J> = ExistingIndexedLinkError_<T, <T as Key>::Index, J>;
+pub type ExistingIndexedLinkError<T, J> = ExistingIndexedLinkError_<T, <T as ValueToStdKey>::Index, J>;
 
 //
 // Broken relational errors (checking if new links are valid)
@@ -256,7 +256,7 @@ pub enum NamedLinkError_<T, I> {
     Temporal(TemporalNamedLinkError_<T, I>),
 }
 
-pub type KeyToNameLinkError<T> = NamedLinkError_<T, <T as Key>::Index>;
+pub type KeyToNameLinkError<T> = NamedLinkError_<T, <T as ValueToStdKey>::Index>;
 
 /// Error when key which references a non-existent measurement $PnN
 #[derive(Display, Error, new)]
@@ -276,7 +276,7 @@ pub struct OpticalNamedLinkError_<T, I> {
     names: NEVec<Shortname>,
 }
 
-pub type OpticalNamedLinkError<T> = OpticalNamedLinkError_<T, <T as Key>::Index>;
+pub type OpticalNamedLinkError<T> = OpticalNamedLinkError_<T, <T as ValueToStdKey>::Index>;
 
 #[derive(Display, Error, new)]
 #[derive_where(Clone, Debug, PartialEq; I)]
@@ -292,7 +292,7 @@ pub struct TemporalNamedLinkError_<T, I> {
     name: Shortname,
 }
 
-pub type TemporalNamedLinkError<T> = TemporalNamedLinkError_<T, <T as Key>::Index>;
+pub type TemporalNamedLinkError<T> = TemporalNamedLinkError_<T, <T as ValueToStdKey>::Index>;
 
 /// Error when key which references a non-existent measurement index
 #[derive(Display, Error, new)]
@@ -309,7 +309,7 @@ pub struct KeyToIndexLinkError_<T, I> {
     key: DollarKey_<T, I>,
 }
 
-pub type KeyToIndexLinkError<T> = KeyToIndexLinkError_<T, <T as Key>::Index>;
+pub type KeyToIndexLinkError<T> = KeyToIndexLinkError_<T, <T as ValueToStdKey>::Index>;
 
 /// Error when key which depends on another key which is invalid.
 #[derive(Display, Error, new)]
@@ -326,7 +326,7 @@ pub struct DependentKeyError_<T, I> {
     key: DollarKey_<T, I>,
 }
 
-pub type DependentKeyError<T> = DependentKeyError_<T, <T as Key>::Index>;
+pub type DependentKeyError<T> = DependentKeyError_<T, <T as ValueToStdKey>::Index>;
 
 impl<T> OpticalNamedLinkError_<T, ()> {
     pub(crate) fn new_i0(js: NEVec<Shortname>) -> Self {
@@ -362,7 +362,7 @@ impl RemovedLink {
     pub(crate) fn insert_keyvals(&self, kws: &mut NonStdKeywords) {
         fn go_ref<'a, T>(x: &'a T, kws: &mut NonStdKeywords)
         where
-            T: Key<Index = ()>,
+            T: ValueToStdKey<Index = ()>,
             OptRootKeyword<'a>: From<RefKeyword<'a, T>>,
         {
             let kw = OptRootKeyword::from_ref(x);
@@ -372,7 +372,7 @@ impl RemovedLink {
         fn go_gate<'a, I>(r: &'a RemovedGateLink<I>, kws: &mut NonStdKeywords)
         where
             I: Copy,
-            RegionGateIndex<I>: Key<Index = RegionIndex>,
+            RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
             RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
         {
             r.region.demote_keywords(r.region_index, kws);
@@ -461,10 +461,10 @@ impl RemovedComp2_0Cell {
     }
 }
 
-impl<T: Key> RemovedNamedLink<T> {
+impl<T: ValueToStdKey> RemovedNamedLink<T> {
     fn into_errors(self) -> impl Iterator<Item = KeyToNameLinkError<T>>
     where
-        T: Key<Index = ()>,
+        T: ValueToStdKey<Index = ()>,
     {
         let ret = match self.names {
             LinkName::Both(os, t) => {
@@ -494,10 +494,10 @@ impl<T: Key> RemovedNamedLink<T> {
     }
 }
 
-impl<T: Key> RemovedIndexLink<T> {
+impl<T: ValueToStdKey> RemovedIndexLink<T> {
     fn into_error(self) -> KeyToIndexLinkError<T>
     where
-        T: Key<Index = ()>,
+        T: ValueToStdKey<Index = ()>,
     {
         KeyToIndexLinkError::new_i0(self.indices)
     }
@@ -524,7 +524,7 @@ impl<I> RemovedGateLink<I> {
     fn into_errors(self) -> impl Iterator<Item = BrokenOrDependentLinkError>
     where
         BrokenIndexedLinkError: From<BrokenRegionLinkError<I>>,
-        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
     {
         let ri = self.region_index;
         let region_key = IndexedKey::new(ri, RegionKeySuffix::I).into();

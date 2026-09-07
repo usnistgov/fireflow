@@ -4,6 +4,7 @@ use crate::logging::{
 };
 use crate::macros::impl_newtype_try_from;
 use crate::segment::read::{IsOffsetPair as _, PrimaryTextOffsets};
+use crate::std_index::tx::{KeywordAction, StdIndexTx};
 use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::keyword_enum::{AsStdKeywordPair as _, OptRootKeyword, SplitKeyword_};
@@ -104,7 +105,7 @@ impl Nextdata {
     // failure since it is read-only. Not sure how to fix this without
     // destroying many other things
     pub(crate) fn lookup_ro<C>(
-        kws: &StdKeywords,
+        kws: &StdIndexTx,
         primary_text: &PrimaryTextOffsets,
         st: HeaderReadState<C>,
     ) -> WarningAndErrorResult<
@@ -150,7 +151,7 @@ impl Nextdata {
     }
 
     pub(crate) fn lookup_ro_inner(
-        kws: &StdKeywords,
+        kws: &StdIndexTx,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningAndErrorResult<Option<Self>, (), ReadNextdataError, ReadNextdataError> {
         if let Some(is_err) = conf.allow_missing_nextdata.is_error() {
@@ -162,8 +163,8 @@ impl Nextdata {
             }
         } else {
             let ret = kws
-                .get(&RootKey::Nextdata.std())
-                .and_then(|v| Self::from_str_with(v.as_ne_str(), (), conf).ok())
+                .read::<Self>(&())
+                .and_then(|v| Self::from_str_with(v, (), conf).ok())
                 .map(|x| x.inner);
             LogResult::new_ok(ret)
         }
@@ -468,8 +469,7 @@ pub struct Gain(pub PositiveFloat);
 
 impl Gain {
     pub(crate) fn lookup_temporal_3_0<C>(
-        kws: &mut ValidKeywords,
-        dropped: &mut StdKeywords,
+        kws: &mut StdIndexTx,
         i: MeasIndex,
         conf: &C,
     ) -> DeferredSwitchableErrors<Option<Self>, DummyTriFlag, LookupTemporalGainError>
@@ -484,7 +484,7 @@ impl Gain {
             kws.transfer_demoted(Self::std(&i));
             LogResult::new_switchable_ok(None, drop_flag)
         } else {
-            Self::remove_or_drop_meas_opt(kws, dropped, i, conf.as_ref())
+            Self::remove_or_drop_meas_opt(kws, i, conf.as_ref())
                 .map_switchable_errors(LookupTemporalGainError::from)
                 .into_semigroup()
                 .eval_deferred_switchable_error3(|gain| {
@@ -528,7 +528,7 @@ impl Default for Timestep {
 
 impl Timestep {
     pub(crate) fn lookup(
-        std: &mut StdKeywords,
+        std: &mut StdIndexTx,
         conf: &EvaledReadStdKeywordsConfig,
     ) -> Result<Diagnosed<Self, TimestepAdded>, ReqKeyError<Self>> {
         match Self::remove_metaroot_req(std) {
@@ -1439,8 +1439,7 @@ pub struct DfcKeyword {
 
 impl Compensation2_0 {
     pub(crate) fn lookup(
-        kws: &mut ValidKeywords,
-        dropped: &mut StdKeywords,
+        kws: &mut StdIndexTx,
         par: Par,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableErrors<Option<Self>, ProcessOptionalFailure, LookupComp2_0Error> {
@@ -1453,7 +1452,7 @@ impl Compensation2_0 {
             .cartesian_product(0..n)
             .map(|(r, c)| {
                 let i = BiMeasIndex::new(c.into(), r.into());
-                match Dfc::lookup(kws, i, dropped, flag) {
+                match Dfc::lookup(kws, i, flag) {
                     Ok(x) => (x, None),
                     Err(w) => (None, Some(LookupComp2_0Error::Dfc(w))),
                 }
@@ -3456,27 +3455,17 @@ impl ValueToStdKey for Dfc {
 
 impl Dfc {
     pub(crate) fn lookup(
-        kws: &mut ValidKeywords,
+        kws: &mut StdIndexTx,
         i: BiMeasIndex,
-        dropped: &mut StdKeywords,
         flag: ProcessOptionalFailure,
     ) -> Result<Option<Self>, LookupDfcError> {
-        let sk = Self::std(&i);
-        kws.std
-            .remove(&sk)
-            .map_or(Ok(None), |v| {
-                v.parse::<Self>()
-                    .map_err(|e| ParseKeyError::new1(e, i, TruncatedNEString(v.clone())))
-                    .map(Some)
-            })
-            .inspect_err(|e| match flag.is_demote_or_drop() {
-                Some(true) => kws.nonstd.insert_demoted(sk, e.value.0.clone()),
-                Some(false) => {
-                    let out = dropped.insert(sk, e.value.0.clone());
-                    assert!(out.is_none(), "key was already dropped, {sk}");
-                }
-                None => (),
-            })
+        let action = KeywordAction::from_flag(flag);
+        kws.remove_and_parse::<_, _, Self>(&i, |v| match v.parse::<Self>() {
+            Ok(x) => (None, Ok(x)),
+            Err(e) => (action, Err((e, TruncatedNEString(v.to_owned())))),
+        })
+        .transpose()
+        .map_err(|(e, v)| ParseKeyError::new1(e, i, v))
     }
 }
 

@@ -11,6 +11,7 @@ use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
 };
+use crate::std_index::tx::StdIndexTx;
 use crate::text::lookup::{
     MissingKeyError, OptValue, ParseKeyError, ParseKeyError_, ReqKeyErrorInner, ReqKeyErrorInner_,
     ReqValue,
@@ -872,14 +873,13 @@ impl KeyedSegmentInner for SupplementalTextSegmentId {}
 type ReqPair<B, E> = Result<(i128, i128), OneOrTwo<ReqSegmentKeyError<B, E>>>;
 
 macro_rules! lookup_req {
-    ($kws:ident, $fun:ident) => {{
-        let k = SpecificKey::default();
-        match $kws.$fun(&fireflow_types::std_key::StdKey::from(k)) {
+    ($kws:ident, $fun:ident, $($gen:tt),*) => {{
+        match $kws.$fun::<$($gen),*>(&()) {
             Some(v) => v
                 .parse::<i128>()
-                .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
+                .map_err(|e| ParseKeyError::new1(e, (), TruncatedNEString(v.to_owned())))
                 .map_err(ReqKeyErrorInner::from),
-            None => Err(ReqKeyErrorInner::from(MissingKeyError::new(k.into()))),
+            None => Err(ReqKeyErrorInner::from(MissingKeyError::new1(()))),
         }
     }};
 }
@@ -915,30 +915,30 @@ where
         }
     }
 
-    fn get_req_pair(kws: &StdKeywords) -> ReqPair<Self::B, Self::E> {
+    fn get_req_pair(kws: &StdIndexTx) -> ReqPair<Self::B, Self::E> {
         let x0 = Self::get_req::<Self::B>(kws).map_err(ReqSegmentKeyError::Begin);
         let x1 = Self::get_req::<Self::E>(kws).map_err(ReqSegmentKeyError::End);
         OneOrTwo::from_results(x0, x1)
     }
 
-    fn remove_req_pair(kws: &mut StdKeywords) -> ReqPair<Self::B, Self::E> {
+    fn remove_req_pair(kws: &mut StdIndexTx) -> ReqPair<Self::B, Self::E> {
         let x0 = Self::remove_req::<Self::B>(kws).map_err(ReqSegmentKeyError::Begin);
         let x1 = Self::remove_req::<Self::E>(kws).map_err(ReqSegmentKeyError::End);
         OneOrTwo::from_results(x0, x1)
     }
 
-    fn get_req<K>(kws: &StdKeywords) -> Result<i128, ReqKeyErrorInner<ParseIntError, K>>
+    fn get_req<K>(kws: &StdIndexTx) -> Result<i128, ReqKeyErrorInner<ParseIntError, K>>
     where
         K: ValueToStdKey<Index = ()>,
     {
-        lookup_req!(kws, get)
+        lookup_req!(kws, read, K)
     }
 
-    fn remove_req<K>(kws: &mut StdKeywords) -> Result<i128, ReqKeyErrorInner<ParseIntError, K>>
+    fn remove_req<K>(kws: &mut StdIndexTx) -> Result<i128, ReqKeyErrorInner<ParseIntError, K>>
     where
         K: ValueToStdKey<Index = ()>,
     {
-        lookup_req!(kws, remove)
+        lookup_req!(kws, remove, K)
     }
 }
 
@@ -960,7 +960,7 @@ where
     type OtherDataId: HasRegion;
 
     fn get_req_or<C>(
-        kws: &StdKeywords,
+        kws: &StdIndexTx,
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
@@ -978,7 +978,7 @@ where
     }
 
     fn remove_req_or<C>(
-        kws: &mut StdKeywords,
+        kws: &mut StdIndexTx,
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
@@ -1152,12 +1152,11 @@ impl KeyedReqSegmentWithDefault for AnalysisSegmentId {
 type OptPair<B, E> = Result<Option<(i128, i128)>, OneOrTwo<OptSegmentKeyError<B, E>>>;
 
 macro_rules! lookup_opt {
-    ($kws:ident, $fun:ident) => {{
-        let k = SpecificKey::default();
-        $kws.$fun(&StdKey::from(&k))
+    ($kws:ident, $fun:ident, $($gen:tt),*) => {{
+        $kws.$fun::<$($gen),*>(&())
             .map(|v| {
                 v.parse::<i128>()
-                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
+                    .map_err(|e| ParseKeyError::new1(e, (), TruncatedNEString(v.to_owned())))
             })
             .transpose()
     }};
@@ -1195,31 +1194,31 @@ where
         }
     }
 
-    fn get_opt_pair(kws: &StdKeywords) -> OptPair<Self::B, Self::E> {
+    fn get_opt_pair(kws: &StdIndexTx) -> OptPair<Self::B, Self::E> {
         let x0 = Self::get_opt::<Self::B>(kws).map_err(OptSegmentKeyError::Begin);
         let x1 = Self::get_opt::<Self::E>(kws).map_err(OptSegmentKeyError::End);
         OneOrTwo::from_results(x0, x1).map(|(x, y)| x.zip(y))
     }
 
-    fn remove_opt_pair(kws: &mut StdKeywords) -> OptPair<Self::B, Self::E> {
+    fn remove_opt_pair(kws: &mut StdIndexTx) -> OptPair<Self::B, Self::E> {
         // TODO these should process optional keywords the same as everything else
         let x0 = Self::remove_opt::<Self::B>(kws).map_err(OptSegmentKeyError::Begin);
         let x1 = Self::remove_opt::<Self::E>(kws).map_err(OptSegmentKeyError::End);
         OneOrTwo::from_results(x0, x1).map(|(x, y)| x.zip(y))
     }
 
-    fn get_opt<K>(kws: &StdKeywords) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
+    fn get_opt<K>(kws: &StdIndexTx) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
     where
         K: ValueToStdKey<Index = ()>,
     {
-        lookup_opt!(kws, get)
+        lookup_opt!(kws, read, K)
     }
 
-    fn remove_opt<K>(kws: &mut StdKeywords) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
+    fn remove_opt<K>(kws: &mut StdIndexTx) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
     where
         K: ValueToStdKey<Index = ()>,
     {
-        lookup_opt!(kws, remove)
+        lookup_opt!(kws, remove, K)
     }
 }
 
@@ -1240,7 +1239,7 @@ where
     type OtherDataId: HasRegion;
 
     fn get_opt_or<C>(
-        kws: &StdKeywords,
+        kws: &StdIndexTx,
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
@@ -1259,7 +1258,7 @@ where
     }
 
     fn remove_opt_or<C>(
-        kws: &mut StdKeywords,
+        kws: &mut StdIndexTx,
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,

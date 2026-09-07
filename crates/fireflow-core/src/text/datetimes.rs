@@ -1,5 +1,6 @@
 use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
+use crate::std_index::tx::StdIndexTx;
 use crate::text::keyword_enum::{AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword};
 use crate::text::lookup::{Diagnosed, FromStrWith, OptStKeyError, OptValue as _};
 use crate::validated::keys::{NonStdKeywordsExt as _, StdKeywords, ValidKeywords};
@@ -130,8 +131,7 @@ impl Datetimes {
     }
 
     pub(crate) fn lookup<C>(
-        kws: &mut ValidKeywords,
-        dropped: &mut StdKeywords,
+        kws: &mut StdIndexTx,
         conf: &C,
     ) -> WarningsAndErrorsResult<
         Diagnosed<Self, DatetimesDiagnostics>,
@@ -150,8 +150,8 @@ impl Datetimes {
                     .into_semigroup::<Vec<_>, _>()
             };
         }
-        let b = BeginDateTime::remove_or_drop_root_opt_with(kws, dropped, (), conf);
-        let e = EndDateTime::remove_or_drop_root_opt_with(kws, dropped, (), conf);
+        let b = BeginDateTime::remove_or_drop_root_opt_with(kws, (), conf);
+        let e = EndDateTime::remove_or_drop_root_opt_with(kws, (), conf);
         let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         go!(b)
             .zip_commutative(go!(e))

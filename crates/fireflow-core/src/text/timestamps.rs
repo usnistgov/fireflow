@@ -1,5 +1,6 @@
 use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
+use crate::std_index::tx::StdIndexTx;
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword, SplitKeyword,
 };
@@ -206,8 +207,7 @@ impl<X> Timestamps<X> {
 
     #[allow(clippy::type_complexity)]
     pub(crate) fn lookup<C>(
-        kws: &mut ValidKeywords,
-        dropped: &mut StdKeywords,
+        kws: &mut StdIndexTx,
         conf: &C,
     ) -> WarningsAndErrorsResult<
         Diagnosed<Self, TimestampsDiagnostics>,
@@ -230,9 +230,9 @@ impl<X> Timestamps<X> {
                     .into_semigroup::<Vec<_>, _>()
             };
         }
-        let b = Btim::remove_or_drop_root_opt_with(kws, dropped, (), conf);
-        let e = Etim::remove_or_drop_root_opt_with(kws, dropped, (), conf);
-        let d = FCSDate::remove_or_drop_root_opt_with(kws, dropped, (), conf);
+        let b = Btim::remove_or_drop_root_opt_with(kws, (), conf);
+        let e = Etim::remove_or_drop_root_opt_with(kws, (), conf);
+        let d = FCSDate::remove_or_drop_root_opt_with(kws, (), conf);
         let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         go!(b)
             .zip3_commutative(go!(e), go!(d))

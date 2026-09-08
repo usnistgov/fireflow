@@ -1,4 +1,4 @@
-use fireflow_types::std_key::EnumIndex;
+use fireflow_types::{nonempty_string::NEStr, std_key::AnyIndex};
 
 use crate::validated::dataframe::HasLen;
 
@@ -11,7 +11,7 @@ use std::{
 
 pub type MaskedEnumString<const LEN: usize, K, M> = MaskedString<[usize; LEN], K, [M; LEN], M>;
 
-pub type MaskedVariableString<M> = MaskedString<Vec<usize>, (), Vec<M>, M>;
+pub type MaskedVariableString<K, M> = MaskedString<Vec<usize>, K, Vec<M>, M>;
 
 pub struct MaskedString<I, K, C, M> {
     inner: NestedString<I, K>,
@@ -27,16 +27,9 @@ impl<const LEN: usize, K, M: Default + Copy> MaskedEnumString<LEN, K, M> {
             _mask_element: PhantomData,
         }
     }
-
-    pub(crate) fn iter_keys(&self) -> impl Iterator<Item = (K, &str)>
-    where
-        K: EnumIndex<LEN>,
-    {
-        self.inner.iter_keys()
-    }
 }
 
-impl<M: Default + Copy> MaskedVariableString<M> {
+impl<K, M: Default + Copy> MaskedVariableString<K, M> {
     pub fn init_var(size: &NestedStringSize) -> Self {
         Self {
             inner: NestedString::init_var(size),
@@ -47,11 +40,12 @@ impl<M: Default + Copy> MaskedVariableString<M> {
 }
 
 impl<I, K, C, M> MaskedString<I, K, C, M> {
-    pub fn get_value(&self, i: usize) -> &str
+    pub fn get_value(&self, k: &K, sub: &K::SubDimension) -> &str
     where
         I: HasLen + Index<usize, Output = usize>,
+        K: AnyIndex,
     {
-        self.inner.get(i)
+        self.inner.get(k, sub)
     }
 
     // pub fn get_with<F, X>(&mut self, i: usize, f: F) -> X
@@ -67,23 +61,35 @@ impl<I, K, C, M> MaskedString<I, K, C, M> {
     //     out
     // }
 
-    pub fn get_mask(&self, i: usize) -> &M
+    pub fn get_mask(&self, k: &K, sub: &K::SubDimension) -> &M
     where
         I: HasLen,
         C: Index<usize, Output = M>,
+        K: AnyIndex,
     {
+        let i = k.offset(sub);
         let n = self.inner.n_strings();
         assert!(i < n, "index out of bounds: {i}");
         &self.mask[i]
     }
 
-    pub fn set_mask(&mut self, i: usize, m: M)
+    pub fn set_mask(&mut self, k: &K, sub: &K::SubDimension, m: M)
     where
         I: HasLen,
         C: IndexMut<usize, Output = M>,
+        K: AnyIndex,
     {
+        let i = k.offset(sub);
         let n = self.inner.n_strings();
         assert!(i < n, "index out of bounds: {i}");
         self.mask[i] = m;
+    }
+
+    pub(crate) fn iter_pairs(&self, sub: &K::SubDimension) -> impl Iterator<Item = (K, &NEStr)>
+    where
+        for<'a> &'a I: IntoIterator<Item = &'a usize>,
+        K: AnyIndex,
+    {
+        self.inner.iter_pairs(sub)
     }
 }

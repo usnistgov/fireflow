@@ -4,7 +4,7 @@ use fireflow_types::{
     index::BiMeasIndex,
     nonempty_string::NEStr,
     std_key::{
-        CsvFlagKey, DfcKey, EnumIndex as _, GateKey, MeasKey, N_ROOT, RegionKey, RootKey, StdKey,
+        AnyIndex as _, CsvFlagKey, DfcKey, GateKey, MeasKey, N_ROOT, RegionKey, RootKey, StdKey,
     },
 };
 
@@ -21,11 +21,11 @@ pub struct StdIndex {
     // This could be solved by having a double-index that first indexes on the
     // measurement and returns 'none' if there are no keywords for that index.
     // From there it directs to the real index that points to the strings.
-    meas: NestedVariableString,
-    gate: NestedVariableString,
-    region: NestedVariableString,
-    csv_flag: NestedVariableString,
-    dfc: NestedVariableString,
+    meas: NestedVariableString<MeasKey>,
+    gate: NestedVariableString<GateKey>,
+    region: NestedVariableString<RegionKey>,
+    csv_flag: NestedVariableString<CsvFlagKey>,
+    dfc: NestedVariableString<DfcKey>,
     dfc_matrix_size: usize,
 }
 
@@ -33,12 +33,12 @@ impl StdIndex {
     #[must_use]
     pub fn get(&self, k: &StdKey) -> &str {
         match k {
-            StdKey::Root(rk) => self.root.get(rk.index()),
-            StdKey::Meas(mk) => self.meas.get(mk.offset()),
-            StdKey::Gate(gk) => self.gate.get(gk.offset()),
-            StdKey::Region(rk) => self.region.get(rk.offset()),
-            StdKey::CsvFlag(ck) => self.csv_flag.get(ck.index.into()),
-            StdKey::Dfc(dk) => self.dfc.get(dk.offset(self.dfc_matrix_size)),
+            StdKey::Root(rk) => self.root.get0(rk),
+            StdKey::Meas(mk) => self.meas.get0(mk),
+            StdKey::Gate(gk) => self.gate.get0(gk),
+            StdKey::Region(rk) => self.region.get0(rk),
+            StdKey::CsvFlag(ck) => self.csv_flag.get0(ck),
+            StdKey::Dfc(dk) => self.dfc.get(dk, &self.dfc_matrix_size),
         }
     }
 
@@ -72,29 +72,20 @@ impl StdIndex {
     //     self.dfc.get(k.offset(self.dfc_matrix_size))
     // }
 
-    pub fn iter_keys(&self) -> impl Iterator<Item = (StdKey, &str)> {
-        let root = self.root.iter_keys().map(|(k, v)| (StdKey::Root(k), v));
-        let meas_keys = (0..)
-            .flat_map(|i| MeasKey::keys_at(i.into()))
-            .map(StdKey::Meas);
-        let gate_keys = (0..)
-            .flat_map(|i| GateKey::keys_at(i.into()))
-            .map(StdKey::Gate);
-        let region_keys = (0..)
-            .flat_map(|i| RegionKey::keys_at(i.into()))
-            .map(StdKey::Region);
-        let csv_flag_keys = (0..)
-            .map(|i| CsvFlagKey::new(i.into()))
-            .map(StdKey::CsvFlag);
-        let dfc_keys = (self.dfc_matrix_size..)
-            .flat_map(|i0| iter::repeat(i0).zip(self.dfc_matrix_size..))
-            .map(|(i0, i1)| DfcKey::new(BiMeasIndex::new(i0.into(), i1.into())))
-            .map(StdKey::Dfc);
-        root.chain(meas_keys.zip(self.meas.iter()))
-            .chain(gate_keys.zip(self.gate.iter()))
-            .chain(region_keys.zip(self.region.iter()))
-            .chain(csv_flag_keys.zip(self.csv_flag.iter()))
-            .chain(dfc_keys.zip(self.dfc.iter()))
+    pub fn iter_pairs(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {
+        macro_rules! go {
+            ($field:ident, $sub:expr) => {
+                self.$field
+                    .iter_pairs(&$sub)
+                    .map(|(k, v)| (StdKey::from(k), v))
+            };
+        }
+        go!(root, &())
+            .chain(go!(meas, &()))
+            .chain(go!(gate, &()))
+            .chain(go!(region, &()))
+            .chain(go!(csv_flag, &()))
+            .chain(go!(dfc, &self.dfc_matrix_size))
     }
 
     /// Make a new standard key index from a vector of pairs.
@@ -167,7 +158,7 @@ impl StdIndex {
         let meas_it = it
             .by_ref()
             .take(meas_size.n_strings)
-            .map(|(k, v)| (MeasKey::try_from(k).unwrap().offset(), v));
+            .map(|(k, v)| (MeasKey::try_from(k).unwrap().offset0(), v));
         // SAFETY: input is sorted and deduplicated
         unsafe {
             meas.extend_pairs(meas_it);
@@ -176,7 +167,7 @@ impl StdIndex {
         let gate_it = it
             .by_ref()
             .take(gate_size.n_strings)
-            .map(|(k, v)| (GateKey::try_from(k).unwrap().offset(), v));
+            .map(|(k, v)| (GateKey::try_from(k).unwrap().offset0(), v));
         // SAFETY: input is sorted and deduplicated
         unsafe {
             gate.extend_pairs(gate_it);
@@ -185,7 +176,7 @@ impl StdIndex {
         let region_it = it
             .by_ref()
             .take(region_size.n_strings)
-            .map(|(k, v)| (RegionKey::try_from(k).unwrap().offset(), v));
+            .map(|(k, v)| (RegionKey::try_from(k).unwrap().offset0(), v));
         // SAFETY: input is sorted and deduplicated
         unsafe {
             region.extend_pairs(region_it);
@@ -201,7 +192,7 @@ impl StdIndex {
         }
 
         let dfc_it = it.map(|(k, v)| {
-            let i = DfcKey::try_from(k).unwrap().offset(dfc_matrix_size);
+            let i = DfcKey::try_from(k).unwrap().offset(&dfc_matrix_size);
             (i, v)
         });
         // SAFETY: input is sorted and deduplicated

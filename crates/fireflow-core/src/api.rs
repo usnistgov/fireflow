@@ -43,9 +43,9 @@ use crate::validated::header_offsets::{
     SuppToHeaderOffsetsValidationError, TextToHeaderOrSuppOffsetsValidationError,
 };
 use crate::validated::keys::{
-    InvalidKeywordCharsError, ValueToStdKey as _, KeyOrBytes, KeywordInsertError, NEStringOrBytes, NonStdKey,
+    InvalidKeywordCharsError, KeyOrBytes, KeywordInsertError, NEStringOrBytes, NonStdKey,
     ParsedKeywords, ParsedKeywordsDiagnostic, RepairDiagnostics, StdKeywords, StringOrBytes,
-    TruncatedNEString, ValidKeywords,
+    TruncatedNEString, ValidKeywords, ValueToStdKey as _,
 };
 use crate::validated::read_state::{
     DatasetLen, DatasetOffset, DatasetOffsetError, FileLen, HeaderReadState, TEXTReadState,
@@ -61,7 +61,7 @@ use fireflow_types::{
     keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2},
     nonempty_string::NESliceExt as _,
     segment::{OffsetsFromTEXT, SupplementalTextSegmentId},
-    std_key::{RootKey, StdKey},
+    std_key::{RootKey, StdKey, ToStd as _},
 };
 
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
@@ -2538,10 +2538,10 @@ impl SuppTEXTOffsetsOutput {
             None => header.version,
             Some(VersionOverride::Force(v)) => v,
             Some(VersionOverride::AutoDetect { .. }) => {
-                if kws.contains_key(&RootKey::Begindata.std())
-                    || kws.contains_key(&RootKey::Enddata.std())
+                if kws.contains_key(&RootKey::Begindata.to_std0())
+                    || kws.contains_key(&RootKey::Enddata.to_std0())
                 {
-                    if kws.contains_key(&RootKey::Cyt.std()) {
+                    if kws.contains_key(&RootKey::Cyt.to_std0()) {
                         Version::FCS3_2
                     } else {
                         Version::FCS3_1

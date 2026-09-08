@@ -3,7 +3,7 @@ use crate::validated::dataframe::HasLen;
 use fireflow_types::nonempty_string::NEStr;
 
 use derive_new::new;
-use fireflow_types::std_key::EnumIndex;
+use fireflow_types::std_key::{AnyIndex, EnumIndex};
 use itertools::Itertools as _;
 
 use std::iter::once;
@@ -12,7 +12,7 @@ use std::ops::Index;
 
 pub type NestedEnumString<const LEN: usize, K> = NestedString<[usize; LEN], K>;
 
-pub type NestedVariableString = NestedString<Vec<usize>, ()>;
+pub type NestedVariableString<K> = NestedString<Vec<usize>, K>;
 
 pub struct NestedString<I, K> {
     inner: Vec<u8>,
@@ -35,13 +35,6 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
         }
     }
 
-    pub(crate) fn iter_keys(&self) -> impl Iterator<Item = (K, &str)>
-    where
-        K: EnumIndex<LEN>,
-    {
-        K::iter().zip(self.iter())
-    }
-
     pub(crate) unsafe fn set_keys<'a>(&mut self, pairs: impl IntoIterator<Item = (K, &'a NEStr)>)
     where
         K: EnumIndex<LEN>,
@@ -62,7 +55,7 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
     }
 }
 
-impl NestedVariableString {
+impl<K> NestedVariableString<K> {
     pub fn init_var(size: &NestedStringSize) -> Self {
         Self {
             inner: Vec::with_capacity(size.n_bytes),
@@ -120,10 +113,12 @@ impl<I, K> NestedString<I, K> {
         self.indices.len()
     }
 
-    pub fn get(&self, i: usize) -> &str
+    pub fn get(&self, k: &K, sub: &K::SubDimension) -> &str
     where
         I: HasLen + Index<usize, Output = usize>,
+        K: AnyIndex,
     {
+        let i = k.offset(sub);
         let n = self.indices.len();
         assert!(i < n, "index out of bounds: {i}");
         let start = self.indices[i];
@@ -136,12 +131,28 @@ impl<I, K> NestedString<I, K> {
         unsafe { self.get_range(start, end) }
     }
 
+    pub fn get0(&self, k: &K) -> &str
+    where
+        I: HasLen + Index<usize, Output = usize>,
+        K: AnyIndex<SubDimension = ()>,
+    {
+        self.get(k, &())
+    }
+
     unsafe fn get_range(&self, start: usize, end: usize) -> &str {
         // SAFETY: this function is unsafe
         unsafe { str::from_utf8_unchecked(&self.inner[start..end]) }
     }
 
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &str>
+    pub(crate) fn iter_pairs(&self, sub: &K::SubDimension) -> impl Iterator<Item = (K, &NEStr)>
+    where
+        for<'a> &'a I: IntoIterator<Item = &'a usize>,
+        K: AnyIndex,
+    {
+        K::generate(&sub).zip(self.iter())
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &NEStr>
     where
         for<'a> &'a I: IntoIterator<Item = &'a usize>,
     {
@@ -154,5 +165,6 @@ impl<I, K> NestedString<I, K> {
                 // SAFETY: this struct is validated such that each slice is a string
                 unsafe { self.get_range(start, end) }
             })
+            .filter_map(NEStr::try_new)
     }
 }

@@ -341,8 +341,8 @@ pub(crate) fn autodetect_version(
                 };
             let par = Par::get_metaroot_req(kws).map_err(|_| GuessVersionError::NoPar)?;
             let mut opt = KeywordOptimizer::default();
-            for (k, v) in kws {
-                opt.classify_keyword(k, v.as_ne_str(), par);
+            for (k, v) in kws.iter_pairs() {
+                opt.classify_keyword(&k, v, par);
             }
             let scores = Version::ITEMS.map(|v| (v, opt.get_score(v, par)));
             let ret_scores = || Some(scores.clone().map(|(_, s)| s).into());

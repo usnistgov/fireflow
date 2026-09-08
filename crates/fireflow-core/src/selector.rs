@@ -1,6 +1,6 @@
 use crate::{
     text::{keywords::Cyt, spillover::Spillover},
-    validated::keys::{AnyKey, ValueToStdKey as _, ValidKeywords},
+    validated::keys::{AnyKey, ValidKeywords, ValueToStdKey as _},
 };
 
 use fireflow_types::{
@@ -368,14 +368,14 @@ impl KeyTest {
     #[must_use]
     pub fn cyt_is(cyt: &NEStr) -> Self {
         Self::KeyIs(
-            RealOrPseudoStdKey::Real(RootKey::Cyt.to_std(&())).into(),
+            RealOrPseudoStdKey::Real(RootKey::Cyt.to_std0()).into(),
             cyt.to_owned(),
         )
     }
 
     pub fn cyt_matches(pat: &str) -> Result<Self, ValueRegexError> {
         Ok(Self::KeyMatches(
-            RealOrPseudoStdKey::Real(RootKey::Cyt.to_std(&())).into(),
+            RealOrPseudoStdKey::Real(RootKey::Cyt.to_std0()).into(),
             pat.parse()?,
         ))
     }

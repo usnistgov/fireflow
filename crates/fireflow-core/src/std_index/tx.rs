@@ -1,4 +1,7 @@
-use crate::{logging::LogResult, validated::keys::ValueToStdKey};
+use crate::{
+    logging::{LogResult, WarningsAndErrorsResult},
+    validated::keys::ValueToStdKey,
+};
 
 use super::masked::{MaskedEnumString, MaskedVariableString};
 
@@ -8,8 +11,8 @@ use fireflow_types::{
         TemporalHasOpticalKeyError,
     },
     index::MeasIndex,
-    nonempty_string::NEStr,
-    std_key::{EnumIndex as _, N_ROOT, RootKey, StdKey},
+    nonempty_string::{NEStr, NEString},
+    std_key::{CsvFlagKey, DfcKey, GateKey, MeasKey, N_ROOT, RegionKey, RootKey, StdKey},
 };
 
 type MaskedRoot = MaskedEnumString<N_ROOT, RootKey, Status>;
@@ -29,11 +32,11 @@ pub enum KeywordAction {
 
 pub struct StdIndexTx {
     root: MaskedRoot,
-    meas: MaskedVariableString<Status>,
-    gate: MaskedVariableString<Status>,
-    region: MaskedVariableString<Status>,
-    csv_flag: MaskedVariableString<Status>,
-    dfc: MaskedVariableString<Status>,
+    meas: MaskedVariableString<MeasKey, Status>,
+    gate: MaskedVariableString<GateKey, Status>,
+    region: MaskedVariableString<RegionKey, Status>,
+    csv_flag: MaskedVariableString<CsvFlagKey, Status>,
+    dfc: MaskedVariableString<DfcKey, Status>,
     dfc_matrix_size: usize,
 }
 
@@ -129,31 +132,21 @@ impl StdIndexTx {
         res
     }
 
-    // fn iter_pairs(&self) -> impl Iterator<Item = (StdKey, &'a NEStr)> {
-    //     // TODO not DRY
-    //     let root = self.root.iter_keys().map(|(k, v)| (StdKey::Root(k), v));
-    //     let meas_keys = (0..)
-    //         .flat_map(|i| MeasKey::keys_at(i.into()))
-    //         .map(StdKey::Meas);
-    //     let gate_keys = (0..)
-    //         .flat_map(|i| GateKey::keys_at(i.into()))
-    //         .map(StdKey::Gate);
-    //     let region_keys = (0..)
-    //         .flat_map(|i| RegionKey::keys_at(i.into()))
-    //         .map(StdKey::Region);
-    //     let csv_flag_keys = (0..)
-    //         .map(|i| CsvFlagKey::new(i.into()))
-    //         .map(StdKey::CsvFlag);
-    //     let dfc_keys = (self.dfc_matrix_size..)
-    //         .flat_map(|i0| iter::repeat(i0).zip(self.dfc_matrix_size..))
-    //         .map(|(i0, i1)| DfcKey::new(BiMeasIndex::new(i0.into(), i1.into())))
-    //         .map(StdKey::Dfc);
-    //     root.chain(meas_keys.zip(self.meas.iter()))
-    //         .chain(gate_keys.zip(self.gate.iter()))
-    //         .chain(region_keys.zip(self.region.iter()))
-    //         .chain(csv_flag_keys.zip(self.csv_flag.iter()))
-    //         .chain(dfc_keys.zip(self.dfc.iter()))
-    // }
+    pub fn iter_pairs(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {
+        macro_rules! go {
+            ($field:ident, $sub:expr) => {
+                self.$field
+                    .iter_pairs(&$sub)
+                    .map(|(k, v)| (StdKey::from(k), v))
+            };
+        }
+        go!(root, &())
+            .chain(go!(meas, &()))
+            .chain(go!(gate, &()))
+            .chain(go!(region, &()))
+            .chain(go!(csv_flag, &()))
+            .chain(go!(dfc, &self.dfc_matrix_size))
+    }
 
     fn read_key(&self, k: &StdKey) -> Option<&NEStr> {
         self.check_unseen(k);
@@ -186,34 +179,34 @@ impl StdIndexTx {
 
     fn get_value(&self, k: &StdKey) -> &str {
         match k {
-            StdKey::Root(rk) => self.root.get_value(rk.index()),
-            StdKey::Meas(mk) => self.meas.get_value(mk.offset()),
-            StdKey::Gate(gk) => self.gate.get_value(gk.offset()),
-            StdKey::Region(rk) => self.region.get_value(rk.offset()),
-            StdKey::CsvFlag(ck) => self.csv_flag.get_value(ck.index.into()),
-            StdKey::Dfc(dk) => self.dfc.get_value(dk.offset(self.dfc_matrix_size)),
+            StdKey::Root(rk) => self.root.get_value(rk, &()),
+            StdKey::Meas(mk) => self.meas.get_value(mk, &()),
+            StdKey::Gate(gk) => self.gate.get_value(gk, &()),
+            StdKey::Region(rk) => self.region.get_value(rk, &()),
+            StdKey::CsvFlag(ck) => self.csv_flag.get_value(ck, &()),
+            StdKey::Dfc(dk) => self.dfc.get_value(dk, &self.dfc_matrix_size),
         }
     }
 
     fn get_mask(&self, k: &StdKey) -> &Status {
         match k {
-            StdKey::Root(rk) => self.root.get_mask(rk.index()),
-            StdKey::Meas(mk) => self.meas.get_mask(mk.offset()),
-            StdKey::Gate(gk) => self.gate.get_mask(gk.offset()),
-            StdKey::Region(rk) => self.region.get_mask(rk.offset()),
-            StdKey::CsvFlag(ck) => self.csv_flag.get_mask(ck.index.into()),
-            StdKey::Dfc(dk) => self.dfc.get_mask(dk.offset(self.dfc_matrix_size)),
+            StdKey::Root(rk) => self.root.get_mask(rk, &()),
+            StdKey::Meas(mk) => self.meas.get_mask(mk, &()),
+            StdKey::Gate(gk) => self.gate.get_mask(gk, &()),
+            StdKey::Region(rk) => self.region.get_mask(rk, &()),
+            StdKey::CsvFlag(ck) => self.csv_flag.get_mask(ck, &()),
+            StdKey::Dfc(dk) => self.dfc.get_mask(dk, &self.dfc_matrix_size),
         }
     }
 
     fn set_mask(&mut self, k: &StdKey, m: Status) {
         match k {
-            StdKey::Root(rk) => self.root.set_mask(rk.index(), m),
-            StdKey::Meas(mk) => self.meas.set_mask(mk.offset(), m),
-            StdKey::Gate(gk) => self.gate.set_mask(gk.offset(), m),
-            StdKey::Region(rk) => self.region.set_mask(rk.offset(), m),
-            StdKey::CsvFlag(ck) => self.csv_flag.set_mask(ck.index.into(), m),
-            StdKey::Dfc(dk) => self.dfc.set_mask(dk.offset(self.dfc_matrix_size), m),
+            StdKey::Root(rk) => self.root.set_mask(rk, &(), m),
+            StdKey::Meas(mk) => self.meas.set_mask(mk, &(), m),
+            StdKey::Gate(gk) => self.gate.set_mask(gk, &(), m),
+            StdKey::Region(rk) => self.region.set_mask(rk, &(), m),
+            StdKey::CsvFlag(ck) => self.csv_flag.set_mask(ck, &(), m),
+            StdKey::Dfc(dk) => self.dfc.set_mask(dk, &self.dfc_matrix_size, m),
         }
     }
 

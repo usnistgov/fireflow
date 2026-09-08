@@ -11,16 +11,15 @@ use crate::{
 };
 
 use bytemuck::{NoUninit, must_cast_ref};
-use const_format::formatcp;
 use derive_more::{AsRef, Display, From, TryInto};
 use derive_new::new;
 use nonempty_collections::NESlice;
-use num_enum::IntoPrimitive;
-use strum::{EnumCount, IntoEnumIterator, VariantArray};
-use strum_macros::{EnumCount as EnumCount_, EnumIter, VariantArray};
+use strum::{EnumCount, VariantArray};
+use strum_macros::{EnumCount as EnumCount_, VariantArray};
 use thiserror::Error;
 
 use std::iter;
+use std::ops;
 use std::slice::Iter;
 use std::str::FromStr;
 
@@ -260,10 +259,33 @@ pub trait EnumIndex<const LEN: usize>: VariantArray + EnumCount + NoUninit {
     }
 }
 
+pub trait AnyIndex {
+    type SubDimension;
+    type Generator: Iterator<Item = Self>;
+
+    fn generate(sub: &Self::SubDimension) -> Self::Generator;
+
+    fn offset(&self, sub: &Self::SubDimension) -> usize;
+
+    fn offset0(&self) -> usize
+    where
+        Self: AnyIndex<SubDimension = ()>,
+    {
+        self.offset(&())
+    }
+}
+
 pub trait ToStd {
     type Index;
 
     fn to_std(&self, index: &Self::Index) -> StdKey;
+
+    fn to_std0(&self) -> StdKey
+    where
+        Self: ToStd<Index = ()>,
+    {
+        self.to_std(&())
+    }
 }
 
 impl EnumIndex<N_ROOT> for RootKey {}
@@ -271,7 +293,79 @@ impl EnumIndex<N_MEAS> for MeasKeyId {}
 impl EnumIndex<N_GATE> for GateKeyId {}
 impl EnumIndex<N_REGION> for RegionKeyId {}
 
-pub const N_ROOT: usize = 52;
+impl AnyIndex for RootKey {
+    type SubDimension = ();
+    type Generator = iter::Copied<Iter<'static, Self>>;
+
+    fn generate((): &Self::SubDimension) -> Self::Generator {
+        Self::iter()
+    }
+
+    fn offset(&self, (): &Self::SubDimension) -> usize {
+        self.index()
+    }
+}
+
+impl<const LEN: usize, I, K> AnyIndex for IndexedKey<LEN, I, K>
+where
+    K: EnumIndex<LEN>,
+    I: From<usize> + Into<usize> + Copy,
+{
+    type SubDimension = ();
+    type Generator = iter::Map<
+        iter::Zip<iter::Cycle<iter::Copied<Iter<'static, K>>>, ops::RangeFrom<usize>>,
+        fn((K, usize)) -> Self,
+    >;
+
+    fn generate((): &Self::SubDimension) -> Self::Generator {
+        K::iter()
+            .cycle()
+            .zip(0_usize..)
+            .map(|(id, i)| Self::new((i / LEN).into(), id))
+    }
+
+    fn offset(&self, (): &Self::SubDimension) -> usize {
+        self.index.into() * K::COUNT + self.id.index()
+    }
+}
+
+impl AnyIndex for CsvFlagKey {
+    type SubDimension = ();
+    type Generator = iter::Map<ops::RangeFrom<usize>, fn(usize) -> Self>;
+
+    fn generate((): &Self::SubDimension) -> Self::Generator {
+        (0_usize..).map(|i| Self::new(i.into()))
+    }
+
+    fn offset(&self, (): &Self::SubDimension) -> usize {
+        self.index.into()
+    }
+}
+
+impl AnyIndex for DfcKey {
+    type SubDimension = usize;
+    type Generator = iter::Map<
+        iter::Zip<
+            iter::Zip<iter::Cycle<ops::Range<usize>>, ops::RangeFrom<usize>>,
+            iter::Repeat<usize>,
+        >,
+        fn(((usize, usize), usize)) -> Self,
+    >;
+
+    fn generate(sub: &Self::SubDimension) -> Self::Generator {
+        (0_usize..*sub)
+            .cycle()
+            .zip(0_usize..)
+            .zip(iter::repeat(*sub))
+            .map(|((col, i), len)| Self::new(BiMeasIndex::new((i / len).into(), col.into())))
+    }
+
+    fn offset(&self, sub: &Self::SubDimension) -> usize {
+        usize::from(self.index.i0) * sub + usize::from(self.index.i1)
+    }
+}
+
+pub const N_ROOT: usize = 54;
 pub const N_MEAS: usize = 22;
 pub const N_GATE: usize = 8;
 pub const N_REGION: usize = 2;
@@ -442,8 +536,8 @@ impl<'a> ToDisplayNE<'a> for MeasKey {
     fn to_ne(&'a self) -> Self::NE {
         let i = ToNE(self.index);
         match self.id.prefix_or_suffix() {
-            PrefixOrSuffix::Suffix(s) => NEAlt::Left(NEConcat::new('P', i).append(s.into())),
-            PrefixOrSuffix::Prefix(p) => NEAlt::Right(NEConcat::new(p.into(), i)),
+            PrefixOrSuffix::Suffix(s) => NEAlt::Left(NEConcat::new('P', i).append(s)),
+            PrefixOrSuffix::Prefix(p) => NEAlt::Right(NEConcat::new(p, i)),
         }
     }
 }
@@ -538,13 +632,13 @@ impl RealOrPseudoStdKey {
                         && rest.is_empty()
                     {
                         // $PKNn
-                        let k = MeasKey::new(i.into(), MeasKeyId::Pkn.into());
+                        let k = MeasKey::new(i.into(), MeasKeyId::Pkn);
                         Self::Real(StdKey::Meas(k))
                     } else if let Some((i, rest)) = split_index_and_suffix(bs1)
                         && rest.is_empty()
                     {
                         // $PKn
-                        let k = MeasKey::new(i.into(), MeasKeyId::Pk.into());
+                        let k = MeasKey::new(i.into(), MeasKeyId::Pk);
                         Self::Real(StdKey::Meas(k))
                     } else {
                         // something else
@@ -557,7 +651,7 @@ impl RealOrPseudoStdKey {
                         .and_then(|suffix| MeasKeyId::from_suffix(&suffix))
                 {
                     // $Pn*
-                    let k = MeasKey::new(i.into(), mid.into());
+                    let k = MeasKey::new(i.into(), mid);
                     Self::Real(StdKey::Meas(k))
                 } else {
                     // something else
@@ -620,10 +714,6 @@ impl RealOrPseudoStdKey {
 }
 
 impl RootKey {
-    pub fn std(&self) -> StdKey {
-        self.to_std(&())
-    }
-
     #[must_use]
     pub const fn as_ne_str(&self) -> &'static NEStr {
         match self {
@@ -817,13 +907,13 @@ impl RootKey {
 }
 
 impl<const LEN: usize, I, K> IndexedKey<LEN, I, K> {
-    pub fn offset(&self) -> usize
-    where
-        K: EnumIndex<LEN>,
-        I: Into<usize> + Copy,
-    {
-        K::COUNT * self.index.into() + self.id.index()
-    }
+    // pub fn offset(&self) -> usize
+    // where
+    //     K: EnumIndex<LEN>,
+    //     I: Into<usize> + Copy,
+    // {
+    //     K::COUNT * self.index.into() + self.id.index()
+    // }
 
     pub fn keys_at(index: I) -> impl Iterator<Item = Self>
     where
@@ -946,10 +1036,6 @@ impl MeasKeyId {
 }
 
 impl GateKeyId {
-    pub fn to_std(&self, i: GateIndex) -> StdKey {
-        IndexedKey::new(i, *self).into()
-    }
-
     const fn suffix(self) -> &'static NEStr {
         match self {
             Self::N => N_KW_SUFFIX,
@@ -997,10 +1083,6 @@ impl GateKeyId {
 }
 
 impl RegionKeyId {
-    pub fn to_std(&self, i: RegionIndex) -> StdKey {
-        IndexedKey::new(i, *self).into()
-    }
-
     const fn suffix(self) -> &'static NEStr {
         match self {
             Self::I => REGION_I_KW_SUFFIX,
@@ -1030,9 +1112,9 @@ impl RegionKeyId {
 }
 
 impl DfcKey {
-    pub fn offset(&self, matrix_size: usize) -> usize {
-        usize::from(self.index.i0) * matrix_size + usize::from(self.index.i1)
-    }
+    // pub fn offset(&self, matrix_size: usize) -> usize {
+    //     usize::from(self.index.i0) * matrix_size + usize::from(self.index.i1)
+    // }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.len() >= 7

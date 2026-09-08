@@ -1,3 +1,5 @@
+use fireflow_types::std_key::EnumIndex;
+
 use crate::validated::dataframe::HasLen;
 
 use super::nested_string::{NestedString, NestedStringSize};
@@ -24,6 +26,13 @@ impl<const LEN: usize, K, M: Default + Copy> MaskedEnumString<LEN, K, M> {
             mask: [M::default(); LEN],
             _mask_element: PhantomData,
         }
+    }
+
+    pub(crate) fn iter_keys(&self) -> impl Iterator<Item = (K, &str)>
+    where
+        K: EnumIndex<LEN>,
+    {
+        self.inner.iter_keys()
     }
 }
 

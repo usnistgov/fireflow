@@ -35,8 +35,6 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
         }
     }
 
-    // TODO make a test for instances of this to make sure the const and enum
-    // are same length
     pub(crate) fn iter_keys(&self) -> impl Iterator<Item = (K, &str)>
     where
         K: EnumIndex<LEN>,

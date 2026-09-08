@@ -1,11 +1,11 @@
 use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
-use crate::std_index::tx::StdIndexTx;
+use crate::std_index::tx::{KeywordAction, StdIndexTx};
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword, SplitKeyword,
 };
 use crate::text::lookup::{Diagnosed, FromStrWith, OptStKeyError, OptValue};
-use crate::validated::keys::{NonStdKeywordsExt as _, StdKeywords, ValidKeywords, ValueToStdKey};
+use crate::validated::keys::ValueToStdKey;
 
 use fireflow_types::{
     config::{
@@ -245,22 +245,15 @@ impl<X> Timestamps<X> {
                     .map_err_value(|(old_btim, old_etim, old_date)| {
                         // If creating the new timestamp object failed,
                         // optionally transfer component keys to nonstandard
-                        let bk = old_btim.map(OptRootKeyword::from_value);
-                        let ek = old_etim.map(OptRootKeyword::from_value);
-                        let dk = old_date.map(OptRootKeyword::from_value);
+                        let bk = old_btim.map(|v| v.std0_());
+                        let ek = old_etim.map(|v| v.std0_());
+                        let dk = old_date.map(|v| v.std0_());
                         let failed_kws = [bk, ek, dk].into_iter().flatten();
-                        match rconf.process_optional_failure.is_demote_or_drop() {
-                            Some(true) => {
-                                for kk in failed_kws {
-                                    kws.nonstd.insert_demoted_keyword(kk.into());
-                                }
+                        let flag = rconf.process_optional_failure;
+                        if let Some(a) = KeywordAction::from_flag(flag) {
+                            for k in failed_kws {
+                                kws.set_action_at_key(&k, a);
                             }
-                            Some(false) => {
-                                for k in failed_kws {
-                                    k.insert_unique(dropped);
-                                }
-                            }
-                            None => (),
                         }
                     })
                     .into_semigroup()

@@ -500,6 +500,7 @@ pub struct ReadStdKeywordsConfig_<TMP, DP, TP, DTP, LMP> {
     /// keyword.
     pub allow_other_feature: AllowOtherFeature,
 
+    // TODO move this to data options since we should be able to repair in flat mode as well
     /// If `true`, allow keywords that have indices greater than $PAR.
     ///
     /// For instance, if $PAR, is 10 then $P11V would be considered a

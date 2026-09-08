@@ -4,13 +4,12 @@
 //! fast access and easy filtering if required.
 
 use crate::meas::GainLossError;
+use crate::std_index::tx::{KeywordAction, StdIndexTx};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::keywords as kws;
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::FCSDate;
-use crate::validated::keys::{
-    DollarKey, DollarKey_, NonStdKey, SpecificKey_, StdKeywords, WritableKey,
-};
+use crate::validated::keys::{DollarKey, DollarKey_, NonStdKey, SpecificKey_, WritableKey};
 use crate::validated::shortname::Shortname;
 
 #[cfg(feature = "serde")]
@@ -600,10 +599,8 @@ pub(crate) trait AsHeader {
 pub(crate) trait AsStdKeywordPair: Sized {
     fn as_std_key_pair(&self) -> (StdKey, NEString);
 
-    fn insert_unique(self, std: &mut StdKeywords) {
-        let (k, v) = self.as_std_key_pair();
-        let ret = std.insert(k, v);
-        assert!(ret.is_none(), "key is already inserted");
+    fn as_std_key(&self) -> StdKey {
+        self.as_std_key_pair().0
     }
 }
 

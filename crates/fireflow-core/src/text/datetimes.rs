@@ -1,9 +1,9 @@
 use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
-use crate::std_index::tx::StdIndexTx;
+use crate::std_index::tx::{KeywordAction, StdIndexTx};
 use crate::text::keyword_enum::{AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword};
 use crate::text::lookup::{Diagnosed, FromStrWith, OptStKeyError, OptValue as _};
-use crate::validated::keys::{NonStdKeywordsExt as _, StdKeywords, ValidKeywords};
+use crate::validated::keys::ValueToStdKey as _;
 
 use fireflow_types::{
     config::{ConfigFlag as _, KeywordFailureFlag as _},
@@ -163,21 +163,14 @@ impl Datetimes {
                     .map_err_value(|(old_begin, old_end)| {
                         // If creating the new datetime object failed,
                         // optionally transfer component keys to nonstandard
-                        let bk = old_begin.map(OptRootKeyword::from_value);
-                        let ek = old_end.map(OptRootKeyword::from_value);
+                        let bk = old_begin.map(|v| v.std0_());
+                        let ek = old_end.map(|v| v.std0_());
                         let failed_kws = [bk, ek].into_iter().flatten();
-                        match rconf.process_optional_failure.is_demote_or_drop() {
-                            Some(true) => {
-                                for k in failed_kws {
-                                    kws.nonstd.insert_demoted_keyword(k.into());
-                                }
+                        let flag = rconf.process_optional_failure;
+                        if let Some(a) = KeywordAction::from_flag(flag) {
+                            for k in failed_kws {
+                                kws.set_action_at_key(&k, a);
                             }
-                            Some(false) => {
-                                for k in failed_kws {
-                                    k.insert_unique(dropped);
-                                }
-                            }
-                            None => (),
                         }
                     })
                     .into_semigroup()

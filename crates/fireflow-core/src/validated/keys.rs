@@ -614,9 +614,26 @@ pub trait ValueToStdKey {
     type Id: ToStd<Index = Self::Index>;
     const STD: Self::Id;
 
-    #[must_use]
     fn std(index: &Self::Index) -> StdKey {
         Self::STD.to_std(index)
+    }
+
+    fn std_(&self, index: &Self::Index) -> StdKey {
+        Self::std(index)
+    }
+
+    fn std0(&self) -> StdKey
+    where
+        Self: ValueToStdKey<Index = ()>,
+    {
+        Self::std(&())
+    }
+
+    fn std0_(&self) -> StdKey
+    where
+        Self: ValueToStdKey<Index = ()>,
+    {
+        self.std_(&())
     }
 }
 
@@ -701,13 +718,6 @@ impl<'a, X> FromIterator<(&'a KeyStringOrPattern, &'a X)> for KeyMatcher<'a, X> 
 }
 
 // Implement methods for misc types
-
-type OpticalOnlyResult = WarningsAndErrorsResult<
-    Vec<(StdKey, NEString)>,
-    (),
-    TemporalHasOpticalKeyError,
-    TemporalHasOpticalKeyError,
->;
 
 /// Insert a key and value from buffer into appropriate hash table.
 ///
@@ -1223,44 +1233,6 @@ impl ValidKeywords {
         //     removed,
         // };
         // res.set_ok_value(ret)
-    }
-
-    pub(crate) fn remove_optical_only(
-        &mut self,
-        targets: &[OpticalOnlyKey],
-        keys: &OpticalOnlyKeys,
-        i: MeasIndex,
-        flag: ProcessOpticalOnlyKeys,
-    ) -> OpticalOnlyResult {
-        let mut es = vec![];
-        let mut ws = vec![];
-        let mut pairs = vec![];
-        for t in targets {
-            let k = StdKey::from_optical_only_key(*t, i);
-            let (demote, warn) = match flag {
-                ProcessOpticalOnlyKeys::DemoteWarn => (true, true),
-                ProcessOpticalOnlyKeys::DemoteSilent => (true, false),
-                ProcessOpticalOnlyKeys::DropWarn => (false, true),
-                ProcessOpticalOnlyKeys::DropSilent => (false, false),
-            };
-            if let Some(v) = self.std.remove(&k) {
-                let err = || TemporalHasOpticalKeyError::new(i, *t);
-                if keys.0.contains(t) {
-                    if demote {
-                        self.nonstd.insert_demoted(k.clone(), v.clone());
-                    }
-                    if warn {
-                        ws.push(err());
-                    }
-                    pairs.push((k, v));
-                } else {
-                    es.push(err());
-                }
-            }
-        }
-        let mut res = LogResult::new_from_err_iter(es, pairs, ());
-        res.extend_commutative_warnings(ws);
-        res
     }
 }
 

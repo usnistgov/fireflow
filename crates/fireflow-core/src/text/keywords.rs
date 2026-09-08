@@ -34,6 +34,7 @@ use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
+use fireflow_types::std_key::DfcKey;
 use fireflow_types::{
     byteord::ConfigByteOrd,
     config::{
@@ -477,12 +478,13 @@ impl Gain {
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let ignore = &AsRef::<EvaledReadStdKeywordsConfig>::as_ref(conf).ignore_optical_only_keys;
-        let drop_flag = AsRef::<EvaledReadDataKeywordsConfig>::as_ref(conf)
-            .process_optional_failure
-            .as_triflag();
+        let flag = AsRef::<EvaledReadDataKeywordsConfig>::as_ref(conf).process_optional_failure;
+        let triflag = flag.as_triflag();
         if ignore.0.contains(&OpticalOnlyKey::Gain) {
-            kws.transfer_demoted(Self::std(&i));
-            LogResult::new_switchable_ok(None, drop_flag)
+            if let Some(a) = KeywordAction::from_flag(flag) {
+                kws.set_action_at_key(&Self::std(&i), a);
+            }
+            LogResult::new_switchable_ok(None, triflag)
         } else {
             Self::remove_or_drop_meas_opt(kws, i, conf.as_ref())
                 .map_switchable_errors(LookupTemporalGainError::from)
@@ -1472,30 +1474,21 @@ impl Compensation2_0 {
                 .map_err(|(e, m)| {
                     // Return non-zero keywords to non-standard list on failure
                     // if desired
-                    let failed_kws = m
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, value)| !value.is_zero())
-                        .map(|(i, &value)| {
+                    let failed_kws = m.iter().enumerate().filter_map(|(i, value)| {
+                        if value.is_zero() {
+                            None
+                        } else {
                             let ncols = m.ncols();
                             let row = i / ncols;
                             let col = i % ncols;
-                            let k = DollarKey::new(BiMeasIndex::new(col.into(), row.into()));
-                            SplitKeyword_::new(k, Dfc(value))
-                        });
-                    match flag.is_demote_or_drop() {
-                        Some(true) => {
-                            for k in failed_kws {
-                                let sk = StdOptKeyword::from(OptRootKeyword::Dfc(k));
-                                kws.nonstd.insert_demoted_keyword(sk);
-                            }
+                            let i = BiMeasIndex::new(col.into(), row.into());
+                            Some(StdKey::from(DfcKey::new(i)))
                         }
-                        Some(false) => {
-                            for k in failed_kws {
-                                k.insert_unique(dropped);
-                            }
+                    });
+                    if let Some(a) = KeywordAction::from_flag(flag) {
+                        for k in failed_kws {
+                            kws.set_action_at_key(&k, a);
                         }
-                        None => (),
                     }
                     LookupComp2_0Error::Matrix(e)
                 })

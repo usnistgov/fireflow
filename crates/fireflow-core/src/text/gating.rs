@@ -7,7 +7,7 @@ use crate::logging::{
     ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
 };
 use crate::nonempty::FcsNEVec;
-use crate::std_index::tx::StdIndexTx;
+use crate::std_index::tx::{KeywordAction, StdIndexTx};
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, GateMeasKeyword, Keyword0FromValue as _, Keyword1FromValue as _,
     OptRootKeyword, RegionKeyword, SplitKeyword,
@@ -22,15 +22,12 @@ use crate::text::relational::{
     BrokenRegionLinkError, DependentKeyError, ExistingIndexedLinkError, IndicesToRemove,
     KeyToIndexLinkError, RemovedGateLink, RemovedGating, RemovedLink,
 };
-use crate::validated::keys::{
-    DollarKey, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords, ValidKeywords, ValueToStdKey,
-};
+use crate::validated::keys::{DollarKey, ValueToStdKey};
 
 use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeyId};
 use fireflow_types::{
-    config::{AllowLoss, KeywordFailureFlag as _},
+    config::AllowLoss,
     index::{GateIndex, MeasIndex, RegionIndex},
-    nonempty_string::{DisplayNE as _, ToNE},
     std_key::StdKey,
 };
 
@@ -366,21 +363,13 @@ impl<I> AppliedGatesPre3_2<I> {
                     .map_err(LookupAppliedGatesError::Link)
                     .map(|x| Diagnosed::new(x, diag))
             })
-            .map_err_value(
-                |ret| match rconf.process_optional_failure.is_demote_or_drop() {
-                    Some(true) => {
-                        ret.inner.scheme.demote_keywords(&mut kws.nonstd);
-                        ret.inner
-                            .gated_measurements
-                            .demote_keywords(&mut kws.nonstd);
-                    }
-                    Some(false) => {
-                        ret.inner.scheme.drop_keywords(dropped);
-                        ret.inner.gated_measurements.drop_keywords(dropped);
-                    }
-                    None => (),
-                },
-            )
+            .map_err_value(|ret| {
+                let flag = rconf.process_optional_failure;
+                if let Some(a) = KeywordAction::from_flag(flag) {
+                    ret.inner.scheme.set_action(kws, a);
+                    ret.inner.gated_measurements.set_action(kws, a);
+                }
+            })
     }
 
     pub(crate) fn opt_keywords<'a>(&'a self) -> impl Iterator<Item = OptRootKeyword<'a>>
@@ -526,13 +515,12 @@ impl AppliedGates3_2 {
         let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         GatingScheme::lookup(kws, conf)
             .map_ok_value(|out| out.bimap_once(Self, |d| AppliedGatesDiagnostics::new(d, vec![])))
-            .map_err_value(
-                |ret| match rconf.process_optional_failure.is_demote_or_drop() {
-                    Some(true) => ret.inner.demote_keywords(&mut kws.nonstd),
-                    Some(false) => ret.inner.drop_keywords(dropped),
-                    None => (),
-                },
-            )
+            .map_err_value(|ret| {
+                let flag = rconf.process_optional_failure;
+                if let Some(a) = KeywordAction::from_flag(flag) {
+                    ret.inner.set_action(kws, a)
+                }
+            })
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
@@ -599,15 +587,10 @@ impl GatedMeasurement {
         [x0, x1, x2, x3, x4, x5, x6, x7].into_iter().flatten()
     }
 
-    fn demote_keywords(self, i: GateIndex, nonstd: &mut NonStdKeywords) {
-        for k in self.opt_keywords(i) {
-            nonstd.insert_demoted_keyword(OptRootKeyword::from(k).into());
-        }
-    }
-
-    fn drop_keywords(self, i: GateIndex, dropped: &mut StdKeywords) {
-        for k in self.opt_keywords(i) {
-            OptRootKeyword::from(k).insert_unique(dropped);
+    fn set_action(self, i: GateIndex, kws: &mut StdIndexTx, a: KeywordAction) {
+        for x in self.opt_keywords(i) {
+            let k = x.as_std_key();
+            kws.set_action_at_key(&k, a);
         }
     }
 }
@@ -807,34 +790,17 @@ impl<I> GatingScheme<I> {
             })
     }
 
-    fn demote_keywords(self, nonstd: &mut NonStdKeywords)
+    fn set_action(self, kws: &mut StdIndexTx, a: KeywordAction)
     where
         I: Copy,
         RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         for (ri, r) in self.regions {
-            r.demote_keywords(ri, nonstd);
+            r.set_action(ri, kws, a);
         }
-        let g = self
-            .gating
-            .as_ref()
-            .map(OptRootKeyword::from_ref)
-            .map(Into::into);
-        nonstd.insert_demoted_keyword_opt(g);
-    }
-
-    fn drop_keywords(self, dropped: &mut StdKeywords)
-    where
-        I: Copy,
-        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
-        for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
-    {
-        for (ri, r) in self.regions {
-            r.drop_keywords(ri, dropped);
-        }
-        if let Some(g) = self.gating.as_ref().map(OptRootKeyword::from_ref) {
-            g.insert_unique(dropped);
+        if let Some(g) = self.gating.as_ref().map(|v| v.std0_()) {
+            kws.set_action_at_key(&g, a);
         }
     }
 
@@ -930,23 +896,7 @@ impl<I> Region<I> {
             .into_semigroup();
         let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
-        let demote_index = |gi, ns: &mut NonStdKeywords| {
-            let k = OptRootKeyword::from(RegionKeyword::from_value(gi, ri)).into();
-            ns.insert_demoted_keyword(k);
-        };
-        let demote_window = |w: RegionWindow, ns: &mut NonStdKeywords| {
-            let k = StdKey::from(RegionKey::new(ri, RegionKeyId::I));
-            let v = ToNE(w).to_ne_string();
-            ns.insert_demoted(k, v);
-        };
-        let drop_index = |gi, dr: &mut StdKeywords| {
-            OptRootKeyword::from(RegionKeyword::from_value(gi, ri)).insert_unique(dr);
-        };
-        let drop_window = |w: RegionWindow, dr: &mut StdKeywords| {
-            let k = StdKey::from(RegionKey::new(ri, RegionKeyId::W));
-            let v = ToNE(w).to_ne_string();
-            dr.insert(k, v);
-        };
+        let action = KeywordAction::from_flag(flag);
         index_res
             .zip_f2_once(window_res)
             .and_then_deferred_switchable_result(flag, |(gi_out, w_out)| {
@@ -962,41 +912,22 @@ impl<I> Region<I> {
                     (Some(gi), Some(w)) => match Self::try_new(gi, w) {
                         Ok(x) => Ok(Some(x.fmap_into())),
                         Err((old_gi, old_w)) => {
-                            match flag.is_demote_or_drop() {
-                                Some(true) => {
-                                    demote_index(old_gi, &mut kws.nonstd);
-                                    demote_window(old_w, &mut kws.nonstd);
-                                }
-                                Some(false) => {
-                                    drop_index(old_gi, dropped);
-                                    drop_window(old_w, dropped);
-                                }
-                                None => (),
+                            if let Some(a) = action {
+                                kws.set_action_at_key(&old_gi.std_(&ri), a);
+                                kws.set_action_at_key(&old_w.std_(&ri), a);
                             }
                             Err(IndexWindowMismatchError::Both(ri))
                         }
                     },
                     (Some(old_gi), None) => {
-                        match flag.is_demote_or_drop() {
-                            Some(true) => {
-                                demote_index(old_gi, &mut kws.nonstd);
-                            }
-                            Some(false) => {
-                                drop_index(old_gi, dropped);
-                            }
-                            None => (),
+                        if let Some(a) = action {
+                            kws.set_action_at_key(&old_gi.std_(&ri), a);
                         }
                         Err(IndexWindowMismatchError::NoWindow(ri))
                     }
                     (None, Some(old_w)) => {
-                        match flag.is_demote_or_drop() {
-                            Some(true) => {
-                                demote_window(old_w, &mut kws.nonstd);
-                            }
-                            Some(false) => {
-                                drop_window(old_w, dropped);
-                            }
-                            None => (),
+                        if let Some(a) = action {
+                            kws.set_action_at_key(&old_w.std_(&ri), a);
                         }
                         Err(IndexWindowMismatchError::NoIndex(ri))
                     }
@@ -1007,26 +938,15 @@ impl<I> Region<I> {
             })
     }
 
-    pub(crate) fn demote_keywords<'a>(&'a self, i: RegionIndex, nonstd: &mut NonStdKeywords)
+    pub(crate) fn set_action<'a>(&'a self, i: RegionIndex, kws: &mut StdIndexTx, a: KeywordAction)
     where
         I: Copy,
         RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         for r in self.opt_keywords(i) {
-            let kw = OptRootKeyword::from(r).into();
-            nonstd.insert_demoted_keyword(kw);
-        }
-    }
-
-    pub(crate) fn drop_keywords<'a>(&'a self, i: RegionIndex, dropped: &mut StdKeywords)
-    where
-        I: Copy,
-        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
-        RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
-    {
-        for r in self.opt_keywords(i) {
-            OptRootKeyword::from(r).insert_unique(dropped);
+            let k = r.as_std_key();
+            kws.set_action_at_key(&k, a);
         }
     }
 
@@ -1157,20 +1077,12 @@ impl GatedMeasurements {
         }
     }
 
-    fn demote_keywords(self, nonstd: &mut NonStdKeywords) {
-        let gate = self.gate().map(OptRootKeyword::from_value).map(Into::into);
-        nonstd.insert_demoted_keyword_opt(gate);
-        for (i, g) in self.0.into_iter().enumerate() {
-            g.demote_keywords(i.into(), nonstd);
-        }
-    }
-
-    fn drop_keywords(self, dropped: &mut StdKeywords) {
-        if let Some(gate) = self.gate().map(OptRootKeyword::from_value) {
-            gate.insert_unique(dropped);
+    fn set_action(self, kws: &mut StdIndexTx, a: KeywordAction) {
+        if let Some(k) = self.gate().map(|v| v.std0_()) {
+            kws.set_action_at_key(&k, a);
         }
         for (i, g) in self.0.into_iter().enumerate() {
-            g.drop_keywords(i.into(), dropped);
+            g.set_action(i.into(), kws, a);
         }
     }
 

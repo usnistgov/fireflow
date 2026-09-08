@@ -3595,6 +3595,7 @@ impl<M: VersionedRootMeta> RootMeta<M> {
             .remove_invalid_links(par, names)
             .chain(tr.map(RemovedLink::from))
         {
+            // TODO what if I want to drop without error?
             if demote {
                 x.insert_keyvals(nonstandard_keywords);
             }

@@ -250,7 +250,7 @@ pub trait EnumIndex<const LEN: usize>: VariantArray + EnumCount + NoUninit {
         Self::VARIANTS.iter()
     }
 
-    fn iter() -> iter::Copied<Iter<'static, Self>> {
+    fn iter() -> EnumIndexIter<Self> {
         Self::iter_ref().copied()
     }
 
@@ -293,9 +293,28 @@ impl EnumIndex<N_MEAS> for MeasKeyId {}
 impl EnumIndex<N_GATE> for GateKeyId {}
 impl EnumIndex<N_REGION> for RegionKeyId {}
 
+pub type EnumIndexIter<T> = iter::Copied<Iter<'static, T>>;
+
+pub type RootKeyGenerator = EnumIndexIter<RootKey>;
+
+pub type IndexedKeyGenerator<const LEN: usize, I, K> = iter::Map<
+    iter::Zip<iter::Cycle<EnumIndexIter<K>>, ops::RangeFrom<usize>>,
+    fn((K, usize)) -> IndexedKey<LEN, I, K>,
+>;
+
+pub type CsvFlagGenerator = iter::Map<ops::RangeFrom<usize>, fn(usize) -> CsvFlagKey>;
+
+pub type DfcKeyGenerator = iter::Map<
+    iter::Zip<
+        iter::Zip<iter::Cycle<ops::Range<usize>>, ops::RangeFrom<usize>>,
+        iter::Repeat<usize>,
+    >,
+    fn(((usize, usize), usize)) -> DfcKey,
+>;
+
 impl AnyIndex for RootKey {
     type SubDimension = ();
-    type Generator = iter::Copied<Iter<'static, Self>>;
+    type Generator = RootKeyGenerator;
 
     fn generate((): &Self::SubDimension) -> Self::Generator {
         Self::iter()
@@ -312,12 +331,10 @@ where
     I: From<usize> + Into<usize> + Copy,
 {
     type SubDimension = ();
-    type Generator = iter::Map<
-        iter::Zip<iter::Cycle<iter::Copied<Iter<'static, K>>>, ops::RangeFrom<usize>>,
-        fn((K, usize)) -> Self,
-    >;
+    type Generator = IndexedKeyGenerator<LEN, I, K>;
 
     fn generate((): &Self::SubDimension) -> Self::Generator {
+        // TODO get rid of division with custom iterator
         K::iter()
             .cycle()
             .zip(0_usize..)
@@ -331,7 +348,7 @@ where
 
 impl AnyIndex for CsvFlagKey {
     type SubDimension = ();
-    type Generator = iter::Map<ops::RangeFrom<usize>, fn(usize) -> Self>;
+    type Generator = CsvFlagGenerator;
 
     fn generate((): &Self::SubDimension) -> Self::Generator {
         (0_usize..).map(|i| Self::new(i.into()))
@@ -344,15 +361,10 @@ impl AnyIndex for CsvFlagKey {
 
 impl AnyIndex for DfcKey {
     type SubDimension = usize;
-    type Generator = iter::Map<
-        iter::Zip<
-            iter::Zip<iter::Cycle<ops::Range<usize>>, ops::RangeFrom<usize>>,
-            iter::Repeat<usize>,
-        >,
-        fn(((usize, usize), usize)) -> Self,
-    >;
+    type Generator = DfcKeyGenerator;
 
     fn generate(sub: &Self::SubDimension) -> Self::Generator {
+        // TODO get rid of division with custom iterator
         (0_usize..*sub)
             .cycle()
             .zip(0_usize..)

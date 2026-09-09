@@ -1,8 +1,11 @@
-use fireflow_types::{nonempty_string::NEStr, std_key::AnyIndex};
+use fireflow_types::{
+    nonempty_string::NEStr,
+    std_key::{AnyIndex, StdKey},
+};
 
 use crate::validated::dataframe::HasLen;
 
-use super::nested_string::{NestedString, NestedStringSize};
+use super::nested_string::{IterKeywords, NestedString, NestedStringSize};
 
 use std::{
     marker::PhantomData,
@@ -85,11 +88,11 @@ impl<I, K, C, M> MaskedString<I, K, C, M> {
         self.mask[i] = m;
     }
 
-    pub(crate) fn iter_pairs(&self, sub: &K::SubDimension) -> impl Iterator<Item = (K, &NEStr)>
+    pub(crate) fn iter_keywords<'a>(&'a self, sub: &K::SubDimension) -> IterKeywords<'a, I, K>
     where
-        for<'a> &'a I: IntoIterator<Item = &'a usize>,
-        K: AnyIndex,
+        I: HasLen + Index<usize, Output = usize>,
+        K: AnyIndex + Into<StdKey>,
     {
-        self.inner.iter_pairs(sub)
+        self.inner.iter_keywords(sub)
     }
 }

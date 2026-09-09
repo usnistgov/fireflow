@@ -1,16 +1,32 @@
-use super::nested_string::{NestedEnumString, NestedStringSize, NestedVariableString};
+use super::nested_string::{
+    IterEnumKeywords, IterKeywords, IterVariableKeywords, NestedEnumString, NestedStringSize,
+    NestedVariableString,
+};
 
 use fireflow_types::{
-    index::BiMeasIndex,
     nonempty_string::NEStr,
     std_key::{
         AnyIndex as _, CsvFlagKey, DfcKey, GateKey, MeasKey, N_ROOT, RegionKey, RootKey, StdKey,
     },
 };
 
-use std::iter;
+use std::iter::Chain;
 
 pub type NestedRoot = NestedEnumString<N_ROOT, RootKey>;
+
+pub type IterStdKeywords<'a> = Chain<
+    Chain<
+        Chain<
+            Chain<
+                Chain<IterEnumKeywords<'a, N_ROOT, RootKey>, IterVariableKeywords<'a, MeasKey>>,
+                IterVariableKeywords<'a, GateKey>,
+            >,
+            IterVariableKeywords<'a, RegionKey>,
+        >,
+        IterVariableKeywords<'a, CsvFlagKey>,
+    >,
+    IterVariableKeywords<'a, DfcKey>,
+>;
 
 pub struct StdIndex {
     root: NestedRoot,
@@ -72,20 +88,14 @@ impl StdIndex {
     //     self.dfc.get(k.offset(self.dfc_matrix_size))
     // }
 
-    pub fn iter_pairs(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {
-        macro_rules! go {
-            ($field:ident, $sub:expr) => {
-                self.$field
-                    .iter_pairs(&$sub)
-                    .map(|(k, v)| (StdKey::from(k), v))
-            };
-        }
-        go!(root, &())
-            .chain(go!(meas, &()))
-            .chain(go!(gate, &()))
-            .chain(go!(region, &()))
-            .chain(go!(csv_flag, &()))
-            .chain(go!(dfc, &self.dfc_matrix_size))
+    pub fn iter_pairs<'a>(&'a self) -> IterStdKeywords<'a> {
+        self.root
+            .iter_keywords(&())
+            .chain(self.meas.iter_keywords(&()))
+            .chain(self.gate.iter_keywords(&()))
+            .chain(self.region.iter_keywords(&()))
+            .chain(self.csv_flag.iter_keywords(&()))
+            .chain(self.dfc.iter_keywords(&self.dfc_matrix_size))
     }
 
     /// Make a new standard key index from a vector of pairs.

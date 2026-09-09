@@ -133,19 +133,13 @@ impl StdIndexTx {
     }
 
     pub fn iter_pairs(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {
-        macro_rules! go {
-            ($field:ident, $sub:expr) => {
-                self.$field
-                    .iter_pairs(&$sub)
-                    .map(|(k, v)| (StdKey::from(k), v))
-            };
-        }
-        go!(root, &())
-            .chain(go!(meas, &()))
-            .chain(go!(gate, &()))
-            .chain(go!(region, &()))
-            .chain(go!(csv_flag, &()))
-            .chain(go!(dfc, &self.dfc_matrix_size))
+        self.root
+            .iter_keywords(&())
+            .chain(self.meas.iter_keywords(&()))
+            .chain(self.gate.iter_keywords(&()))
+            .chain(self.region.iter_keywords(&()))
+            .chain(self.csv_flag.iter_keywords(&()))
+            .chain(self.dfc.iter_keywords(&self.dfc_matrix_size))
     }
 
     fn read_key(&self, k: &StdKey) -> Option<&NEStr> {

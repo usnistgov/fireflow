@@ -186,20 +186,33 @@ impl PartialEq<str> for NEStr {
 pub trait NESliceExt<'a>: Sized {
     type Inner;
 
+    /// Return self
+    // This is the equivalent of converting &Option<T> to Option<&T> (ie
+    // 'flipping' the borrow) which should be a noop and shouldn't require using
+    // a failable try_* method.
+    #[must_use]
+    fn as_self(&'a self) -> &'a NESlice<'a, Self::Inner>;
+
     /// Convert a borrowed [`NESlice`] to an owned [`NESlice`].
     // This is the equivalent of converting &Option<T> to Option<&T> (ie
     // 'flipping' the borrow) which should be a noop and shouldn't require using
     // a failable try_* method.
     #[must_use]
-    fn by_ref(&'a self) -> NESlice<'a, Self::Inner>;
+    fn by_ref(&'a self) -> NESlice<'a, Self::Inner> {
+        NESlice::try_from_slice(self.as_self().as_ref()).unwrap()
+    }
 
     /// Split the first element from the rest.
     #[must_use]
-    fn split_first(&'a self) -> (&'a Self::Inner, &'a [Self::Inner]);
+    fn split_first(&'a self) -> (&'a Self::Inner, &'a [Self::Inner]) {
+        self.as_self().as_ref().split_first().unwrap()
+    }
 
     /// Split the last element from the rest.
     #[must_use]
-    fn split_last(&'a self) -> (&'a Self::Inner, &'a [Self::Inner]);
+    fn split_last(&'a self) -> (&'a Self::Inner, &'a [Self::Inner]) {
+        self.as_self().as_ref().split_last().unwrap()
+    }
 
     /// Convert to NEVec
     #[must_use]
@@ -209,21 +222,73 @@ pub trait NESliceExt<'a>: Sized {
     {
         self.by_ref().into_nonempty_iter().cloned().collect()
     }
+
+    /// Trim whitespace from start and end of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, and 0x20.
+    fn trim_ascii(&'a self) -> &'a [u8]
+    where
+        Self: NESliceExt<'a, Inner = u8>,
+    {
+        self.trim_ascii_start().trim_ascii_end()
+    }
+
+    /// Trim whitespace from start and end of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20 and 0xA0.
+    fn trim_latin1(&'a self) -> &'a [u8]
+    where
+        Self: NESliceExt<'a, Inner = u8>,
+    {
+        trim_end(self.trim_latin1_start(), |b| is_latin1_whitespace(*b))
+    }
+
+    /// Trim whitespace from start of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, and 0x20.
+    fn trim_ascii_start(&'a self) -> &'a [u8]
+    where
+        Self: NESliceExt<'a, Inner = u8>,
+    {
+        trim_start(self.as_self().as_ref(), |b| is_ascii_whitespace_vtab(*b))
+    }
+
+    /// Trim whitespace from end of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, and 0x20.
+    fn trim_ascii_end(&'a self) -> &'a [u8]
+    where
+        Self: NESliceExt<'a, Inner = u8>,
+    {
+        trim_end(self.as_self().as_ref(), |b| is_ascii_whitespace_vtab(*b))
+    }
+
+    /// Trim whitespace from start of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, and 0xA0.
+    fn trim_latin1_start(&'a self) -> &'a [u8]
+    where
+        Self: NESliceExt<'a, Inner = u8>,
+    {
+        trim_start(self.as_self().as_ref(), |b| is_latin1_whitespace(*b))
+    }
+
+    /// Trim whitespace from end of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, and 0xA0.
+    fn trim_latin1_end(&'a self) -> &'a [u8]
+    where
+        Self: NESliceExt<'a, Inner = u8>,
+    {
+        trim_end(self.as_self().as_ref(), |b| is_latin1_whitespace(*b))
+    }
 }
 
 impl<'a, T> NESliceExt<'a> for NESlice<'a, T> {
     type Inner = T;
 
-    fn by_ref(&'a self) -> Self {
-        Self::try_from_slice(self.as_ref()).unwrap()
-    }
-
-    fn split_first(&'a self) -> (&'a T, &'a [T]) {
-        self.as_ref().split_first().unwrap()
-    }
-
-    fn split_last(&'a self) -> (&'a T, &'a [T]) {
-        self.as_ref().split_last().unwrap()
+    fn as_self(&'a self) -> &'a Self {
+        self
     }
 }
 
@@ -416,8 +481,20 @@ impl NEStr {
         Ok(Self::new_unchecked(str::from_utf8(bytes.as_ref())?))
     }
 
+    pub unsafe fn from_utf8_unchecked<'a>(bytes: &'a NESlice<u8>) -> &'a Self {
+        // SAFETY: function is unsafe
+        let s = unsafe { str::from_utf8_unchecked(bytes.as_ref()) };
+        Self::new_unchecked(s)
+    }
+
+    pub unsafe fn try_from_utf8_unchecked(bytes: &[u8]) -> Option<&Self> {
+        // SAFETY: function is unsafe
+        let s = unsafe { str::from_utf8_unchecked(bytes) };
+        Self::try_new(s)
+    }
+
     #[must_use]
-    pub fn as_ne_bytes(&self) -> NESlice<'_, u8> {
+    pub const fn as_ne_bytes(&self) -> NESlice<'_, u8> {
         NESlice::try_from_slice(self.as_str().as_bytes()).unwrap()
     }
 
@@ -449,6 +526,62 @@ impl NEStr {
     #[must_use]
     pub fn last(&self) -> char {
         self.0.chars().next_back().unwrap()
+    }
+
+    /// Trim whitespace from start and end of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, and 0x20.
+    #[must_use]
+    pub fn trim_ascii(&self) -> &str {
+        self.trim_ascii_start().trim_ascii_end()
+    }
+
+    /// Trim whitespace from start and end of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20 and 0xA0.
+    #[must_use]
+    pub fn trim_latin1(&self) -> &[u8] {
+        trim_end(self.trim_latin1_start().as_bytes(), |b| {
+            is_latin1_whitespace(*b)
+        })
+    }
+
+    /// Trim whitespace from start of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, and 0x20.
+    #[must_use]
+    pub fn trim_ascii_start(&self) -> &str {
+        let bytes = trim_start(self.as_str().as_bytes(), |b| is_ascii_whitespace_vtab(*b));
+        // SAFETY: trimming ASCII bytes from start won't break UTF8
+        unsafe { str::from_utf8_unchecked(bytes) }
+    }
+
+    /// Trim whitespace from end of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, and 0x20.
+    #[must_use]
+    pub fn trim_ascii_end(&self) -> &str {
+        let bytes = trim_end(self.as_str().as_bytes(), |b| is_ascii_whitespace_vtab(*b));
+        // SAFETY: trimming ASCII bytes from end won't break UTF8
+        unsafe { str::from_utf8_unchecked(bytes) }
+    }
+
+    /// Trim whitespace from start of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, and 0xA0.
+    #[must_use]
+    pub fn trim_latin1_start(&self) -> &str {
+        let bytes = trim_start(self.as_str().as_bytes(), |b| is_latin1_whitespace(*b));
+        // SAFETY: trimming ASCII bytes or 0xA0 from start won't break UTF8
+        unsafe { str::from_utf8_unchecked(bytes) }
+    }
+
+    /// Trim whitespace from end of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, and 0xA0.
+    #[must_use]
+    pub fn trim_latin1_end(&self) -> &[u8] {
+        trim_end(self.as_str().as_bytes(), |b| is_latin1_whitespace(*b))
     }
 }
 
@@ -788,6 +921,57 @@ impl DisplayNEInner for PaddedU64 {
         }
         write!(f, "{}", self.value)
     }
+}
+
+/// Test if byte is whitespace.
+///
+/// IMPORTANT: unlike u8::is_ascii_whitespace, this will also consider vertical
+/// tab to be whitespace.
+const fn is_ascii_whitespace_vtab(byte: u8) -> bool {
+    byte.is_ascii_whitespace() || matches!(byte, b'\x0B')
+}
+
+/// Test if byte is whitespace according to single byte encoding.
+///
+/// This will treat the 0xA0 (non-breaking space) as a space.
+///
+/// If this is used to trim a bytestring, it should only be assumed to be
+/// encoded using a single-byte scheme (ISO/IEC 8859-1/Latin1, IANA ISO-8859-1,
+/// or Windows-1252, which are all the same with regard to this character).
+/// Removing this byte from the right might break UTF-8. since it starts with a
+/// '0b10' prefix.
+const fn is_latin1_whitespace(byte: u8) -> bool {
+    is_ascii_whitespace_vtab(byte) || matches!(byte, b'\xA0')
+}
+
+fn trim_start<F, T>(xs: &[T], mut f: F) -> &[T]
+where
+    F: FnMut(&T) -> bool,
+{
+    let mut ys = xs;
+    while let [first, rest @ ..] = ys {
+        if f(first) {
+            ys = rest;
+        } else {
+            break;
+        }
+    }
+    ys
+}
+
+fn trim_end<F, T>(xs: &[T], mut f: F) -> &[T]
+where
+    F: FnMut(&T) -> bool,
+{
+    let mut ys = xs;
+    while let [rest @ .., last] = ys {
+        if f(last) {
+            ys = rest;
+        } else {
+            break;
+        }
+    }
+    ys
 }
 
 #[cfg(feature = "testutil")]

@@ -28,6 +28,7 @@ use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeyId};
 use fireflow_types::{
     config::AllowLoss,
     index::{GateIndex, MeasIndex, RegionIndex},
+    nonempty_string::NEVecExt as _,
     std_key::StdKey,
 };
 
@@ -962,7 +963,7 @@ impl<I> Region<I> {
         };
         let rw = match self {
             Self::Univariate(r) => RegionWindowRef::Univariate(&r.gate),
-            Self::Bivariate(r) => RegionWindowRef::Bivariate(r.vertices.0.as_nonempty_slice()),
+            Self::Bivariate(r) => RegionWindowRef::Bivariate(r.vertices.0.as_ne_slice()),
         };
         let x0 = RegionKeyword::from_value(ri, i);
         let rk = DollarKey::new(i);

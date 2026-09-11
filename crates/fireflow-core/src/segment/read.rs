@@ -20,9 +20,7 @@ use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_st
 use crate::validated::header_offsets::{
     FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
 };
-use crate::validated::keys::{
-    NEStringOrBytes, SpecificKey, StdKeywords, TruncatedNEString, ValueToStdKey,
-};
+use crate::validated::keys::{NEStringOrBytes, StdKeywords, TruncatedNEString, ValueToStdKey};
 use crate::validated::read_state::{
     DatasetOffset, HeaderReadState, ReadDatasetState, TEXTReadState,
 };
@@ -34,14 +32,13 @@ use fireflow_types::{
         ReadHeaderInnerConfig, ReadOffsetConfig,
     },
     keywords::Version,
-    nonempty_string::NESliceExt as _,
+    nonempty_string::NESlice,
     other_width::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth},
     segment::{
         AnalysisSegmentId, DataSegmentId, HeaderCorrection, OffsetsCorrection, OffsetsFromHeader,
         OffsetsFromTEXT, OtherSegmentId, PrimaryTextSegmentId, SupplementalTextSegmentId,
         TEXTCorrection,
     },
-    std_key::StdKey,
 };
 
 use nonempty_collections::IntoNonEmptyIterator as _;
@@ -55,7 +52,7 @@ use derive_new::new;
 use derive_where::derive_where;
 use itertools::Itertools as _;
 use nonempty_collections::{
-    IntoIteratorExt as _, NESlice, NEVec, NonEmptyArrayExt as _,
+    IntoIteratorExt as _, NEVec, NonEmptyArrayExt as _,
     iter::{NonEmptyIterator as _, once},
 };
 use thiserror::Error;
@@ -2189,11 +2186,11 @@ impl OtherOffsets20 {
     }
 
     fn parse_other(
-        bs0: &NESlice<'_, u8>,
-        bs1: &NESlice<'_, u8>,
+        bs0: &NESlice<u8>,
+        bs1: &NESlice<u8>,
         conf: &NewOffsetsConfig<OtherSegmentId, OffsetsFromHeader>,
     ) -> ErrorsResult<(Self, OriginalOffsets), (), HeaderOffsetsError> {
-        let parse_one = |bs: &NESlice<'_, u8>, is_begin| {
+        let parse_one = |bs: &NESlice<u8>, is_begin| {
             UintSpacePad20::from_bytes(bs.as_ref()).map_err(|error| {
                 let src = NEStringOrBytes::from(bs.to_ne_vec());
                 ParseOffsetError::new(error, is_begin, OtherSegmentId::REGION, src).into()
@@ -2215,7 +2212,7 @@ impl OtherOffsets20 {
 
     #[allow(clippy::too_many_lines)]
     fn guess_other_width(
-        xs: &NESlice<'_, u8>,
+        xs: &NESlice<u8>,
         max_other: Option<NonZeroU64>,
     ) -> Result<OtherWidth, GuessOtherWidthError> {
         #[cfg(debug_assertions)]

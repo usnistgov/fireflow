@@ -134,14 +134,13 @@ use fireflow_types::{
     keywords::{
         HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
     },
-    nonempty_string::{NESliceExt as _, NEStr, NEString},
+    nonempty_string::{NESlice, NEStr, NEString},
     segment::{AnalysisSegmentId, DataSegmentId},
     std_key::StdKey,
     textdelim::TEXTDelim,
     timepattern::TimePattern,
 };
 
-use nonempty_collections::NESlice;
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};

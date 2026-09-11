@@ -11,7 +11,7 @@ use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNames
 use fireflow_types::{
     config::{ConfigFlag as _, SpilloverMeasurementMode, TrimIntraValueWhitespace},
     index::MeasIndex,
-    nonempty_string::{NEConcat, NEConcat5, NEDelim, NEStr, ToDisplayNE, ToNE},
+    nonempty_string::{NEConcat, NEConcat5, NEDelim, NESlice, NEStr, ToDisplayNE, ToNE},
     textdelim::{DelimCollisionError, HasDelim, TEXTDelim},
 };
 
@@ -19,7 +19,6 @@ use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use ndarray::Array2;
-use nonempty_collections::NESlice;
 use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use thiserror::Error;
 
@@ -216,7 +215,7 @@ impl<'a> ToDisplayNE<'a> for Spillover {
     type NE = NEConcat5<
         NonZeroUsize,
         char,
-        NEDelim<NESlice<'a, ToNE<Shortname>>>,
+        NEDelim<&'a NESlice<ToNE<Shortname>>>,
         char,
         NEDelim<NEVec<f32>>,
     >;

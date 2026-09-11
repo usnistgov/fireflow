@@ -5,14 +5,15 @@ use bigdecimal::BigDecimal;
 use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
 use nonempty_collections::{
-    FromNonEmptyIterator, IntoNonEmptyIterator, NESlice, NEVec, NonEmptyArrayExt,
-    NonEmptyIterator as _,
+    FromNonEmptyIterator, IntoNonEmptyIterator, NESlice as NESlice_, NEVec, NonEmptyIterator as _,
+    slice::Iter as NEIter,
 };
 use thiserror::Error;
 
 use std::{
     fmt,
     hash::Hash,
+    iter,
     num::{NonZeroU8, NonZeroU32},
     ptr::from_ref,
     slice,
@@ -60,6 +61,15 @@ impl AsRef<NEStr> for NEString {
     }
 }
 
+/// A slice which can never be empty.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Display, Debug, AsRef)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[repr(transparent)]
+pub struct NESlice<T>([T]);
+
+/// Iterator of non-empty chunks of a [`NESlice`].
+pub struct NEChunks<'a, T>(slice::Chunks<'a, T>);
+
 /// Like a [`FromUtf8Error`] but for non-empty strings.
 #[derive(Into)]
 pub struct FromNEUtf8Error {
@@ -76,7 +86,7 @@ impl<T> ToNE<T> {
     /// Wrap inner type on a borrowed slice.
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn on_inner_slice(s: NESlice<'_, T>) -> NESlice<'_, Self> {
+    pub fn on_inner_slice(s: &NESlice<T>) -> &NESlice<Self> {
         let n = s.len().get();
         let p = s.as_ref().as_ptr();
         // SAFETY: target is a transparent type so this is a noop
@@ -182,112 +192,50 @@ impl PartialEq<str> for NEStr {
     }
 }
 
-// TODO these should be added upstream
-pub trait NESliceExt<'a>: Sized {
+pub trait NEArrayExt<T> {
+    fn as_ne_slice(&self) -> &NESlice<T>;
+
+    fn nonzero_len(&self) -> NonZeroUsize {
+        self.as_ne_slice().len()
+    }
+
+    fn into_nonempty_vec(self) -> NEVec<T>;
+}
+
+macro_rules! impl_ne_array_ext {
+    ($($len:expr),*) => {
+        $(
+            impl<T> NEArrayExt<T> for [T; $len] {
+                fn as_ne_slice(&self) -> &NESlice<T> {
+                    NESlice::new_unchecked(self)
+                }
+
+                fn into_nonempty_vec(self) -> NEVec<T> {
+                    self.into_nonempty_iter().collect()
+                }
+            }
+        )*
+    };
+}
+
+impl_ne_array_ext!(
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+    27, 28, 29, 30, 31, 32
+);
+
+pub trait NEVecExt {
     type Inner;
+    fn as_self(&self) -> &NEVec<Self::Inner>;
 
-    /// Return self
-    // This is the equivalent of converting &Option<T> to Option<&T> (ie
-    // 'flipping' the borrow) which should be a noop and shouldn't require using
-    // a failable try_* method.
-    #[must_use]
-    fn as_self(&'a self) -> &'a NESlice<'a, Self::Inner>;
-
-    /// Convert a borrowed [`NESlice`] to an owned [`NESlice`].
-    // This is the equivalent of converting &Option<T> to Option<&T> (ie
-    // 'flipping' the borrow) which should be a noop and shouldn't require using
-    // a failable try_* method.
-    #[must_use]
-    fn by_ref(&'a self) -> NESlice<'a, Self::Inner> {
-        NESlice::try_from_slice(self.as_self().as_ref()).unwrap()
-    }
-
-    /// Split the first element from the rest.
-    #[must_use]
-    fn split_first(&'a self) -> (&'a Self::Inner, &'a [Self::Inner]) {
-        self.as_self().as_ref().split_first().unwrap()
-    }
-
-    /// Split the last element from the rest.
-    #[must_use]
-    fn split_last(&'a self) -> (&'a Self::Inner, &'a [Self::Inner]) {
-        self.as_self().as_ref().split_last().unwrap()
-    }
-
-    /// Convert to NEVec
-    #[must_use]
-    fn to_ne_vec(&'a self) -> NEVec<Self::Inner>
-    where
-        Self::Inner: Clone,
-    {
-        self.by_ref().into_nonempty_iter().cloned().collect()
-    }
-
-    /// Trim whitespace from start and end of string.
-    ///
-    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, and 0x20.
-    fn trim_ascii(&'a self) -> &'a [u8]
-    where
-        Self: NESliceExt<'a, Inner = u8>,
-    {
-        self.trim_ascii_start().trim_ascii_end()
-    }
-
-    /// Trim whitespace from start and end of string.
-    ///
-    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20 and 0xA0.
-    fn trim_latin1(&'a self) -> &'a [u8]
-    where
-        Self: NESliceExt<'a, Inner = u8>,
-    {
-        trim_end(self.trim_latin1_start(), |b| is_latin1_whitespace(*b))
-    }
-
-    /// Trim whitespace from start of string.
-    ///
-    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, and 0x20.
-    fn trim_ascii_start(&'a self) -> &'a [u8]
-    where
-        Self: NESliceExt<'a, Inner = u8>,
-    {
-        trim_start(self.as_self().as_ref(), |b| is_ascii_whitespace_vtab(*b))
-    }
-
-    /// Trim whitespace from end of string.
-    ///
-    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, and 0x20.
-    fn trim_ascii_end(&'a self) -> &'a [u8]
-    where
-        Self: NESliceExt<'a, Inner = u8>,
-    {
-        trim_end(self.as_self().as_ref(), |b| is_ascii_whitespace_vtab(*b))
-    }
-
-    /// Trim whitespace from start of string.
-    ///
-    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, and 0xA0.
-    fn trim_latin1_start(&'a self) -> &'a [u8]
-    where
-        Self: NESliceExt<'a, Inner = u8>,
-    {
-        trim_start(self.as_self().as_ref(), |b| is_latin1_whitespace(*b))
-    }
-
-    /// Trim whitespace from end of string.
-    ///
-    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, and 0xA0.
-    fn trim_latin1_end(&'a self) -> &'a [u8]
-    where
-        Self: NESliceExt<'a, Inner = u8>,
-    {
-        trim_end(self.as_self().as_ref(), |b| is_latin1_whitespace(*b))
+    fn as_ne_slice(&self) -> &NESlice<Self::Inner> {
+        NESlice::new_unchecked(self.as_self().as_ref())
     }
 }
 
-impl<'a, T> NESliceExt<'a> for NESlice<'a, T> {
+impl<T> NEVecExt for NEVec<T> {
     type Inner = T;
 
-    fn as_self(&'a self) -> &'a Self {
+    fn as_self(&self) -> &Self {
         self
     }
 }
@@ -303,13 +251,10 @@ impl<'a, T> NESliceExt<'a> for NESlice<'a, T> {
 /// [`ToDisplayNE`] which is the meant to be the only way in which this trait
 /// is accessed.
 pub trait DisplayNE: sealed::DisplayNEInner {
-    fn to_ne_string(&self) -> NEString
-    where
-        Self: Sized,
-    {
-        struct DisplayWrapper<'a, T>(&'a T);
+    fn to_ne_string(&self) -> NEString {
+        struct DisplayWrapper<'a, T: ?Sized>(&'a T);
 
-        impl<T: DisplayNE> fmt::Display for DisplayWrapper<'_, T> {
+        impl<T: DisplayNE + ?Sized> fmt::Display for DisplayWrapper<'_, T> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 self.0.fmt_ne(f)
             }
@@ -371,15 +316,24 @@ pub trait ToDisplayNE<'a> {
 
 /// Directly format something that has [`ToDisplay`].
 pub trait DisplayableNE<'a>: Sized + ToDisplayNE<'a> {
-    fn as_displayable(&'a self) -> NEWrap<Self::NE> {
+    fn as_displayable(&'a self) -> NEWrap<Self::NE>
+    where
+        Self::NE: Sized,
+    {
         NEWrap(self.to_ne())
     }
 
-    fn as_string(&'a self) -> String {
+    fn as_string(&'a self) -> String
+    where
+        Self::NE: Sized,
+    {
         self.as_displayable().to_string()
     }
 
-    fn as_ne_string(&'a self) -> NEString {
+    fn as_ne_string(&'a self) -> NEString
+    where
+        Self::NE: Sized,
+    {
         NEString(self.as_string())
     }
 }
@@ -415,7 +369,7 @@ impl NEString {
     }
 
     #[must_use]
-    pub fn len(&self) -> NonZeroUsize {
+    pub const fn len(&self) -> NonZeroUsize {
         NonZeroUsize::new(self.0.len()).unwrap()
     }
 
@@ -430,7 +384,7 @@ impl NEString {
     }
 
     #[must_use]
-    pub fn as_ne_bytes(&self) -> NESlice<'_, u8> {
+    pub fn as_ne_bytes(&self) -> &NESlice<u8> {
         self.as_ne_str().as_ne_bytes()
     }
 
@@ -477,16 +431,24 @@ impl NEStr {
         self.as_ref().parse()
     }
 
-    pub fn from_utf8<'a>(bytes: &'a NESlice<u8>) -> Result<&'a Self, Utf8Error> {
+    pub fn from_utf8(bytes: &NESlice<u8>) -> Result<&Self, Utf8Error> {
         Ok(Self::new_unchecked(str::from_utf8(bytes.as_ref())?))
     }
 
-    pub unsafe fn from_utf8_unchecked<'a>(bytes: &'a NESlice<u8>) -> &'a Self {
+    /// # Safety
+    ///
+    /// Caller must check that string is UTF8.
+    #[must_use]
+    pub unsafe fn from_utf8_unchecked(bytes: &NESlice<u8>) -> &Self {
         // SAFETY: function is unsafe
         let s = unsafe { str::from_utf8_unchecked(bytes.as_ref()) };
         Self::new_unchecked(s)
     }
 
+    /// # Safety
+    ///
+    /// Caller must check that string is UTF8.
+    #[must_use]
     pub unsafe fn try_from_utf8_unchecked(bytes: &[u8]) -> Option<&Self> {
         // SAFETY: function is unsafe
         let s = unsafe { str::from_utf8_unchecked(bytes) };
@@ -494,8 +456,8 @@ impl NEStr {
     }
 
     #[must_use]
-    pub const fn as_ne_bytes(&self) -> NESlice<'_, u8> {
-        NESlice::try_from_slice(self.as_str().as_bytes()).unwrap()
+    pub const fn as_ne_bytes(&self) -> &NESlice<u8> {
+        NESlice::new_unchecked(self.as_str().as_bytes())
     }
 
     #[must_use]
@@ -541,9 +503,7 @@ impl NEStr {
     /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20 and 0xA0.
     #[must_use]
     pub fn trim_latin1(&self) -> &[u8] {
-        trim_end(self.trim_latin1_start().as_bytes(), |b| {
-            is_latin1_whitespace(*b)
-        })
+        self.as_ne_bytes().trim_latin1()
     }
 
     /// Trim whitespace from start of string.
@@ -551,7 +511,7 @@ impl NEStr {
     /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, and 0x20.
     #[must_use]
     pub fn trim_ascii_start(&self) -> &str {
-        let bytes = trim_start(self.as_str().as_bytes(), |b| is_ascii_whitespace_vtab(*b));
+        let bytes = self.as_ne_bytes().trim_ascii_start();
         // SAFETY: trimming ASCII bytes from start won't break UTF8
         unsafe { str::from_utf8_unchecked(bytes) }
     }
@@ -561,7 +521,7 @@ impl NEStr {
     /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, and 0x20.
     #[must_use]
     pub fn trim_ascii_end(&self) -> &str {
-        let bytes = trim_end(self.as_str().as_bytes(), |b| is_ascii_whitespace_vtab(*b));
+        let bytes = self.as_ne_bytes().trim_ascii_end();
         // SAFETY: trimming ASCII bytes from end won't break UTF8
         unsafe { str::from_utf8_unchecked(bytes) }
     }
@@ -571,7 +531,7 @@ impl NEStr {
     /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, and 0xA0.
     #[must_use]
     pub fn trim_latin1_start(&self) -> &str {
-        let bytes = trim_start(self.as_str().as_bytes(), |b| is_latin1_whitespace(*b));
+        let bytes = self.as_ne_bytes().trim_latin1_start();
         // SAFETY: trimming ASCII bytes or 0xA0 from start won't break UTF8
         unsafe { str::from_utf8_unchecked(bytes) }
     }
@@ -581,7 +541,152 @@ impl NEStr {
     /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, and 0xA0.
     #[must_use]
     pub fn trim_latin1_end(&self) -> &[u8] {
-        trim_end(self.as_str().as_bytes(), |b| is_latin1_whitespace(*b))
+        self.as_ne_bytes().trim_latin1_end()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a NESlice<T> {
+    type Item = &'a T;
+    type IntoIter = slice::Iter<'a, T>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a, T> IntoNonEmptyIterator for &'a NESlice<T> {
+    type IntoNEIter = NEIter<'a, T>;
+    fn into_nonempty_iter(self) -> Self::IntoNEIter {
+        NESlice_::try_from_slice(&self.0)
+            .unwrap()
+            .into_nonempty_iter()
+    }
+}
+
+impl<T> NESlice<T> {
+    #[must_use]
+    pub const fn try_from_slice(bytes: &[T]) -> Option<&Self> {
+        if bytes.is_empty() {
+            None
+        } else {
+            Some(Self::new_unchecked(bytes))
+        }
+    }
+
+    #[must_use]
+    pub const fn len(&self) -> NonZeroUsize {
+        NonZeroUsize::new(self.0.len()).unwrap()
+    }
+
+    /// Return the first element
+    #[must_use]
+    pub const fn first(&self) -> &T {
+        self.0.first().unwrap()
+    }
+
+    /// Return the last element
+    #[must_use]
+    pub const fn last(&self) -> &T {
+        self.0.last().unwrap()
+    }
+
+    /// Split the first element from the rest.
+    #[must_use]
+    pub const fn split_first(&self) -> (&T, &[T]) {
+        self.0.split_first().unwrap()
+    }
+
+    /// Split the last element from the rest.
+    #[must_use]
+    pub const fn split_last(&self) -> (&T, &[T]) {
+        self.0.split_last().unwrap()
+    }
+
+    /// Convert to [`NEVec`]
+    #[must_use]
+    pub fn to_ne_vec(&self) -> NEVec<T>
+    where
+        T: Clone,
+    {
+        self.into_nonempty_iter().cloned().collect()
+    }
+
+    const fn new_unchecked(bytes: &[T]) -> &Self {
+        let p: *const [T] = from_ref(bytes);
+        // SAFETY: NESlice<T> and [T] have same layout
+        unsafe { &*(p as *const Self) }
+    }
+
+    pub fn iter(&self) -> slice::Iter<'_, T> {
+        self.0.iter()
+    }
+
+    pub fn nonempty_iter(&self) -> NEIter<'_, T> {
+        self.into_nonempty_iter()
+    }
+
+    pub fn nonempty_chunks(&self, chunk_size: NonZeroUsize) -> NEChunks<'_, T> {
+        NEChunks(self.0.chunks(chunk_size.get()))
+    }
+}
+
+impl<'a, T> IntoIterator for NEChunks<'a, T> {
+    type Item = &'a NESlice<T>;
+
+    type IntoIter = iter::Map<slice::Chunks<'a, T>, fn(&'a [T]) -> &'a NESlice<T>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0
+            .map(|x| NESlice::try_from_slice(x).expect("sliced chunks will never be empty"))
+    }
+}
+
+impl NESlice<u8> {
+    /// Trim whitespace from start and end of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, and 0x20.
+    #[must_use]
+    pub fn trim_ascii(&self) -> &[u8] {
+        self.trim_ascii_start().trim_ascii_end()
+    }
+
+    /// Trim whitespace from start and end of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20 and 0xA0.
+    #[must_use]
+    pub fn trim_latin1(&self) -> &[u8] {
+        trim_end(self.trim_latin1_start(), |b| is_latin1_whitespace(*b))
+    }
+
+    /// Trim whitespace from start of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, and 0x20.
+    #[must_use]
+    pub fn trim_ascii_start(&self) -> &[u8] {
+        trim_start(self.as_ref(), |b| is_ascii_whitespace_vtab(*b))
+    }
+
+    /// Trim whitespace from end of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, and 0x20.
+    #[must_use]
+    pub fn trim_ascii_end(&self) -> &[u8] {
+        trim_end(self.as_ref(), |b| is_ascii_whitespace_vtab(*b))
+    }
+
+    /// Trim whitespace from start of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, and 0xA0.
+    #[must_use]
+    pub fn trim_latin1_start(&self) -> &[u8] {
+        trim_start(self.as_ref(), |b| is_latin1_whitespace(*b))
+    }
+
+    /// Trim whitespace from end of string.
+    ///
+    /// This will strip 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, and 0xA0.
+    #[must_use]
+    pub fn trim_latin1_end(&self) -> &[u8] {
+        trim_end(self.as_ref(), |b| is_latin1_whitespace(*b))
     }
 }
 
@@ -634,7 +739,7 @@ impl<A, B> NEConcat<A, B> {
     }
 }
 
-impl<T: DisplayNEInner> DisplayNE for T {}
+impl<T: DisplayNEInner + ?Sized> DisplayNE for T {}
 
 macro_rules! impl_to_display_ne_copy {
     ($t:ident) => {
@@ -716,13 +821,13 @@ where
     }
 }
 
-impl<'a, T> ToDisplayNE<'a> for NESlice<'a, T>
+impl<'a, T> ToDisplayNE<'a> for NESlice<T>
 where
     for<'b> T: ToDisplayNE<'b> + 'a,
 {
-    type NE = NESlice<'a, ToNE<T>>;
+    type NE = &'a NESlice<ToNE<T>>;
     fn to_ne(&'a self) -> Self::NE {
-        ToNE::on_inner_slice(self.by_ref())
+        ToNE::on_inner_slice(self)
     }
 }
 
@@ -730,42 +835,45 @@ impl<'a, T> ToDisplayNE<'a> for NEVec<T>
 where
     for<'b> T: ToDisplayNE<'b> + 'a,
 {
-    type NE = NESlice<'a, ToNE<T>>;
+    type NE = &'a NESlice<ToNE<T>>;
     fn to_ne(&'a self) -> Self::NE {
-        ToNE::on_inner_slice(self.as_nonempty_slice())
+        ToNE::on_inner_slice(self.as_ne_slice())
     }
 }
 
 impl<'a, T> ToDisplayNE<'a> for NEDelim<NEVec<T>>
 where
     for<'b> T: ToDisplayNE<'b> + 'a,
+    for<'b> <T as ToDisplayNE<'b>>::NE: Sized,
 {
-    type NE = NEDelim<NESlice<'a, ToNE<T>>>;
+    type NE = NEDelim<&'a NESlice<ToNE<T>>>;
     fn to_ne(&'a self) -> Self::NE {
-        let xs = ToNE::on_inner_slice(self.inner.as_nonempty_slice());
+        let xs = ToNE::on_inner_slice(self.inner.as_ne_slice());
         NEDelim::new(self.delim, xs)
     }
 }
 
 impl<'a, T, const LEN: usize> ToDisplayNE<'a> for NEDelim<[T; LEN]>
 where
-    [T; LEN]: NonEmptyArrayExt<T>,
+    [T; LEN]: NEArrayExt<T>,
     for<'b> T: ToDisplayNE<'b> + 'a,
+    for<'b> <T as ToDisplayNE<'b>>::NE: Sized,
 {
-    type NE = NEDelim<NESlice<'a, ToNE<T>>>;
+    type NE = NEDelim<&'a NESlice<ToNE<T>>>;
     fn to_ne(&'a self) -> Self::NE {
-        let xs = ToNE::on_inner_slice(self.inner.as_nonempty_slice());
+        let xs = ToNE::on_inner_slice(self.inner.as_ne_slice());
         NEDelim::new(self.delim, xs)
     }
 }
 
-impl<'a, T> ToDisplayNE<'a> for NEDelim<NESlice<'a, T>>
+impl<'a, T> ToDisplayNE<'a> for NEDelim<&'a NESlice<T>>
 where
     for<'b> T: ToDisplayNE<'b>,
+    for<'b> <T as ToDisplayNE<'b>>::NE: Sized,
 {
-    type NE = NEDelim<NESlice<'a, ToNE<T>>>;
+    type NE = NEDelim<&'a NESlice<ToNE<T>>>;
     fn to_ne(&'a self) -> Self::NE {
-        let xs = ToNE::on_inner_slice(self.inner.by_ref());
+        let xs = ToNE::on_inner_slice(self.inner);
         NEDelim::new(self.delim, xs)
     }
 }
@@ -780,6 +888,7 @@ impl<'a> ToDisplayNE<'a> for NEString {
 impl<T> DisplayNEInner for ToNE<T>
 where
     for<'a> T: ToDisplayNE<'a>,
+    for<'b> <T as ToDisplayNE<'b>>::NE: Sized,
 {
     fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
         self.0.to_ne().fmt_ne_inner(f)
@@ -789,13 +898,14 @@ where
 impl<T> DisplayNEInner for Box<T>
 where
     for<'b> T: ToDisplayNE<'b>,
+    for<'b> <T as ToDisplayNE<'b>>::NE: Sized,
 {
     fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
         self.as_ref().to_ne().fmt_ne_inner(f)
     }
 }
 
-impl<T: DisplayNE> DisplayNEInner for &T {
+impl<T: DisplayNE + ?Sized> DisplayNEInner for &T {
     fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
         T::fmt_ne_inner(self, f)
     }
@@ -868,7 +978,7 @@ impl<A: DisplayNE, B: DisplayNE> DisplayNEInner for NEAlt<A, B> {
     }
 }
 
-impl<T: DisplayNE> DisplayNEInner for NESlice<'_, T> {
+impl<T: DisplayNE> DisplayNEInner for NESlice<T> {
     fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
         for x in self {
             x.fmt_ne_inner(f)?;
@@ -877,7 +987,7 @@ impl<T: DisplayNE> DisplayNEInner for NESlice<'_, T> {
     }
 }
 
-impl<T: DisplayNE> DisplayNEInner for NEDelim<NESlice<'_, T>> {
+impl<T: DisplayNE> DisplayNEInner for NEDelim<&NESlice<T>> {
     fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
         let c = self.delim;
         let (x0, xs) = self.inner.nonempty_iter().next();
@@ -892,23 +1002,23 @@ impl<T: DisplayNE> DisplayNEInner for NEDelim<NESlice<'_, T>> {
 
 impl<T: DisplayNE> DisplayNEInner for NEVec<T> {
     fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        self.as_nonempty_slice().fmt_ne_inner(f)
+        self.as_ne_slice().fmt_ne_inner(f)
     }
 }
 
 impl<T, const LEN: usize> DisplayNEInner for NEDelim<[T; LEN]>
 where
-    [T; LEN]: NonEmptyArrayExt<T>,
+    [T; LEN]: NEArrayExt<T>,
     T: DisplayNE,
 {
     fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        NEDelim::new(self.delim, self.inner.as_nonempty_slice()).fmt_ne_inner(f)
+        NEDelim::new(self.delim, self.inner.as_ne_slice()).fmt_ne_inner(f)
     }
 }
 
 impl<T: DisplayNE> DisplayNEInner for NEDelim<NEVec<T>> {
     fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        NEDelim::new(self.delim, self.inner.as_nonempty_slice()).fmt_ne_inner(f)
+        NEDelim::new(self.delim, self.inner.as_ne_slice()).fmt_ne_inner(f)
     }
 }
 

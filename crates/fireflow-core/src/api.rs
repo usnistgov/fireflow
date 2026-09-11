@@ -33,8 +33,7 @@ use crate::segment::read::{
     SupplementalTextOffsets, TEXTOffsets, TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
 };
 use crate::text::keywords::{
-    AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, LookupNextdataError, Nextdata,
-    ReadNextdataError, Tot,
+    AlphaNumType, Beginstext, Endstext, LookupNextdataError, Nextdata, ReadNextdataError, Tot,
 };
 use crate::text::lookup::ReqValue as _;
 use crate::validated::dataframe::PrimitiveDataFrame;
@@ -59,7 +58,7 @@ use fireflow_types::{
         WriteMultiConfig,
     },
     keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2},
-    nonempty_string::NESliceExt as _,
+    nonempty_string::{NESlice, NEVecExt as _},
     segment::{OffsetsFromTEXT, SupplementalTextSegmentId},
     std_key::{RootKey, StdKey, ToStd as _},
 };
@@ -70,7 +69,7 @@ use derive_more::{Display, From};
 use derive_new::new;
 use hashbrown::HashMap;
 use itertools::Itertools as _;
-use nonempty_collections::{IntoIteratorExt as _, NESlice, NEVec, NonEmptyIterator as _};
+use nonempty_collections::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 use thiserror::Error;
 
 use std::{
@@ -1817,7 +1816,7 @@ impl FlatTEXTOutput {
         let ptext_bytes = io_to_log!(ne_ptext_offsets.h_read_contents(h));
         let penc = conf.use_encoding.choose(ptext_bytes.as_ref());
 
-        let ptext_ne_slice = ptext_bytes.as_nonempty_slice();
+        let ptext_ne_slice = ptext_bytes.as_ne_slice();
         let delim_res = split_first_delim(&ptext_ne_slice, conf)
             .map_errors(ParseFlatTEXTError::from)
             .map_commutative_warnings(ParseFlatTEXTWarning::from)
@@ -1998,8 +1997,8 @@ impl SplitTEXTDiagnostics {
     > {
         let bytes = io_to_log!(offsets.h_read_contents(h));
         let enc = conf.use_encoding.choose(bytes.as_ref());
-        let ne = bytes.as_nonempty_slice();
-        Self::supp_from_bytes(kws, delim, &ne, enc, conf)
+        let ne = bytes.as_ne_slice();
+        Self::supp_from_bytes(kws, delim, ne, enc, conf)
             .group()
             .map_error(IOErrorGroup::Pure)
     }
@@ -2013,7 +2012,7 @@ impl SplitTEXTDiagnostics {
     ) -> WarningsAndErrorsResult<(ParsedKeywords, Self), (), ParseKeywordsIssue, ParseKeywordsIssue>
     {
         let raw_tokens = Self::split_bytes(delim, bytes);
-        let raw_slice = raw_tokens.as_nonempty_slice();
+        let raw_slice = raw_tokens.as_ne_slice();
         // We are about to insert a massive amount of data into two hash tables,
         // so make a guess as to how big they need to be to avoid reallocation.
         //
@@ -2047,7 +2046,7 @@ impl SplitTEXTDiagnostics {
     fn supp_from_bytes(
         kws: &mut ParsedKeywords,
         delim: u8,
-        bytes: &NESlice<'_, u8>,
+        bytes: &NESlice<u8>,
         enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<
@@ -2059,7 +2058,7 @@ impl SplitTEXTDiagnostics {
         let (b0, bs) = bytes.split_first();
         let flag = conf.allow_supp_text_own_delim;
         let raw_tokens = Self::split_bytes(*b0, bs);
-        let raw_slice = raw_tokens.as_nonempty_slice();
+        let raw_slice = raw_tokens.as_ne_slice();
         Self::from_bytes_inner(kws, *b0, &raw_slice, TEXTKind::Supplemental, enc, conf)
             .map_warnings_and_errors(ParseSupplementalTEXTError::from)
             .eval_warning_or_error3(
@@ -2085,8 +2084,8 @@ impl SplitTEXTDiagnostics {
     /// even. The 'perfect' case (ie standards compliant FCS file) is `None` and
     /// `true` for the odd slice and boolean. All combinations are possible.
     fn trim_tokens_end<'a, 'b>(
-        raw_tokens: &'b NESlice<'_, &'a [u8]>,
-    ) -> (&'b [&'a [u8]], Option<NESlice<'a, u8>>, bool) {
+        raw_tokens: &'b NESlice<&'a [u8]>,
+    ) -> (&'b [&'a [u8]], Option<&'a NESlice<u8>>, bool) {
         let has_even_tokens = raw_tokens.len().get() & 1 == 1;
         let (&last, rest) = raw_tokens.split_last();
         let mut extra_token = None;
@@ -2135,7 +2134,7 @@ impl SplitTEXTDiagnostics {
     fn from_bytes_inner(
         kws: &mut ParsedKeywords,
         delim: u8,
-        raw_tokens: &NESlice<'_, &'_ [u8]>,
+        raw_tokens: &NESlice<&'_ [u8]>,
         tk: TEXTKind,
         enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
@@ -2152,7 +2151,7 @@ impl SplitTEXTDiagnostics {
     fn insert_unescaped(
         kws: &mut ParsedKeywords,
         delim: u8,
-        segs: &NESlice<'_, &[u8]>,
+        segs: &NESlice<&[u8]>,
         tk: TEXTKind,
         enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
@@ -2237,7 +2236,7 @@ impl SplitTEXTDiagnostics {
     fn insert_escaped(
         kws: &mut ParsedKeywords,
         delim: u8,
-        segs: &NESlice<'_, &[u8]>,
+        segs: &NESlice<&[u8]>,
         tk: TEXTKind,
         enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
@@ -2318,7 +2317,7 @@ impl SplitTEXTDiagnostics {
                         out.tokens_with_boundary_delims.push(seg);
                     }
                     if let Some(ne_val) = NESlice::try_from_slice(&valbuf[..]) {
-                        push_pair(kws, &keybuf.as_nonempty_slice(), &ne_val);
+                        push_pair(kws, keybuf.as_ne_slice(), &ne_val);
                         valbuf.clear();
                         keybuf = ne_token.to_ne_vec();
                     } else {
@@ -2349,12 +2348,12 @@ impl SplitTEXTDiagnostics {
         let last_odd_err = if let Some(ne_val) = NESlice::try_from_slice(&valbuf[..]) {
             // both key and value are present, this is the last pair in
             // TEXT so push to the end of keywords
-            push_pair(kws, &keybuf.as_nonempty_slice(), &ne_val);
+            push_pair(kws, keybuf.as_ne_slice(), &ne_val);
             None
         } else {
             // Only key is present which means we have an odd number of
             // tokens. Scream at user so they will be enlightened.
-            let last = NEStringOrBytes::from(keybuf.as_nonempty_slice());
+            let last = NEStringOrBytes::from(keybuf.as_ne_slice());
             let e = UnevenTokensError::new(tk, last.clone()).into();
             out.last_odd_token = last.into();
             Some(e)
@@ -2364,7 +2363,7 @@ impl SplitTEXTDiagnostics {
         // the last token ended with a string of escaped delimiters which was
         // not captured at the end of the loop.
         if consec_blanks > 1 && consec_blanks & 1 == 1 {
-            let seg = NESlice::try_from_slice(&valbuf[..]).unwrap_or(keybuf.as_nonempty_slice());
+            let seg = NESlice::try_from_slice(&valbuf[..]).unwrap_or(keybuf.as_ne_slice());
             out.tokens_with_boundary_delims
                 .push(NEStringOrBytes::from(seg));
         }
@@ -2393,7 +2392,7 @@ impl SplitTEXTDiagnostics {
 }
 
 impl GuessedEscapeMode {
-    fn is_escaped(segs: &NESlice<'_, &[u8]>, mode: DelimEscapeMode) -> bool {
+    fn is_escaped(segs: &NESlice<&[u8]>, mode: DelimEscapeMode) -> bool {
         let go = |default| match Self::test_both_modes(segs) {
             Self::Escaped => true,
             Self::Unescaped => false,
@@ -2410,14 +2409,14 @@ impl GuessedEscapeMode {
         }
     }
 
-    fn has_any_empty(raw_tokens: &NESlice<'_, &[u8]>) -> bool {
+    fn has_any_empty(raw_tokens: &NESlice<&[u8]>) -> bool {
         // Only consider the first even number of tokens since both modes should
         // deal with extra crap at the end in the same way
         let (segs, _, _) = SplitTEXTDiagnostics::trim_tokens_end(raw_tokens);
         segs.iter().any(|s| s.is_empty())
     }
 
-    fn test_both_modes(raw_tokens: &NESlice<'_, &[u8]>) -> Self {
+    fn test_both_modes(raw_tokens: &NESlice<&[u8]>) -> Self {
         // Only consider the first even number of tokens since both modes
         // should deal with extra crap at the end in the same way
         let (segs, _, _) = SplitTEXTDiagnostics::trim_tokens_end(raw_tokens);
@@ -2861,7 +2860,7 @@ where
 }
 
 fn split_first_delim<'a>(
-    bytes: &'a NESlice<'_, u8>,
+    bytes: &'a NESlice<u8>,
     conf: &ReadHeaderAndTEXTConfig,
 ) -> WarningAndErrorResult<(u8, &'a [u8]), (), DelimCharError, DelimCharError> {
     let (delim, rest) = bytes.split_first();

@@ -5,15 +5,14 @@ use crate::{
     keywords::{Version, VersionMembership},
     ne_str,
     nonempty_string::{
-        DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESliceExt as _, NEStr,
-        ToDisplayNE, ToNE,
+        DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESlice, NEStr, ToDisplayNE,
+        ToNE,
     },
 };
 
 use bytemuck::{NoUninit, must_cast_ref};
 use derive_more::{AsRef, Display, From, TryInto};
 use derive_new::new;
-use nonempty_collections::NESlice;
 use strum::{EnumCount, VariantArray};
 use strum_macros::{EnumCount as EnumCount_, VariantArray};
 use thiserror::Error;
@@ -617,7 +616,7 @@ impl From<RootKey> for &'static NEStr {
 
 impl RealOrPseudoStdKey {
     #[must_use]
-    pub fn from_bytes_maybe(bytes: &NESlice<'_, u8>) -> Option<Self> {
+    pub fn from_bytes_maybe(bytes: &NESlice<u8>) -> Option<Self> {
         is_printable_ascii(bytes.as_ref()).then(|| {
             // SAFETY: we checked that bytes are ASCII
             unsafe { Self::from_ascii_bytes(bytes) }
@@ -629,7 +628,7 @@ impl RealOrPseudoStdKey {
     /// # Safety
     ///
     /// The caller must check that the bytes are printable ASCII (32-126).
-    unsafe fn from_ascii_bytes(bytes: &NESlice<'_, u8>) -> Self {
+    unsafe fn from_ascii_bytes(bytes: &NESlice<u8>) -> Self {
         let (b0, bs) = bytes.split_first();
         match b0.to_ascii_uppercase() {
             // Try to match $Pn*, $PKn, or $PKNn first based on the first letter
@@ -659,8 +658,8 @@ impl RealOrPseudoStdKey {
                         unsafe { Self::from_ascii_bytes_nonparam(bytes) }
                     }
                 } else if let Some((i, rest)) = split_index_and_suffix(bs)
-                    && let Some(mid) = NESlice::try_from_slice(rest)
-                        .and_then(|suffix| MeasKeyId::from_suffix(&suffix))
+                    && let Some(mid) =
+                        NESlice::try_from_slice(rest).and_then(|suffix| MeasKeyId::from_suffix(&suffix))
                 {
                     // $Pn*
                     let k = MeasKey::new(i.into(), mid);
@@ -710,7 +709,7 @@ impl RealOrPseudoStdKey {
     /// # Safety
     ///
     /// The caller must check that the bytes are printable ASCII (32-126)
-    unsafe fn from_ascii_bytes_nonparam(bytes: &NESlice<'_, u8>) -> Self {
+    unsafe fn from_ascii_bytes_nonparam(bytes: &NESlice<u8>) -> Self {
         if let Some(rk) = RootKey::from_bytes(bytes.as_ref()) {
             Self::Real(StdKey::Root(rk))
         } else if let Some(csv) = CsvFlagKey::from_bytes(bytes.as_ref()) {
@@ -989,7 +988,7 @@ impl MeasKeyId {
         }
     }
 
-    fn from_suffix(bytes: &NESlice<'_, u8>) -> Option<Self> {
+    fn from_suffix(bytes: &NESlice<u8>) -> Option<Self> {
         let sn = bytes.len().get();
         match sn {
             1 => {

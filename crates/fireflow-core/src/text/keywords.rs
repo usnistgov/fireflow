@@ -7,7 +7,7 @@ use crate::segment::read::{IsOffsetPair as _, PrimaryTextOffsets};
 use crate::std_index::tx::{KeywordAction, StdIndexTx};
 use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
-use crate::text::keyword_enum::{AsStdKeywordPair as _, OptRootKeyword, SplitKeyword_};
+use crate::text::keyword_enum::SplitKeyword_;
 use crate::text::lookup::{
     Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, OptKeyError, OptValue as _,
     ParseKeyError, ReqKeyError, ReqKeyErrorInner, ReqValue as _, Trimmed, impl_from_str_with_delim,
@@ -26,10 +26,7 @@ use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
 use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
-use crate::validated::keys::{
-    DollarKey, NonStdKeywordsExt as _, StdKeywords, StdOptKeyword, TruncatedNEString,
-    ValidKeywords, ValueToStdKey,
-};
+use crate::validated::keys::{DollarKey, StdKeywords, TruncatedNEString, ValueToStdKey};
 use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
 use crate::validated::unaligned::{U24, U40, U48, U56};
@@ -45,8 +42,8 @@ use fireflow_types::{
     index::{BiMeasIndex, GateIndex, IndexFromOne, MeasIndex, RegionIndex, SubsetIndex},
     keywords::{MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version},
     nonempty_string::{
-        DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NESliceExt as _, NEStr,
-        NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
+        DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NESlice, NEStr,
+        NEString, NEVecExt as _, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
     },
     ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError},
     std_key::{
@@ -67,7 +64,7 @@ use hashbrown::HashMap;
 use itertools::Itertools as _;
 use ndarray::Array2;
 use nonempty_collections::{
-    IntoIteratorExt as _, IntoNonEmptyIterator as _, NEMap, NESlice, NEVec, NonEmptyArrayExt as _,
+    IntoIteratorExt as _, IntoNonEmptyIterator as _, NEMap, NEVec, NonEmptyArrayExt as _,
     NonEmptyIterator as _, iter::once,
 };
 use num_traits::{Bounded, One as _, ToPrimitive as _, Zero as _};
@@ -1256,12 +1253,12 @@ impl From<Wavelength> for Wavelengths {
 pub struct Wavelengths(pub Vec<PositiveFloat>);
 
 #[derive(Clone)]
-pub struct NEWavelengths<'a>(pub(crate) NESlice<'a, PositiveFloat>);
+pub struct NEWavelengths<'a>(pub(crate) &'a NESlice<PositiveFloat>);
 
 impl<'a> ToDisplayNE<'a> for NEWavelengths<'_> {
-    type NE = NEDelim<NESlice<'a, ToNE<PositiveFloat>>>;
+    type NE = NEDelim<&'a NESlice<ToNE<PositiveFloat>>>;
     fn to_ne(&'a self) -> Self::NE {
-        let xs = ToNE::on_inner_slice(self.0.by_ref());
+        let xs = ToNE::on_inner_slice(self.0);
         NEDelim::new(',', xs)
     }
 }
@@ -1694,7 +1691,7 @@ pub struct Unicode {
 }
 
 impl<'a> ToDisplayNE<'a> for Unicode {
-    type NE = NEAlt<u32, NEConcat3<u32, char, NEDelim<NESlice<'a, NEString>>>>;
+    type NE = NEAlt<u32, NEConcat3<u32, char, NEDelim<&'a NESlice<NEString>>>>;
     fn to_ne(&'a self) -> Self::NE {
         if let Some(kws) = NESlice::try_from_slice(&self.kws[..]) {
             NEAlt::Right(NEConcat::new(self.page, ',').append(NEDelim::new(',', kws)))
@@ -2084,12 +2081,12 @@ pub enum RegionWindow {
 }
 
 impl<'a> ToDisplayNE<'a> for RegionWindow {
-    type NE = NEAlt<ToNE<&'a UniGate>, NEDelim<NESlice<'a, ToNE<Vertex>>>>;
+    type NE = NEAlt<ToNE<&'a UniGate>, NEDelim<&'a NESlice<ToNE<Vertex>>>>;
     fn to_ne(&'a self) -> Self::NE {
         match self {
             Self::Univariate(x) => NEAlt::Left(ToNE(x)),
             Self::Bivariate(x) => {
-                let xs = ToNE::on_inner_slice(x.as_nonempty_slice());
+                let xs = ToNE::on_inner_slice(x.as_ne_slice());
                 NEAlt::Right(NEDelim::new(';', xs))
             }
         }
@@ -2103,18 +2100,15 @@ impl<'a> ToDisplayNE<'a> for RegionWindow {
 #[derive(Clone)]
 pub enum RegionWindowRef<'a> {
     Univariate(&'a UniGate),
-    Bivariate(NESlice<'a, Vertex>),
+    Bivariate(&'a NESlice<Vertex>),
 }
 
 impl<'a> ToDisplayNE<'a> for RegionWindowRef<'_> {
-    type NE = NEAlt<ToNE<&'a UniGate>, NESlice<'a, ToNE<Vertex>>>;
+    type NE = NEAlt<ToNE<&'a UniGate>, &'a NESlice<ToNE<Vertex>>>;
     fn to_ne(&'a self) -> Self::NE {
         match self {
             Self::Univariate(x) => NEAlt::Left(ToNE(x)),
-            Self::Bivariate(x) => {
-                let xs = ToNE::on_inner_slice(x.by_ref());
-                NEAlt::Right(xs)
-            }
+            Self::Bivariate(x) => NEAlt::Right(ToNE::on_inner_slice(x)),
         }
     }
 }

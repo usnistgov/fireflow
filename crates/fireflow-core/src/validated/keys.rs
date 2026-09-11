@@ -1,9 +1,7 @@
 use crate::api::{FlatTEXTDiagnostics, HeaderAndSuppOffsets, SplitTEXTDiagnostics};
 use crate::config::EvaledReadDataKeywordsConfig;
 use crate::fixed_vec::OneOrTwo;
-use crate::logging::{
-    DeferredWarningsAndErrors, LogResult, WarningAndErrorResult, WarningsAndErrorsResult,
-};
+use crate::logging::{DeferredWarningsAndErrors, LogResult, WarningAndErrorResult};
 use crate::nonempty::FcsNEVec;
 use crate::segment::read::HeaderOffsetsOverflow;
 use crate::text::keyword_enum::{
@@ -13,15 +11,13 @@ use crate::text::keyword_enum::{
 use fireflow_types::{
     case_ins_regex::CaseInsRegex,
     config::{
-        DummyTriFlag, Encoding, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,
-        ReadHeaderAndTEXTConfig, TemporalHasOpticalKeyError, TriErrorFlag as _,
+        DummyTriFlag, Encoding, ReadHeaderAndTEXTConfig, TriErrorFlag as _, TrimValueWhitespace,
     },
     index::{BiMeasIndex, MeasIndex},
     keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns, NEAsciiStringError},
     ne_str,
     nonempty_string::{
-        NEAlt, NEConcat, NESliceExt as _, NEStr, NEString, ToDisplayNE, ToNE,
-        ambassador_impl_ToDisplayNE,
+        NEAlt, NEConcat, NESlice, NEStr, NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
     },
     std_key::{PseudoStdKey, RealOrPseudoStdKey, STD_PREFIX, StdKey, ToStd},
     sub_pattern::SubPattern,
@@ -36,7 +32,7 @@ use hashbrown::hash_map::Entry;
 use itertools::Itertools as _;
 use nonempty_collections::nev;
 use nonempty_collections::{
-    IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec, iter::NonEmptyIterator as _,
+    IntoIteratorExt as _, IntoNonEmptyIterator as _, NEVec, iter::NonEmptyIterator as _,
 };
 use thiserror::Error;
 
@@ -273,14 +269,8 @@ impl From<NEStringOrBytes> for StringOrBytes {
     }
 }
 
-impl<'a> From<NESlice<'a, u8>> for NEStringOrBytes {
-    fn from(value: NESlice<'a, u8>) -> Self {
-        Self::from(&value)
-    }
-}
-
-impl<'a> From<&NESlice<'a, u8>> for NEStringOrBytes {
-    fn from(value: &NESlice<'a, u8>) -> Self {
+impl<'a> From<&'a NESlice<u8>> for NEStringOrBytes {
+    fn from(value: &'a NESlice<u8>) -> Self {
         Self::from(value.to_ne_vec())
     }
 }
@@ -316,14 +306,8 @@ impl From<TruncatedNEBytes> for TruncatedBytes {
     }
 }
 
-impl<'a> From<NESlice<'a, u8>> for TruncatedNEBytes {
-    fn from(value: NESlice<'a, u8>) -> Self {
-        Self::from(&value)
-    }
-}
-
-impl<'a> From<&NESlice<'a, u8>> for TruncatedNEBytes {
-    fn from(value: &NESlice<'a, u8>) -> Self {
+impl<'a> From<&'a NESlice<u8>> for TruncatedNEBytes {
+    fn from(value: &'a NESlice<u8>) -> Self {
         Self::from(value.to_ne_vec())
     }
 }
@@ -1055,6 +1039,55 @@ struct ParsedNonStdKey<'a> {
     is_pseudo: bool,
 }
 
+enum ParsedValue<'a> {
+    Utf8(&'a NEStr, bool),
+    Latin1(&'a NESlice<u8>, bool),
+    Bytes(NEVec<u8>, bool),
+    Empty(DummyTriFlag),
+}
+
+impl<'a> ParsedValue<'a> {
+    fn from_bytes(bytes: &'a NESlice<u8>, flag: TrimValueWhitespace, encoding: Encoding) -> Self {
+        let triflag = DummyTriFlag::from_trim_value_whitespace(flag);
+        match encoding {
+            Encoding::Single => {
+                if let Some(tf) = triflag {
+                    if let Some(ne) = NESlice::try_from_slice(bytes.trim_latin1()) {
+                        let was_trimmed = bytes.len() < ne.len();
+                        if let Ok(v) = NEStr::from_utf8(&ne) {
+                            Self::Utf8(v, was_trimmed)
+                        } else {
+                            Self::Bytes(ne.to_ne_vec(), was_trimmed)
+                        }
+                    } else {
+                        Self::Empty(tf)
+                    }
+                } else if let Ok(v) = NEStr::from_utf8(bytes) {
+                    Self::Utf8(v, false)
+                } else {
+                    Self::Latin1(bytes, false)
+                }
+            }
+            Encoding::Utf8 => {
+                if let Ok(v) = NEStr::from_utf8(bytes) {
+                    if let Some(tf) = triflag {
+                        if let Some(trimmed) = NEStr::try_new(v.trim_ascii()) {
+                            let was_trimmed = trimmed.len() < v.len();
+                            Self::Utf8(trimmed, was_trimmed)
+                        } else {
+                            Self::Empty(tf)
+                        }
+                    } else {
+                        Self::Utf8(v, false)
+                    }
+                } else {
+                    Self::Bytes(bytes.to_ne_vec(), false)
+                }
+            }
+        }
+    }
+}
+
 impl<'a> KeyValueResult0<'a> {
     pub(crate) fn from_pair(
         key: &NESlice<u8>,
@@ -1062,65 +1095,16 @@ impl<'a> KeyValueResult0<'a> {
         encoding: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> Self {
-        enum TrimResult<'a> {
-            Utf8(&'a NEStr, bool),
-            Bytes(NEVec<u8>, bool),
-            Empty(DummyTriFlag),
-        }
-
-        let parse_value = || {
-            let flag = conf.trim_value_whitespace;
-            let triflag = DummyTriFlag::from_trim_value_whitespace(flag);
-            match encoding {
-                Encoding::Single => {
-                    if let Some(tf) = triflag {
-                        if let Some(ne) = NESlice::try_from_slice(val.trim_latin1()) {
-                            let was_trimmed = val.len() < ne.len();
-                            if let Ok(v) = NEStr::from_utf8(&ne) {
-                                TrimResult::Utf8(v, was_trimmed)
-                            } else {
-                                TrimResult::Bytes(ne.to_ne_vec(), was_trimmed)
-                            }
-                        } else {
-                            TrimResult::Empty(tf)
-                        }
-                    } else {
-                        if let Ok(v) = NEStr::from_utf8(val) {
-                            TrimResult::Utf8(v, false)
-                        } else {
-                            TrimResult::Bytes(val.to_ne_vec(), false)
-                        }
-                    }
-                }
-                Encoding::Utf8 => {
-                    if let Ok(vv) = NEStr::from_utf8(val) {
-                        if let Some(tf) = triflag {
-                            if let Some(trimmed) = NEStr::try_new(vv.trim_ascii()) {
-                                let was_trimmed = trimmed.len() < vv.len();
-                                TrimResult::Utf8(trimmed, was_trimmed)
-                            } else {
-                                TrimResult::Empty(tf)
-                            }
-                        } else {
-                            TrimResult::Utf8(vv, false)
-                        }
-                    } else {
-                        TrimResult::Bytes(val.to_ne_vec(), false)
-                    }
-                }
-            }
-        };
-
         match ParsedKeyOrBytes::from_bytes(key, encoding) {
             ParsedKeyOrBytes::Key(k) => match k {
                 ParsedKey::Std(sk) => {
                     // Standard key: starts with '$'
                     if let Some(trim_res) = parse_value() {
                         match trim_res {
-                            TrimResult::Empty(flag) => {
+                            ParsedValue::Empty(flag) => {
                                 Self::KeyWithEmptyValue(AnyKey::Std(k).into(), flag)
                             }
-                            TrimResult::Trimmed(value, was_trimmed) => {
+                            ParsedValue::Trimmed(value, was_trimmed) => {
                                 Self::NonEmpty(k.into(), value, was_trimmed)
                             }
                         }
@@ -1132,8 +1116,8 @@ impl<'a> KeyValueResult0<'a> {
                     // Non-standard key: does not start with '$' and is ASCII
                     if let Some(trim_res) = parse_value() {
                         match trim_res {
-                            TrimResult::Empty(flag) => Self::Empty(AnyKey::NonStd(k).into(), flag),
-                            TrimResult::Trimmed(value, was_trimmed) => {
+                            ParsedValue::Empty(flag) => Self::Empty(AnyKey::NonStd(k).into(), flag),
+                            ParsedValue::Trimmed(value, was_trimmed) => {
                                 Self::NonEmpty(k.into(), value, was_trimmed)
                             }
                         }
@@ -1147,8 +1131,8 @@ impl<'a> KeyValueResult0<'a> {
                 // let kbytes = TruncatedNEBytes::from(key);
                 if let Some(trim_res) = parse_value() {
                     match trim_res {
-                        TrimResult::Empty(flag) => Self::KeyEmpty(KeyOrBytes::from(kbytes), flag),
-                        TrimResult::Trimmed(value, was_trimmed) => {
+                        ParsedValue::Empty(flag) => Self::KeyEmpty(KeyOrBytes::from(kbytes), flag),
+                        ParsedValue::Trimmed(value, was_trimmed) => {
                             let tv = value.into_owned().into();
                             Self::NonAsciiKey(kbytes, tv, was_trimmed)
                         }
@@ -1158,52 +1142,6 @@ impl<'a> KeyValueResult0<'a> {
                 }
             }
         }
-
-        // match kv_res {
-        //     KeyValueResult::NonEmpty(k, v, was_trimmed) => {
-        //         if was_trimmed {
-        //             let vo = TruncatedNEString(v.clone().into_owned());
-        //             let pair = (k.clone().into(), vo);
-        //             self.diag.keys_with_trimmed_values.push(pair);
-        //         }
-        //         let vo = v.into_owned();
-        //         match k {
-        //             AnyKey::Std(k) => {
-        //                 match k {
-        //                     RealOrPseudoStdKey::Pseudo(p) => {
-        //                         self.insert_nonunique_pstd(p, vo, conf);
-        //                     }
-        //                     RealOrPseudoStdKey::Real(p) => {
-        //                         self.insert_nonunique_std(p, vo, conf);
-        //                     }
-        //                 }
-        //                 None
-        //             }
-        //             AnyKey::NonStd(k) => self.insert_nonunique_nonstd(k, vo, conf),
-        //         }
-        //     }
-        //     KeyValueResult::Empty(k, flag) => {
-        //         self.diag.keys_with_empty_trimmed_values.push(k.clone());
-        //         let e = KeywordInsertError::from(BlankValueError(k));
-        //         flag.is_error().map(|is_err| (e, is_err))
-        //     }
-        //     KeyValueResult::NonAsciiKey(k, v, was_trimmed) => {
-        //         if was_trimmed {
-        //             let pair = (k.clone().into(), v.clone());
-        //             self.diag.keys_with_trimmed_values.push(pair);
-        //         }
-        //         self.diag.values_with_non_ascii_keys.push((k, v));
-        //         None
-        //     }
-        //     KeyValueResult::NonUtf8Value(k, v) => {
-        //         self.diag.keys_with_non_utf8_values.push((k, v));
-        //         None
-        //     }
-        //     KeyValueResult::BothInvalid(k, v) => {
-        //         self.diag.byte_pairs.push((k, v));
-        //         None
-        //     }
-        // }
     }
 }
 

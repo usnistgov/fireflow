@@ -43,8 +43,8 @@ use crate::validated::header_offsets::{
 };
 use crate::validated::keys::{
     InvalidKeywordCharsError, KeyOrBytes, KeywordInsertError, NEStringOrBytes, NonStdKey,
-    ParsedKeywords, ParsedKeywordsDiagnostic, RepairDiagnostics, StdKeywords, StringOrBytes,
-    TruncatedNEString, ValidKeywords, ValueToStdKey as _,
+    ParsedKeyword, ParsedKeywords, ParsedKeywordsDiagnostic, RepairDiagnostics, StdKeywords,
+    StringOrBytes, TruncatedNEString, ValidKeywords, ValueToStdKey as _,
 };
 use crate::validated::read_state::{
     DatasetLen, DatasetOffset, DatasetOffsetError, FileLen, HeaderReadState, TEXTReadState,
@@ -2077,59 +2077,6 @@ impl SplitTEXTDiagnostics {
             .collect()
     }
 
-    /// Maybe trim end off slice of tokens so that the length is even.
-    ///
-    /// Return final slice, the last odd non-empty slice if it was taken off,
-    /// and a boolean that will be `true` if the number of tokens started as
-    /// even. The 'perfect' case (ie standards compliant FCS file) is `None` and
-    /// `true` for the odd slice and boolean. All combinations are possible.
-    fn trim_tokens_end<'a, 'b>(
-        raw_tokens: &'b NESlice<&'a [u8]>,
-    ) -> (&'b [&'a [u8]], Option<&'a NESlice<u8>>, bool) {
-        let has_even_tokens = raw_tokens.len().get() & 1 == 1;
-        let (&last, rest) = raw_tokens.split_last();
-        let mut extra_token = None;
-        let even_tokens = match (has_even_tokens, NESlice::try_from_slice(last)) {
-            // Delimiter number is odd and last token is empty. This should
-            // happen in a perfect situation since the final token should be
-            // empty if TEXT ends with a delimiter, and the total number of
-            // delimiters should be odd (which means the number of tokens is
-            // even). This second part is true regardless of escaping.
-            //
-            // Return all but last empty token as it is a blank.
-            (true, None) => rest,
-            // Delimiter number is odd but last token is not empty. This means
-            // there is an extra token at the end without a delimiter. Usually
-            // this 'token' is whitespace padding.
-            (true, extra) => {
-                extra_token = extra;
-                rest
-            }
-            // Delimiter number is even but last token is empty. This means
-            // TEXT ended with a delimiter but the number of tokens is odd.
-            // The last odd token may be blank, in which case TEXT ended with
-            // two delimiters and the real one is 2nd from the end. This will
-            // remove both since neither are necessary.
-            (false, None) => {
-                let (penultimate_token, segs) = rest.split_last().expect(
-                    "this should never fail because input is non empty and \
-                     and we branch here if length is even",
-                );
-                extra_token = NESlice::try_from_slice(penultimate_token);
-                segs
-            }
-            // Delimiter number is even and last token is not empty. This
-            // means TEXT did not end with a delimiter and the number of tokens
-            // is even.
-            (false, Some(_)) => raw_tokens.as_ref(),
-        };
-        assert!(
-            even_tokens.len() & 1 == 0,
-            "number of tokens should be even"
-        );
-        (even_tokens, extra_token, has_even_tokens)
-    }
-
     /// Read TEXT segment (primary or supp) from bytes.
     fn from_bytes_inner(
         kws: &mut ParsedKeywords,
@@ -2171,7 +2118,7 @@ impl SplitTEXTDiagnostics {
         let mut insert_errs = vec![];
         let mut any_insert_err = false;
 
-        let (pairs, extra_token, has_even_tokens) = Self::trim_tokens_end(segs);
+        let (pairs, extra_token, has_even_tokens) = ParsedKeywords::trim_tokens_end(segs);
 
         out.has_even_delims = !has_even_tokens;
 
@@ -2388,6 +2335,268 @@ impl SplitTEXTDiagnostics {
             .extend_deferred_warnings_or_errors3(even_delim_err, conf.allow_even_delims)
             .extend_deferred_warnings_or_errors3(last_odd_err, conf.allow_odd_tokens)
             .set_ok_value(out)
+    }
+}
+
+#[derive(new)]
+struct ParsedTEXTOutput<'a> {
+    parsed: Vec<ParsedKeyword<'a>>,
+    has_even_delims: bool,
+    extra_leading_delims: usize,
+    tokens_with_boundary_delims: Vec<NEStringOrBytes>,
+    last_odd_token: Vec<u8>,
+}
+
+impl<'a> ParsedTEXTOutput<'a> {
+    fn parse_escaped(
+        delim: u8,
+        segs: &NESlice<&'a [u8]>,
+        enc: Encoding,
+        conf: &ReadHeaderAndTEXTConfig,
+    ) -> Self {
+        let mut extra_leading_delims = 0;
+        let mut tokens_with_boundary_delims = vec![];
+
+        // Estimate necessary capacity for destination vector based on length of
+        // input. If any delimiters are escaped, this will lead to fewer
+        // keywords and this estimate will overshoot.
+        let mut parsed = Vec::with_capacity(segs.len().get() / 2);
+
+        let go = |kb: &NESlice<u8>, vb: &NESlice<u8>| ParsedKeyword::from_pair(kb, vb, enc, conf);
+
+        // The number of blanks which are found in a row
+        let mut consec_blanks = 0_usize;
+
+        // Dynamic buffers to hold tokens with escaped delimiters. This is
+        // necessary because we cannot just copy escaped text as-is; we need to
+        // remove every other delimiter to make it literal, which implies we
+        // need to allocate a new string.
+        let mut keybuf: NEVec<u8>;
+        let mut valbuf: Vec<u8> = vec![];
+
+        let mut it = segs.iter();
+
+        // Prime the loop with the first token which belongs to a key. This
+        // will fail if TEXT is entirely delimiters, in which case there is
+        // nothing more to do.
+        keybuf = if let Some(token0) = it.by_ref().find_map(|token| {
+            let ne = NESlice::try_from_slice(token);
+            if ne.is_none() {
+                extra_leading_delims += 1;
+            }
+            ne
+        }) {
+            token0.to_ne_vec()
+        } else {
+            // No tokens found, which means TEXT is entirely delimiters (which
+            // includes TEXT being just one delim and otherwise empty).
+            return Self::new(vec![], false, segs.len().get(), vec![], vec![]);
+        };
+
+        // Determine if the number of delimiters is even or odd, throw an error
+        // for the former. Remove leading delimiters since we 'pretend' that
+        // TEXT is missing one delimiter if this number is odd (which means the
+        // actual number of leading delims is even since we already counted
+        // the first before running this function).
+        let has_even_delims = (segs.len().get() - extra_leading_delims) & 1 == 0;
+
+        for token in it {
+            if let Some(ne_token) = NESlice::try_from_slice(token) {
+                if consec_blanks & 1 == 0 {
+                    // Previous consecutive delimiter sequence was odd (which
+                    // means the number of blanks is even). This is a token
+                    // boundary, and the last sequence of token can be processed
+                    // as needed.
+                    if consec_blanks > 0 {
+                        // If we have more than one delimiter (more than zero
+                        // blanks) then there are multiple delimiters on the end
+                        // which is not allowed. Scream at user, they will be
+                        // happy and enlightened.
+                        let seg = NEStringOrBytes::from(ne_token.to_ne_vec());
+                        tokens_with_boundary_delims.push(seg);
+                    }
+                    if let Some(ne_val) = NESlice::try_from_slice(&valbuf[..]) {
+                        parsed.push(go(keybuf.as_ne_slice(), &ne_val));
+                        valbuf.clear();
+                        keybuf = ne_token.to_ne_vec();
+                    } else {
+                        valbuf.extend_from_slice(ne_token.as_ref());
+                    }
+                } else {
+                    // Previous consecutive delimiter sequence was even. Push
+                    // this number / 2 followed by the current token fragment
+                    // to the active buffer.
+                    let ds = iter::repeat_n(delim, consec_blanks.div_ceil(2));
+                    if valbuf.is_empty() {
+                        keybuf.extend(ds.chain(ne_token.iter().copied()));
+                    } else {
+                        valbuf.extend(ds.chain(ne_token.iter().copied()));
+                    }
+                }
+                consec_blanks = 0;
+            } else {
+                consec_blanks += 1;
+            }
+        }
+
+        // Unprime the loop since we can only add a key/val pair after
+        // encountering the delimiter boundary after the value token. If there
+        // was an even number of tokens, we will have both a key and value that
+        // can be pushed. If we only have a key, keep this as last odd token.
+        let last_odd_token = if let Some(ne_val) = NESlice::try_from_slice(&valbuf[..]) {
+            // Both key and value are present, this is the last pair in TEXT so
+            // push to the end of keywords
+            parsed.push(go(keybuf.as_ne_slice(), &ne_val));
+            vec![]
+        } else {
+            // Only key is present which means we have an odd number of tokens.
+            keybuf.to_owned().into()
+        };
+
+        // If the number of consecutive blanks was odd and greater than zero,
+        // the last token ended with a string of escaped delimiters which was
+        // not captured at the end of the loop.
+        if consec_blanks > 1 && consec_blanks & 1 == 1 {
+            let seg = NESlice::try_from_slice(&valbuf[..]).unwrap_or(keybuf.as_ne_slice());
+            tokens_with_boundary_delims.push(NEStringOrBytes::from(seg));
+        }
+
+        Self::new(
+            parsed,
+            has_even_delims,
+            extra_leading_delims,
+            tokens_with_boundary_delims,
+            last_odd_token,
+        )
+    }
+
+    fn parse_unescaped(
+        delim: u8,
+        segs: &NESlice<&[u8]>,
+        tk: TEXTKind,
+        enc: Encoding,
+        conf: &ReadHeaderAndTEXTConfig,
+    ) -> Self {
+        let (pairs, extra_token, mut has_even_tokens) = Self::trim_tokens_end(segs);
+
+        let has_even_delims = !has_even_tokens;
+
+        enum Foo<'a> {
+            Keyword(ParsedKeyword<'a>),
+            EmptyKey(NEVec<u8>),
+            EmptyValue(NEVec<u8>),
+            EmptyPair,
+        }
+
+        let parsed: Vec<_> = pairs
+            .iter()
+            .tuples()
+            .map(|(key, value)| {
+                let k = NESlice::try_from_slice(key);
+                let v = NESlice::try_from_slice(value);
+                match (k, v) {
+                    (Some(kk), Some(vv)) => {
+                        Foo::Keyword(ParsedKeyword::from_pair(kk, vv, enc, conf))
+                    }
+                    (Some(kk), None) => Foo::EmptyValue(kk.to_ne_vec()),
+                    (None, Some(vv)) => Foo::EmptyKey(vv.to_ne_vec()),
+                    (None, None) => Foo::EmptyPair,
+                }
+            })
+            .collect();
+
+        let blank_key_errors = out
+            .values_with_blank_keys
+            .iter()
+            .cloned()
+            .map(|k| BlankKeyError::new(tk, k))
+            .map(ParseKeywordsIssue::from);
+
+        let blank_pair_error = NonZeroUsize::new(out.skipped_pairs)
+            .map(|n| BlankPairError::new(tk, n))
+            .map(ParseKeywordsIssue::from);
+
+        let last_odd_token = extra_token
+            .as_ref()
+            .map(|s| s.as_ref().to_vec().into())
+            .unwrap_or_default();
+
+        let last_odd_err = extra_token
+            .map(|t| UnevenTokensError::new(tk, t.to_ne_vec().into()))
+            .map(ParseKeywordsIssue::from);
+
+        let even_delim_err = (!has_even_tokens).then_some(EvenDelimiterError(tk).into());
+
+        // let res = if any_insert_err {
+        //     LogResult::new_from_err_iter(insert_errs, (), ())
+        // } else {
+        //     LogResult::new_ok(()).set_commutative_warnings(insert_errs)
+        // };
+
+        // NOTE blank pair error shares the same flag, which technically is a
+        // bit confusing but this error is so rare it probably won't matter from
+        // ux perspective
+        // res.extend_deferred_warnings_or_errors3(
+        //     blank_key_errors.chain(blank_pair_error),
+        //     conf.allow_empty_keys,
+        // )
+        // .extend_deferred_warnings_or_errors3(even_delim_err, conf.allow_even_delims)
+        // .extend_deferred_warnings_or_errors3(last_odd_err, conf.allow_odd_tokens)
+        // .set_ok_value(out)
+        Self::new(parsed, has_even_delims, 0, vec![], last_odd_token)
+    }
+
+    /// Maybe trim end off slice of tokens so that the length is even.
+    ///
+    /// Return final slice, the last odd non-empty slice if it was taken off,
+    /// and a boolean that will be `true` if the number of tokens started as
+    /// even. The 'perfect' case (ie standards compliant FCS file) is `None` and
+    /// `true` for the odd slice and boolean. All combinations are possible.
+    fn trim_tokens_end<'b>(
+        raw_tokens: &'b NESlice<&'a [u8]>,
+    ) -> (&'b [&'a [u8]], Option<&'a NESlice<u8>>, bool) {
+        let has_even_tokens = raw_tokens.len().get() & 1 == 1;
+        let (&last, rest) = raw_tokens.split_last();
+        let mut extra_token = None;
+        let even_tokens = match (has_even_tokens, NESlice::try_from_slice(last)) {
+            // Delimiter number is odd and last token is empty. This should
+            // happen in a perfect situation since the final token should be
+            // empty if TEXT ends with a delimiter, and the total number of
+            // delimiters should be odd (which means the number of tokens is
+            // even). This second part is true regardless of escaping.
+            //
+            // Return all but last empty token as it is a blank.
+            (true, None) => rest,
+            // Delimiter number is odd but last token is not empty. This means
+            // there is an extra token at the end without a delimiter. Usually
+            // this 'token' is whitespace padding.
+            (true, extra) => {
+                extra_token = extra;
+                rest
+            }
+            // Delimiter number is even but last token is empty. This means
+            // TEXT ended with a delimiter but the number of tokens is odd.
+            // The last odd token may be blank, in which case TEXT ended with
+            // two delimiters and the real one is 2nd from the end. This will
+            // remove both since neither are necessary.
+            (false, None) => {
+                let (penultimate_token, segs) = rest.split_last().expect(
+                    "this should never fail because input is non empty and \
+                     and we branch here if length is even",
+                );
+                extra_token = NESlice::try_from_slice(penultimate_token);
+                segs
+            }
+            // Delimiter number is even and last token is not empty. This
+            // means TEXT did not end with a delimiter and the number of tokens
+            // is even.
+            (false, Some(_)) => raw_tokens.as_ref(),
+        };
+        assert!(
+            even_tokens.len() & 1 == 0,
+            "number of tokens should be even"
+        );
+        (even_tokens, extra_token, has_even_tokens)
     }
 }
 

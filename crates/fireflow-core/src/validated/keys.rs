@@ -8,6 +8,7 @@ use crate::text::keyword_enum::{
     AsStdKeywordPair, OptMeasKeyword, OptRootKeyword, ambassador_impl_AsStdKeywordPair,
 };
 
+use fireflow_types::nonempty_string::DisplayNE;
 use fireflow_types::{
     case_ins_regex::CaseInsRegex,
     config::{
@@ -975,36 +976,39 @@ impl ParsedKeywords {
     }
 }
 
-enum KeyValueResult0<'a> {
+pub(crate) enum ParsedKeyword<'a> {
     // Valid std key and valid
-    Std(NonEmptyValue<StdKey, &'a NEStr>),
+    StdUtf8(NonEmptyValue<StdKey, &'a NEStr>),
+    StdLatin1(NonEmptyValue<StdKey, &'a NESlice<u8>>),
     // Valid non-std key and valid
     NonStd(NonEmptyValue<NonStdKey, NEString>),
     // Pseudostd key and value
     Pseudo(NonEmptyValue<PseudoStdKey, NEString>),
     // Key (any type or raw bytes) without value
-    KeyWithEmptyValue(ParsedKeyOrBytes, DummyTriFlag),
+    KeyWithEmptyValue(ParsedKey, DummyTriFlag),
     // Valid key with invalid value
     NonUtf8Value(ParsedKey, NEVec<u8>),
     // Invalid key with valid value
-    NonAsciiKey(NonEmptyValue<NEVec<u8>, NEString>),
+    NonAsciiKey(NEVec<u8>, NEString),
     // Invalid pair
     BothInvalid(NEVec<u8>, NEVec<u8>),
 }
 
 #[derive(new)]
-struct NonEmptyValue<K, V> {
-    key: K,
-    value: V,
-    was_trimmed: bool,
+pub(crate) struct NonEmptyValue<K, V> {
+    pub(crate) key: K,
+    pub(crate) value: V,
+    pub(crate) original: Option<NEString>,
 }
 
-enum ParsedKeyOrBytes {
-    Key(ParsedKey),
+enum ParsedKey {
+    Std(StdKey),
+    Pseudo(PseudoStdKey),
+    NonStd(NonStdKey),
     Bytes(NEVec<u8>),
 }
 
-impl ParsedKeyOrBytes {
+impl ParsedKey {
     fn from_bytes(bytes: &NESlice<u8>, encoding: Encoding) -> Self {
         let single_byte = matches!(encoding, Encoding::Single);
         // TODO we may wish to distinguish an error between non-ASCII and only a
@@ -1012,7 +1016,10 @@ impl ParsedKeyOrBytes {
         if let Some((&STD_PREFIX, rest)) = bytes.as_ref().split_first() {
             if let Some(ne) = NESlice::try_from_slice(rest) {
                 if let Some(k) = RealOrPseudoStdKey::from_bytes_maybe(&ne) {
-                    Self::Key(ParsedKey::Std(k))
+                    match k {
+                        RealOrPseudoStdKey::Real(x) => Self::Std(x),
+                        RealOrPseudoStdKey::Pseudo(x) => Self::Pseudo(x),
+                    }
                 } else {
                     Self::Bytes(bytes.to_ne_vec())
                 }
@@ -1020,29 +1027,17 @@ impl ParsedKeyOrBytes {
                 Self::Bytes(nev![STD_PREFIX])
             }
         } else if let Some(k) = KeyString::from_bytes_maybe(bytes, single_byte) {
-            Self::Key(ParsedKey::NonStd(NonStdKey(k)))
+            Self::NonStd(NonStdKey(k))
         } else {
             Self::Bytes(bytes.to_ne_vec())
         }
     }
 }
 
-enum ParsedKey {
-    Std(RealOrPseudoStdKey),
-    NonStd(NonStdKey),
-}
-
-#[derive(new)]
-struct ParsedNonStdKey<'a> {
-    // TODO use type that is validated to not start with '$'
-    key: &'a NEStr,
-    is_pseudo: bool,
-}
-
 enum ParsedValue<'a> {
-    Utf8(&'a NEStr, bool),
-    Latin1(&'a NESlice<u8>, bool),
-    Bytes(NEVec<u8>, bool),
+    Utf8(&'a NEStr, Option<NEString>),
+    Latin1(&'a NESlice<u8>, Option<NEString>),
+    Bytes(NEVec<u8>),
     Empty(DummyTriFlag),
 }
 
@@ -1052,95 +1047,81 @@ impl<'a> ParsedValue<'a> {
         match encoding {
             Encoding::Single => {
                 if let Some(tf) = triflag {
-                    if let Some(ne) = NESlice::try_from_slice(bytes.trim_latin1()) {
-                        let was_trimmed = bytes.len() < ne.len();
-                        if let Ok(v) = NEStr::from_utf8(&ne) {
-                            Self::Utf8(v, was_trimmed)
+                    if let Some(trimmed) = NESlice::try_from_slice(bytes.trim_latin1()) {
+                        let original =
+                            (trimmed.len() < bytes.len()).then(|| bytes.to_latin1_string());
+                        if let Ok(v) = NEStr::from_utf8(&trimmed) {
+                            Self::Utf8(v, original)
                         } else {
-                            Self::Bytes(ne.to_ne_vec(), was_trimmed)
+                            Self::Latin1(trimmed, original)
                         }
                     } else {
                         Self::Empty(tf)
                     }
                 } else if let Ok(v) = NEStr::from_utf8(bytes) {
-                    Self::Utf8(v, false)
+                    Self::Utf8(v, None)
                 } else {
-                    Self::Latin1(bytes, false)
+                    Self::Latin1(bytes, None)
                 }
             }
             Encoding::Utf8 => {
                 if let Ok(v) = NEStr::from_utf8(bytes) {
                     if let Some(tf) = triflag {
                         if let Some(trimmed) = NEStr::try_new(v.trim_ascii()) {
-                            let was_trimmed = trimmed.len() < v.len();
-                            Self::Utf8(trimmed, was_trimmed)
+                            let original = (trimmed.len() < v.len()).then(|| v.to_owned());
+                            Self::Utf8(trimmed, original)
                         } else {
                             Self::Empty(tf)
                         }
                     } else {
-                        Self::Utf8(v, false)
+                        Self::Utf8(v, None)
                     }
                 } else {
-                    Self::Bytes(bytes.to_ne_vec(), false)
+                    Self::Bytes(bytes.to_ne_vec())
                 }
             }
         }
     }
 }
 
-impl<'a> KeyValueResult0<'a> {
+impl<'a> ParsedKeyword<'a> {
     pub(crate) fn from_pair(
         key: &NESlice<u8>,
-        val: &NESlice<u8>,
+        val: &'a NESlice<u8>,
         encoding: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> Self {
-        match ParsedKeyOrBytes::from_bytes(key, encoding) {
-            ParsedKeyOrBytes::Key(k) => match k {
-                ParsedKey::Std(sk) => {
-                    // Standard key: starts with '$'
-                    if let Some(trim_res) = parse_value() {
-                        match trim_res {
-                            ParsedValue::Empty(flag) => {
-                                Self::KeyWithEmptyValue(AnyKey::Std(k).into(), flag)
-                            }
-                            ParsedValue::Trimmed(value, was_trimmed) => {
-                                Self::NonEmpty(k.into(), value, was_trimmed)
-                            }
-                        }
-                    } else {
-                        Self::NonUtf8Value(k.into(), val)
-                    }
-                }
-                ParsedKey::NonStd(nk) => {
-                    // Non-standard key: does not start with '$' and is ASCII
-                    if let Some(trim_res) = parse_value() {
-                        match trim_res {
-                            ParsedValue::Empty(flag) => Self::Empty(AnyKey::NonStd(k).into(), flag),
-                            ParsedValue::Trimmed(value, was_trimmed) => {
-                                Self::NonEmpty(k.into(), value, was_trimmed)
-                            }
-                        }
-                    } else {
-                        Self::NonUtf8Value(AnyKey::NonStd(k), TruncatedNEBytes::from(val))
-                    }
-                }
-            },
-            ParsedKeyOrBytes::Bytes(kbytes) => {
-                // Non-ascii key with possibly non-Utf-8 value
-                // let kbytes = TruncatedNEBytes::from(key);
-                if let Some(trim_res) = parse_value() {
-                    match trim_res {
-                        ParsedValue::Empty(flag) => Self::KeyEmpty(KeyOrBytes::from(kbytes), flag),
-                        ParsedValue::Trimmed(value, was_trimmed) => {
-                            let tv = value.into_owned().into();
-                            Self::NonAsciiKey(kbytes, tv, was_trimmed)
-                        }
-                    }
-                } else {
-                    Self::BothInvalid(kbytes, val.to_ne_vec())
-                }
+        let pk = ParsedKey::from_bytes(key, encoding);
+        let pv = ParsedValue::from_bytes(val, conf.trim_value_whitespace, encoding);
+        // This will throw away the trimmed value if it was computed in the case
+        // of non-ascii keys. This is very rare so probably not worth
+        // optimizing. The convenience of returning owned strings is worth it.
+        match (pk, pv) {
+            (ParsedKey::Std(k), ParsedValue::Utf8(v, trimmed)) => {
+                Self::StdUtf8(NonEmptyValue::new(k, v, trimmed))
             }
+            (ParsedKey::Std(k), ParsedValue::Latin1(v, trimmed)) => {
+                Self::StdLatin1(NonEmptyValue::new(k, v, trimmed))
+            }
+            (ParsedKey::Pseudo(k), ParsedValue::Utf8(v, trimmed)) => {
+                Self::Pseudo(NonEmptyValue::new(k, v.to_owned(), trimmed))
+            }
+            (ParsedKey::Pseudo(k), ParsedValue::Latin1(v, trimmed)) => {
+                Self::Pseudo(NonEmptyValue::new(k, v.to_latin1_string(), trimmed))
+            }
+            (ParsedKey::NonStd(k), ParsedValue::Utf8(v, trimmed)) => {
+                Self::NonStd(NonEmptyValue::new(k, v.to_owned(), trimmed))
+            }
+            (ParsedKey::NonStd(k), ParsedValue::Latin1(v, trimmed)) => {
+                Self::NonStd(NonEmptyValue::new(k, v.to_latin1_string(), trimmed))
+            }
+            (ParsedKey::Bytes(k), ParsedValue::Utf8(v, _)) => Self::NonAsciiKey(k, v.to_owned()),
+            (ParsedKey::Bytes(k), ParsedValue::Latin1(v, _)) => {
+                Self::NonAsciiKey(k, v.to_latin1_string())
+            }
+            (ParsedKey::Bytes(k), ParsedValue::Bytes(v)) => Self::BothInvalid(k, v),
+            (k, ParsedValue::Bytes(v)) => Self::NonUtf8Value(k, v),
+            (k, ParsedValue::Empty(trim_flag)) => Self::KeyWithEmptyValue(k, trim_flag),
         }
     }
 }

@@ -688,6 +688,15 @@ impl NESlice<u8> {
     pub fn trim_latin1_end(&self) -> &[u8] {
         trim_end(self.as_ref(), |b| is_latin1_whitespace(*b))
     }
+
+    /// Convert to a string using Latin1 encoding.
+    ///
+    /// If the string is UTF8 or ASCII this is equivalent to converting
+    /// using `ToOwned::to_owned`.
+    #[must_use]
+    pub fn to_latin1_string(&self) -> NEString {
+        NEString(self.0.iter().copied().map(char::from).collect())
+    }
 }
 
 impl FromNEUtf8Error {

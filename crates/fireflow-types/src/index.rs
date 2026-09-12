@@ -1,4 +1,4 @@
-use crate::nonempty_string::{ToDisplayNE, ambassador_impl_ToDisplayNE};
+use crate::nonempty::string::{ToDisplayNE, ambassador_impl_ToDisplayNE};
 
 use ambassador::Delegate;
 use derive_more::{Display, From, FromStr, Into};

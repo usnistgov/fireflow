@@ -8,7 +8,6 @@ use crate::text::keyword_enum::{
     AsStdKeywordPair, OptMeasKeyword, OptRootKeyword, ambassador_impl_AsStdKeywordPair,
 };
 
-use fireflow_types::nonempty_string::DisplayNE;
 use fireflow_types::{
     case_ins_regex::CaseInsRegex,
     config::{
@@ -17,8 +16,9 @@ use fireflow_types::{
     index::{BiMeasIndex, MeasIndex},
     keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns, NEAsciiStringError},
     ne_str,
-    nonempty_string::{
-        NEAlt, NEConcat, NESlice, NEStr, NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
+    nonempty::string::{
+        DisplayNE, NEAlt, NEConcat, NESlice, NEStr, NEString, ToDisplayNE, ToNE,
+        ambassador_impl_ToDisplayNE,
     },
     std_key::{PseudoStdKey, RealOrPseudoStdKey, STD_PREFIX, StdKey, ToStd},
     sub_pattern::SubPattern,
@@ -1461,7 +1461,7 @@ const TRUNCATED_STR_LIMIT: usize = 20;
 
 #[cfg(feature = "serde")]
 mod serialize {
-    use fireflow_types::nonempty_string::NEString;
+    use fireflow_types::nonempty::string::NEString;
 
     use hashbrown::HashMap;
     use serde::Serialize;

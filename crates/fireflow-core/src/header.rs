@@ -40,7 +40,7 @@ use fireflow_types::{
         SelectVersionStrategy, VersionOverride,
     },
     keywords::{Version, VersionFormatError},
-    nonempty_string::NEString,
+    nonempty::string::NEString,
     textdelim::{DelimCollisionError, HasDelim as _},
 };
 

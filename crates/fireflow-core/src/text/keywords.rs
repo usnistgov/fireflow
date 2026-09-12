@@ -41,7 +41,7 @@ use fireflow_types::{
     },
     index::{BiMeasIndex, GateIndex, IndexFromOne, MeasIndex, RegionIndex, SubsetIndex},
     keywords::{MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version},
-    nonempty_string::{
+    nonempty::string::{
         DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NESlice, NEStr,
         NEString, NEVecExt as _, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
     },
@@ -4106,7 +4106,7 @@ mod tests {
         keyword_enum::{self as kr, Keyword1FromValue as _},
     };
 
-    use fireflow_types::nonempty_string::DisplayNE as _;
+    use fireflow_types::nonempty::string::DisplayNE as _;
 
     use assert_matches::assert_matches;
     use proptest::prelude::*;
@@ -4931,7 +4931,7 @@ mod python {
             SCALE_DIAGNOSTIC_TRIMMED_LOG, TEMPORAL_SCALE_DIAGNOSTIC_FORCED,
             TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED,
         },
-        nonempty_string::{NEStr, NEString},
+        nonempty::string::{NEStr, NEString},
         ranged_float::PositiveFloat,
     };
 

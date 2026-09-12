@@ -1,5 +1,4 @@
 use fireflow_types::{
-    nonempty_string::NEStr,
     std_key::{AnyIndex, StdKey},
 };
 

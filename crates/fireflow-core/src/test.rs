@@ -1,4 +1,4 @@
-use fireflow_types::nonempty_string::{DisplayableNE, NEStr};
+use fireflow_types::nonempty::string::{DisplayableNE, NEStr};
 
 use crate::text::lookup::FromStrWith;
 

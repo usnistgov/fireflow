@@ -11,7 +11,7 @@ use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNames
 use fireflow_types::{
     config::{ConfigFlag as _, SpilloverMeasurementMode, TrimIntraValueWhitespace},
     index::MeasIndex,
-    nonempty_string::{NEConcat, NEConcat5, NEDelim, NESlice, NEStr, ToDisplayNE, ToNE},
+    nonempty::string::{NEConcat, NEConcat5, NEDelim, NESlice, NEStr, ToDisplayNE, ToNE},
     textdelim::{DelimCollisionError, HasDelim, TEXTDelim},
 };
 
@@ -328,7 +328,7 @@ mod tests {
     use super::*;
     use crate::test::*;
 
-    use fireflow_types::{ne_str, nonempty_string::DisplayableNE as _};
+    use fireflow_types::{ne_str, nonempty::string::DisplayableNE as _};
 
     use assert_matches::assert_matches;
 

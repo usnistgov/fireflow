@@ -167,7 +167,7 @@ use fireflow_types::{
         OverRangeAction, ReadDatasetConfig, TriErrorFlag as _, WriteDatasetInnerConfig,
     },
     index::MeasIndex,
-    nonempty_string::DisplayableNE as _,
+    nonempty::string::DisplayableNE as _,
     std_key::{MeasKeyId, ToStd as _},
 };
 

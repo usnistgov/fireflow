@@ -1,4 +1,4 @@
-use crate::nonempty_string::{NEStr, NEString};
+use crate::nonempty::string::{NEStr, NEString};
 
 use ambassador::delegatable_trait;
 use derive_more::{Display, FromStr, Into};

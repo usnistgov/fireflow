@@ -4,7 +4,7 @@ use super::nested_string::{
 };
 
 use fireflow_types::{
-    nonempty_string::NEStr,
+    nonempty::string::NEStr,
     std_key::{
         AnyIndex as _, CsvFlagKey, DfcKey, GateKey, MeasKey, N_ROOT, RegionKey, RootKey, StdKey,
     },

@@ -5,7 +5,7 @@ use crate::{
     keywords::Version,
     macros::{impl_config_flag, impl_str_enum},
     ne_str,
-    nonempty_string::NEStr,
+    nonempty::string::NEStr,
     other_width::OtherWidth,
     ranged_float::PositiveFloat,
     segment::{
@@ -2343,7 +2343,7 @@ mod python {
         byteord::ConfigByteOrd,
         case_ins_regex::{LiteralOrPattern, LiteralOrPatternError},
         keystring::KeyStringOrPattern,
-        nonempty_string::NEStr,
+        nonempty::string::NEStr,
         python::ConfigError,
         sub_pattern::SubPattern,
     };

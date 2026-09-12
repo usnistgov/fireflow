@@ -1,5 +1,5 @@
 use crate::{
-    text::{keywords::Cyt, spillover::Spillover},
+    text::spillover::Spillover,
     validated::keys::{AnyKey, ValidKeywords, ValueToStdKey as _},
 };
 
@@ -9,7 +9,7 @@ use fireflow_types::{
     keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns},
     keystring_pairs::KeyStringPairs,
     ne_str,
-    nonempty_string::{NEStr, NEString},
+    nonempty::string::{NEStr, NEString},
     std_key::{RealOrPseudoStdKey, RootKey, StdKey, ToStd},
     timepattern::TimePattern,
 };
@@ -413,7 +413,7 @@ mod python {
 
     use crate::validated::keys::AnyKey;
 
-    use fireflow_types::nonempty_string::{NEStr, NEString};
+    use fireflow_types::nonempty::string::{NEStr, NEString};
     use fireflow_types::python as fp;
 
     use nonempty_collections::NEVec;

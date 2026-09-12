@@ -4,7 +4,7 @@ use crate::{
     keystring::{CowKeyString, KeyString},
     keywords::{Version, VersionMembership},
     ne_str,
-    nonempty_string::{
+    nonempty::string::{
         DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESlice, NEStr, ToDisplayNE,
         ToNE,
     },
@@ -658,8 +658,8 @@ impl RealOrPseudoStdKey {
                         unsafe { Self::from_ascii_bytes_nonparam(bytes) }
                     }
                 } else if let Some((i, rest)) = split_index_and_suffix(bs)
-                    && let Some(mid) =
-                        NESlice::try_from_slice(rest).and_then(|suffix| MeasKeyId::from_suffix(&suffix))
+                    && let Some(mid) = NESlice::try_from_slice(rest)
+                        .and_then(|suffix| MeasKeyId::from_suffix(&suffix))
                 {
                     // $Pn*
                     let k = MeasKey::new(i.into(), mid);

@@ -40,13 +40,15 @@ use crate::text::keywords::{
     RegionWindow, Trigger, UnstainedCenters,
 };
 use crate::text::spillover::Spillover;
-use crate::validated::keys::{DollarKey, DollarKey_, ValueToStdKey, NonStdKeywords, NonStdKeywordsExt as _};
+use crate::validated::keys::{
+    DollarKey, DollarKey_, NonStdKeywords, NonStdKeywordsExt as _, ValueToStdKey,
+};
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeyId};
 use fireflow_types::{
     index::{MeasIndex, RegionIndex},
-    nonempty_string::NEString,
+    nonempty::string::NEString,
     std_key::StdKey,
 };
 
@@ -150,7 +152,8 @@ pub struct ExistingIndexedLinkError_<T, I, J> {
     pub indices: NEVec<J>,
 }
 
-pub type ExistingIndexedLinkError<T, J> = ExistingIndexedLinkError_<T, <T as ValueToStdKey>::Index, J>;
+pub type ExistingIndexedLinkError<T, J> =
+    ExistingIndexedLinkError_<T, <T as ValueToStdKey>::Index, J>;
 
 //
 // Broken relational errors (checking if new links are valid)

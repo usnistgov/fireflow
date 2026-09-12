@@ -1,5 +1,5 @@
 use fireflow_types::{
-    nonempty_string::{NEStr, NEString},
+    nonempty::string::{NEStr, NEString},
     std_key::{
         CsvFlagKey, DfcKey, GateKey, MeasKey, PseudoStdKey, RealOrPseudoStdKey, RegionKey, RootKey,
         StdKey,
@@ -356,7 +356,7 @@ impl Serialize for StdKeywordPairs {
 mod python {
     use super::StdKeywordPairs;
 
-    use fireflow_types::{nonempty_string::NEString, std_key::RealOrPseudoStdKey};
+    use fireflow_types::{nonempty::string::NEString, std_key::RealOrPseudoStdKey};
 
     use pyo3::{prelude::*, types::PyDict};
 

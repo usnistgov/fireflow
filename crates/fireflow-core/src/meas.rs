@@ -54,7 +54,7 @@ use fireflow_types::{
     },
     index::MeasIndex,
     keywords::{HasVersion, OpticalFeature, Version2_0, Version3_0, Version3_1, Version3_2},
-    nonempty_string::{DisplayableNE as _, NEString},
+    nonempty::string::{DisplayableNE as _, NEString},
     ranged_float::PositiveFloat,
     std_key::{MeasKeyId, StdKey, ToStd as _},
 };

@@ -11,7 +11,7 @@ use fireflow_types::{
         ConfigFlag as _, DummyTriFlag, KeywordFailureFlag as _, ProcessOptionalFailure,
         TrimIntraValueWhitespace,
     },
-    nonempty_string::{NEStr, NEString},
+    nonempty::string::{NEStr, NEString},
     std_key::StdKey,
 };
 
@@ -218,17 +218,17 @@ macro_rules! impl_from_str_with_delim {
         impl crate::text::lookup::FromStrWith for $t {
             type Err = $e;
             type Payload<'a> = ();
-            type Diagnostic = Option<fireflow_types::nonempty_string::NEString>;
+            type Diagnostic = Option<fireflow_types::nonempty::string::NEString>;
             type Config = crate::config::EvaledReadStdKeywordsConfig;
 
             fn from_str_with(
-                s: &fireflow_types::nonempty_string::NEStr,
+                s: &fireflow_types::nonempty::string::NEStr,
                 (): (),
                 conf: &crate::config::EvaledReadStdKeywordsConfig,
             ) -> Result<
                 crate::text::lookup::Diagnosed<
                     Self,
-                    Option<fireflow_types::nonempty_string::NEString>,
+                    Option<fireflow_types::nonempty::string::NEString>,
                 >,
                 Self::Err,
             > {

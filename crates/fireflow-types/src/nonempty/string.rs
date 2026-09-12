@@ -38,7 +38,7 @@ use {
 macro_rules! ne_str {
     ($s:expr) => {{
         const _: () = assert!(!$s.is_empty(), "string cannot be empty");
-        $crate::nonempty_string::NEStr::try_new($s).unwrap()
+        $crate::nonempty::string::NEStr::try_new($s).unwrap()
     }};
 }
 

@@ -11,7 +11,7 @@ use fireflow_types::{
         TemporalHasOpticalKeyError,
     },
     index::MeasIndex,
-    nonempty_string::{NEStr, NEString},
+    nonempty::string::{NEStr, NEString},
     std_key::{CsvFlagKey, DfcKey, GateKey, MeasKey, N_ROOT, RegionKey, RootKey, StdKey},
 };
 

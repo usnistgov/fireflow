@@ -58,7 +58,7 @@ use fireflow_types::{
         WriteMultiConfig,
     },
     keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2},
-    nonempty_string::{NESlice, NEVecExt as _},
+    nonempty::string::{NESlice, NEVecExt as _},
     segment::{OffsetsFromTEXT, SupplementalTextSegmentId},
     std_key::{RootKey, StdKey, ToStd as _},
 };
@@ -3087,7 +3087,7 @@ mod built {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fireflow_types::{ne_str, nonempty_string::DisplayableNE as _};
+    use fireflow_types::{ne_str, nonempty::string::DisplayableNE as _};
 
     #[allow(clippy::needless_pass_by_value)]
     fn assert_guessed_mode(s: &str, comp: GuessedEscapeMode) {

@@ -25,7 +25,7 @@ use fireflow_types::{
     datepattern::DatePattern,
     keystring::{KeyString, KeyStringsOrPatterns, NonUniqueKeyError, checked_iter_to_hashmap},
     keystring_pairs::{KeyStringPairs, KeyStringPairsError},
-    nonempty_string::NEString,
+    nonempty::string::NEString,
     timepattern::TimePattern,
 };
 

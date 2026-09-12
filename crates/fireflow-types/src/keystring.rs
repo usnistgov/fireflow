@@ -1,5 +1,5 @@
 use crate::case_ins_regex::{LiteralOrPattern, LiteralOrPatternError};
-use crate::nonempty_string::{DisplayNE, NESlice, NEStr, NEString, ToDisplayNE};
+use crate::nonempty::string::{DisplayNE, NESlice, NEStr, NEString, ToDisplayNE};
 
 use derive_more::{AsRef, Display};
 use hashbrown::HashMap;

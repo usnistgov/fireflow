@@ -1,11 +1,10 @@
 use crate::config::EnumStrIter as _;
-use crate::nonempty_string::NEStr;
+use crate::nonempty::string::NEStr;
 use crate::{impl_str_enum, impl_str_enum_kw, ne_str};
 
 use const_format::formatcp;
 use derive_more::Display;
 use nonempty_collections::{NEVec, NonEmptyArrayExt as _, nev};
-use unicase::Ascii;
 
 #[cfg(feature = "python")]
 use {
@@ -219,7 +218,7 @@ impl_str_enum_kw!(
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::nonempty_string::DisplayableNE as _;
+    use crate::nonempty::string::DisplayableNE as _;
 
     use super::OpticalFeature;
 

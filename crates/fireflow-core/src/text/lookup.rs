@@ -11,7 +11,7 @@ use fireflow_types::{
         ConfigFlag as _, DummyTriFlag, KeywordFailureFlag as _, ProcessOptionalFailure,
         TrimIntraValueWhitespace,
     },
-    nonempty::string::{NEStr, NEString},
+    nonempty::{str::NEStr, string::NEString},
     std_key::StdKey,
 };
 
@@ -222,7 +222,7 @@ macro_rules! impl_from_str_with_delim {
             type Config = crate::config::EvaledReadStdKeywordsConfig;
 
             fn from_str_with(
-                s: &fireflow_types::nonempty::string::NEStr,
+                s: &fireflow_types::nonempty::str::NEStr,
                 (): (),
                 conf: &crate::config::EvaledReadStdKeywordsConfig,
             ) -> Result<

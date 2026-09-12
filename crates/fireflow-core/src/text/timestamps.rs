@@ -12,7 +12,10 @@ use fireflow_types::{
         BASE_TIME_FORMAT, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0, KeywordFailureFlag as _,
     },
     datepattern::DatePattern,
-    nonempty::string::{NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE},
+    nonempty::{
+        str::NEStr,
+        string::{NEString, ToDisplayNE, ambassador_impl_ToDisplayNE},
+    },
     timepattern::{ParseWithTimePatternError, TimePattern},
 };
 

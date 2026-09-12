@@ -1,5 +1,5 @@
 use fireflow_types::{
-    nonempty::string::{NEStr, NEString},
+    nonempty::{str::NEStr, string::NEString},
     std_key::{
         CsvFlagKey, DfcKey, GateKey, MeasKey, PseudoStdKey, RealOrPseudoStdKey, RegionKey, RootKey,
         StdKey,

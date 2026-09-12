@@ -1,6 +1,6 @@
 use crate::{
     config::EnumStrIter as _,
-    nonempty::string::NEStr,
+    nonempty::str::NEStr,
     {impl_str_enum, ne_str},
 };
 

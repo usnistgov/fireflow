@@ -16,9 +16,12 @@ use fireflow_types::{
     index::{BiMeasIndex, MeasIndex},
     keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns, NEAsciiStringError},
     ne_str,
-    nonempty::string::{
-        DisplayNE, NEAlt, NEConcat, NESlice, NEStr, NEString, ToDisplayNE, ToNE,
-        ambassador_impl_ToDisplayNE,
+    nonempty::{
+        str::NEStr,
+        string::{
+            DisplayNE, NEAlt, NEConcat, NESlice, NEString, ToDisplayNE, ToNE,
+            ambassador_impl_ToDisplayNE,
+        },
     },
     std_key::{PseudoStdKey, RealOrPseudoStdKey, STD_PREFIX, StdKey, ToStd},
     sub_pattern::SubPattern,

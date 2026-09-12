@@ -4,7 +4,7 @@ use fireflow_types::{
     args::underscore as ta,
     config::{self as tc, EnumStrIter as _},
     keywords as tk,
-    nonempty::string::NEStr,
+    nonempty::str::NEStr,
     python as tp, std_key as sk,
 };
 

@@ -27,7 +27,7 @@ macro_rules! impl_str_enum_base {
         impl $crate::config::EnumStrIter<{ $crate::impl_str_enum!(@count $($var),*) }> for $flag_name {
             const ITEMS: [Self; { $crate::impl_str_enum!(@count $($var),*) }] = [$(Self::$var),*];
 
-            fn as_ne_str(&self) -> &'static $crate::nonempty::string::NEStr {
+            fn as_ne_str(&self) -> &'static $crate::nonempty::str::NEStr {
                 match self {
                     $(Self::$var => $strlit,)*
                 }
@@ -123,7 +123,7 @@ macro_rules! impl_str_enum_kw {
         );
 
         impl $crate::nonempty::string::ToDisplayNE<'_> for $flag_name {
-            type NE = &'static $crate::nonempty::string::NEStr;
+            type NE = &'static $crate::nonempty::str::NEStr;
             fn to_ne(&self) -> Self::NE {
                 $crate::config::EnumStrIter::as_ne_str(self)
             }

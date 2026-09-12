@@ -4,9 +4,11 @@ use crate::{
     keystring::{CowKeyString, KeyString},
     keywords::{Version, VersionMembership},
     ne_str,
-    nonempty::string::{
-        DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESlice, NEStr, ToDisplayNE,
-        ToNE,
+    nonempty::{
+        str::NEStr,
+        string::{
+            DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESlice, ToDisplayNE, ToNE,
+        },
     },
 };
 

@@ -1,5 +1,5 @@
 use crate::config::EnumStrIter as _;
-use crate::nonempty::string::NEStr;
+use crate::nonempty::str::NEStr;
 use crate::{impl_str_enum, impl_str_enum_kw, ne_str};
 
 use const_format::formatcp;

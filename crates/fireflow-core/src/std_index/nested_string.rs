@@ -1,6 +1,6 @@
 use crate::validated::dataframe::HasLen;
 
-use fireflow_types::nonempty::string::NEStr;
+use fireflow_types::nonempty::str::NEStr;
 
 use derive_new::new;
 use fireflow_types::std_key::{AnyIndex, EnumIndex, StdKey};

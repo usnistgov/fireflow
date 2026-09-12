@@ -41,9 +41,12 @@ use fireflow_types::{
     },
     index::{BiMeasIndex, GateIndex, IndexFromOne, MeasIndex, RegionIndex, SubsetIndex},
     keywords::{MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version},
-    nonempty::string::{
-        DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NESlice, NEStr,
-        NEString, NEVecExt as _, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
+    nonempty::{
+        str::NEStr,
+        string::{
+            DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NESlice, NEString,
+            NEVecExt as _, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
+        },
     },
     ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError},
     std_key::{
@@ -4931,7 +4934,7 @@ mod python {
             SCALE_DIAGNOSTIC_TRIMMED_LOG, TEMPORAL_SCALE_DIAGNOSTIC_FORCED,
             TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED,
         },
-        nonempty::string::{NEStr, NEString},
+        nonempty::{str::NEStr, string::NEString},
         ranged_float::PositiveFloat,
     };
 

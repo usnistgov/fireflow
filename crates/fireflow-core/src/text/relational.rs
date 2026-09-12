@@ -48,7 +48,9 @@ use crate::validated::shortname::Shortname;
 use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeyId};
 use fireflow_types::{
     index::{MeasIndex, RegionIndex},
-    nonempty::NEString,
+    nonempty::{
+        IntoIteratorExt as _, IntoNonEmptyIterator as _, NEString, NEVec, NonEmptyIterator as _,
+    },
     std_key::StdKey,
 };
 
@@ -56,10 +58,6 @@ use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use derive_where::derive_where;
 use itertools::Itertools as _;
-use nonempty_collections::{
-    IntoIteratorExt as _, NEVec,
-    iter::{IntoNonEmptyIterator as _, NonEmptyIterator as _},
-};
 use thiserror::Error;
 
 use std::collections::HashSet;

@@ -1,6 +1,5 @@
+use fireflow_types::nonempty::{NEVec, NonEmptyArrayExt as _};
 use type_families::{impl_functor, impl_kind1};
-
-use nonempty_collections::{NEVec, array::NonEmptyArrayExt as _};
 
 use std::iter::{self, once};
 

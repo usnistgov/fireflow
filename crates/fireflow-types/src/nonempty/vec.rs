@@ -1,5 +1,5 @@
 use super::iter::FromNonEmptyIterator;
-use super::{IntoNonEmptyIterator, NEChunks, NESlice, NonEmptyIterator};
+use super::{IntoNonEmptyIterator, NEChunks, NESlice, NonEmptyIterator, Singleton};
 
 use derive_more::{AsRef, Into};
 #[cfg(feature = "serde")]
@@ -8,6 +8,7 @@ use thiserror::Error;
 
 use std::fmt;
 use std::num::NonZeroUsize;
+use std::ops;
 use std::slice;
 use std::vec;
 
@@ -551,6 +552,30 @@ impl<T> NEVec<T> {
         NESlice::new_unchecked(self.inner.as_slice())
     }
 
+    /// Sorts the `NEVec` in place.
+    ///
+    /// See also [`slice::sort`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    ///
+    /// let mut n = nev![5, 4, 3, 2, 1];
+    /// n.sort();
+    /// assert_eq!(nev![1, 2, 3, 4, 5], n);
+    ///
+    /// // Naturally, sorting a sorted result should remain the same.
+    /// n.sort();
+    /// assert_eq!(nev![1, 2, 3, 4, 5], n);
+    /// ```
+    pub fn sort(&mut self)
+    where
+        T: Ord,
+    {
+        self.inner.sort();
+    }
+
     /// Removes all but the first of consecutive elements in the vector that
     /// resolve to the same key.
     ///
@@ -632,6 +657,25 @@ impl<T> NEVec<T> {
     }
 }
 
+impl<T: PartialEq> NEVec<T> {
+    /// Removes consecutive repeated elements in the vector according to the
+    /// [`PartialEq`] trait implementation.
+    ///
+    /// If the vector is sorted, this removes all duplicates.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    /// let mut v = nev![1, 1, 1, 2, 3, 2, 2, 1];
+    /// v.dedup();
+    /// assert_eq!(nev![1, 2, 3, 2, 1], v);
+    /// ```
+    pub fn dedup(&mut self) {
+        self.dedup_by(|a, b| a == b);
+    }
+}
+
 // FIXME(#26925) Remove in favor of `#[derive(Clone)]` (see https://github.com/rust-lang/rust/issues/26925 for more info)
 impl<T> Clone for Iter<'_, T> {
     fn clone(&self) -> Self {
@@ -674,6 +718,38 @@ impl<T> IntoIterator for IntoIter<T> {
 impl<T: fmt::Debug> fmt::Debug for IntoIter<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner.fmt(f)
+    }
+}
+
+impl<T, I> ops::Index<I> for NEVec<T>
+where
+    I: slice::SliceIndex<[T]>,
+{
+    type Output = I::Output;
+
+    /// ```
+    /// use nonempty_collections::nev;
+    ///
+    /// let v = nev![1, 2, 3, 4, 5];
+    ///
+    /// assert_eq!(v[0], 1);
+    /// assert_eq!(v[1], 2);
+    /// assert_eq!(v[3], 4);
+    /// assert_eq!(&v[..], &[1, 2, 3, 4, 5]);
+    /// assert_eq!(&v[2..], &[3, 4, 5]);
+    /// assert_eq!(&v[..2], &[1, 2]);
+    /// ```
+    fn index(&self, index: I) -> &Self::Output {
+        self.inner.index(index)
+    }
+}
+
+impl<T, I> ops::IndexMut<I> for NEVec<T>
+where
+    I: slice::SliceIndex<[T]>,
+{
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        self.inner.index_mut(index)
     }
 }
 
@@ -755,5 +831,262 @@ impl<T> TryFrom<Vec<T>> for NEVec<T> {
 
     fn try_from(vec: Vec<T>) -> Result<Self, Self::Error> {
         Self::try_from_vec(vec).ok_or(NEVecError)
+    }
+}
+
+impl<T> Extend<T> for NEVec<T> {
+    fn extend<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        self.inner.extend(iter);
+    }
+}
+
+impl<T> Singleton for NEVec<T> {
+    type Item = T;
+
+    /// ```
+    /// use nonempty_collections::{NEVec, Singleton, nev};
+    ///
+    /// let v = NEVec::singleton(1);
+    /// assert_eq!(nev![1], v);
+    /// ```
+    fn singleton(item: T) -> Self {
+        Self::new(item)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NEVec;
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct Foo {
+        user: String,
+    }
+
+    #[test]
+    fn macro_usage() {
+        let a = Foo {
+            user: "a".to_string(),
+        };
+        let b = Foo {
+            user: "b".to_string(),
+        };
+
+        let v = nev![a, b];
+        assert_eq!("a", v.first().user);
+    }
+
+    #[test]
+    fn macro_semicolon() {
+        let a = Foo {
+            user: "a".to_string(),
+        };
+        let v = nev![a.clone(); 3];
+
+        let expected = NEVec { inner: vec![a; 3] };
+        assert_eq!(v, expected);
+    }
+
+    #[test]
+    fn test_from_conversion() {
+        let result = NEVec::from((1, vec![2, 3, 4, 5]));
+        let expected = NEVec {
+            inner: vec![1, 2, 3, 4, 5],
+        };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_into_iter() {
+        let nonempty = NEVec::from((0usize, vec![1, 2, 3]));
+        for (i, n) in nonempty.into_iter().enumerate() {
+            assert_eq!(i, n);
+        }
+    }
+
+    #[test]
+    fn test_iter_syntax() {
+        let nonempty = NEVec::from((0, vec![1, 2, 3]));
+        for n in &nonempty {
+            assert_eq!(*n, *n); // Prove that we're dealing with references.
+        }
+        for _ in nonempty {}
+    }
+
+    #[cfg(feature = "serde")]
+    mod serialize {
+        use serde::Serialize;
+
+        use super::NEVec;
+
+        #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+        struct SimpleSerializable(i32);
+
+        #[test]
+        fn test_simple_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+            // Given
+            let mut v = NEVec::new(SimpleSerializable(42));
+            v.push(SimpleSerializable(777));
+            let expected_value = v.clone();
+
+            // When
+            let res =
+                serde_json::from_str::<'_, NEVec<SimpleSerializable>>(&serde_json::to_string(&v)?)?;
+
+            // Then
+            assert_eq!(res, expected_value);
+
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_result_collect() {
+        use crate::IntoNonEmptyIterator;
+        use crate::NonEmptyIterator;
+
+        let nonempty = nev![2, 4, 8];
+        let output = nonempty
+            .into_nonempty_iter()
+            .map(|n| {
+                if n % 2 == 0 {
+                    Ok(n)
+                } else {
+                    Err("odd number!")
+                }
+            })
+            .collect::<Result<NEVec<u32>, &'static str>>();
+
+        assert_eq!(output, Ok(nev![2, 4, 8]));
+
+        let nonempty = nev![2, 1, 8];
+        let output = nonempty
+            .into_nonempty_iter()
+            .map(|n| {
+                if n % 2 == 0 {
+                    Ok(n)
+                } else {
+                    Err("odd number!")
+                }
+            })
+            .collect::<Result<NEVec<u32>, &'static str>>();
+
+        assert_eq!(output, Err("odd number!"));
+    }
+
+    #[test]
+    fn test_as_slice() {
+        let nonempty = NEVec::from((0, vec![1, 2, 3]));
+        assert_eq!(
+            crate::NESlice::try_from_slice(&[0, 1, 2, 3]).unwrap(),
+            nonempty.as_nonempty_slice(),
+        );
+    }
+
+    #[test]
+    fn debug_impl() {
+        let actual = format!("{:?}", nev![0, 1, 2, 3]);
+        let expected = format!("{:?}", vec![0, 1, 2, 3]);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn sorting() {
+        let mut n = nev![1, 5, 4, 3, 2, 1];
+        n.sort();
+        assert_eq!(nev![1, 1, 2, 3, 4, 5], n);
+
+        let mut m = nev![1];
+        m.sort();
+        assert_eq!(nev![1], m);
+    }
+
+    #[test]
+    fn extend() {
+        let mut n = nev![1, 2, 3];
+        let v = vec![4, 5, 6];
+        n.extend(v);
+
+        assert_eq!(n, nev![1, 2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn iter_mut() {
+        let mut v = nev![0, 1, 2, 3];
+
+        v.iter_mut().for_each(|x| {
+            *x += 1;
+        });
+
+        assert_eq!(nev![1, 2, 3, 4], v);
+
+        for x in &mut v {
+            *x -= 1;
+        }
+        assert_eq!(nev![0, 1, 2, 3], v);
+    }
+
+    #[test]
+    fn retain() {
+        // retain all
+        let v = nev![0, 1, 2, 3];
+        let result = v.retain(|_| true);
+        assert_eq!(
+            Ok(nev![0, 1, 2, 3]),
+            result,
+            "retaining all values should not change anything"
+        );
+        // retain none
+        let v = nev![0, 1, 2, 3];
+        let result = v.retain(|_| false);
+        assert_eq!(
+            Err(vec![]),
+            result,
+            "removing all values should return a regular vec"
+        );
+        // retain one
+        let v = nev![3, 7];
+        let result = v.retain_mut(|x| *x == 3);
+        assert_eq!(Ok(nev![3]), result, "only 3 should remain");
+    }
+
+    #[test]
+    fn retain_mut() {
+        // retain all
+        let v = nev![0, 1, 2, 3];
+        let result = v.retain_mut(|x| {
+            *x += 1;
+            true
+        });
+        assert_eq!(
+            Ok(nev![1, 2, 3, 4]),
+            result,
+            "each value must be incremented by 1"
+        );
+        let v = nev![0, 1, 2, 3];
+        // retain none
+        let result = v.retain_mut(|x| {
+            *x += 1;
+            false
+        });
+        assert_eq!(
+            Err(vec![]),
+            result,
+            "removing all values should return a regular vec"
+        );
+        // retain one
+        let v = nev![3, 7];
+        let result = v.retain_mut(|x| {
+            if *x == 3 {
+                *x += 1;
+                true
+            } else {
+                false
+            }
+        });
+        assert_eq!(Ok(nev![4]), result, "only 3+1 = 4 should remain");
     }
 }

@@ -11,7 +11,10 @@ use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNames
 use fireflow_types::{
     config::{ConfigFlag as _, SpilloverMeasurementMode, TrimIntraValueWhitespace},
     index::MeasIndex,
-    nonempty::{NEConcat, NEConcat5, NEDelim, NESlice, NEStr, ToDisplayNE, ToNE},
+    nonempty::{
+        IntoIteratorExt as _, NEConcat, NEConcat5, NEDelim, NESlice, NEStr, NEVec,
+        NonEmptyIterator as _, ToDisplayNE, ToNE,
+    },
     textdelim::{DelimCollisionError, HasDelim, TEXTDelim},
 };
 
@@ -19,7 +22,6 @@ use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use ndarray::Array2;
-use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use thiserror::Error;
 
 use std::hash::Hash;

@@ -14,6 +14,7 @@ use crate::validated::read_state::{DatasetOffset, FileLen, HeaderReadState, TEXT
 
 use fireflow_types::{
     config::{OverlapCorrectionLimit, ReadOffsetConfig},
+    nonempty::{NESlice, NEVec},
     other_width::OtherWidth,
     segment::{
         AnalysisSegmentId, DataSegmentId, OffsetsFromHeader, OtherSegmentId, PrimaryTextSegmentId,
@@ -25,7 +26,6 @@ use type_families::BifunctorOnce as _;
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty_collections::{NESlice, NEVec};
 use thiserror::Error;
 
 use std::iter;
@@ -38,8 +38,8 @@ use serde::Serialize;
 use {
     crate::nonempty::FcsNEVec,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    fireflow_types::nonempty::{IntoNonEmptyIterator as _, NonEmptyIterator as _},
     fireflow_types::python as py,
-    nonempty_collections::{IntoNonEmptyIterator as _, NonEmptyIterator as _},
     std::fmt,
 };
 
@@ -86,7 +86,7 @@ impl FinalHeaderOffsets {
 
     /// Return parsed OTHER offsets data
     #[must_use]
-    pub fn other(&self) -> Option<(NESlice<'_, IndexedOtherOffsets>, OtherWidth)> {
+    pub fn other(&self) -> Option<(&NESlice<IndexedOtherOffsets>, OtherWidth)> {
         self.other
             .as_ref()
             .map(|(xs, w)| (xs.as_nonempty_slice(), *w))

@@ -15,9 +15,10 @@ use fireflow_types::{
     },
     index::{BiMeasIndex, MeasIndex},
     keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns, NEAsciiStringError},
-    ne_str,
+    ne_str, nev,
     nonempty::{
-        DisplayNE, NEAlt, NEConcat, NESlice, NEStr, NEString, ToDisplayNE, ToNE,
+        DisplayNE, IntoIteratorExt as _, IntoNonEmptyIterator as _, NEAlt, NEConcat, NESlice,
+        NEStr, NEString, NEVec, NonEmptyIterator as _, ToDisplayNE, ToNE,
         ambassador_impl_ToDisplayNE,
     },
     std_key::{PseudoStdKey, RealOrPseudoStdKey, STD_PREFIX, StdKey, ToStd},
@@ -31,10 +32,6 @@ use derive_where::derive_where;
 use hashbrown::HashMap;
 use hashbrown::hash_map::Entry;
 use itertools::Itertools as _;
-use nonempty_collections::nev;
-use nonempty_collections::{
-    IntoIteratorExt as _, IntoNonEmptyIterator as _, NEVec, iter::NonEmptyIterator as _,
-};
 use thiserror::Error;
 
 use std::borrow::Cow;

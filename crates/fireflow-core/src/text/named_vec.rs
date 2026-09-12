@@ -10,9 +10,11 @@ use crate::text::relational::{
 use crate::validated::keys::ValueToStdKey;
 use crate::validated::shortname::Shortname;
 
-use fireflow_types::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
+use fireflow_types::{
+    index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex},
+    nonempty::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _},
+};
 
-use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use type_families::{
     BifunctorOnce, Functor, Monoid, Pointed, impl_functor_once, impl_kind1, impl_kind2,
 };

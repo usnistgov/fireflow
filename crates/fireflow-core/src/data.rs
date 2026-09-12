@@ -167,7 +167,10 @@ use fireflow_types::{
         OverRangeAction, ReadDatasetConfig, TriErrorFlag as _, WriteDatasetInnerConfig,
     },
     index::MeasIndex,
-    nonempty::DisplayableNE as _,
+    nonempty::{
+        DisplayableNE as _, IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec,
+        NonEmptyIterator as _,
+    },
     std_key::{MeasKeyId, ToStd as _},
 };
 
@@ -181,9 +184,6 @@ use bytemuck::{cast_slice, cast_vec};
 use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty_collections::{
-    IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec, iter::NonEmptyIterator as _,
-};
 use num_traits::{Bounded, ToPrimitive as _};
 use thiserror::Error;
 

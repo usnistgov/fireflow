@@ -25,14 +25,13 @@ use fireflow_types::{
     datepattern::DatePattern,
     keystring::{KeyString, KeyStringsOrPatterns, NonUniqueKeyError, checked_iter_to_hashmap},
     keystring_pairs::{KeyStringPairs, KeyStringPairsError},
-    nonempty::NEString,
+    nonempty::{NEString, NEVec},
     timepattern::TimePattern,
 };
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use hashbrown::HashMap;
-use nonempty_collections::NEVec;
 use thiserror::Error;
 
 #[cfg(feature = "python")]

@@ -42,8 +42,10 @@ use fireflow_types::{
     index::{BiMeasIndex, GateIndex, IndexFromOne, MeasIndex, RegionIndex, SubsetIndex},
     keywords::{MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version},
     nonempty::{
-        DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NESlice, NEStr,
-        NEString, NEVecExt as _, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
+        DisplayableNE as _, IntoIteratorExt as _, IntoNonEmptyIterator as _, NEAlt, NEConcat,
+        NEConcat3, NEConcat5, NEDelim, NEMap, NESlice, NEStr, NEString, NEVec,
+        NonEmptyArrayExt as _, NonEmptyIterator as _, ToDisplayNE, ToNE,
+        ambassador_impl_ToDisplayNE, once,
     },
     ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError},
     std_key::{
@@ -63,10 +65,6 @@ use derive_new::new;
 use hashbrown::HashMap;
 use itertools::Itertools as _;
 use ndarray::Array2;
-use nonempty_collections::{
-    IntoIteratorExt as _, IntoNonEmptyIterator as _, NEMap, NEVec, NonEmptyArrayExt as _,
-    NonEmptyIterator as _, iter::once,
-};
 use num_traits::{Bounded, One as _, ToPrimitive as _, Zero as _};
 use thiserror::Error;
 
@@ -2086,7 +2084,7 @@ impl<'a> ToDisplayNE<'a> for RegionWindow {
         match self {
             Self::Univariate(x) => NEAlt::Left(ToNE(x)),
             Self::Bivariate(x) => {
-                let xs = ToNE::on_inner_slice(x.as_ne_slice());
+                let xs = ToNE::on_inner_slice(x.as_nonempty_slice());
                 NEAlt::Right(NEDelim::new(';', xs))
             }
         }

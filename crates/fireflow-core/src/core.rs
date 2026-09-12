@@ -134,7 +134,7 @@ use fireflow_types::{
     keywords::{
         HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
     },
-    nonempty::{NESlice, NEStr, NEString},
+    nonempty::{IntoIteratorExt as _, NESlice, NEStr, NEString, NEVec, NonEmptyIterator as _},
     segment::{AnalysisSegmentId, DataSegmentId},
     std_key::StdKey,
     textdelim::TEXTDelim,
@@ -148,7 +148,6 @@ use derive_more::{AsMut, AsRef, Display, From};
 use derive_new::new;
 use hashbrown::{HashMap, hash_map::Entry};
 use itertools::Itertools as _;
-use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use num_traits::identities::Zero;
 use thiserror::Error;
 

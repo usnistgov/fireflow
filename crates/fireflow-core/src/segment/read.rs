@@ -20,7 +20,7 @@ use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_st
 use crate::validated::header_offsets::{
     FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
 };
-use crate::validated::keys::{NEStringOrBytes, StdKeywords, TruncatedNEString, ValueToStdKey};
+use crate::validated::keys::{NEStringOrBytes, TruncatedNEString, ValueToStdKey};
 use crate::validated::read_state::{
     DatasetOffset, HeaderReadState, ReadDatasetState, TEXTReadState,
 };
@@ -32,7 +32,10 @@ use fireflow_types::{
         ReadHeaderInnerConfig, ReadOffsetConfig,
     },
     keywords::Version,
-    nonempty::NESlice,
+    nonempty::{
+        IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec, NonEmptyArrayExt as _,
+        NonEmptyIterator as _, once,
+    },
     other_width::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth},
     segment::{
         AnalysisSegmentId, DataSegmentId, HeaderCorrection, OffsetsCorrection, OffsetsFromHeader,
@@ -41,7 +44,6 @@ use fireflow_types::{
     },
 };
 
-use nonempty_collections::IntoNonEmptyIterator as _;
 use type_families::{
     BifunctorOnce, Functor as _, FunctorOnce as _, Sibling2, impl_functor_once, impl_kind1,
     impl_kind2,
@@ -51,10 +53,6 @@ use derive_more::{Display, From};
 use derive_new::new;
 use derive_where::derive_where;
 use itertools::Itertools as _;
-use nonempty_collections::{
-    IntoIteratorExt as _, NEVec, NonEmptyArrayExt as _,
-    iter::{NonEmptyIterator as _, once},
-};
 use thiserror::Error;
 
 use std::fmt::{self, Debug};

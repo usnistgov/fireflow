@@ -1,7 +1,7 @@
 //! A specialized version of `NonEmpty`
 
 use derive_more::{From, Into};
-use nonempty_collections::NEVec;
+use fireflow_types::nonempty::NEVec;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -21,7 +21,7 @@ mod python {
 
     use super::FcsNEVec;
 
-    use nonempty_collections::NEVec;
+    use fireflow_types::nonempty::NEVec;
     use pyo3::prelude::*;
 
     // NOTE this is only used for keywords that cannot be an empty list

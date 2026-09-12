@@ -1,6 +1,7 @@
 mod array;
 mod fmt;
 mod iter;
+mod map;
 mod slice;
 mod str;
 mod string;
@@ -13,8 +14,9 @@ pub use fmt::{
 };
 pub use iter::{
     FromNonEmptyIterator, IntoIteratorExt, IntoNonEmptyIterator, NonEmptyIterAdapter,
-    NonEmptyIterator,
+    NonEmptyIterator, Singleton, once,
 };
+pub use map::NEMap;
 pub use slice::{NEChunks, NESlice};
 pub use str::NEStr;
 pub use string::{FromNEUtf8Error, NEString, NonEmptyStringError};

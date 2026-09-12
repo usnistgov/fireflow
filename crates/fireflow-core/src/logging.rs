@@ -29,7 +29,11 @@
 
 use crate::text::optional::Nothing;
 
-use fireflow_types::config::{ErrorFlag, ReadSharedConfig, TriErrorFlag};
+use fireflow_types::{
+    config::{ErrorFlag, ReadSharedConfig, TriErrorFlag},
+    nev,
+    nonempty::{FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator as _},
+};
 
 use type_families::{
     ApplyOnce, Functor, FunctorOnce, IsKind1, IsKind2, Kind1, Kind2, Monoid, Pointed, Semigroup,
@@ -38,9 +42,6 @@ use type_families::{
 
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty_collections::{
-    FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator as _, nev,
-};
 use thiserror::Error;
 
 use std::convert::Infallible;

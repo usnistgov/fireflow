@@ -37,7 +37,6 @@ fireflow-types = { path = "../fireflow-types" }
 serde = { workspace = true, features = ["derive"], optional = true }
 ndarray = { workspace = true }
 polars-buffer = { workspace = true }
-nonempty-collections = { workspace = true }
 crc-fast = { workspace = true }
 type_families = { path = "../type_families" }
 fireflow-core-proc = { path = "../fireflow-core-proc" }
@@ -62,7 +61,6 @@ serde = [
     "bigdecimal/serde",
     "chrono/serde",
     "fireflow-types/serde",
-    "nonempty-collections/serde",
     "hashbrown/serde"
 ]
 python = [

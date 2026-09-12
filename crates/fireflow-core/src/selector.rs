@@ -8,13 +8,12 @@ use fireflow_types::{
     datepattern::DatePattern,
     keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns},
     keystring_pairs::KeyStringPairs,
-    ne_str,
-    nonempty::{NEStr, NEString},
+    ne_str, nev,
+    nonempty::{NEStr, NEString, NEVec, NonEmptyIterator as _},
     std_key::{RealOrPseudoStdKey, RootKey, StdKey, ToStd},
     timepattern::TimePattern,
 };
 use hashbrown::HashMap;
-use nonempty_collections::{NEVec, NonEmptyIterator as _, nev};
 
 use derive_more::Display;
 use derive_new::new;
@@ -413,10 +412,9 @@ mod python {
 
     use crate::validated::keys::AnyKey;
 
-    use fireflow_types::nonempty::{NEStr, NEString};
+    use fireflow_types::nonempty::{NEStr, NEString, NEVec};
     use fireflow_types::python as fp;
 
-    use nonempty_collections::NEVec;
     use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyTuple};
 
     impl<'py, T> FromPyObject<'_, 'py> for Selector<T>

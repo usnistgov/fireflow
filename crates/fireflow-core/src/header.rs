@@ -40,15 +40,13 @@ use fireflow_types::{
         SelectVersionStrategy, VersionOverride,
     },
     keywords::{Version, VersionFormatError},
-    nonempty::NEString,
+    nonempty::{IntoIteratorExt as _, NEString, NEVec, NonEmptyIterator as _},
     textdelim::{DelimCollisionError, HasDelim as _},
 };
 
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty_collections::NEVec;
-use nonempty_collections::{IntoIteratorExt as _, iter::NonEmptyIterator as _};
 use num_traits::identities::Zero;
 use thiserror::Error;
 

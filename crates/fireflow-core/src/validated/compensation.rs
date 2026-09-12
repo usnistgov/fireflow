@@ -1,8 +1,7 @@
-use fireflow_types::index::MeasIndex;
+use fireflow_types::{index::MeasIndex, nonempty::NEVec};
 
 use derive_more::AsRef;
 use ndarray::{Array2, s};
-use nonempty_collections::NEVec;
 use thiserror::Error;
 
 use std::num::NonZeroUsize;

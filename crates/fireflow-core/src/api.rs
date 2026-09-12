@@ -58,7 +58,7 @@ use fireflow_types::{
         WriteMultiConfig,
     },
     keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2},
-    nonempty::{NESlice, NEVecExt as _},
+    nonempty::{IntoIteratorExt as _, NESlice, NEVec, NonEmptyIterator as _},
     segment::{OffsetsFromTEXT, SupplementalTextSegmentId},
     std_key::{RootKey, StdKey, ToStd as _},
 };
@@ -69,7 +69,6 @@ use derive_more::{Display, From};
 use derive_new::new;
 use hashbrown::HashMap;
 use itertools::Itertools as _;
-use nonempty_collections::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 use thiserror::Error;
 
 use std::{
@@ -1816,7 +1815,7 @@ impl FlatTEXTOutput {
         let ptext_bytes = io_to_log!(ne_ptext_offsets.h_read_contents(h));
         let penc = conf.use_encoding.choose(ptext_bytes.as_ref());
 
-        let ptext_ne_slice = ptext_bytes.as_ne_slice();
+        let ptext_ne_slice = ptext_bytes.as_nonempty_slice();
         let delim_res = split_first_delim(&ptext_ne_slice, conf)
             .map_errors(ParseFlatTEXTError::from)
             .map_commutative_warnings(ParseFlatTEXTWarning::from)
@@ -1997,7 +1996,7 @@ impl SplitTEXTDiagnostics {
     > {
         let bytes = io_to_log!(offsets.h_read_contents(h));
         let enc = conf.use_encoding.choose(bytes.as_ref());
-        let ne = bytes.as_ne_slice();
+        let ne = bytes.as_nonempty_slice();
         Self::supp_from_bytes(kws, delim, ne, enc, conf)
             .group()
             .map_error(IOErrorGroup::Pure)
@@ -2012,7 +2011,7 @@ impl SplitTEXTDiagnostics {
     ) -> WarningsAndErrorsResult<(ParsedKeywords, Self), (), ParseKeywordsIssue, ParseKeywordsIssue>
     {
         let raw_tokens = Self::split_bytes(delim, bytes);
-        let raw_slice = raw_tokens.as_ne_slice();
+        let raw_slice = raw_tokens.as_nonempty_slice();
         // We are about to insert a massive amount of data into two hash tables,
         // so make a guess as to how big they need to be to avoid reallocation.
         //
@@ -2058,7 +2057,7 @@ impl SplitTEXTDiagnostics {
         let (b0, bs) = bytes.split_first();
         let flag = conf.allow_supp_text_own_delim;
         let raw_tokens = Self::split_bytes(*b0, bs);
-        let raw_slice = raw_tokens.as_ne_slice();
+        let raw_slice = raw_tokens.as_nonempty_slice();
         Self::from_bytes_inner(kws, *b0, &raw_slice, TEXTKind::Supplemental, enc, conf)
             .map_warnings_and_errors(ParseSupplementalTEXTError::from)
             .eval_warning_or_error3(
@@ -2264,7 +2263,7 @@ impl SplitTEXTDiagnostics {
                         out.tokens_with_boundary_delims.push(seg);
                     }
                     if let Some(ne_val) = NESlice::try_from_slice(&valbuf[..]) {
-                        push_pair(kws, keybuf.as_ne_slice(), &ne_val);
+                        push_pair(kws, keybuf.as_nonempty_slice(), &ne_val);
                         valbuf.clear();
                         keybuf = ne_token.to_ne_vec();
                     } else {
@@ -2295,12 +2294,12 @@ impl SplitTEXTDiagnostics {
         let last_odd_err = if let Some(ne_val) = NESlice::try_from_slice(&valbuf[..]) {
             // both key and value are present, this is the last pair in
             // TEXT so push to the end of keywords
-            push_pair(kws, keybuf.as_ne_slice(), &ne_val);
+            push_pair(kws, keybuf.as_nonempty_slice(), &ne_val);
             None
         } else {
             // Only key is present which means we have an odd number of
             // tokens. Scream at user so they will be enlightened.
-            let last = NEStringOrBytes::from(keybuf.as_ne_slice());
+            let last = NEStringOrBytes::from(keybuf.as_nonempty_slice());
             let e = UnevenTokensError::new(tk, last.clone()).into();
             out.last_odd_token = last.into();
             Some(e)
@@ -2310,7 +2309,7 @@ impl SplitTEXTDiagnostics {
         // the last token ended with a string of escaped delimiters which was
         // not captured at the end of the loop.
         if consec_blanks > 1 && consec_blanks & 1 == 1 {
-            let seg = NESlice::try_from_slice(&valbuf[..]).unwrap_or(keybuf.as_ne_slice());
+            let seg = NESlice::try_from_slice(&valbuf[..]).unwrap_or(keybuf.as_nonempty_slice());
             out.tokens_with_boundary_delims
                 .push(NEStringOrBytes::from(seg));
         }
@@ -2416,7 +2415,7 @@ impl<'a> ParsedTEXTOutput<'a> {
                         tokens_with_boundary_delims.push(seg);
                     }
                     if let Some(ne_val) = NESlice::try_from_slice(&valbuf[..]) {
-                        parsed.push(go(keybuf.as_ne_slice(), &ne_val));
+                        parsed.push(go(keybuf.as_nonempty_slice(), &ne_val));
                         valbuf.clear();
                         keybuf = ne_token.to_ne_vec();
                     } else {
@@ -2446,7 +2445,7 @@ impl<'a> ParsedTEXTOutput<'a> {
         let last_odd_token = if let Some(ne_val) = NESlice::try_from_slice(&valbuf[..]) {
             // Both key and value are present, this is the last pair in TEXT so
             // push to the end of keywords
-            parsed.push(go(keybuf.as_ne_slice(), &ne_val));
+            parsed.push(go(keybuf.as_nonempty_slice(), &ne_val));
             vec![]
         } else {
             // Only key is present which means we have an odd number of tokens.
@@ -2457,7 +2456,7 @@ impl<'a> ParsedTEXTOutput<'a> {
         // the last token ended with a string of escaped delimiters which was
         // not captured at the end of the loop.
         if consec_blanks > 1 && consec_blanks & 1 == 1 {
-            let seg = NESlice::try_from_slice(&valbuf[..]).unwrap_or(keybuf.as_ne_slice());
+            let seg = NESlice::try_from_slice(&valbuf[..]).unwrap_or(keybuf.as_nonempty_slice());
             tokens_with_boundary_delims.push(NEStringOrBytes::from(seg));
         }
 

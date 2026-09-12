@@ -28,7 +28,7 @@ use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeyId};
 use fireflow_types::{
     config::AllowLoss,
     index::{GateIndex, MeasIndex, RegionIndex},
-    nonempty::NEVecExt as _,
+    nonempty::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _},
     std_key::StdKey,
 };
 
@@ -40,7 +40,6 @@ use type_families::{
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::mem::take;
@@ -963,7 +962,7 @@ impl<I> Region<I> {
         };
         let rw = match self {
             Self::Univariate(r) => RegionWindowRef::Univariate(&r.gate),
-            Self::Bivariate(r) => RegionWindowRef::Bivariate(r.vertices.0.as_ne_slice()),
+            Self::Bivariate(r) => RegionWindowRef::Bivariate(r.vertices.0.as_nonempty_slice()),
         };
         let x0 = RegionKeyword::from_value(ri, i);
         let rk = DollarKey::new(i);

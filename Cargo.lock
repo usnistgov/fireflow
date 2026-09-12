@@ -867,7 +867,6 @@ dependencies = [
  "hashbrown 0.16.1",
  "itertools 0.14.0",
  "ndarray",
- "nonempty-collections",
  "num-derive",
  "num-traits",
  "num_enum",
@@ -926,7 +925,6 @@ dependencies = [
  "derive_more",
  "fireflow-types",
  "itertools 0.14.0",
- "nonempty-collections",
  "proc-macro2",
  "quote",
  "syn",
@@ -1768,15 +1766,6 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "rawpointer",
- "serde",
-]
-
-[[package]]
-name = "nonempty-collections"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d127e00b37b19c36c28ac00e874240a61faeea14c7b759b1d9c77efa048322a"
-dependencies = [
  "serde",
 ]
 

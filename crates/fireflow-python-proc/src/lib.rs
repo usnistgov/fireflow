@@ -5,6 +5,7 @@ use fireflow_types::{
     config::{self as tc, EnumStrIter as _},
     keywords as tk,
     nonempty::NEStr,
+    nonempty::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _},
     python as tp, std_key as sk,
 };
 
@@ -12,10 +13,6 @@ use const_format::formatcp;
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty_collections::{
-    NEVec,
-    iter::{IntoNonEmptyIterator as _, NonEmptyIterator as _},
-};
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{ToTokens, format_ident, quote};
@@ -8881,7 +8878,7 @@ impl<E: From<PyException>> PyAlias<E> {
 
     fn new_std_keywords() -> Self {
         let keypath: Path = parse_quote!(fireflow_types::std_key::StdKey);
-        let valpath: Path = parse_quote!(fireflow_types::nonempty::string::NEString);
+        let valpath: Path = parse_quote!(fireflow_types::nonempty::NEString);
         Self::new_py(["typing"], "StdKeywords")
             .rstype(parse_quote!(hashbrown::HashMap::<#keypath, #valpath>))
             .set_default(PyDict::new_dummy())
@@ -8889,7 +8886,7 @@ impl<E: From<PyException>> PyAlias<E> {
 
     fn new_nonstd_keywords() -> Self {
         let keypath: Path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
-        let valpath: Path = parse_quote!(fireflow_types::nonempty::string::NEString);
+        let valpath: Path = parse_quote!(fireflow_types::nonempty::NEString);
         // TODO the :: here is awkward
         Self::new_py(["typing"], "NonStdKeywords")
             .rstype(parse_quote!(hashbrown::HashMap::<#keypath, #valpath>))
@@ -9035,7 +9032,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_ne_str() -> Self {
-        let path: Path = parse_quote!(fireflow_types::nonempty::string::NEString);
+        let path: Path = parse_quote!(fireflow_types::nonempty::NEString);
         Self::new_py(["typing"], "NEStr").rstype(path)
     }
 

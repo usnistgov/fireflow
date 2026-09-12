@@ -5,13 +5,13 @@ use crate::validated::ascii_range::{Chars, CharsError};
 
 use fireflow_types::config::NumericByteWidth;
 use fireflow_types::ne_str;
-use fireflow_types::nonempty::{NEDelim, NEStr, ToDisplayNE};
+use fireflow_types::nonempty::{
+    FromNonEmptyIterator, IntoNonEmptyIterator, NEDelim, NEStr, NEVec, NonEmptyIterator as _,
+    ToDisplayNE,
+};
 
 use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
-use nonempty_collections::{
-    FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator as _,
-};
 use num_enum::TryFromPrimitiveError;
 use thiserror::Error;
 

@@ -1,10 +1,9 @@
-use super::{NEArrayExt, NESlice, NEStr, NEString, NEVecExt as _};
+use super::{NESlice, NEStr, NEString, NEVec, NonEmptyArrayExt, NonEmptyIterator};
 
 use ambassador::delegatable_trait;
 use bigdecimal::BigDecimal;
 use derive_more::From;
 use derive_new::new;
-use nonempty_collections::{NEVec, NonEmptyIterator as _};
 
 use std::{
     fmt,
@@ -313,7 +312,7 @@ where
 {
     type NE = &'a NESlice<ToNE<T>>;
     fn to_ne(&'a self) -> Self::NE {
-        ToNE::on_inner_slice(self.as_ne_slice())
+        ToNE::on_inner_slice(self.as_nonempty_slice())
     }
 }
 
@@ -324,20 +323,20 @@ where
 {
     type NE = NEDelim<&'a NESlice<ToNE<T>>>;
     fn to_ne(&'a self) -> Self::NE {
-        let xs = ToNE::on_inner_slice(self.inner.as_ne_slice());
+        let xs = ToNE::on_inner_slice(self.inner.as_nonempty_slice());
         NEDelim::new(self.delim, xs)
     }
 }
 
 impl<'a, T, const LEN: usize> ToDisplayNE<'a> for NEDelim<[T; LEN]>
 where
-    [T; LEN]: NEArrayExt<T>,
+    [T; LEN]: NonEmptyArrayExt<T>,
     for<'b> T: ToDisplayNE<'b> + 'a,
     for<'b> <T as ToDisplayNE<'b>>::NE: Sized,
 {
     type NE = NEDelim<&'a NESlice<ToNE<T>>>;
     fn to_ne(&'a self) -> Self::NE {
-        let xs = ToNE::on_inner_slice(self.inner.as_ne_slice());
+        let xs = ToNE::on_inner_slice(self.inner.as_nonempty_slice());
         NEDelim::new(self.delim, xs)
     }
 }
@@ -478,23 +477,23 @@ impl<T: DisplayNE> DisplayNEInner for NEDelim<&NESlice<T>> {
 
 impl<T: DisplayNE> DisplayNEInner for NEVec<T> {
     fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        self.as_ne_slice().fmt_ne_inner(f)
+        self.as_nonempty_slice().fmt_ne_inner(f)
     }
 }
 
 impl<T, const LEN: usize> DisplayNEInner for NEDelim<[T; LEN]>
 where
-    [T; LEN]: NEArrayExt<T>,
+    [T; LEN]: NonEmptyArrayExt<T>,
     T: DisplayNE,
 {
     fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        NEDelim::new(self.delim, self.inner.as_ne_slice()).fmt_ne_inner(f)
+        NEDelim::new(self.delim, self.inner.as_nonempty_slice()).fmt_ne_inner(f)
     }
 }
 
 impl<T: DisplayNE> DisplayNEInner for NEDelim<NEVec<T>> {
     fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        NEDelim::new(self.delim, self.inner.as_ne_slice()).fmt_ne_inner(f)
+        NEDelim::new(self.delim, self.inner.as_nonempty_slice()).fmt_ne_inner(f)
     }
 }
 

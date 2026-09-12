@@ -1,9 +1,9 @@
 use crate::keystring::KeyString;
+use crate::nonempty::{IntoIteratorExt, NEVec, NonEmptyIterator};
 
 use derive_more::{AsRef, Display, From};
 use hashbrown::{HashMap, hash_map::IntoIter};
 use itertools::Itertools as _;
-use nonempty_collections::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 use thiserror::Error;
 
 #[cfg(feature = "serde")]

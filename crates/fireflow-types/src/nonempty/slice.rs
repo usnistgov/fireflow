@@ -1,9 +1,10 @@
-use super::string::NEString;
-
-use derive_more::{AsRef, Display, From, Into};
-use nonempty_collections::{
-    IntoNonEmptyIterator, NESlice as NESlice_, NEVec, NonEmptyIterator as _, slice::Iter as NEIter,
+use super::{
+    iter::{FromNonEmptyIterator, IntoNonEmptyIterator, NonEmptyIterator},
+    string::NEString,
+    vec::{Iter, NEVec},
 };
+
+use derive_more::{AsRef, Display};
 
 use std::{hash::Hash, iter, num::NonZeroUsize, ptr::from_ref, slice};
 
@@ -17,7 +18,7 @@ use serde::Serialize;
 pub struct NESlice<T>([T]);
 
 /// Iterator of non-empty chunks of a [`NESlice`].
-pub struct NEChunks<'a, T>(slice::Chunks<'a, T>);
+pub struct NEChunks<'a, T>(pub(crate) slice::Chunks<'a, T>);
 
 impl<'a, T> IntoIterator for &'a NESlice<T> {
     type Item = &'a T;
@@ -28,11 +29,11 @@ impl<'a, T> IntoIterator for &'a NESlice<T> {
 }
 
 impl<'a, T> IntoNonEmptyIterator for &'a NESlice<T> {
-    type IntoNEIter = NEIter<'a, T>;
+    type IntoNEIter = Iter<'a, T>;
     fn into_nonempty_iter(self) -> Self::IntoNEIter {
-        NESlice_::try_from_slice(&self.0)
-            .unwrap()
-            .into_nonempty_iter()
+        Iter {
+            iter: self.0.iter(),
+        }
     }
 }
 
@@ -97,7 +98,7 @@ impl<T> NESlice<T> {
         self.0.iter()
     }
 
-    pub fn nonempty_iter(&self) -> NEIter<'_, T> {
+    pub fn nonempty_iter(&self) -> Iter<'_, T> {
         self.into_nonempty_iter()
     }
 

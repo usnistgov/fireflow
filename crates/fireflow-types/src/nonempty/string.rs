@@ -1,9 +1,6 @@
-use super::{slice::NESlice, str::NEStr};
+use super::{FromNonEmptyIterator, IntoNonEmptyIterator, NESlice, NEStr, NEVec, NonEmptyIterator};
 
 use derive_more::{AsRef, Display, Into};
-use nonempty_collections::{
-    FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator as _,
-};
 use thiserror::Error;
 
 use std::{
@@ -53,54 +50,6 @@ pub struct NonEmptyStringError;
 impl Borrow<NEStr> for NEString {
     fn borrow(&self) -> &NEStr {
         NEStr::new_unchecked(self.0.as_str())
-    }
-}
-
-pub trait NEArrayExt<T> {
-    fn as_ne_slice(&self) -> &NESlice<T>;
-
-    fn nonzero_len(&self) -> NonZeroUsize {
-        self.as_ne_slice().len()
-    }
-
-    fn into_nonempty_vec(self) -> NEVec<T>;
-}
-
-macro_rules! impl_ne_array_ext {
-    ($($len:expr),*) => {
-        $(
-            impl<T> NEArrayExt<T> for [T; $len] {
-                fn as_ne_slice(&self) -> &NESlice<T> {
-                    NESlice::new_unchecked(self)
-                }
-
-                fn into_nonempty_vec(self) -> NEVec<T> {
-                    self.into_nonempty_iter().collect()
-                }
-            }
-        )*
-    };
-}
-
-impl_ne_array_ext!(
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-    27, 28, 29, 30, 31, 32
-);
-
-pub trait NEVecExt {
-    type Inner;
-    fn as_self(&self) -> &NEVec<Self::Inner>;
-
-    fn as_ne_slice(&self) -> &NESlice<Self::Inner> {
-        NESlice::new_unchecked(self.as_self().as_ref())
-    }
-}
-
-impl<T> NEVecExt for NEVec<T> {
-    type Inner = T;
-
-    fn as_self(&self) -> &Self {
-        self
     }
 }
 

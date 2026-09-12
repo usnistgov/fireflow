@@ -1,10 +1,12 @@
 use crate::case_ins_regex::{LiteralOrPattern, LiteralOrPatternError};
-use crate::nonempty::{NESlice, NEStr, NEString, ToDisplayNE};
+use crate::nonempty::{
+    FromNonEmptyIterator, IntoNonEmptyIterator, NESlice, NEStr, NEString, NEVec, NonEmptyIterator,
+    ToDisplayNE,
+};
 
 use derive_more::{AsRef, Display};
 use hashbrown::HashMap;
 use itertools::Itertools as _;
-use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, iter::NonEmptyIterator as _};
 use thiserror::Error;
 use unicase::Ascii;
 

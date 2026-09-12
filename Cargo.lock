@@ -946,7 +946,6 @@ dependencies = [
  "fireflow-core-proc",
  "hashbrown 0.16.1",
  "itertools 0.14.0",
- "nonempty-collections",
  "num-derive",
  "num-traits",
  "num_enum",

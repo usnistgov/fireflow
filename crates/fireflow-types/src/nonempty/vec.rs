@@ -1,0 +1,759 @@
+use super::iter::FromNonEmptyIterator;
+use super::{IntoNonEmptyIterator, NEChunks, NESlice, NonEmptyIterator};
+
+use derive_more::{AsRef, Into};
+#[cfg(feature = "serde")]
+use serde::Serialize;
+use thiserror::Error;
+
+use std::fmt;
+use std::num::NonZeroUsize;
+use std::slice;
+use std::vec;
+
+#[macro_export]
+macro_rules! nev {
+    () => {compile_error!("An NEVec cannot be empty")};
+    ($h:expr, $( $x:expr ),* $(,)?) => {{
+        let mut v = $crate::nonempty::NEVec::new($h);
+        $( v.push($x); )*
+        v
+    }};
+
+    ($h:expr) => {
+        $crate::nonempty::NEVec::new($h)
+    };
+
+    ($elem:expr; $n:expr) => {{
+        let n = const { std::num::NonZero::new($n).expect("Length cannot be 0") };
+        $crate::nonempty::NEVec::from_elem($elem, n)
+    }};
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug, Into, AsRef)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct NEVec<T> {
+    inner: Vec<T>,
+}
+
+#[derive(Error, Debug)]
+#[error("could not make non-empty vector from empty vector")]
+pub struct NEVecError;
+
+/// A non-empty iterator over the values of an [`NEVec`].
+#[must_use = "non-empty iterators are lazy and do nothing unless consumed"]
+pub struct Iter<'a, T: 'a> {
+    pub(crate) iter: slice::Iter<'a, T>,
+}
+
+/// An owned non-empty iterator over values from an [`NEVec`].
+#[derive(Clone)]
+#[must_use = "non-empty iterators are lazy and do nothing unless consumed"]
+pub struct IntoIter<T> {
+    inner: vec::IntoIter<T>,
+}
+
+impl<T> NEVec<T> {
+    /// Create a new non-empty list with an initial element.
+    #[must_use]
+    pub fn new(head: T) -> Self {
+        Self { inner: vec![head] }
+    }
+
+    /// Create a new non-empty list by repeating an element a non-zero number of times.
+    ///
+    /// ```
+    /// use nonempty_collections::*;
+    /// use std::num::NonZeroUsize;
+    ///
+    /// let n = NonZeroUsize::new(3).unwrap();
+    /// let mut v = NEVec::from_elem(1, n);
+    /// assert_eq!(v, nev![1, 1, 1]);
+    /// ```
+    #[must_use]
+    pub fn from_elem(elem: T, n: NonZeroUsize) -> Self
+    where
+        T: Clone,
+    {
+        Self {
+            inner: vec![elem; n.get()],
+        }
+    }
+
+    /// Creates a new `NEVec` with a single element and specified capacity.
+    #[must_use]
+    pub fn with_capacity(capacity: NonZeroUsize, head: T) -> Self {
+        let mut inner = Vec::with_capacity(capacity.get());
+        inner.push(head);
+        Self { inner }
+    }
+
+    /// Get the first element. Never fails.
+    #[must_use]
+    pub fn first(&self) -> &T {
+        // SAFETY: vector always has a 0-th element
+        unsafe { self.inner.get_unchecked(0) }
+    }
+
+    /// Get the mutable reference to the first element. Never fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    ///
+    /// let mut v = nev![42];
+    /// let head = v.first_mut();
+    /// *head += 1;
+    /// assert_eq!(v.first(), &43);
+    ///
+    /// let mut v = nev![1, 4, 2, 3];
+    /// let head = v.first_mut();
+    /// *head *= 42;
+    /// assert_eq!(v.first(), &42);
+    /// ```
+    #[must_use]
+    pub fn first_mut(&mut self) -> &mut T {
+        // SAFETY: vector always has a 0-th element
+        unsafe { self.inner.get_unchecked_mut(0) }
+    }
+
+    /// Push an element to the end of the list.
+    pub fn push(&mut self, e: T) {
+        self.inner.push(e);
+    }
+
+    /// Pop an element from the end of the list. Is a no-op when [`Self::len()`]
+    /// is 1.
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    ///
+    /// let mut v = nev![1, 2];
+    /// assert_eq!(Some(2), v.pop());
+    /// assert_eq!(None, v.pop());
+    /// ```
+    pub fn pop(&mut self) -> Option<T> {
+        if self.len() > NonZeroUsize::MIN {
+            self.inner.pop()
+        } else {
+            None
+        }
+    }
+
+    /// Removes and returns the element at position `index` within the vector,
+    /// shifting all elements after it to the left.
+    ///
+    /// If this [`NEVec`] contains only one element, no removal takes place and
+    /// `None` will be returned. If there are more elements, the item at the
+    /// `index` is removed and returned.
+    ///
+    /// Note: Because this shifts over the remaining elements, it has a
+    /// worst-case performance of *O*(*n*). If you don't need the order of
+    /// elements to be preserved, use [`swap_remove`] instead.
+    ///
+    /// [`swap_remove`]: NEVec::swap_remove
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is out of bounds and `self.len() > 1`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    ///
+    /// let mut v = nev![1, 2, 3];
+    /// assert_eq!(v.remove(1), Some(2));
+    /// assert_eq!(nev![1, 3], v);
+    /// ```
+    pub fn remove(&mut self, index: usize) -> Option<T> {
+        (self.len() > NonZeroUsize::MIN).then(|| self.inner.remove(index))
+    }
+
+    /// Removes an element from the vector and returns it.
+    ///
+    /// If this [`NEVec`] contains only one element, no removal takes place and
+    /// `None` will be returned. If there are more elements, the item at the
+    /// `index` is removed and returned.
+    ///
+    /// The removed element is replaced by the last element of the vector.
+    ///
+    /// This does not preserve ordering of the remaining elements, but is
+    /// *O*(1). If you need to preserve the element order, use [`remove`]
+    /// instead.
+    ///
+    /// [`remove`]: NEVec::remove
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is out of bounds and `self.len() > 1`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    ///
+    /// let mut v = nev![1, 2, 3, 4];
+    /// assert_eq!(v.swap_remove(1), Some(2));
+    /// assert_eq!(nev![1, 4, 3], v);
+    /// ```
+    pub fn swap_remove(&mut self, index: usize) -> Option<T> {
+        (self.len() > NonZeroUsize::MIN).then(|| self.inner.swap_remove(index))
+    }
+
+    /// Retains only the elements specified by the predicate.
+    ///
+    /// In other words, remove all elements `e` for which `f(&e)` returns
+    /// `false`. This method operates in place, visiting each element
+    /// exactly once in the original order, and preserves the order of the
+    /// retained elements.
+    ///
+    /// If there are one or more items retained `Ok(Self)` is returned with the
+    /// remaining items. If all items are removed, the inner `Vec` is returned
+    /// to allowed for reuse of the claimed memory.
+    ///
+    /// # Errors
+    /// Returns `Err` if no elements are retained.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    ///
+    /// let vec = nev![1, 2, 3, 4];
+    /// let vec = vec.retain(|&x| x % 2 == 0);
+    /// assert_eq!(Ok(nev![2, 4]), vec);
+    /// ```
+    pub fn retain<F>(self, mut f: F) -> Result<Self, Vec<T>>
+    where
+        F: FnMut(&T) -> bool,
+    {
+        self.retain_mut(|item| f(item))
+    }
+
+    /// Retains only the elements specified by the predicate, passing a mutable
+    /// reference to it.
+    ///
+    /// In other words, remove all elements `e` such that `f(&mut e)` returns
+    /// `false`. This method operates in place, visiting each element
+    /// exactly once in the original order, and preserves the order of the
+    /// retained elements.
+    ///
+    /// If there are one or more items retained `Ok(Self)` is returned with the
+    /// remaining items. If all items are removed, the inner `Vec` is returned
+    /// to allowed for reuse of the claimed memory.
+    ///
+    /// # Errors
+    /// Returns `Err` if no elements are retained.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    ///
+    /// let vec = nev![1, 2, 3, 4];
+    /// let vec = vec.retain_mut(|x| {
+    ///     if *x <= 3 {
+    ///         *x += 1;
+    ///         true
+    ///     } else {
+    ///         false
+    ///     }
+    /// });
+    /// assert_eq!(Ok(nev![2, 3, 4]), vec);
+    /// ```
+    pub fn retain_mut<F>(mut self, f: F) -> Result<Self, Vec<T>>
+    where
+        F: FnMut(&mut T) -> bool,
+    {
+        self.inner.retain_mut(f);
+        if self.inner.is_empty() {
+            Err(self.inner)
+        } else {
+            Ok(self)
+        }
+    }
+
+    /// Inserts an element at position index within the vector, shifting all
+    /// elements after it to the right.
+    ///
+    /// # Panics
+    ///
+    /// Panics if index > len.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    ///
+    /// let mut v = nev![1, 2, 3];
+    /// v.insert(1, 4);
+    /// assert_eq!(v, nev![1, 4, 2, 3]);
+    /// v.insert(4, 5);
+    /// assert_eq!(v, nev![1, 4, 2, 3, 5]);
+    /// v.insert(0, 42);
+    /// assert_eq!(v, nev![42, 1, 4, 2, 3, 5]);
+    /// ```
+    pub fn insert(&mut self, index: usize, element: T) {
+        self.inner.insert(index, element);
+    }
+
+    /// Get the length of the list.
+    #[must_use]
+    pub fn len(&self) -> NonZeroUsize {
+        // SAFETY: vector always has non-zero length
+        unsafe { NonZeroUsize::new_unchecked(self.inner.len()) }
+    }
+
+    /// Get the capacity of the list.
+    #[must_use]
+    pub fn capacity(&self) -> NonZeroUsize {
+        // SAFETY: vector always has non-zero length
+        unsafe { NonZeroUsize::new_unchecked(self.inner.capacity()) }
+    }
+
+    /// Get the last element. Never fails.
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)] // never fails
+    pub fn last(&self) -> &T {
+        self.inner.last().unwrap()
+    }
+
+    /// Get the last element mutably.
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)] // never fails
+    pub fn last_mut(&mut self) -> &mut T {
+        self.inner.last_mut().unwrap()
+    }
+
+    /// Check whether an element is contained in the list.
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    ///
+    /// let mut l = nev![42, 36, 58];
+    ///
+    /// assert!(l.contains(&42));
+    /// assert!(!l.contains(&101));
+    /// ```
+    #[must_use]
+    pub fn contains(&self, x: &T) -> bool
+    where
+        T: PartialEq,
+    {
+        self.inner.contains(x)
+    }
+
+    /// Get an element by index.
+    #[must_use]
+    pub fn get(&self, index: usize) -> Option<&T> {
+        self.inner.get(index)
+    }
+
+    /// Get an element by index, mutably.
+    #[must_use]
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        self.inner.get_mut(index)
+    }
+
+    /// Returns a regular iterator over the values in this non-empty vector.
+    ///
+    /// For a `NonEmptyIterator` see `Self::nonempty_iter()`.
+    pub fn iter(&self) -> slice::Iter<'_, T> {
+        self.inner.iter()
+    }
+
+    /// Returns a regular mutable iterator over the values in this non-empty
+    /// vector.
+    ///
+    /// For a `NonEmptyIterator` see `Self::nonempty_iter_mut()`.
+    pub fn iter_mut(&mut self) -> slice::IterMut<'_, T> {
+        self.inner.iter_mut()
+    }
+
+    /// ```
+    /// use nonempty_collections::*;
+    ///
+    /// let mut l = nev![42, 36, 58];
+    ///
+    /// let mut iter = l.nonempty_iter();
+    /// let (first, mut rest_iter) = iter.next();
+    ///
+    /// assert_eq!(first, &42);
+    /// assert_eq!(rest_iter.next(), Some(&36));
+    /// assert_eq!(rest_iter.next(), Some(&58));
+    /// assert_eq!(rest_iter.next(), None);
+    /// ```
+    pub fn nonempty_iter(&self) -> Iter<'_, T> {
+        Iter {
+            iter: self.inner.iter(),
+        }
+    }
+
+    /// Reverses the order of elements in the slice, in place.
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    ///
+    /// let mut n = nev![1, 2, 3];
+    /// n.reverse();
+    /// assert_eq!(nev![3,2,1], n);
+    /// ```
+    pub fn reverse(&mut self) {
+        self.inner.reverse();
+    }
+
+    /// Truncates the list to a certain size.
+    pub fn truncate(&mut self, len: NonZeroUsize) {
+        self.inner.truncate(len.get());
+    }
+
+    /// Creates a new non-empty vec by cloning the elements from the slice if it
+    /// is non-empty, returns `None` otherwise.
+    ///
+    /// Often we have a `Vec` (or slice `&[T]`) but want to ensure that it is
+    /// `NEVec` before proceeding with a computation. Using `try_from_slice`
+    /// will give us a proof that we have a `NEVec` in the `Some` branch,
+    /// otherwise it allows the caller to handle the `None` case.
+    ///
+    /// # Example use
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    /// use nonempty_collections::NEVec;
+    ///
+    /// let v_vec = NEVec::try_from_slice(&[1, 2, 3, 4, 5]);
+    /// assert_eq!(v_vec, Some(nev![1, 2, 3, 4, 5]));
+    ///
+    /// let empty_vec: Option<NEVec<&u32>> = NEVec::try_from_slice(&[]);
+    /// assert!(empty_vec.is_none());
+    /// ```
+    #[must_use]
+    pub fn try_from_slice(slice: &[T]) -> Option<Self>
+    where
+        T: Clone,
+    {
+        if slice.is_empty() {
+            None
+        } else {
+            Some(Self {
+                inner: slice.to_vec(),
+            })
+        }
+    }
+
+    /// Often we have a `Vec` (or slice `&[T]`) but want to ensure that it is
+    /// `NEVec` before proceeding with a computation. Using `try_from_vec` will
+    /// give us a proof that we have a `NEVec` in the `Some` branch,
+    /// otherwise it allows the caller to handle the `None` case.
+    ///
+    /// This version will consume the `Vec` you pass in. If you would rather
+    /// pass the data as a slice then use [`NEVec::try_from_slice`].
+    ///
+    /// # Example Use
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    /// use nonempty_collections::NEVec;
+    ///
+    /// let v_vec = NEVec::try_from_vec(vec![1, 2, 3, 4, 5]);
+    /// assert_eq!(v_vec, Some(nev![1, 2, 3, 4, 5]));
+    ///
+    /// let empty_vec: Option<NEVec<&u32>> = NEVec::try_from_vec(vec![]);
+    /// assert!(empty_vec.is_none());
+    /// ```
+    #[must_use]
+    pub fn try_from_vec(vec: Vec<T>) -> Option<Self> {
+        if vec.is_empty() {
+            None
+        } else {
+            Some(Self { inner: vec })
+        }
+    }
+
+    /// Deconstruct a `NEVec` into its head and tail. This operation never fails
+    /// since we are guaranteed to have a head element.
+    ///
+    /// # Example Use
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    ///
+    /// let mut v = nev![1, 2, 3, 4, 5];
+    ///
+    /// // Guaranteed to have the head and we also get the tail.
+    /// assert_eq!(v.split_first(), (&1, &[2, 3, 4, 5][..]));
+    ///
+    /// let v = nev![1];
+    ///
+    /// // Guaranteed to have the head element.
+    /// assert_eq!(v.split_first(), (&1, &[][..]));
+    /// ```
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)] // never fails
+    pub fn split_first(&self) -> (&T, &[T]) {
+        self.inner.split_first().unwrap()
+    }
+
+    /// Deconstruct a `NEVec` into its first, last, and
+    /// middle elements, in that order.
+    ///
+    /// If there is only one element then first == last.
+    ///
+    /// # Example Use
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    ///
+    /// let mut v = nev![1, 2, 3, 4, 5];
+    ///
+    /// // Guaranteed to have the last element and the elements
+    /// // preceding it.
+    /// assert_eq!(v.split(), (&1, &[2, 3, 4][..], &5));
+    ///
+    /// let v = nev![1];
+    ///
+    /// // Guaranteed to have the last element.
+    /// assert_eq!(v.split(), (&1, &[][..], &1));
+    /// ```
+    #[must_use]
+    pub fn split(&self) -> (&T, &[T], &T) {
+        let (first, rest) = self.split_first();
+        if let Some((last, middle)) = rest.split_last() {
+            (first, middle, last)
+        } else {
+            (first, &[], first)
+        }
+    }
+
+    /// Append a `Vec` to the tail of the `NEVec`.
+    ///
+    /// # Example Use
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    ///
+    /// let mut v = nev![1];
+    /// let mut vec = vec![2, 3, 4, 5];
+    /// v.append(&mut vec);
+    ///
+    /// let mut expected = nev![1, 2, 3, 4, 5];
+    /// assert_eq!(v, expected);
+    /// ```
+    pub fn append(&mut self, other: &mut Vec<T>) {
+        self.inner.append(other);
+    }
+
+    /// Yields a `NESlice`.
+    #[must_use]
+    pub fn as_nonempty_slice(&self) -> &NESlice<T> {
+        NESlice::new_unchecked(self.inner.as_slice())
+    }
+
+    /// Removes all but the first of consecutive elements in the vector that
+    /// resolve to the same key.
+    ///
+    /// If the vector is sorted, this removes all duplicates.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    /// let mut v = nev![10, 20, 21, 30, 20];
+    ///
+    /// v.dedup_by_key(|i| *i / 10);
+    ///
+    /// assert_eq!(nev![10, 20, 30, 20], v);
+    /// ```
+    pub fn dedup_by_key<F, K>(&mut self, mut key: F)
+    where
+        F: FnMut(&mut T) -> K,
+        K: PartialEq,
+    {
+        self.dedup_by(|a, b| key(a) == key(b));
+    }
+
+    /// Removes all but the first of consecutive elements in the vector
+    /// satisfying a given equality relation.
+    ///
+    /// The `same_bucket` function is passed references to two elements from the
+    /// vector and must determine if the elements compare equal. The
+    /// elements are passed in opposite order from their order in the slice,
+    /// so if `same_bucket(a, b)` returns `true`, `a` is removed.
+    ///
+    /// If the vector is sorted, this removes all duplicates.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use nonempty_collections::nev;
+    /// let mut v = nev!["foo", "Foo", "foo", "bar", "Bar", "baz", "bar"];
+    ///
+    /// v.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+    ///
+    /// assert_eq!(nev!["foo", "bar", "baz", "bar"], v);
+    /// ```
+    pub fn dedup_by<F>(&mut self, same_bucket: F)
+    where
+        F: FnMut(&mut T, &mut T) -> bool,
+    {
+        self.inner.dedup_by(same_bucket);
+    }
+
+    /// Returns a non-empty iterator over `chunk_size` elements of the `NEVec`
+    /// at a time, starting at the beginning of the `NEVec`.
+    ///
+    /// ```
+    /// use std::num::NonZeroUsize;
+    ///
+    /// use nonempty_collections::*;
+    ///
+    /// let v = nev![1, 2, 3, 4, 5, 6];
+    /// let n = NonZeroUsize::new(2).unwrap();
+    /// let r = v.nonempty_chunks(n).collect::<NEVec<_>>();
+    ///
+    /// let a = nev![1, 2];
+    /// let b = nev![3, 4];
+    /// let c = nev![5, 6];
+    ///
+    /// assert_eq!(
+    ///     r,
+    ///     nev![
+    ///         a.as_nonempty_slice(),
+    ///         b.as_nonempty_slice(),
+    ///         c.as_nonempty_slice()
+    ///     ]
+    /// );
+    /// ```
+    #[must_use]
+    pub fn nonempty_chunks(&self, chunk_size: NonZeroUsize) -> NEChunks<'_, T> {
+        NEChunks(self.inner.chunks(chunk_size.get()))
+    }
+}
+
+// FIXME(#26925) Remove in favor of `#[derive(Clone)]` (see https://github.com/rust-lang/rust/issues/26925 for more info)
+impl<T> Clone for Iter<'_, T> {
+    fn clone(&self) -> Self {
+        Iter {
+            iter: self.iter.clone(),
+        }
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for Iter<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.iter.fmt(f)
+    }
+}
+
+impl<T> NonEmptyIterator for Iter<'_, T> {}
+
+impl<'a, T> IntoIterator for Iter<'a, T> {
+    type Item = &'a T;
+
+    type IntoIter = slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter
+    }
+}
+
+impl<T> NonEmptyIterator for IntoIter<T> {}
+
+impl<T> IntoIterator for IntoIter<T> {
+    type Item = T;
+
+    type IntoIter = vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for IntoIter<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+impl<T> IntoNonEmptyIterator for NEVec<T> {
+    type IntoNEIter = IntoIter<T>;
+
+    fn into_nonempty_iter(self) -> Self::IntoNEIter {
+        IntoIter {
+            inner: self.inner.into_iter(),
+        }
+    }
+}
+
+impl<'a, T> IntoNonEmptyIterator for &'a NEVec<T> {
+    type IntoNEIter = Iter<'a, T>;
+
+    fn into_nonempty_iter(self) -> Self::IntoNEIter {
+        self.nonempty_iter()
+    }
+}
+
+impl<T> IntoIterator for NEVec<T> {
+    type Item = T;
+    type IntoIter = vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.into_iter()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a NEVec<T> {
+    type Item = &'a T;
+    type IntoIter = slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a mut NEVec<T> {
+    type Item = &'a mut T;
+    type IntoIter = slice::IterMut<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
+/// ```
+/// use nonempty_collections::*;
+///
+/// let v0 = nev![1, 2, 3];
+/// let v1: NEVec<_> = v0.nonempty_iter().cloned().collect();
+/// assert_eq!(v0, v1);
+/// ```
+impl<T> FromNonEmptyIterator<T> for NEVec<T> {
+    fn from_nonempty_iter<I>(iter: I) -> Self
+    where
+        I: IntoNonEmptyIterator<Item = T>,
+    {
+        Self {
+            inner: iter.into_nonempty_iter().into_iter().collect(),
+        }
+    }
+}
+
+impl<T> From<(T, Vec<T>)> for NEVec<T> {
+    /// Turns a pair of an element and a `Vec` into
+    /// a `NEVec`.
+    fn from((head, tail): (T, Vec<T>)) -> Self {
+        let mut vec = vec![head];
+        vec.extend(tail);
+        Self { inner: vec }
+    }
+}
+
+impl<T> TryFrom<Vec<T>> for NEVec<T> {
+    type Error = NEVecError;
+
+    fn try_from(vec: Vec<T>) -> Result<Self, Self::Error> {
+        Self::try_from_vec(vec).ok_or(NEVecError)
+    }
+}

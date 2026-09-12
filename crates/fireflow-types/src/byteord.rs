@@ -1,5 +1,6 @@
+use crate::nonempty::NEVec;
+
 use derive_more::{AsRef, Display};
-use nonempty_collections::NEVec;
 use thiserror::Error;
 
 use std::{

@@ -1,10 +1,10 @@
 use crate::config::EnumStrIter as _;
-use crate::nonempty::NEStr;
+use crate::nev;
+use crate::nonempty::{NEStr, NEVec, NonEmptyArrayExt as _};
 use crate::{impl_str_enum, impl_str_enum_kw, ne_str};
 
 use const_format::formatcp;
 use derive_more::Display;
-use nonempty_collections::{NEVec, NonEmptyArrayExt as _, nev};
 
 #[cfg(feature = "python")]
 use {

@@ -3,6 +3,7 @@ use crate::validated::dataframe::HasLen;
 use fireflow_types::nonempty::NEStr;
 
 use derive_new::new;
+use derive_where::derive_where;
 use fireflow_types::std_key::{AnyIndex, EnumIndex, StdKey};
 
 use std::iter;
@@ -13,6 +14,7 @@ pub type NestedEnumString<const LEN: usize, K> = NestedString<[usize; LEN], K>;
 
 pub type NestedVariableString<K> = NestedString<Vec<usize>, K>;
 
+#[derive_where(Default, Clone, Debug, PartialEq; I)]
 pub struct NestedString<I, K> {
     inner: Vec<u8>,
     offsets: I,

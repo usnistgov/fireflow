@@ -1330,13 +1330,13 @@ impl<T> IntoIterator for NEFragChain<T> {
     }
 }
 
-trait StringLike: Sized {
+pub(crate) trait StringLike: Sized {
     fn str_trim_ascii(&self) -> Option<Self>;
 
     fn as_utf8_string(&self) -> NEString;
 }
 
-trait BytesLike: Sized {
+pub(crate) trait BytesLike: Sized {
     type Utf8;
 
     fn as_utf8(&self) -> Option<Self::Utf8>;

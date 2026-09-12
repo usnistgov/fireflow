@@ -45,6 +45,20 @@ pub struct StdIndex {
     dfc_matrix_size: usize,
 }
 
+impl Default for StdIndex {
+    fn default() -> Self {
+        Self {
+            root: NestedRoot::init_array(0),
+            meas: NestedVariableString::default(),
+            gate: NestedVariableString::default(),
+            region: NestedVariableString::default(),
+            csv_flag: NestedVariableString::default(),
+            dfc: NestedVariableString::default(),
+            dfc_matrix_size: 0,
+        }
+    }
+}
+
 impl StdIndex {
     #[must_use]
     pub fn get(&self, k: &StdKey) -> &str {

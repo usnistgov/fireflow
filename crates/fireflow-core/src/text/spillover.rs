@@ -11,11 +11,7 @@ use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNames
 use fireflow_types::{
     config::{ConfigFlag as _, SpilloverMeasurementMode, TrimIntraValueWhitespace},
     index::MeasIndex,
-    nonempty::{
-        slice::NESlice,
-        str::NEStr,
-        string::{NEConcat, NEConcat5, NEDelim, ToDisplayNE, ToNE},
-    },
+    nonempty::{NEConcat, NEConcat5, NEDelim, NESlice, NEStr, ToDisplayNE, ToNE},
     textdelim::{DelimCollisionError, HasDelim, TEXTDelim},
 };
 

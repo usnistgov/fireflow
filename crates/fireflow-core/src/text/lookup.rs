@@ -11,7 +11,7 @@ use fireflow_types::{
         ConfigFlag as _, DummyTriFlag, KeywordFailureFlag as _, ProcessOptionalFailure,
         TrimIntraValueWhitespace,
     },
-    nonempty::{str::NEStr, string::NEString},
+    nonempty::{NEStr, NEString},
     std_key::StdKey,
 };
 
@@ -218,18 +218,15 @@ macro_rules! impl_from_str_with_delim {
         impl crate::text::lookup::FromStrWith for $t {
             type Err = $e;
             type Payload<'a> = ();
-            type Diagnostic = Option<fireflow_types::nonempty::string::NEString>;
+            type Diagnostic = Option<fireflow_types::nonempty::NEString>;
             type Config = crate::config::EvaledReadStdKeywordsConfig;
 
             fn from_str_with(
-                s: &fireflow_types::nonempty::str::NEStr,
+                s: &fireflow_types::nonempty::NEStr,
                 (): (),
                 conf: &crate::config::EvaledReadStdKeywordsConfig,
             ) -> Result<
-                crate::text::lookup::Diagnosed<
-                    Self,
-                    Option<fireflow_types::nonempty::string::NEString>,
-                >,
+                crate::text::lookup::Diagnosed<Self, Option<fireflow_types::nonempty::NEString>>,
                 Self::Err,
             > {
                 let (res, trimmed) = Self::from_str_delim(s, conf.trim_intra_value_whitespace);

@@ -15,7 +15,7 @@ use fireflow_types::{
     datepattern::DatePattern,
     keystring::{KeyString, KeyStringOrPattern},
     keywords as tk,
-    nonempty::string::{NEStr, NEString},
+    nonempty::{NEStr, NEString},
     other_width::OtherWidth,
     segment::OffsetsCorrection,
     std_key as sk,

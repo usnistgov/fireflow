@@ -134,7 +134,7 @@ use fireflow_types::{
     keywords::{
         HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
     },
-    nonempty::{slice::NESlice, str::NEStr, string::NEString},
+    nonempty::{NESlice, NEStr, NEString},
     segment::{AnalysisSegmentId, DataSegmentId},
     std_key::StdKey,
     textdelim::TEXTDelim,

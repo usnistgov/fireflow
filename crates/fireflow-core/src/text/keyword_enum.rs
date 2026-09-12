@@ -17,10 +17,7 @@ use fireflow_types::std_key::BlankKeyword;
 use fireflow_types::{
     index::{MeasIndex, RegionIndex},
     keywords::{Version, VersionMembership},
-    nonempty::{
-        str::NEStr,
-        string::{DisplayNE as _, DisplayableNE as _, NEString, ToDisplayNE, ToNE},
-    },
+    nonempty::{DisplayNE as _, DisplayableNE as _, NEStr, NEString, ToDisplayNE, ToNE},
     std_key::StdKey,
     textdelim::{DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim},
 };

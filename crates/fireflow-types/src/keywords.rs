@@ -1,5 +1,5 @@
 use crate::config::EnumStrIter as _;
-use crate::nonempty::str::NEStr;
+use crate::nonempty::NEStr;
 use crate::{impl_str_enum, impl_str_enum_kw, ne_str};
 
 use const_format::formatcp;
@@ -218,7 +218,7 @@ impl_str_enum_kw!(
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::nonempty::string::DisplayableNE as _;
+    use crate::nonempty::DisplayableNE as _;
 
     use super::OpticalFeature;
 

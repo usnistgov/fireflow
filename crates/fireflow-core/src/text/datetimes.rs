@@ -10,10 +10,7 @@ use fireflow_types::{
     keywords::{
         ISO_DATETIME_NO_TZ, ISO_DATETIME_TZ_HH, ISO_DATETIME_TZ_HH_MAYBE_MM, ISO_DATETIME_TZ_HH_MM,
     },
-    nonempty::{
-        str::NEStr,
-        string::{NEString, ToDisplayNE, ambassador_impl_ToDisplayNE},
-    },
+    nonempty::{NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE},
 };
 
 use type_families::BifunctorOnce as _;
@@ -205,7 +202,7 @@ macro_rules! impl_from_str_with {
             type Config = EvaledReadStdKeywordsConfig;
 
             fn from_str_with(
-                s: &fireflow_types::nonempty::str::NEStr,
+                s: &fireflow_types::nonempty::NEStr,
                 (): (),
                 conf: &Self::Config,
             ) -> Result<Diagnosed<Self, Self::Diagnostic>, Self::Err> {

@@ -9,7 +9,7 @@ use fireflow_types::{
     keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns},
     keystring_pairs::KeyStringPairs,
     ne_str,
-    nonempty::{str::NEStr, string::NEString},
+    nonempty::{NEStr, NEString},
     std_key::{RealOrPseudoStdKey, RootKey, StdKey, ToStd},
     timepattern::TimePattern,
 };
@@ -413,7 +413,7 @@ mod python {
 
     use crate::validated::keys::AnyKey;
 
-    use fireflow_types::nonempty::{str::NEStr, string::NEString};
+    use fireflow_types::nonempty::{NEStr, NEString};
     use fireflow_types::python as fp;
 
     use nonempty_collections::NEVec;

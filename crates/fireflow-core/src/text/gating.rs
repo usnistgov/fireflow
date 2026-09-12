@@ -28,7 +28,7 @@ use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeyId};
 use fireflow_types::{
     config::AllowLoss,
     index::{GateIndex, MeasIndex, RegionIndex},
-    nonempty::string::NEVecExt as _,
+    nonempty::NEVecExt as _,
     std_key::StdKey,
 };
 

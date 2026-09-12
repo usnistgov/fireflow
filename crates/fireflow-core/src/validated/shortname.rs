@@ -1,9 +1,8 @@
 use fireflow_types::index::MeasIndex;
 use fireflow_types::ne_str;
-use fireflow_types::nonempty::{str::NEStr, string::NEString};
 use fireflow_types::{
     config::DEDUP_PNN_SEP,
-    nonempty::string::{NonEmptyStringError, ToDisplayNE, ambassador_impl_ToDisplayNE},
+    nonempty::{NEStr, NEString, NonEmptyStringError, ToDisplayNE, ambassador_impl_ToDisplayNE},
 };
 
 use ambassador::Delegate;

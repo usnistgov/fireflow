@@ -22,7 +22,7 @@ pub struct NEStr(str);
 macro_rules! ne_str {
     ($s:expr) => {{
         const _: () = assert!(!$s.is_empty(), "string cannot be empty");
-        $crate::nonempty::str::NEStr::try_new($s).unwrap()
+        $crate::nonempty::NEStr::try_new($s).unwrap()
     }};
 }
 

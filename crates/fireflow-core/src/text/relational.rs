@@ -48,7 +48,7 @@ use crate::validated::shortname::Shortname;
 use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeyId};
 use fireflow_types::{
     index::{MeasIndex, RegionIndex},
-    nonempty::string::NEString,
+    nonempty::NEString,
     std_key::StdKey,
 };
 

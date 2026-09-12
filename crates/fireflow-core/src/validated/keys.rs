@@ -17,11 +17,8 @@ use fireflow_types::{
     keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns, NEAsciiStringError},
     ne_str,
     nonempty::{
-        slice::NESlice,
-        str::NEStr,
-        string::{
-            DisplayNE, NEAlt, NEConcat, NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
-        },
+        DisplayNE, NEAlt, NEConcat, NESlice, NEStr, NEString, ToDisplayNE, ToNE,
+        ambassador_impl_ToDisplayNE,
     },
     std_key::{PseudoStdKey, RealOrPseudoStdKey, STD_PREFIX, StdKey, ToStd},
     sub_pattern::SubPattern,
@@ -1464,7 +1461,7 @@ const TRUNCATED_STR_LIMIT: usize = 20;
 
 #[cfg(feature = "serde")]
 mod serialize {
-    use fireflow_types::nonempty::string::NEString;
+    use fireflow_types::nonempty::NEString;
 
     use hashbrown::HashMap;
     use serde::Serialize;

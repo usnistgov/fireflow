@@ -3,7 +3,7 @@
 use crate::header::MAX_HEADER_OFFSET;
 
 use derive_more::{Add, Display, From, FromStr, Into, Mul, Sub};
-use fireflow_types::nonempty::string::{PaddedU64, ToDisplayNE};
+use fireflow_types::nonempty::{PaddedU64, ToDisplayNE};
 use num_derive::{One, Zero};
 use num_traits::ops::checked::CheckedSub;
 use std::num::{NonZeroU64, ParseIntError, TryFromIntError};

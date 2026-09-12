@@ -32,7 +32,7 @@ use fireflow_types::{
         ReadHeaderInnerConfig, ReadOffsetConfig,
     },
     keywords::Version,
-    nonempty::slice::NESlice,
+    nonempty::NESlice,
     other_width::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth},
     segment::{
         AnalysisSegmentId, DataSegmentId, HeaderCorrection, OffsetsCorrection, OffsetsFromHeader,

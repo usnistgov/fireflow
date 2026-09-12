@@ -721,7 +721,6 @@ impl DisplayNEInner for PaddedU64 {
     }
 }
 
-
 #[cfg(feature = "testutil")]
 mod testutil {
     use super::NEString;

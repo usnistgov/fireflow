@@ -1,5 +1,5 @@
 use super::{
-    iter::{FromNonEmptyIterator, IntoNonEmptyIterator, NonEmptyIterator},
+    iter::{IntoNonEmptyIterator, NonEmptyIterator as _},
     string::NEString,
     vec::{Iter, NEVec},
 };
@@ -37,13 +37,21 @@ impl<'a, T> IntoNonEmptyIterator for &'a NESlice<T> {
     }
 }
 
+impl<T: Clone> ToOwned for NESlice<T> {
+    type Owned = NEVec<T>;
+
+    fn to_owned(&self) -> Self::Owned {
+        self.to_ne_vec()
+    }
+}
+
 impl<T> NESlice<T> {
     #[must_use]
-    pub const fn try_from_slice(bytes: &[T]) -> Option<&Self> {
-        if bytes.is_empty() {
+    pub const fn try_from_slice(xs: &[T]) -> Option<&Self> {
+        if xs.is_empty() {
             None
         } else {
-            Some(Self::new_unchecked(bytes))
+            Some(Self::new_unchecked(xs))
         }
     }
 

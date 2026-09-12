@@ -6,6 +6,7 @@ use derive_more::{AsRef, Into};
 use serde::Serialize;
 use thiserror::Error;
 
+use std::borrow::Borrow;
 use std::fmt;
 use std::num::NonZeroUsize;
 use std::ops;
@@ -841,6 +842,12 @@ impl<T> Extend<T> for NEVec<T> {
         I: IntoIterator<Item = T>,
     {
         self.inner.extend(iter);
+    }
+}
+
+impl<T> Borrow<NESlice<T>> for NEVec<T> {
+    fn borrow(&self) -> &NESlice<T> {
+        self.as_nonempty_slice()
     }
 }
 

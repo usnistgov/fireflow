@@ -43,8 +43,8 @@ use crate::validated::header_offsets::{
 };
 use crate::validated::keys::{
     InvalidKeywordCharsError, KeyOrBytes, KeywordInsertError, NEStringOrBytes, NonStdKey,
-    ParsedKeyword, ParsedKeywords, ParsedKeywordsDiagnostic, RepairDiagnostics, StdKeywords,
-    StringOrBytes, TruncatedNEString, ValidKeywords, ValueToStdKey as _,
+    OneOrMany, ParsedKeyword, ParsedKeywords, ParsedKeywordsDiagnostic, RepairDiagnostics,
+    StdKeywords, StringOrBytes, TruncatedNEString, ValidKeywords, ValueToStdKey as _,
 };
 use crate::validated::read_state::{
     DatasetLen, DatasetOffset, DatasetOffsetError, FileLen, HeaderReadState, TEXTReadState,
@@ -75,7 +75,7 @@ use std::{
     fmt, fs,
     fs::File,
     io::{self, BufReader, Read, Seek},
-    iter,
+    iter, mem,
     num::NonZeroUsize,
     path::PathBuf,
     time::Instant,
@@ -2361,8 +2361,6 @@ impl<'a> ParsedTEXTOutput<'a> {
         // keywords and this estimate will overshoot.
         let mut parsed = Vec::with_capacity(segs.len().get() / 2);
 
-        let go = |kb: &NESlice<u8>, vb: &NESlice<u8>| ParsedKeyword::from_pair(kb, vb, enc, conf);
-
         // The number of blanks which are found in a row
         let mut consec_blanks = 0_usize;
 
@@ -2371,7 +2369,7 @@ impl<'a> ParsedTEXTOutput<'a> {
         // remove every other delimiter to make it literal, which implies we
         // need to allocate a new string.
         let mut keybuf: NEVec<u8>;
-        let mut valbuf: Vec<u8> = vec![];
+        let mut valbuf: Option<OneOrMany<&NESlice<u8>>> = None;
 
         let mut it = segs.iter();
 
@@ -2414,22 +2412,23 @@ impl<'a> ParsedTEXTOutput<'a> {
                         let seg = NEStringOrBytes::from(ne_token.to_ne_vec());
                         tokens_with_boundary_delims.push(seg);
                     }
-                    if let Some(ne_val) = NESlice::try_from_slice(&valbuf[..]) {
-                        parsed.push(go(keybuf.as_nonempty_slice(), &ne_val));
-                        valbuf.clear();
+                    if let Some(ne_val) = mem::take(&mut valbuf) {
+                        let kb = keybuf.as_nonempty_slice();
+                        let p = ParsedKeyword::from_pair(kb, ne_val, enc, conf);
+                        parsed.push(p);
                         keybuf = ne_token.to_ne_vec();
                     } else {
-                        valbuf.extend_from_slice(ne_token.as_ref());
+                        valbuf = Some(OneOrMany::One(ne_token));
                     }
                 } else {
                     // Previous consecutive delimiter sequence was even. Push
                     // this number / 2 followed by the current token fragment
                     // to the active buffer.
                     let ds = iter::repeat_n(delim, consec_blanks.div_ceil(2));
-                    if valbuf.is_empty() {
-                        keybuf.extend(ds.chain(ne_token.iter().copied()));
+                    if let Some(v) = mem::take(&mut valbuf) {
+                        valbuf = Some(v.append(ne_token));
                     } else {
-                        valbuf.extend(ds.chain(ne_token.iter().copied()));
+                        keybuf.extend(ds.chain(ne_token.iter().copied()));
                     }
                 }
                 consec_blanks = 0;
@@ -2438,27 +2437,34 @@ impl<'a> ParsedTEXTOutput<'a> {
             }
         }
 
+        // If the number of consecutive blanks was odd and greater than zero,
+        // the last token ended with a string of escaped delimiters which was
+        // not captured at the end of the loop.
+        let has_escaped_delim_end = consec_blanks > 1 && consec_blanks & 1 == 1;
+
         // Unprime the loop since we can only add a key/val pair after
         // encountering the delimiter boundary after the value token. If there
         // was an even number of tokens, we will have both a key and value that
         // can be pushed. If we only have a key, keep this as last odd token.
-        let last_odd_token = if let Some(ne_val) = NESlice::try_from_slice(&valbuf[..]) {
+        let last_odd_token = if let Some(ne_val) = mem::take(&mut valbuf) {
+            if has_escaped_delim_end {
+                let seg = ne_val.as_ne_vec();
+                tokens_with_boundary_delims.push(NEStringOrBytes::from(seg));
+            }
             // Both key and value are present, this is the last pair in TEXT so
             // push to the end of keywords
-            parsed.push(go(keybuf.as_nonempty_slice(), &ne_val));
+            let kb = keybuf.as_nonempty_slice();
+            let p = ParsedKeyword::from_pair(kb, ne_val, enc, conf);
+            parsed.push(p);
             vec![]
         } else {
+            if has_escaped_delim_end {
+                let seg = keybuf.as_nonempty_slice();
+                tokens_with_boundary_delims.push(NEStringOrBytes::from(seg));
+            }
             // Only key is present which means we have an odd number of tokens.
             keybuf.to_owned().into()
         };
-
-        // If the number of consecutive blanks was odd and greater than zero,
-        // the last token ended with a string of escaped delimiters which was
-        // not captured at the end of the loop.
-        if consec_blanks > 1 && consec_blanks & 1 == 1 {
-            let seg = NESlice::try_from_slice(&valbuf[..]).unwrap_or(keybuf.as_nonempty_slice());
-            tokens_with_boundary_delims.push(NEStringOrBytes::from(seg));
-        }
 
         Self::new(
             parsed,
@@ -2495,7 +2501,7 @@ impl<'a> ParsedTEXTOutput<'a> {
                 let v = NESlice::try_from_slice(value);
                 match (k, v) {
                     (Some(kk), Some(vv)) => {
-                        Foo::Keyword(ParsedKeyword::from_pair(kk, vv, enc, conf))
+                        Foo::Keyword(ParsedKeyword::from_pair(kk, OneOrMany::One(vv), enc, conf))
                     }
                     (Some(kk), None) => Foo::EmptyValue(kk.to_ne_vec()),
                     (None, Some(vv)) => Foo::EmptyKey(vv.to_ne_vec()),

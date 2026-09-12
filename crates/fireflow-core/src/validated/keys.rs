@@ -16,8 +16,8 @@ use fireflow_types::{
     keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns, NEAsciiStringError},
     ne_str, nev,
     nonempty::{
-        DisplayNE, IntoIteratorExt as _, IntoNonEmptyIterator as _, NEAlt, NEConcat, NESlice,
-        NEStr, NEString, NEVec, NonEmptyIterator as _, ToDisplayNE, ToNE,
+        self as ne, DisplayNE, IntoIteratorExt as _, IntoNonEmptyIterator as _, NEAlt, NEConcat,
+        NESlice, NEStr, NEString, NEVec, NonEmptyIterator as _, ToDisplayNE, ToNE,
         ambassador_impl_ToDisplayNE,
     },
     std_key::{PseudoStdKey, RealOrPseudoStdKey, STD_PREFIX, StdKey, ToStd},
@@ -36,9 +36,12 @@ use thiserror::Error;
 use std::borrow::Cow;
 use std::fmt;
 use std::hash::Hash;
+use std::iter;
 use std::marker::PhantomData;
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::string::ToString;
+use std::vec::IntoIter;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -974,8 +977,8 @@ impl ParsedKeywords {
 
 pub(crate) enum ParsedKeyword<'a> {
     // Valid std key and valid
-    StdUtf8(NonEmptyValue<StdKey, &'a NEStr>),
-    StdLatin1(NonEmptyValue<StdKey, &'a NESlice<u8>>),
+    StdUtf8(NonEmptyValue<StdKey, OneOrMany<&'a NEStr>>),
+    StdLatin1(NonEmptyValue<StdKey, OneOrMany<&'a NESlice<u8>>>),
     // Valid non-std key and valid
     NonStd(NonEmptyValue<NonStdKey, NEString>),
     // Pseudostd key and value
@@ -1031,22 +1034,26 @@ impl ParsedKey {
 }
 
 enum ParsedValue<'a> {
-    Utf8(&'a NEStr, Option<NEString>),
-    Latin1(&'a NESlice<u8>, Option<NEString>),
+    Utf8(OneOrMany<&'a NEStr>, Option<NEString>),
+    Latin1(OneOrMany<&'a NESlice<u8>>, Option<NEString>),
     Bytes(NEVec<u8>),
     Empty(DummyTriFlag),
 }
 
 impl<'a> ParsedValue<'a> {
-    fn from_bytes(bytes: &'a NESlice<u8>, flag: TrimValueWhitespace, encoding: Encoding) -> Self {
+    fn from_bytes(
+        bytes: OneOrMany<&'a NESlice<u8>>,
+        flag: TrimValueWhitespace,
+        encoding: Encoding,
+    ) -> Self {
         let triflag = DummyTriFlag::from_trim_value_whitespace(flag);
         match encoding {
             Encoding::Single => {
                 if let Some(tf) = triflag {
-                    if let Some(trimmed) = NESlice::try_from_slice(bytes.trim_latin1()) {
+                    if let Some(trimmed) = bytes.trim_latin1() {
                         let original =
-                            (trimmed.len() < bytes.len()).then(|| bytes.to_latin1_string());
-                        if let Ok(v) = NEStr::from_utf8(&trimmed) {
+                            (trimmed.len() < bytes.len()).then(|| bytes.as_latin1_string());
+                        if let Some(v) = trimmed.as_utf8() {
                             Self::Utf8(v, original)
                         } else {
                             Self::Latin1(trimmed, original)
@@ -1054,17 +1061,17 @@ impl<'a> ParsedValue<'a> {
                     } else {
                         Self::Empty(tf)
                     }
-                } else if let Ok(v) = NEStr::from_utf8(bytes) {
+                } else if let Some(v) = bytes.as_utf8() {
                     Self::Utf8(v, None)
                 } else {
                     Self::Latin1(bytes, None)
                 }
             }
             Encoding::Utf8 => {
-                if let Ok(v) = NEStr::from_utf8(bytes) {
+                if let Some(v) = bytes.as_utf8() {
                     if let Some(tf) = triflag {
-                        if let Some(trimmed) = NEStr::try_new(v.trim_ascii()) {
-                            let original = (trimmed.len() < v.len()).then(|| v.to_owned());
+                        if let Some(trimmed) = v.trim_ascii() {
+                            let original = (trimmed.len() < v.len()).then(|| v.as_ne_string());
                             Self::Utf8(trimmed, original)
                         } else {
                             Self::Empty(tf)
@@ -1073,9 +1080,193 @@ impl<'a> ParsedValue<'a> {
                         Self::Utf8(v, None)
                     }
                 } else {
-                    Self::Bytes(bytes.to_ne_vec())
+                    Self::Bytes(bytes.as_ne_vec())
                 }
             }
+        }
+    }
+}
+
+pub(crate) enum OneOrMany<T> {
+    One(T),
+    Many(T, NEVec<T>),
+}
+
+impl<T> OneOrMany<T> {
+    pub(crate) fn append(self, x: T) -> Self {
+        match self {
+            Self::One(y) => Self::Many(y, nev![x]),
+            Self::Many(y, mut ys) => {
+                ys.push(x);
+                Self::Many(y, ys)
+            }
+        }
+    }
+
+    fn len(&self) -> NonZeroUsize {
+        let n = match self {
+            Self::One(_) => 0,
+            Self::Many(_, xs) => xs.len().get(),
+        };
+        NonZeroUsize::new(n + 1).unwrap()
+    }
+}
+
+impl<'a, T: ?Sized> OneOrMany<&'a T> {
+    fn trim<F, G>(&self, mut f_start: F, mut f_end: G) -> Option<Self>
+    where
+        F: FnMut(&'a T) -> Option<&'a T>,
+        G: FnMut(&'a T) -> Option<&'a T>,
+    {
+        // TODO testme
+        match self {
+            Self::One(x) => Some(Self::One(f_end(f_start(x)?)?)),
+            Self::Many(x, xs) => {
+                let total = xs.len().get() + 1;
+                let mut tmp = Vec::with_capacity(total);
+                for i in 0..total {
+                    tmp[i] = None;
+                }
+                let mut it = xs.into_iter().enumerate().rev();
+                let mut front_n = 0;
+                let mut end_n = 0;
+                tmp[0] = f_start(x);
+                if tmp[0].is_none() {
+                    front_n += 1;
+                    for (i, z) in it.by_ref() {
+                        let y = f_start(z);
+                        if y.is_some() {
+                            tmp[i + 1] = y;
+                            break;
+                        }
+                        front_n += 1;
+                    }
+                }
+                for (i, z) in it.by_ref().rev() {
+                    let y = f_end(z);
+                    if y.is_some() {
+                        tmp[i + 1] = y;
+                        break;
+                    }
+                    end_n += 1;
+                }
+                for (i, y) in it {
+                    tmp[i + 1] = Some(y);
+                }
+                if front_n + end_n == total {
+                    None
+                } else if front_n + end_n == total - 1 {
+                    let y = tmp
+                        .into_iter()
+                        .skip(front_n)
+                        .next()
+                        .unwrap()
+                        .expect("should be some");
+                    f_end(y).map(Self::One)
+                } else {
+                    let mut it = tmp.into_iter().skip(front_n);
+                    let y = it.by_ref().next().unwrap().expect("should be some");
+                    let ys = it
+                        .take(total - end_n - front_n - 1)
+                        .map(|x| x.expect("should be some"))
+                        .try_into_nonempty_iter()
+                        .unwrap()
+                        .collect::<NEVec<_>>();
+                    Some(Self::Many(y, ys))
+                }
+            }
+        }
+    }
+}
+
+impl<'a> OneOrMany<&'a NESlice<u8>> {
+    fn trim_latin1(&self) -> Option<Self> {
+        self.trim(
+            |xs| NESlice::try_from_slice(NESlice::trim_latin1_start(xs)),
+            |xs| NESlice::try_from_slice(NESlice::trim_latin1_end(xs)),
+        )
+    }
+
+    fn as_utf8(&self) -> Option<OneOrMany<&'a NEStr>> {
+        match self {
+            Self::One(x) => NEStr::from_utf8(x).ok().map(OneOrMany::One),
+            Self::Many(x, xs) => {
+                let y = NEStr::from_utf8(x).ok()?;
+                let ys = xs
+                    .into_iter()
+                    .copied()
+                    .map(NEStr::from_utf8)
+                    .collect::<Result<Vec<_>, _>>()
+                    .ok()?;
+                Some(OneOrMany::Many(y, NEVec::try_from_vec(ys).unwrap()))
+            }
+        }
+    }
+
+    pub(crate) fn as_latin1_string(&self) -> NEString {
+        match self {
+            Self::One(x) => x
+                .iter()
+                .copied()
+                .map(char::from)
+                .try_into_nonempty_iter()
+                .unwrap()
+                .collect(),
+            Self::Many(x, xs) => iter::once(x)
+                .chain(xs)
+                .copied()
+                .flatten()
+                .copied()
+                .map(char::from)
+                .try_into_nonempty_iter()
+                .unwrap()
+                .collect(),
+        }
+    }
+
+    pub(crate) fn as_ne_vec(&self) -> NEVec<u8> {
+        match self {
+            Self::One(x) => x.to_ne_vec(),
+            Self::Many(x, xs) => {
+                let mut ret = x.to_ne_vec();
+                for y in xs {
+                    ret.extend(y.iter().copied());
+                }
+                ret
+            }
+        }
+    }
+}
+
+impl OneOrMany<&NEStr> {
+    fn trim_ascii(&self) -> Option<Self> {
+        self.trim(
+            |xs| NEStr::try_new(NEStr::trim_ascii_start(xs)),
+            |xs| NEStr::try_new(NEStr::trim_ascii_end(xs)),
+        )
+    }
+
+    fn as_ne_string(&self) -> NEString {
+        match self {
+            Self::One(x) => (*x).to_owned(),
+            Self::Many(x, xs) => {
+                let mut ret = (*x).to_owned();
+                for y in xs {
+                    ret.push_str(y.as_str());
+                }
+                ret
+            }
+        }
+    }
+}
+
+impl<T> IntoIterator for OneOrMany<T> {
+    type Item = T;
+    type IntoIter = iter::Chain<iter::Once<T>, IntoIter<T>>;
+    fn into_iter(self) -> Self::IntoIter {
+        match self {
+            Self::One(x) => iter::once(x).chain(vec![]),
+            Self::Many(x, xs) => iter::once(x).chain(Vec::from(xs)),
         }
     }
 }
@@ -1083,7 +1274,7 @@ impl<'a> ParsedValue<'a> {
 impl<'a> ParsedKeyword<'a> {
     pub(crate) fn from_pair(
         key: &NESlice<u8>,
-        val: &'a NESlice<u8>,
+        val: OneOrMany<&'a NESlice<u8>>,
         encoding: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> Self {
@@ -1100,20 +1291,22 @@ impl<'a> ParsedKeyword<'a> {
                 Self::StdLatin1(NonEmptyValue::new(k, v, trimmed))
             }
             (ParsedKey::Pseudo(k), ParsedValue::Utf8(v, trimmed)) => {
-                Self::Pseudo(NonEmptyValue::new(k, v.to_owned(), trimmed))
+                Self::Pseudo(NonEmptyValue::new(k, v.as_ne_string(), trimmed))
             }
             (ParsedKey::Pseudo(k), ParsedValue::Latin1(v, trimmed)) => {
-                Self::Pseudo(NonEmptyValue::new(k, v.to_latin1_string(), trimmed))
+                Self::Pseudo(NonEmptyValue::new(k, v.as_latin1_string(), trimmed))
             }
             (ParsedKey::NonStd(k), ParsedValue::Utf8(v, trimmed)) => {
-                Self::NonStd(NonEmptyValue::new(k, v.to_owned(), trimmed))
+                Self::NonStd(NonEmptyValue::new(k, v.as_ne_string(), trimmed))
             }
             (ParsedKey::NonStd(k), ParsedValue::Latin1(v, trimmed)) => {
-                Self::NonStd(NonEmptyValue::new(k, v.to_latin1_string(), trimmed))
+                Self::NonStd(NonEmptyValue::new(k, v.as_latin1_string(), trimmed))
             }
-            (ParsedKey::Bytes(k), ParsedValue::Utf8(v, _)) => Self::NonAsciiKey(k, v.to_owned()),
+            (ParsedKey::Bytes(k), ParsedValue::Utf8(v, _)) => {
+                Self::NonAsciiKey(k, v.as_ne_string())
+            }
             (ParsedKey::Bytes(k), ParsedValue::Latin1(v, _)) => {
-                Self::NonAsciiKey(k, v.to_latin1_string())
+                Self::NonAsciiKey(k, v.as_latin1_string())
             }
             (ParsedKey::Bytes(k), ParsedValue::Bytes(v)) => Self::BothInvalid(k, v),
             (k, ParsedValue::Bytes(v)) => Self::NonUtf8Value(k, v),

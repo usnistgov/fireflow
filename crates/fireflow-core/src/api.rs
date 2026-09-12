@@ -32,6 +32,7 @@ use crate::segment::read::{
     ReqOffsetsError, SuppOffsetsOverflow, SuppTextOffsetsName, SuppToHeaderOffsetsOverlap,
     SupplementalTextOffsets, TEXTOffsets, TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
 };
+use crate::std_index::index::StdIndex;
 use crate::text::keywords::{
     AlphaNumType, Beginstext, Endstext, LookupNextdataError, Nextdata, ReadNextdataError, Tot,
 };
@@ -42,14 +43,17 @@ use crate::validated::header_offsets::{
     SuppToHeaderOffsetsValidationError, TextToHeaderOrSuppOffsetsValidationError,
 };
 use crate::validated::keys::{
-    InvalidKeywordCharsError, KeyOrBytes, KeywordInsertError, NEStringOrBytes, NonStdKey,
-    OneOrMany, ParsedKeyword, ParsedKeywords, ParsedKeywordsDiagnostic, RepairDiagnostics,
-    StdKeywords, StringOrBytes, TruncatedNEString, ValidKeywords, ValueToStdKey as _,
+    AnyKey, InvalidKeywordCharsError, KeyOrBytes, KeywordInsertError, NEFragChain, NEStringOrBytes,
+    NonStdKey, NonStdKeywords, ParsedKeyword, ParsedKeywords, ParsedKeywordsDiagnostic,
+    RepairDiagnostics, StdKeywords, StringOrBytes, TruncatedBytes, TruncatedNEBytes,
+    TruncatedNEString, ValidKeywords, ValueToStdKey as _,
 };
 use crate::validated::read_state::{
     DatasetLen, DatasetOffset, DatasetOffsetError, FileLen, HeaderReadState, TEXTReadState,
 };
 
+use fireflow_types::nonempty::NEString;
+use fireflow_types::std_key::{PseudoStdKey, RealOrPseudoStdKey};
 use fireflow_types::{
     config::{
         AppendFlag, AppendableFlag, ConfigFlag as _, DelimEscapeMode, Encoding,
@@ -58,7 +62,7 @@ use fireflow_types::{
         WriteMultiConfig,
     },
     keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2},
-    nonempty::{IntoIteratorExt as _, NESlice, NEVec, NonEmptyIterator as _},
+    nonempty::{IntoIteratorExt as _, NESlice, NEStr, NEVec, NonEmptyIterator as _},
     segment::{OffsetsFromTEXT, SupplementalTextSegmentId},
     std_key::{RootKey, StdKey, ToStd as _},
 };
@@ -67,7 +71,7 @@ use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as 
 
 use derive_more::{Display, From};
 use derive_new::new;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, hash_map::Entry};
 use itertools::Itertools as _;
 use thiserror::Error;
 
@@ -689,6 +693,8 @@ pub struct SplitTEXTDiagnostics {
     /// `true` if TEXT delimiters were escaped
     pub escaped: bool,
 
+    // TODO these don't need to be here, they can be part of the overall keyword
+    // diag struct
     /// Keys that have blank values.
     ///
     /// Only relevant in escaped delimiter mode.
@@ -697,6 +703,7 @@ pub struct SplitTEXTDiagnostics {
     /// Values with blank keys.
     pub values_with_blank_keys: Vec<NEStringOrBytes>,
 
+    // TODO rename to something like "empty_pairs"
     /// Number of key/value pairs that were skipped because both were blank.
     pub skipped_pairs: usize,
 
@@ -2117,7 +2124,7 @@ impl SplitTEXTDiagnostics {
         let mut insert_errs = vec![];
         let mut any_insert_err = false;
 
-        let (pairs, extra_token, has_even_tokens) = ParsedKeywords::trim_tokens_end(segs);
+        let (pairs, extra_token, has_even_tokens) = ParsedTEXTOutput::trim_tokens_end(segs);
 
         out.has_even_delims = !has_even_tokens;
 
@@ -2337,22 +2344,16 @@ impl SplitTEXTDiagnostics {
     }
 }
 
-#[derive(new)]
-struct ParsedTEXTOutput<'a> {
-    parsed: Vec<ParsedKeyword<'a>>,
-    has_even_delims: bool,
-    extra_leading_delims: usize,
-    tokens_with_boundary_delims: Vec<NEStringOrBytes>,
-    last_odd_token: Vec<u8>,
+struct ParsedTEXTOutput {
+    index: StdIndex,
+    nonstd: NonStdKeywords,
+    pseudo: HashMap<PseudoStdKey, NEString>,
+    parsed_diag: ParsedKeywordsDiagnostic,
+    text_diag: SplitTEXTDiagnostics,
 }
 
-impl<'a> ParsedTEXTOutput<'a> {
-    fn parse_escaped(
-        delim: u8,
-        segs: &NESlice<&'a [u8]>,
-        enc: Encoding,
-        conf: &ReadHeaderAndTEXTConfig,
-    ) -> Self {
+impl ParsedTEXTOutput {
+    fn parse_escaped(delim: u8, segs: &NESlice<&[u8]>, trim: bool, enc: Encoding) -> Self {
         let mut extra_leading_delims = 0;
         let mut tokens_with_boundary_delims = vec![];
 
@@ -2369,7 +2370,7 @@ impl<'a> ParsedTEXTOutput<'a> {
         // remove every other delimiter to make it literal, which implies we
         // need to allocate a new string.
         let mut keybuf: NEVec<u8>;
-        let mut valbuf: Option<OneOrMany<&NESlice<u8>>> = None;
+        let mut valbuf: Option<NEFragChain<&NESlice<u8>>> = None;
 
         let mut it = segs.iter();
 
@@ -2414,11 +2415,11 @@ impl<'a> ParsedTEXTOutput<'a> {
                     }
                     if let Some(ne_val) = mem::take(&mut valbuf) {
                         let kb = keybuf.as_nonempty_slice();
-                        let p = ParsedKeyword::from_pair(kb, ne_val, enc, conf);
+                        let p = ParsedKeyword::from_pair(kb, ne_val, trim, enc);
                         parsed.push(p);
                         keybuf = ne_token.to_ne_vec();
                     } else {
-                        valbuf = Some(OneOrMany::One(ne_token));
+                        valbuf = Some(NEFragChain::One(ne_token));
                     }
                 } else {
                     // Previous consecutive delimiter sequence was even. Push
@@ -2454,7 +2455,7 @@ impl<'a> ParsedTEXTOutput<'a> {
             // Both key and value are present, this is the last pair in TEXT so
             // push to the end of keywords
             let kb = keybuf.as_nonempty_slice();
-            let p = ParsedKeyword::from_pair(kb, ne_val, enc, conf);
+            let p = ParsedKeyword::from_pair(kb, ne_val, trim, enc);
             parsed.push(p);
             vec![]
         } else {
@@ -2475,19 +2476,13 @@ impl<'a> ParsedTEXTOutput<'a> {
         )
     }
 
-    fn parse_unescaped(
-        delim: u8,
-        segs: &NESlice<&[u8]>,
-        tk: TEXTKind,
-        enc: Encoding,
-        conf: &ReadHeaderAndTEXTConfig,
-    ) -> Self {
+    fn parse_unescaped(delim: u8, segs: &NESlice<&[u8]>, trim: bool, enc: Encoding) -> Self {
         let (pairs, extra_token, mut has_even_tokens) = Self::trim_tokens_end(segs);
 
         let has_even_delims = !has_even_tokens;
 
-        enum Foo<'a> {
-            Keyword(ParsedKeyword<'a>),
+        enum UnescapedKeyword<'a> {
+            Keyword(ParsedKeyword<&'a NEStr, &'a NESlice<u8>>),
             EmptyKey(NEVec<u8>),
             EmptyValue(NEVec<u8>),
             EmptyPair,
@@ -2501,54 +2496,187 @@ impl<'a> ParsedTEXTOutput<'a> {
                 let v = NESlice::try_from_slice(value);
                 match (k, v) {
                     (Some(kk), Some(vv)) => {
-                        Foo::Keyword(ParsedKeyword::from_pair(kk, OneOrMany::One(vv), enc, conf))
+                        UnescapedKeyword::Keyword(ParsedKeyword::from_pair(kk, vv, trim, enc))
                     }
-                    (Some(kk), None) => Foo::EmptyValue(kk.to_ne_vec()),
-                    (None, Some(vv)) => Foo::EmptyKey(vv.to_ne_vec()),
-                    (None, None) => Foo::EmptyPair,
+                    (Some(kk), None) => UnescapedKeyword::EmptyValue(kk.to_ne_vec()),
+                    (None, Some(vv)) => UnescapedKeyword::EmptyKey(vv.to_ne_vec()),
+                    (None, None) => UnescapedKeyword::EmptyPair,
                 }
             })
             .collect();
 
-        let blank_key_errors = out
-            .values_with_blank_keys
-            .iter()
-            .cloned()
-            .map(|k| BlankKeyError::new(tk, k))
-            .map(ParseKeywordsIssue::from);
+        let mut n_std_utf8_kws = 0;
+        let mut n_std_latin1_kws = 0;
+        let mut n_nonstd_keys = 0;
+        let mut n_pseudo_keys = 0;
+        let mut n_trimmed_empty_values = 0;
+        let mut n_non_utf8_values = 0;
+        let mut n_non_ascii_keys = 0;
+        let mut n_invalid_pairs = 0;
+        let mut n_empty_keys = 0;
+        let mut n_empty_values = 0;
+        let mut n_empty_pairs = 0;
+        let mut n_trimmed = 0;
 
-        let blank_pair_error = NonZeroUsize::new(out.skipped_pairs)
-            .map(|n| BlankPairError::new(tk, n))
-            .map(ParseKeywordsIssue::from);
+        for p in &parsed {
+            match p {
+                UnescapedKeyword::Keyword(k) => match k {
+                    ParsedKeyword::StdUtf8(kv) => {
+                        n_std_utf8_kws += 1;
+                        n_trimmed += usize::from(kv.original.is_some());
+                    }
+                    ParsedKeyword::StdLatin1(kv) => {
+                        n_std_latin1_kws += 1;
+                        n_trimmed += usize::from(kv.original.is_some());
+                    }
+                    ParsedKeyword::NonStd(kv) => {
+                        n_nonstd_keys += 1;
+                        n_trimmed += usize::from(kv.original.is_some())
+                    }
+                    ParsedKeyword::Pseudo(kv) => {
+                        n_pseudo_keys += 1;
+                        n_trimmed += usize::from(kv.original.is_some())
+                    }
+                    ParsedKeyword::TrimmedEmptyValue(_, _) => n_trimmed_empty_values += 1,
+                    ParsedKeyword::NonUtf8Value(_, _) => n_non_utf8_values += 1,
+                    ParsedKeyword::NonAsciiKey(_, _) => n_non_ascii_keys += 1,
+                    ParsedKeyword::BothInvalid(_, _) => n_invalid_pairs += 1,
+                },
+                UnescapedKeyword::EmptyKey(_) => n_empty_keys += 1,
+                UnescapedKeyword::EmptyValue(_) => n_empty_values += 1,
+                UnescapedKeyword::EmptyPair => n_empty_pairs += 1,
+            }
+        }
 
         let last_odd_token = extra_token
             .as_ref()
             .map(|s| s.as_ref().to_vec().into())
             .unwrap_or_default();
 
-        let last_odd_err = extra_token
-            .map(|t| UnevenTokensError::new(tk, t.to_ne_vec().into()))
-            .map(ParseKeywordsIssue::from);
+        let mut std_utf8 = Vec::with_capacity(n_std_utf8_kws);
+        let mut std_latin1 = Vec::with_capacity(n_std_latin1_kws);
+        let mut nonstd = HashMap::with_capacity(n_nonstd_keys);
+        let mut pseudo = HashMap::with_capacity(n_pseudo_keys);
+        let mut keys_with_empty_trimmed_values = Vec::with_capacity(n_trimmed_empty_values);
+        let mut keys_with_non_utf8_values = Vec::with_capacity(n_non_utf8_values);
+        let mut values_with_non_ascii_keys = Vec::with_capacity(n_non_ascii_keys);
+        let mut byte_pairs = Vec::with_capacity(n_invalid_pairs);
+        let mut values_with_blank_keys = Vec::with_capacity(n_empty_keys);
+        let mut keys_with_blank_values = Vec::with_capacity(n_empty_values);
+        let mut keys_with_trimmed_values = Vec::with_capacity(n_trimmed);
+        let mut non_unique_nonstd_keywords = vec![];
+        let mut non_unique_pseudostd_keywords = vec![];
 
-        let even_delim_err = (!has_even_tokens).then_some(EvenDelimiterError(tk).into());
+        for p in parsed {
+            match p {
+                UnescapedKeyword::Keyword(k) => match k {
+                    ParsedKeyword::StdUtf8(kv) => {
+                        if let Some(o) = kv.original {
+                            let k = AnyKey::Std(RealOrPseudoStdKey::Real(kv.key.clone()));
+                            keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
+                        }
+                        std_utf8.push((kv.key, kv.value));
+                    }
+                    ParsedKeyword::StdLatin1(kv) => {
+                        if let Some(o) = kv.original {
+                            let k = AnyKey::Std(RealOrPseudoStdKey::Real(kv.key.clone()));
+                            keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
+                        }
+                        std_latin1.push((kv.key, kv.value));
+                    }
+                    ParsedKeyword::NonStd(kv) => {
+                        if let Some(o) = kv.original {
+                            let k = AnyKey::NonStd(kv.key.clone());
+                            keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
+                        }
+                        match nonstd.entry(kv.key) {
+                            Entry::Occupied(e) => {
+                                non_unique_nonstd_keywords.push((e.key().clone(), kv.value.into()))
+                            }
+                            Entry::Vacant(e) => {
+                                let _ = e.insert(kv.value);
+                            }
+                        }
+                    }
+                    ParsedKeyword::Pseudo(kv) => {
+                        if let Some(o) = kv.original {
+                            let k = AnyKey::Std(RealOrPseudoStdKey::Pseudo(kv.key.clone()));
+                            keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
+                        }
+                        match pseudo.entry(kv.key) {
+                            Entry::Occupied(e) => non_unique_pseudostd_keywords
+                                .push((e.key().clone(), kv.value.into())),
+                            Entry::Vacant(e) => {
+                                let _ = e.insert(kv.value);
+                            }
+                        }
+                    }
+                    ParsedKeyword::TrimmedEmptyValue(k, v) => {
+                        // TODO just make a separate list for these
+                        keys_with_trimmed_values.push((k.clone().into(), v.into()));
+                        keys_with_empty_trimmed_values.push(k.into());
+                    }
+                    ParsedKeyword::NonUtf8Value(k, v) => {
+                        keys_with_non_utf8_values.push((k, v.into()))
+                    }
+                    ParsedKeyword::NonAsciiKey(kv) => {
+                        if let Some(o) = kv.original {
+                            let k = TruncatedNEBytes::from(kv.key.clone());
+                            keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
+                        }
+                        values_with_non_ascii_keys.push((kv.key.into(), kv.value.into()))
+                    }
+                    ParsedKeyword::BothInvalid(k, v) => byte_pairs.push((k.into(), v.into())),
+                },
+                UnescapedKeyword::EmptyKey(k) => values_with_blank_keys.push(k.into()),
+                UnescapedKeyword::EmptyValue(v) => keys_with_blank_values.push(v.into()),
+                UnescapedKeyword::EmptyPair => (),
+            }
+        }
 
-        // let res = if any_insert_err {
-        //     LogResult::new_from_err_iter(insert_errs, (), ())
-        // } else {
-        //     LogResult::new_ok(()).set_commutative_warnings(insert_errs)
-        // };
+        std_utf8.sort_by_key(|(k, _)| *k);
+        let dedup_split = partition_dedup_by_key(&mut std_utf8, |(k, _)| *k);
+        let (std_final, _nonunique_std) = std_utf8.split_at(dedup_split);
+        let non_unique_std_keywords = _nonunique_std
+            .into_iter()
+            .copied()
+            .map(|(k, v)| (k, TruncatedNEString(v.to_owned())))
+            .collect();
 
-        // NOTE blank pair error shares the same flag, which technically is a
-        // bit confusing but this error is so rare it probably won't matter from
-        // ux perspective
-        // res.extend_deferred_warnings_or_errors3(
-        //     blank_key_errors.chain(blank_pair_error),
-        //     conf.allow_empty_keys,
-        // )
-        // .extend_deferred_warnings_or_errors3(even_delim_err, conf.allow_even_delims)
-        // .extend_deferred_warnings_or_errors3(last_odd_err, conf.allow_odd_tokens)
-        // .set_ok_value(out)
-        Self::new(parsed, has_even_delims, 0, vec![], last_odd_token)
+        // SAFETY: we sorted and deduplicated above
+        let index = unsafe { StdIndex::from_slice(std_final) };
+
+        let parsed_diag = ParsedKeywordsDiagnostic {
+            keys_with_non_utf8_values,
+            values_with_non_ascii_keys,
+            byte_pairs,
+            non_unique_std_keywords,
+            non_unique_pseudostd_keywords,
+            non_unique_nonstd_keywords,
+            keys_with_empty_trimmed_values,
+            keys_with_trimmed_values,
+        };
+
+        let text_diag = SplitTEXTDiagnostics {
+            delimiter: delim,
+            escaped: false,
+            keys_with_blank_values,
+            values_with_blank_keys,
+            skipped_pairs: n_empty_pairs,
+            tokens_with_boundary_delims: vec![],
+            last_odd_token,
+            has_even_delims,
+            extra_leading_delims: 0,
+            multibyte_encoded: enc.is_multi(),
+        };
+
+        Self {
+            index,
+            nonstd,
+            pseudo,
+            text_diag,
+            parsed_diag,
+        }
     }
 
     /// Maybe trim end off slice of tokens so that the length is even.
@@ -2557,7 +2685,7 @@ impl<'a> ParsedTEXTOutput<'a> {
     /// and a boolean that will be `true` if the number of tokens started as
     /// even. The 'perfect' case (ie standards compliant FCS file) is `None` and
     /// `true` for the odd slice and boolean. All combinations are possible.
-    fn trim_tokens_end<'b>(
+    fn trim_tokens_end<'a, 'b>(
         raw_tokens: &'b NESlice<&'a [u8]>,
     ) -> (&'b [&'a [u8]], Option<&'a NESlice<u8>>, bool) {
         let has_even_tokens = raw_tokens.len().get() & 1 == 1;
@@ -2626,14 +2754,14 @@ impl GuessedEscapeMode {
     fn has_any_empty(raw_tokens: &NESlice<&[u8]>) -> bool {
         // Only consider the first even number of tokens since both modes should
         // deal with extra crap at the end in the same way
-        let (segs, _, _) = SplitTEXTDiagnostics::trim_tokens_end(raw_tokens);
+        let (segs, _, _) = ParsedTEXTOutput::trim_tokens_end(raw_tokens);
         segs.iter().any(|s| s.is_empty())
     }
 
     fn test_both_modes(raw_tokens: &NESlice<&[u8]>) -> Self {
         // Only consider the first even number of tokens since both modes
         // should deal with extra crap at the end in the same way
-        let (segs, _, _) = SplitTEXTDiagnostics::trim_tokens_end(raw_tokens);
+        let (segs, _, _) = ParsedTEXTOutput::trim_tokens_end(raw_tokens);
 
         let mut any_empty_tokens = false;
         let mut any_unescaped_blank_keys = false;
@@ -3083,6 +3211,123 @@ fn split_first_delim<'a>(
     let flag = conf.allow_non_ascii_delim;
     SwitchableErrorResult::new_switchable_ok_if3(is_ok, (*delim, rest), (), e, flag)
         .switchable_into_commutative()
+}
+
+// TODO this is a function I stole from nightly. It seems to work and the reason
+// it hasn't been mainlined is because there is disagreement about the API (see
+// https://github.com/rust-lang/rust/issues/54279).
+//
+// I think it is clearer to return the partition point and do with it as one
+// wishes (unlike the function in Vec) so here it is.
+fn partition_dedup_by<T, F>(xs: &mut Vec<T>, mut same_bucket: F) -> usize
+where
+    F: FnMut(&mut T, &mut T) -> bool,
+{
+    // Although we have a mutable reference to `self`, we cannot make
+    // *arbitrary* changes. The `same_bucket` calls could panic, so we
+    // must ensure that the slice is in a valid state at all times.
+    //
+    // The way that we handle this is by using swaps; we iterate
+    // over all the elements, swapping as we go so that at the end
+    // the elements we wish to keep are in the front, and those we
+    // wish to reject are at the back. We can then split the slice.
+    // This operation is still `O(n)`.
+    //
+    // Example: We start in this state, where `r` represents "next
+    // read" and `w` represents "next_write".
+    //
+    //           r
+    //     +---+---+---+---+---+---+
+    //     | 0 | 1 | 1 | 2 | 3 | 3 |
+    //     +---+---+---+---+---+---+
+    //           w
+    //
+    // Comparing self[r] against self[w-1], this is not a duplicate, so
+    // we swap self[r] and self[w] (no effect as r==w) and then increment both
+    // r and w, leaving us with:
+    //
+    //               r
+    //     +---+---+---+---+---+---+
+    //     | 0 | 1 | 1 | 2 | 3 | 3 |
+    //     +---+---+---+---+---+---+
+    //               w
+    //
+    // Comparing self[r] against self[w-1], this value is a duplicate,
+    // so we increment `r` but leave everything else unchanged:
+    //
+    //                   r
+    //     +---+---+---+---+---+---+
+    //     | 0 | 1 | 1 | 2 | 3 | 3 |
+    //     +---+---+---+---+---+---+
+    //               w
+    //
+    // Comparing self[r] against self[w-1], this is not a duplicate,
+    // so swap self[r] and self[w] and advance r and w:
+    //
+    //                       r
+    //     +---+---+---+---+---+---+
+    //     | 0 | 1 | 2 | 1 | 3 | 3 |
+    //     +---+---+---+---+---+---+
+    //                   w
+    //
+    // Not a duplicate, repeat:
+    //
+    //                           r
+    //     +---+---+---+---+---+---+
+    //     | 0 | 1 | 2 | 3 | 1 | 3 |
+    //     +---+---+---+---+---+---+
+    //                       w
+    //
+    // Duplicate, advance r. End of slice. Split at w.
+
+    let len = xs.len();
+    if len <= 1 {
+        return len;
+    }
+
+    let ptr = xs.as_mut_ptr();
+    let mut next_read: usize = 1;
+    let mut next_write: usize = 1;
+
+    // SAFETY: the `while` condition guarantees `next_read` and `next_write`
+    // are less than `len`, thus are inside `self`. `prev_ptr_write` points to
+    // one element before `ptr_write`, but `next_write` starts at 1, so
+    // `prev_ptr_write` is never less than 0 and is inside the slice.
+    // This fulfils the requirements for dereferencing `ptr_read`, `prev_ptr_write`
+    // and `ptr_write`, and for using `ptr.add(next_read)`, `ptr.add(next_write - 1)`
+    // and `prev_ptr_write.offset(1)`.
+    //
+    // `next_write` is also incremented at most once per loop at most meaning
+    // no element is skipped when it may need to be swapped.
+    //
+    // `ptr_read` and `prev_ptr_write` never point to the same element. This
+    // is required for `&mut *ptr_read`, `&mut *prev_ptr_write` to be safe.
+    // The explanation is simply that `next_read >= next_write` is always true,
+    // thus `next_read > next_write - 1` is too.
+    unsafe {
+        // Avoid bounds checks by using raw pointers.
+        while next_read < len {
+            let ptr_read = ptr.add(next_read);
+            let prev_ptr_write = ptr.add(next_write - 1);
+            if !same_bucket(&mut *ptr_read, &mut *prev_ptr_write) {
+                if next_read != next_write {
+                    let ptr_write = prev_ptr_write.add(1);
+                    mem::swap(&mut *ptr_read, &mut *ptr_write);
+                }
+                next_write += 1;
+            }
+            next_read += 1;
+        }
+    }
+    next_write
+}
+
+fn partition_dedup_by_key<T, K, F>(xs: &mut Vec<T>, mut key: F) -> usize
+where
+    F: FnMut(&mut T) -> K,
+    K: PartialEq,
+{
+    partition_dedup_by(xs, |a, b| key(a) == key(b))
 }
 
 mod built {

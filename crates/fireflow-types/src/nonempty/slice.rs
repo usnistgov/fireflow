@@ -1,4 +1,5 @@
 use super::{
+    HasNELen,
     iter::{IntoNonEmptyIterator, NonEmptyIterator as _},
     string::NEString,
     vec::{Iter, NEVec},
@@ -19,6 +20,18 @@ pub struct NESlice<T>([T]);
 
 /// Iterator of non-empty chunks of a [`NESlice`].
 pub struct NEChunks<'a, T>(pub(crate) slice::Chunks<'a, T>);
+
+impl<T> HasNELen for NESlice<T> {
+    fn ne_len(&self) -> NonZeroUsize {
+        self.len()
+    }
+}
+
+impl<T> HasNELen for &NESlice<T> {
+    fn ne_len(&self) -> NonZeroUsize {
+        self.len()
+    }
+}
 
 impl<'a, T> IntoIterator for &'a NESlice<T> {
     type Item = &'a T;

@@ -40,6 +40,11 @@ pub fn once<T>(value: T) -> Once<T> {
     Once::new(value)
 }
 
+/// Return the length of a non-empty type.
+pub trait HasNELen {
+    fn ne_len(&self) -> NonZeroUsize;
+}
+
 /// A type that can be instantiated via a single item - the kindred spirit to
 /// [`Default`].
 pub trait Singleton {

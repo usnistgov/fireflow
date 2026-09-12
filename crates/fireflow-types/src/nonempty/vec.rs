@@ -1,4 +1,4 @@
-use super::iter::FromNonEmptyIterator;
+use super::iter::{FromNonEmptyIterator, HasNELen};
 use super::{IntoNonEmptyIterator, NEChunks, NESlice, NonEmptyIterator, Singleton};
 
 use derive_more::{AsRef, Into};
@@ -35,6 +35,7 @@ macro_rules! nev {
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug, Into, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[repr(transparent)]
 pub struct NEVec<T> {
     inner: Vec<T>,
 }
@@ -656,6 +657,18 @@ impl<T> NEVec<T> {
     #[must_use]
     pub fn nonempty_chunks(&self, chunk_size: NonZeroUsize) -> NEChunks<'_, T> {
         NEChunks(self.inner.chunks(chunk_size.get()))
+    }
+}
+
+impl<T> HasNELen for NEVec<T> {
+    fn ne_len(&self) -> NonZeroUsize {
+        self.len()
+    }
+}
+
+impl<T> HasNELen for &NEVec<T> {
+    fn ne_len(&self) -> NonZeroUsize {
+        self.len()
     }
 }
 

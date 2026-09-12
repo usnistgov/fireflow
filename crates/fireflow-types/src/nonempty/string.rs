@@ -1,4 +1,6 @@
-use super::{FromNonEmptyIterator, IntoNonEmptyIterator, NESlice, NEStr, NEVec, NonEmptyIterator};
+use super::{
+    FromNonEmptyIterator, HasNELen, IntoNonEmptyIterator, NESlice, NEStr, NEVec, NonEmptyIterator,
+};
 
 use derive_more::{AsRef, Display, Into};
 use thiserror::Error;
@@ -27,12 +29,6 @@ use {
 #[as_ref(str)]
 pub struct NEString(String);
 
-impl AsRef<NEStr> for NEString {
-    fn as_ref(&self) -> &NEStr {
-        NEStr::new_unchecked(self.0.as_ref())
-    }
-}
-
 /// Like a [`FromUtf8Error`] but for non-empty strings.
 #[derive(Into)]
 pub struct FromNEUtf8Error {
@@ -47,9 +43,27 @@ pub struct FromNEUtf8Error {
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub struct NonEmptyStringError;
 
+impl AsRef<NEStr> for NEString {
+    fn as_ref(&self) -> &NEStr {
+        NEStr::new_unchecked(self.0.as_ref())
+    }
+}
+
 impl Borrow<NEStr> for NEString {
     fn borrow(&self) -> &NEStr {
         NEStr::new_unchecked(self.0.as_str())
+    }
+}
+
+impl HasNELen for NEString {
+    fn ne_len(&self) -> NonZeroUsize {
+        self.len()
+    }
+}
+
+impl HasNELen for &NEString {
+    fn ne_len(&self) -> NonZeroUsize {
+        self.len()
     }
 }
 
@@ -69,6 +83,45 @@ impl fmt::Write for NEString {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         self.0.push_str(s);
         Ok(())
+    }
+}
+
+impl FromNEUtf8Error {
+    #[must_use]
+    pub fn into_bytes(self) -> NEVec<u8> {
+        self.bytes
+    }
+}
+
+impl From<&NEStr> for NEString {
+    fn from(value: &NEStr) -> Self {
+        Self(value.as_str().to_owned())
+    }
+}
+
+impl From<char> for NEString {
+    fn from(value: char) -> Self {
+        Self(String::from(value))
+    }
+}
+
+impl TryFrom<String> for NEString {
+    type Error = NonEmptyStringError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if value.is_empty() {
+            Err(NonEmptyStringError)
+        } else {
+            Ok(Self(value))
+        }
+    }
+}
+
+impl FromStr for NEString {
+    type Err = NonEmptyStringError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s.to_owned())
     }
 }
 
@@ -127,45 +180,6 @@ impl NEString {
         // SAFETY: unsafe function
         let ret = unsafe { String::from_utf8_unchecked(bytes.into()) };
         Self(ret)
-    }
-}
-
-impl FromNEUtf8Error {
-    #[must_use]
-    pub fn into_bytes(self) -> NEVec<u8> {
-        self.bytes
-    }
-}
-
-impl From<&NEStr> for NEString {
-    fn from(value: &NEStr) -> Self {
-        Self(value.as_str().to_owned())
-    }
-}
-
-impl From<char> for NEString {
-    fn from(value: char) -> Self {
-        Self(String::from(value))
-    }
-}
-
-impl TryFrom<String> for NEString {
-    type Error = NonEmptyStringError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        if value.is_empty() {
-            Err(NonEmptyStringError)
-        } else {
-            Ok(Self(value))
-        }
-    }
-}
-
-impl FromStr for NEString {
-    type Err = NonEmptyStringError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::try_from(s.to_owned())
     }
 }
 

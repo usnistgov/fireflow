@@ -86,50 +86,51 @@ impl StdIndexTx {
         i: MeasIndex,
         flag: ProcessOpticalOnlyKeys,
     ) -> OpticalOnlyResult {
-        let mut es = vec![];
-        let mut ws = vec![];
-        let mut pairs = vec![];
-        let (demote, warn) = match flag {
-            ProcessOpticalOnlyKeys::DemoteWarn => (true, true),
-            ProcessOpticalOnlyKeys::DemoteSilent => (true, false),
-            ProcessOpticalOnlyKeys::DropWarn => (false, true),
-            ProcessOpticalOnlyKeys::DropSilent => (false, false),
-        };
-        let action = if demote {
-            KeywordAction::Demote
-        } else {
-            KeywordAction::Drop
-        };
-        // TODO it should not be necessary to push and return vectors here.
-        // If we simply not which index is the temporal index, we can recover
-        // all this information when we finalize the index. Keys that were
-        // Seen were present and removed. Keys that were Dropped/Demoted should
-        // be dealt with accordingly. In all cases were can make a list of all
-        // pairs that are present.
-        //
-        // This is in contrast to looking up all other values since in those
-        // cases we need to parse the keywords and therefore record and error if
-        // this fails. This is easier to do at the call site rather than storing
-        // it lazily in the index. Here we only care about the pair and if
-        // it has a non-empty value.
-        for t in targets {
-            let k = StdKey::from_optical_only_key(*t, i);
-            if let Some(v) = self.remove(&k) {
-                let err = || TemporalHasOpticalKeyError::new(i, *t);
-                if keys.0.contains(t) {
-                    self.set_action_at_key(&k, action);
-                    if warn {
-                        ws.push(err());
-                    }
-                    pairs.push((k, v));
-                } else {
-                    es.push(err());
-                }
-            }
-        }
-        let mut res = LogResult::new_from_err_iter(es, pairs, ());
-        res.extend_commutative_warnings(ws);
-        res
+        unimplemented!()
+        // let mut es = vec![];
+        // let mut ws = vec![];
+        // let mut pairs = vec![];
+        // let (demote, warn) = match flag {
+        //     ProcessOpticalOnlyKeys::DemoteWarn => (true, true),
+        //     ProcessOpticalOnlyKeys::DemoteSilent => (true, false),
+        //     ProcessOpticalOnlyKeys::DropWarn => (false, true),
+        //     ProcessOpticalOnlyKeys::DropSilent => (false, false),
+        // };
+        // let action = if demote {
+        //     KeywordAction::Demote
+        // } else {
+        //     KeywordAction::Drop
+        // };
+        // // TODO it should not be necessary to push and return vectors here.
+        // // If we simply not which index is the temporal index, we can recover
+        // // all this information when we finalize the index. Keys that were
+        // // Seen were present and removed. Keys that were Dropped/Demoted should
+        // // be dealt with accordingly. In all cases were can make a list of all
+        // // pairs that are present.
+        // //
+        // // This is in contrast to looking up all other values since in those
+        // // cases we need to parse the keywords and therefore record and error if
+        // // this fails. This is easier to do at the call site rather than storing
+        // // it lazily in the index. Here we only care about the pair and if
+        // // it has a non-empty value.
+        // for t in targets {
+        //     let k = StdKey::from_optical_only_key(*t, i);
+        //     if let Some(v) = self.remove(&k) {
+        //         let err = || TemporalHasOpticalKeyError::new(i, *t);
+        //         if keys.0.contains(t) {
+        //             self.set_action_at_key(&k, action);
+        //             if warn {
+        //                 ws.push(err());
+        //             }
+        //             pairs.push((k, v));
+        //         } else {
+        //             es.push(err());
+        //         }
+        //     }
+        // }
+        // let mut res = LogResult::new_from_err_iter(es, pairs, ());
+        // res.extend_commutative_warnings(ws);
+        // res
     }
 
     pub fn iter_pairs(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {

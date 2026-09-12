@@ -1,5 +1,5 @@
 use super::vec::Iter;
-use super::{IntoNonEmptyIterator, NESlice, NEVec, NonEmptyIterator};
+use super::{HasNELen, IntoNonEmptyIterator, NESlice, NEVec, NonEmptyIterator};
 
 use std::fmt;
 use std::num::NonZeroUsize;
@@ -96,6 +96,12 @@ impl<T: fmt::Debug, const C: usize> fmt::Debug for ArrayNonEmptyIterator<T, C> {
 macro_rules! impl_nonempty_iter_for_arrays {
     ($($i:literal),+ $(,)?) => {
         $(
+            impl<T> HasNELen for [T; $i] {
+                fn ne_len(&self) -> NonZeroUsize {
+                    NonZeroUsize::new($i).unwrap()
+                }
+            }
+
             impl<T> IntoNonEmptyIterator for [T; $i] {
                 type IntoNEIter = ArrayNonEmptyIterator<T, $i>;
 

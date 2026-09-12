@@ -1,5 +1,6 @@
 use super::{
-    FromNonEmptyIterator, IntoIteratorExt as _, IntoNonEmptyIterator, NonEmptyIterator, Singleton,
+    FromNonEmptyIterator, HasNELen, IntoIteratorExt as _, IntoNonEmptyIterator, NonEmptyIterator,
+    Singleton,
 };
 
 use thiserror::Error;
@@ -610,6 +611,12 @@ where
 {
     fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) {
         self.inner.extend(iter);
+    }
+}
+
+impl<K, V> HasNELen for NEMap<K, V> {
+    fn ne_len(&self) -> NonZeroUsize {
+        self.len()
     }
 }
 

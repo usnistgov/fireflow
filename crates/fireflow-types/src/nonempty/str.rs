@@ -1,4 +1,4 @@
-use super::{slice::NESlice, string::NEString};
+use super::{HasNELen, slice::NESlice, string::NEString};
 
 use derive_more::{AsRef, Display};
 
@@ -36,6 +36,18 @@ impl ToOwned for NEStr {
 impl PartialEq<str> for NEStr {
     fn eq(&self, other: &str) -> bool {
         self.as_str() == other
+    }
+}
+
+impl HasNELen for NEStr {
+    fn ne_len(&self) -> NonZeroUsize {
+        self.len()
+    }
+}
+
+impl HasNELen for &NEStr {
+    fn ne_len(&self) -> NonZeroUsize {
+        self.len()
     }
 }
 

@@ -13,7 +13,7 @@ pub use fmt::{
     NEConcatR, NEDelim, NEWrap, PaddedU64, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
 };
 pub use iter::{
-    FromNonEmptyIterator, IntoIteratorExt, IntoNonEmptyIterator, NonEmptyIterAdapter,
+    FromNonEmptyIterator, HasNELen, IntoIteratorExt, IntoNonEmptyIterator, NonEmptyIterAdapter,
     NonEmptyIterator, Singleton, once,
 };
 pub use map::NEMap;

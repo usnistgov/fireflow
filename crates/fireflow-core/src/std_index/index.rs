@@ -104,7 +104,7 @@ impl StdIndex {
     ///
     /// Caller must ensure input is sorted and does not have duplicates.
     #[must_use]
-    pub unsafe fn from_vec(pairs: Vec<(StdKey, &NEStr)>) -> Self {
+    pub unsafe fn from_slice(pairs: &[(StdKey, &NEStr)]) -> Self {
         let mut root_n_bytes = 0;
         let mut root_n_strings = 0;
         let mut meas_size = NestedStringSize::default();
@@ -114,7 +114,7 @@ impl StdIndex {
         let mut dfc_n_bytes = 0;
         let mut dfc_matrix_size = 0;
 
-        for (k, v) in &pairs {
+        for (k, v) in pairs {
             let n_bytes = v.as_ne_bytes().len().get();
             match k {
                 StdKey::Root(_) => {
@@ -155,7 +155,7 @@ impl StdIndex {
         let mut csv_flag = NestedVariableString::init_var(&csv_flag_size);
         let mut dfc = NestedVariableString::init_var(&dfc_size);
 
-        let mut it = pairs.into_iter();
+        let mut it = pairs.into_iter().copied();
         let root_it = it
             .by_ref()
             .take(root_n_strings)

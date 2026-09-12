@@ -58,7 +58,7 @@ use fireflow_types::{
         WriteMultiConfig,
     },
     keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2},
-    nonempty::string::{NESlice, NEVecExt as _},
+    nonempty::{slice::NESlice, string::NEVecExt as _},
     segment::{OffsetsFromTEXT, SupplementalTextSegmentId},
     std_key::{RootKey, StdKey, ToStd as _},
 };

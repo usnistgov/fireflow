@@ -1,7 +1,8 @@
 use crate::case_ins_regex::{LiteralOrPattern, LiteralOrPatternError};
 use crate::nonempty::{
+    slice::NESlice,
     str::NEStr,
-    string::{DisplayNE, NESlice, NEString, ToDisplayNE},
+    string::{NEString, ToDisplayNE},
 };
 
 use derive_more::{AsRef, Display};

@@ -12,8 +12,9 @@ use fireflow_types::{
     config::{ConfigFlag as _, SpilloverMeasurementMode, TrimIntraValueWhitespace},
     index::MeasIndex,
     nonempty::{
+        slice::NESlice,
         str::NEStr,
-        string::{NEConcat, NEConcat5, NEDelim, NESlice, ToDisplayNE, ToNE},
+        string::{NEConcat, NEConcat5, NEDelim, ToDisplayNE, ToNE},
     },
     textdelim::{DelimCollisionError, HasDelim, TEXTDelim},
 };

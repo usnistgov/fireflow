@@ -88,7 +88,7 @@ macro_rules! impl_str_enum {
                 // TODO what if this string is really really long?
                 let original = &self.0;
                 let all: Vec<_> = <$flag_name as $crate::config::EnumStrIter<_>>::iter_str().collect();
-                let ne = $crate::nonempty::string::NESlice::try_from_slice(&all[..])
+                let ne = $crate::nonempty::slice::NESlice::try_from_slice(&all[..])
                     .expect("macro should require at least one flag so this should never fail");
                 let (last, rest) = ne.split_last();
                 if rest.is_empty() {

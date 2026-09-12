@@ -17,10 +17,10 @@ use fireflow_types::{
     keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns, NEAsciiStringError},
     ne_str,
     nonempty::{
+        slice::NESlice,
         str::NEStr,
         string::{
-            DisplayNE, NEAlt, NEConcat, NESlice, NEString, ToDisplayNE, ToNE,
-            ambassador_impl_ToDisplayNE,
+            DisplayNE, NEAlt, NEConcat, NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
         },
     },
     std_key::{PseudoStdKey, RealOrPseudoStdKey, STD_PREFIX, StdKey, ToStd},

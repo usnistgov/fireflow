@@ -1,4 +1,4 @@
-use super::string::{NESlice, NEString};
+use super::{slice::NESlice, string::NEString};
 
 use derive_more::{AsRef, Display};
 
@@ -91,13 +91,19 @@ impl NEStr {
     pub const fn as_str(&self) -> &str {
         let p: *const Self = from_ref(self);
         // SAFETY: NEStr and str have same layout
-        unsafe { &*(p as *const str) }
+        unsafe {
+            #[allow(clippy::as_conversions)]
+            &*(p as *const str)
+        }
     }
 
     pub(crate) const fn new_unchecked(s: &str) -> &Self {
         let p: *const str = from_ref(s);
         // SAFETY: NEStr and str have same layout
-        unsafe { &*(p as *const Self) }
+        unsafe {
+            #[allow(clippy::as_conversions)]
+            &*(p as *const Self)
+        }
     }
 
     /// Return first character of string.

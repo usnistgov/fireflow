@@ -42,9 +42,10 @@ use fireflow_types::{
     index::{BiMeasIndex, GateIndex, IndexFromOne, MeasIndex, RegionIndex, SubsetIndex},
     keywords::{MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version},
     nonempty::{
+        slice::NESlice,
         str::NEStr,
         string::{
-            DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NESlice, NEString,
+            DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NEString,
             NEVecExt as _, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
         },
     },

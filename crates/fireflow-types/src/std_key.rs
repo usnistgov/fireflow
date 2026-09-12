@@ -5,10 +5,9 @@ use crate::{
     keywords::{Version, VersionMembership},
     ne_str,
     nonempty::{
+        slice::NESlice,
         str::NEStr,
-        string::{
-            DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESlice, ToDisplayNE, ToNE,
-        },
+        string::{DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, ToDisplayNE, ToNE},
     },
 };
 

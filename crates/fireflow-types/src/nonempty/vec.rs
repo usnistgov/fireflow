@@ -15,6 +15,7 @@ use std::vec;
 #[macro_export]
 macro_rules! nev {
     () => {compile_error!("An NEVec cannot be empty")};
+
     ($h:expr, $( $x:expr ),* $(,)?) => {{
         let mut v = $crate::nonempty::NEVec::new($h);
         $( v.push($x); )*
@@ -1088,5 +1089,41 @@ mod tests {
             }
         });
         assert_eq!(Ok(nev![4]), result, "only 3+1 = 4 should remain");
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::NEVec;
+
+    use pyo3::{exceptions::PyValueError, prelude::*};
+
+    // NOTE this is only used for keywords that cannot be an empty list
+    impl<'py, T> FromPyObject<'_, 'py> for NEVec<T>
+    where
+        T: FromPyObjectOwned<'py>,
+    {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let xs: Vec<T> = obj.extract()?;
+            if let Ok(ys) = Self::try_from(xs) {
+                Ok(ys)
+            } else {
+                Err(PyValueError::new_err("list must not be empty"))
+            }
+        }
+    }
+
+    impl<'py, T> IntoPyObject<'py> for NEVec<T>
+    where
+        T: IntoPyObject<'py>,
+    {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            Vec::from(self).into_pyobject(py)
+        }
     }
 }

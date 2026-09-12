@@ -36,7 +36,6 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    crate::nonempty::FcsNEVec,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
     fireflow_types::nonempty::{IntoNonEmptyIterator as _, NonEmptyIterator as _},
     fireflow_types::python as py,
@@ -63,7 +62,7 @@ pub struct FinalHeaderOffsets {
 pub(crate) type FinalOtherOffsets = Option<(NEVec<IndexedOtherOffsets>, OtherWidth)>;
 
 #[cfg(feature = "python")]
-pub type PyFinalOtherOffsets = Option<(FcsNEVec<IndexedOtherOffsets>, OtherWidth)>;
+pub type PyFinalOtherOffsets = Option<(NEVec<IndexedOtherOffsets>, OtherWidth)>;
 
 impl FinalHeaderOffsets {
     /// Return primary TEXT offsets
@@ -107,7 +106,7 @@ impl FinalHeaderOffsets {
     #[must_use]
     pub fn py_other(&self) -> PyFinalOtherOffsets {
         let (ws, w) = self.other()?;
-        Some((FcsNEVec(ws.into_nonempty_iter().copied().collect()), w))
+        Some((ws.into_nonempty_iter().copied().collect(), w))
     }
 
     /// Make new collection of HEADER offsets.

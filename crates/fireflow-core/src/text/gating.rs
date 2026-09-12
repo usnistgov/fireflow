@@ -6,7 +6,6 @@ use crate::logging::{
     DeferredIter as _, DeferredSwitchableErrors, DeferredWarningsAndErrors, LogResult,
     ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
 };
-use crate::nonempty::FcsNEVec;
 use crate::std_index::tx::{KeywordAction, StdIndexTx};
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, GateMeasKeyword, Keyword0FromValue as _, Keyword1FromValue as _,
@@ -142,7 +141,7 @@ pub struct UnivariateRegion<I> {
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct BivariateRegion<I> {
-    pub vertices: FcsNEVec<Vertex>,
+    pub vertices: NEVec<Vertex>,
     pub index: IndexPair<I>,
 }
 
@@ -962,7 +961,7 @@ impl<I> Region<I> {
         };
         let rw = match self {
             Self::Univariate(r) => RegionWindowRef::Univariate(&r.gate),
-            Self::Bivariate(r) => RegionWindowRef::Bivariate(r.vertices.0.as_nonempty_slice()),
+            Self::Bivariate(r) => RegionWindowRef::Bivariate(r.vertices.as_nonempty_slice()),
         };
         let x0 = RegionKeyword::from_value(ri, i);
         let rk = DollarKey::new(i);

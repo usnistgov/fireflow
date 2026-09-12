@@ -1,6 +1,4 @@
-use fireflow_types::{
-    std_key::{AnyIndex, StdKey},
-};
+use fireflow_types::std_key::{AnyIndex, StdKey};
 
 use crate::validated::dataframe::HasLen;
 

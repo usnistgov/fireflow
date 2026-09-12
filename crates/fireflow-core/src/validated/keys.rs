@@ -2,7 +2,6 @@ use crate::api::{FlatTEXTDiagnostics, HeaderAndSuppOffsets, SplitTEXTDiagnostics
 use crate::config::EvaledReadDataKeywordsConfig;
 use crate::fixed_vec::OneOrTwo;
 use crate::logging::{DeferredWarningsAndErrors, LogResult, WarningAndErrorResult};
-use crate::nonempty::FcsNEVec;
 use crate::segment::read::HeaderOffsetsOverflow;
 use crate::text::keyword_enum::{
     AsStdKeywordPair, OptMeasKeyword, OptRootKeyword, ambassador_impl_AsStdKeywordPair,
@@ -291,12 +290,12 @@ pub struct TruncatedBytes(pub Vec<u8>);
 
 /// A [`NEVec<u8>`] optimized for displaying in errors.
 #[derive(Clone, From, PartialEq, Debug, Display, Into)]
-#[display("{}", trunc_bytes(self.0.0.as_ref()))]
+#[display("{}", trunc_bytes(self.0.as_ref()))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[from(NEVec<u8>, FcsNEVec<u8>)]
-#[into(Vec<u8>, NEVec<u8>, FcsNEVec<u8>)]
-pub struct TruncatedNEBytes(pub FcsNEVec<u8>);
+#[from(NEVec<u8>)]
+#[into(Vec<u8>, NEVec<u8>)]
+pub struct TruncatedNEBytes(pub NEVec<u8>);
 
 impl From<TruncatedNEBytes> for TruncatedBytes {
     fn from(value: TruncatedNEBytes) -> Self {

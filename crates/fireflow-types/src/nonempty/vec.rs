@@ -33,7 +33,7 @@ macro_rules! nev {
     }};
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug, Into, AsRef)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[repr(transparent)]
 pub struct NEVec<T> {
@@ -657,6 +657,18 @@ impl<T> NEVec<T> {
     #[must_use]
     pub fn nonempty_chunks(&self, chunk_size: NonZeroUsize) -> NEChunks<'_, T> {
         NEChunks(self.inner.chunks(chunk_size.get()))
+    }
+}
+
+impl<T> AsRef<NESlice<T>> for NEVec<T> {
+    fn as_ref(&self) -> &NESlice<T> {
+        NESlice::try_from_slice(&self.inner).unwrap()
+    }
+}
+
+impl<T> AsRef<[T]> for NEVec<T> {
+    fn as_ref(&self) -> &[T] {
+        self.inner.as_ref()
     }
 }
 

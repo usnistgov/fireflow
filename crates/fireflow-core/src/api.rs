@@ -43,10 +43,10 @@ use crate::validated::header_offsets::{
     SuppToHeaderOffsetsValidationError, TextToHeaderOrSuppOffsetsValidationError,
 };
 use crate::validated::keys::{
-    AnyKey, BytesLike, InvalidKeywordCharsError, KeyOrBytes, KeywordInsertError, NEFragChain,
+    AnyKey, InvalidKeywordCharsError, KeyOrBytes, KeywordInsertError, NEDelimBytes,
     NEStringOrBytes, NonStdKey, NonStdKeywords, ParsedKeyword, ParsedKeywords,
-    ParsedKeywordsDiagnostic, RepairDiagnostics, StdKeywords, StringLike, StringOrBytes,
-    TruncatedBytes, TruncatedNEBytes, TruncatedNEString, ValidKeywords, ValueToStdKey as _,
+    ParsedKeywordsDiagnostic, RepairDiagnostics, StdKeywords, StringOrBytes, TruncatedNEBytes,
+    TruncatedNEString, ValidKeywords,
 };
 use crate::validated::read_state::{
     DatasetLen, DatasetOffset, DatasetOffsetError, FileLen, HeaderReadState, TEXTReadState,
@@ -62,7 +62,7 @@ use fireflow_types::{
         WriteMultiConfig,
     },
     keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2},
-    nonempty::{IntoIteratorExt as _, NESlice, NEStr, NEVec, NonEmptyIterator as _},
+    nonempty::{IntoIteratorExt as _, NESlice, NEVec, NonEmptyIterator as _},
     segment::{OffsetsFromTEXT, SupplementalTextSegmentId},
     std_key::{RootKey, StdKey, ToStd as _},
 };
@@ -2370,7 +2370,7 @@ impl ParsedTEXTOutput {
         // remove every other delimiter to make it literal, which implies we
         // need to allocate a new string.
         let mut keybuf: NEVec<u8>;
-        let mut valbuf: Option<NEFragChain<&NESlice<u8>>> = None;
+        let mut valbuf: Option<NEDelimBytes> = None;
 
         let mut it = segs.iter();
 
@@ -2439,15 +2439,16 @@ impl ParsedTEXTOutput {
                         parsed.push(p);
                         keybuf = ne_token.to_ne_vec();
                     } else {
-                        valbuf = Some(NEFragChain::One(ne_token));
+                        valbuf = Some(NEDelimBytes::init(ne_token, delim));
                     }
-                } else {
-                    // Previous consecutive delimiter sequence was even. Push
-                    // this number / 2 followed by the current token fragment
-                    // to the active buffer.
-                    let ds = iter::repeat_n(delim, consec_blanks.div_ceil(2));
-                    if let Some(v) = mem::take(&mut valbuf) {
-                        valbuf = Some(v.append(ne_token));
+                } else if let Some(b) = NonZeroUsize::new(consec_blanks) {
+                    // Previous consecutive delimiter sequence was even and
+                    // non-zero. Push this number / 2 followed by the current
+                    // token fragment to the active buffer.
+                    let n_delim = b.div_ceil(NonZeroUsize::new(2).unwrap());
+                    let ds = iter::repeat_n(delim, n_delim.get());
+                    if let Some(v) = valbuf.as_mut() {
+                        v.append(ne_token, n_delim)
                     } else {
                         keybuf.extend(ds.chain(ne_token.iter().copied()));
                     }
@@ -2469,7 +2470,7 @@ impl ParsedTEXTOutput {
         // can be pushed. If we only have a key, keep this as last odd token.
         let last_odd_token = if let Some(ne_val) = mem::take(&mut valbuf) {
             if has_escaped_delim_end {
-                let seg = ne_val.as_raw_bytes();
+                let seg = ne_val.into_owned();
                 tokens_with_boundary_delims.push(NEStringOrBytes::from(seg));
             }
             // Both key and value are present, this is the last pair in TEXT so
@@ -2499,11 +2500,11 @@ impl ParsedTEXTOutput {
 
         for p in &parsed {
             match p {
-                ParsedKeyword::StdUtf8(kv) => {
+                ParsedKeyword::StdRef(kv) => {
                     n_std_utf8_kws += 1;
                     n_trimmed += usize::from(kv.original.is_some());
                 }
-                ParsedKeyword::StdLatin1(kv) => {
+                ParsedKeyword::StdOwned(kv) => {
                     n_std_latin1_kws += 1;
                     n_trimmed += usize::from(kv.original.is_some());
                 }
@@ -2538,14 +2539,14 @@ impl ParsedTEXTOutput {
 
         for p in parsed {
             match p {
-                ParsedKeyword::StdUtf8(kv) => {
+                ParsedKeyword::StdRef(kv) => {
                     if let Some(o) = kv.original {
                         let k = AnyKey::Std(RealOrPseudoStdKey::Real(kv.key.clone()));
                         keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
                     }
                     std_utf8.push((kv.key, kv.value));
                 }
-                ParsedKeyword::StdLatin1(kv) => {
+                ParsedKeyword::StdOwned(kv) => {
                     if let Some(o) = kv.original {
                         let k = AnyKey::Std(RealOrPseudoStdKey::Real(kv.key.clone()));
                         keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
@@ -2611,7 +2612,8 @@ impl ParsedTEXTOutput {
         let (std_final, _nonunique_std) = std_utf8.split_at(dedup_split);
         let non_unique_std_keywords = _nonunique_std
             .into_iter()
-            .map(|(k, v)| (*k, TruncatedNEString(v.as_utf8_string())))
+            .copied()
+            .map(|(k, v)| (k, TruncatedNEString(v.to_owned())))
             .collect();
 
         // SAFETY: we sorted and deduplicated above
@@ -2661,7 +2663,7 @@ impl ParsedTEXTOutput {
             .unwrap_or_default();
 
         enum UnescapedKeyword<'a> {
-            Keyword(ParsedKeyword<&'a NEStr, &'a NESlice<u8>>),
+            Keyword(ParsedKeyword<'a>),
             EmptyKey(NEVec<u8>),
             EmptyValue(NEVec<u8>),
             EmptyPair,
@@ -2700,11 +2702,11 @@ impl ParsedTEXTOutput {
         for p in &parsed {
             match p {
                 UnescapedKeyword::Keyword(k) => match k {
-                    ParsedKeyword::StdUtf8(kv) => {
+                    ParsedKeyword::StdRef(kv) => {
                         n_std_utf8_kws += 1;
                         n_trimmed += usize::from(kv.original.is_some());
                     }
-                    ParsedKeyword::StdLatin1(kv) => {
+                    ParsedKeyword::StdOwned(kv) => {
                         n_std_latin1_kws += 1;
                         n_trimmed += usize::from(kv.original.is_some());
                     }
@@ -2746,14 +2748,14 @@ impl ParsedTEXTOutput {
         for p in parsed {
             match p {
                 UnescapedKeyword::Keyword(k) => match k {
-                    ParsedKeyword::StdUtf8(kv) => {
+                    ParsedKeyword::StdRef(kv) => {
                         if let Some(o) = kv.original {
                             let k = AnyKey::Std(RealOrPseudoStdKey::Real(kv.key.clone()));
                             keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
                         }
                         std_utf8.push((kv.key, kv.value));
                     }
-                    ParsedKeyword::StdLatin1(kv) => {
+                    ParsedKeyword::StdOwned(kv) => {
                         if let Some(o) = kv.original {
                             let k = AnyKey::Std(RealOrPseudoStdKey::Real(kv.key.clone()));
                             keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));

@@ -71,7 +71,7 @@ macro_rules! impl_str_enum {
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 $(
-                    if $strlit.as_ref() == s {
+                    if $strlit.as_str() == s {
                         return Ok(Self::$var);
                     }
                 )*

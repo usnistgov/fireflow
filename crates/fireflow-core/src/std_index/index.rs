@@ -118,7 +118,10 @@ impl StdIndex {
     ///
     /// Caller must ensure input is sorted and does not have duplicates.
     #[must_use]
-    pub unsafe fn from_slice(pairs: &[(StdKey, &NEStr)]) -> Self {
+    pub unsafe fn from_slice<V>(pairs: &[(StdKey, V)]) -> Self
+    where
+        V: AsRef<NEStr>,
+    {
         let mut root_n_bytes = 0;
         let mut root_n_strings = 0;
         let mut meas_size = NestedStringSize::default();
@@ -129,7 +132,7 @@ impl StdIndex {
         let mut dfc_matrix_size = 0;
 
         for (k, v) in pairs {
-            let n_bytes = v.as_ne_bytes().len().get();
+            let n_bytes = v.as_ref().as_ne_bytes().len().get();
             match k {
                 StdKey::Root(_) => {
                     root_n_strings += 1;
@@ -169,11 +172,11 @@ impl StdIndex {
         let mut csv_flag = NestedVariableString::init_var(&csv_flag_size);
         let mut dfc = NestedVariableString::init_var(&dfc_size);
 
-        let mut it = pairs.into_iter().copied();
+        let mut it = pairs.into_iter();
         let root_it = it
             .by_ref()
             .take(root_n_strings)
-            .map(|(k, v)| (RootKey::try_from(k).unwrap(), v));
+            .map(|(k, v)| (RootKey::try_from(*k).unwrap(), v));
         // SAFETY: input is sorted and deduplicated
         unsafe {
             root.set_keys(root_it);
@@ -182,7 +185,7 @@ impl StdIndex {
         let meas_it = it
             .by_ref()
             .take(meas_size.n_strings)
-            .map(|(k, v)| (MeasKey::try_from(k).unwrap().offset0(), v));
+            .map(|(k, v)| (MeasKey::try_from(*k).unwrap().offset0(), v));
         // SAFETY: input is sorted and deduplicated
         unsafe {
             meas.extend_pairs(meas_it);
@@ -191,7 +194,7 @@ impl StdIndex {
         let gate_it = it
             .by_ref()
             .take(gate_size.n_strings)
-            .map(|(k, v)| (GateKey::try_from(k).unwrap().offset0(), v));
+            .map(|(k, v)| (GateKey::try_from(*k).unwrap().offset0(), v));
         // SAFETY: input is sorted and deduplicated
         unsafe {
             gate.extend_pairs(gate_it);
@@ -200,7 +203,7 @@ impl StdIndex {
         let region_it = it
             .by_ref()
             .take(region_size.n_strings)
-            .map(|(k, v)| (RegionKey::try_from(k).unwrap().offset0(), v));
+            .map(|(k, v)| (RegionKey::try_from(*k).unwrap().offset0(), v));
         // SAFETY: input is sorted and deduplicated
         unsafe {
             region.extend_pairs(region_it);
@@ -209,14 +212,14 @@ impl StdIndex {
         let csv_flag_it = it
             .by_ref()
             .take(csv_flag_size.n_strings)
-            .map(|(k, v)| (usize::from(CsvFlagKey::try_from(k).unwrap().index), v));
+            .map(|(k, v)| (usize::from(CsvFlagKey::try_from(*k).unwrap().index), v));
         // SAFETY: input is sorted and deduplicated
         unsafe {
             csv_flag.extend_pairs(csv_flag_it);
         }
 
         let dfc_it = it.map(|(k, v)| {
-            let i = DfcKey::try_from(k).unwrap().offset(&dfc_matrix_size);
+            let i = DfcKey::try_from(*k).unwrap().offset(&dfc_matrix_size);
             (i, v)
         });
         // SAFETY: input is sorted and deduplicated

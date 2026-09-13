@@ -789,7 +789,7 @@ impl ParsedKeywords {
                 Encoding::Utf8 => {
                     if let Ok(vv) = NEStr::from_utf8(val) {
                         if let Some(tf) = triflag {
-                            if let Some(trimmed) = NEStr::try_new(vv.as_ref().trim()) {
+                            if let Some(trimmed) = NEStr::try_new(vv.as_str().trim()) {
                                 let was_trimmed = trimmed.len() < vv.len();
                                 Some(TrimResult::Trimmed(Cow::Borrowed(trimmed), was_trimmed))
                             } else {
@@ -979,7 +979,7 @@ impl ParsedKeywords {
 
 pub(crate) enum ParsedKeyword<'a> {
     // Valid std key value as a slice
-    StdRef(NonEmptyValue<StdKey, &'a NEStr>),
+    StdSlice(NonEmptyValue<StdKey, &'a NEStr>),
     // Valid std key value as owned value (used for values with latin1
     // characters and escaped delimiters)
     StdOwned(NonEmptyValue<StdKey, NEString>),
@@ -1175,7 +1175,7 @@ impl<'a> ParsedKeyword<'a> {
         // optimizing. The convenience of returning owned strings is worth it.
         match (pk, pv) {
             (ParsedKey::Std(k), ParsedValue::Slice(v, original)) => {
-                Self::StdRef(NonEmptyValue::new(k, v, original))
+                Self::StdSlice(NonEmptyValue::new(k, v, original))
             }
             (ParsedKey::Std(k), ParsedValue::Owned(v, original)) => {
                 Self::StdOwned(NonEmptyValue::new(k, v, original))
@@ -1211,9 +1211,128 @@ impl<'a> ParsedKeyword<'a> {
             (k, ParsedValue::Empty(original)) => Self::TrimmedEmptyValue(k, original),
         }
     }
+
+    pub(crate) fn dispatch_slice_only(
+        self,
+        std: &mut Vec<(StdKey, &'a NEStr)>,
+        nonstd: &mut NonStdKeywords,
+        pseudo: &mut HashMap<PseudoStdKey, NEString>,
+        diag: &mut ParsedKeywordsDiagnostic,
+    ) {
+        let f_owned = |_| panic!("this should only be called when input is all slices");
+        self.dispatch(std, nonstd, pseudo, diag, |v| v, f_owned);
+    }
+
+    pub(crate) fn dispatch_slice_or_owned(
+        self,
+        std: &mut Vec<(StdKey, Cow<'a, NEStr>)>,
+        nonstd: &mut NonStdKeywords,
+        pseudo: &mut HashMap<PseudoStdKey, NEString>,
+        diag: &mut ParsedKeywordsDiagnostic,
+    ) {
+        self.dispatch(std, nonstd, pseudo, diag, Cow::Borrowed, Cow::Owned);
+    }
+
+    fn dispatch<F0, F1, V>(
+        self,
+        std: &mut Vec<(StdKey, V)>,
+        nonstd: &mut NonStdKeywords,
+        pseudo: &mut HashMap<PseudoStdKey, NEString>,
+        diag: &mut ParsedKeywordsDiagnostic,
+        f_slice: F0,
+        f_owned: F1,
+    ) where
+        F0: FnOnce(&'a NEStr) -> V,
+        F1: FnOnce(NEString) -> V,
+    {
+        match self {
+            Self::StdSlice(kv) => {
+                if let Some(o) = kv.original {
+                    let k = AnyKey::Std(RealOrPseudoStdKey::Real(kv.key.clone()));
+                    diag.keys_with_trimmed_values
+                        .push((KeyOrBytes::from(k), o.into()));
+                }
+                std.push((kv.key, f_slice(kv.value)));
+            }
+            Self::StdOwned(kv) => {
+                if let Some(o) = kv.original {
+                    let k = AnyKey::Std(RealOrPseudoStdKey::Real(kv.key.clone()));
+                    diag.keys_with_trimmed_values
+                        .push((KeyOrBytes::from(k), o.into()));
+                }
+                std.push((kv.key, f_owned(kv.value)));
+            }
+            Self::NonStd(kv) => {
+                if let Some(o) = kv.original {
+                    let k = AnyKey::NonStd(kv.key.clone());
+                    diag.keys_with_trimmed_values
+                        .push((KeyOrBytes::from(k), o.into()));
+                }
+                match nonstd.entry(kv.key) {
+                    Entry::Occupied(e) => diag
+                        .non_unique_nonstd_keywords
+                        .push((e.key().clone(), kv.value.into())),
+                    Entry::Vacant(e) => {
+                        let _ = e.insert(kv.value);
+                    }
+                }
+            }
+            Self::Pseudo(kv) => {
+                if let Some(o) = kv.original {
+                    let k = AnyKey::Std(RealOrPseudoStdKey::Pseudo(kv.key.clone()));
+                    diag.keys_with_trimmed_values
+                        .push((KeyOrBytes::from(k), o.into()));
+                }
+                match pseudo.entry(kv.key) {
+                    Entry::Occupied(e) => diag
+                        .non_unique_pseudostd_keywords
+                        .push((e.key().clone(), kv.value.into())),
+                    Entry::Vacant(e) => {
+                        let _ = e.insert(kv.value);
+                    }
+                }
+            }
+            Self::TrimmedEmptyValue(k, v) => {
+                // TODO just make a separate list for these
+                diag.keys_with_trimmed_values
+                    .push((k.clone().into(), v.into()));
+                diag.keys_with_empty_trimmed_values.push(k.into());
+            }
+            Self::NonUtf8Value(k, v) => diag.keys_with_non_utf8_values.push((k, v.into())),
+            Self::NonAsciiKey(kv) => {
+                if let Some(o) = kv.original {
+                    let k = TruncatedNEBytes::from(kv.key.clone());
+                    diag.keys_with_trimmed_values
+                        .push((KeyOrBytes::from(k), o.into()));
+                }
+                diag.values_with_non_ascii_keys
+                    .push((kv.key.into(), kv.value.into()))
+            }
+            Self::BothInvalid(k, v) => diag.byte_pairs.push((k.into(), v.into())),
+        }
+    }
 }
 
 impl ParsedKeywordsDiagnostic {
+    pub(crate) fn init(
+        n_keys_with_non_utf8_values: usize,
+        n_values_with_non_ascii_keys: usize,
+        n_byte_pairs: usize,
+        n_keys_with_empty_trimmed_values: usize,
+        n_keys_with_trimmed_values: usize,
+    ) -> Self {
+        Self {
+            keys_with_non_utf8_values: Vec::with_capacity(n_keys_with_non_utf8_values),
+            values_with_non_ascii_keys: Vec::with_capacity(n_values_with_non_ascii_keys),
+            byte_pairs: Vec::with_capacity(n_byte_pairs),
+            non_unique_std_keywords: vec![],
+            non_unique_pseudostd_keywords: vec![],
+            non_unique_nonstd_keywords: vec![],
+            keys_with_empty_trimmed_values: Vec::with_capacity(n_keys_with_empty_trimmed_values),
+            keys_with_trimmed_values: Vec::with_capacity(n_keys_with_trimmed_values),
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn into_flat_diag(
         self,

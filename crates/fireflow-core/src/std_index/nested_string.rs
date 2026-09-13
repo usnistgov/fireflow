@@ -52,13 +52,14 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
         }
     }
 
-    pub(crate) unsafe fn set_keys<'a>(&mut self, pairs: impl IntoIterator<Item = (K, &'a NEStr)>)
+    pub(crate) unsafe fn set_keys<'a, V>(&mut self, pairs: impl IntoIterator<Item = (K, V)>)
     where
         K: EnumIndex<LEN>,
+        V: AsRef<NEStr>,
     {
         for (k, v) in pairs {
             self.offsets[k.index()] = self.inner.len();
-            self.inner.extend(v.as_str().as_bytes());
+            self.inner.extend(v.as_ref().as_str().as_bytes());
         }
     }
 
@@ -85,10 +86,10 @@ impl<K> NestedVariableString<K> {
     ///
     /// - The index of each pair must be in order.
     /// - This must only be called once on a freshly init-ed object.
-    pub(crate) unsafe fn extend_pairs<'a>(
-        &mut self,
-        pairs: impl IntoIterator<Item = (usize, &'a NEStr)>,
-    ) {
+    pub(crate) unsafe fn extend_pairs<'a, V>(&mut self, pairs: impl IntoIterator<Item = (usize, V)>)
+    where
+        V: AsRef<NEStr>,
+    {
         for (i, v) in pairs {
             // Pad the index vector with previous length up until the index
             // to be added. These are blank strings that we skipped by not
@@ -97,7 +98,7 @@ impl<K> NestedVariableString<K> {
                 self.offsets.push(self.inner.len());
             }
             self.offsets.push(self.inner.len());
-            self.inner.extend(v.as_str().as_bytes());
+            self.inner.extend(v.as_ref().as_str().as_bytes());
         }
     }
 

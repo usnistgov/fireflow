@@ -184,7 +184,7 @@ pub trait FromStrDelim: Sized {
         s: &NEStr,
         trim_whitespace: TrimIntraValueWhitespace,
     ) -> (Result<Self, Self::Err>, Trimmed) {
-        let it = s.as_ref().split(Self::DELIM);
+        let it = s.as_str().split(Self::DELIM);
         if trim_whitespace.is_set() {
             let mut was_trimmed = false;
             let res = Self::from_iter(it.map(|x| {

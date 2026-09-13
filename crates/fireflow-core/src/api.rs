@@ -2488,8 +2488,8 @@ impl ParsedTEXTOutput {
             Vec::from(keybuf).into()
         };
 
-        let mut n_std_utf8_kws = 0;
-        let mut n_std_latin1_kws = 0;
+        let mut n_std_slice_kws = 0;
+        let mut n_std_latin1_or_delim_kws = 0;
         let mut n_nonstd_keys = 0;
         let mut n_pseudo_keys = 0;
         let mut n_trimmed_empty_values = 0;
@@ -2500,12 +2500,12 @@ impl ParsedTEXTOutput {
 
         for p in &parsed {
             match p {
-                ParsedKeyword::StdRef(kv) => {
-                    n_std_utf8_kws += 1;
+                ParsedKeyword::StdSlice(kv) => {
+                    n_std_slice_kws += 1;
                     n_trimmed += usize::from(kv.original.is_some());
                 }
                 ParsedKeyword::StdOwned(kv) => {
-                    n_std_latin1_kws += 1;
+                    n_std_latin1_or_delim_kws += 1;
                     n_trimmed += usize::from(kv.original.is_some());
                 }
                 ParsedKeyword::NonStd(kv) => {
@@ -2523,111 +2523,51 @@ impl ParsedTEXTOutput {
             }
         }
 
-        let mut std_utf8 = Vec::with_capacity(n_std_utf8_kws);
-        let mut std_latin1 = Vec::with_capacity(n_std_latin1_kws);
         let mut nonstd = HashMap::with_capacity(n_nonstd_keys);
         let mut pseudo = HashMap::with_capacity(n_pseudo_keys);
-        let mut keys_with_empty_trimmed_values = Vec::with_capacity(n_trimmed_empty_values);
-        let mut keys_with_non_utf8_values = Vec::with_capacity(n_non_utf8_values);
-        let mut values_with_non_ascii_keys = Vec::with_capacity(n_non_ascii_keys);
-        let mut byte_pairs = Vec::with_capacity(n_invalid_pairs);
-        let mut keys_with_trimmed_values = Vec::with_capacity(n_trimmed);
-        let mut non_unique_nonstd_keywords = vec![];
-        let mut non_unique_pseudostd_keywords = vec![];
+        let mut parsed_diag = ParsedKeywordsDiagnostic::init(
+            n_non_utf8_values,
+            n_non_ascii_keys,
+            n_invalid_pairs,
+            n_trimmed_empty_values,
+            n_trimmed,
+        );
 
-        // TODO this totally skips over latin1 keywords, add them back
-
-        for p in parsed {
-            match p {
-                ParsedKeyword::StdRef(kv) => {
-                    if let Some(o) = kv.original {
-                        let k = AnyKey::Std(RealOrPseudoStdKey::Real(kv.key.clone()));
-                        keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
-                    }
-                    std_utf8.push((kv.key, kv.value));
-                }
-                ParsedKeyword::StdOwned(kv) => {
-                    if let Some(o) = kv.original {
-                        let k = AnyKey::Std(RealOrPseudoStdKey::Real(kv.key.clone()));
-                        keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
-                    }
-                    std_latin1.push((kv.key, kv.value));
-                }
-                ParsedKeyword::NonStd(kv) => {
-                    if let Some(o) = kv.original {
-                        let k = AnyKey::NonStd(kv.key.clone());
-                        keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
-                    }
-                    match nonstd.entry(kv.key) {
-                        Entry::Occupied(e) => {
-                            non_unique_nonstd_keywords.push((e.key().clone(), kv.value.into()))
-                        }
-                        Entry::Vacant(e) => {
-                            let _ = e.insert(kv.value);
-                        }
-                    }
-                }
-                ParsedKeyword::Pseudo(kv) => {
-                    if let Some(o) = kv.original {
-                        let k = AnyKey::Std(RealOrPseudoStdKey::Pseudo(kv.key.clone()));
-                        keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
-                    }
-                    match pseudo.entry(kv.key) {
-                        Entry::Occupied(e) => {
-                            non_unique_pseudostd_keywords.push((e.key().clone(), kv.value.into()))
-                        }
-                        Entry::Vacant(e) => {
-                            let _ = e.insert(kv.value);
-                        }
-                    }
-                }
-                ParsedKeyword::TrimmedEmptyValue(k, v) => {
-                    // TODO just make a separate list for these
-                    keys_with_trimmed_values.push((k.clone().into(), v.into()));
-                    keys_with_empty_trimmed_values.push(k.into());
-                }
-                ParsedKeyword::NonUtf8Value(k, v) => keys_with_non_utf8_values.push((k, v.into())),
-                ParsedKeyword::NonAsciiKey(kv) => {
-                    if let Some(o) = kv.original {
-                        let k = TruncatedNEBytes::from(kv.key.clone());
-                        keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
-                    }
-                    values_with_non_ascii_keys.push((kv.key.into(), kv.value.into()))
-                }
-                ParsedKeyword::BothInvalid(k, v) => byte_pairs.push((k.into(), v.into())),
+        let index = if n_std_latin1_or_delim_kws == 0 {
+            let mut std = Vec::with_capacity(n_std_slice_kws);
+            for p in parsed {
+                p.dispatch_slice_only(&mut std, &mut nonstd, &mut pseudo, &mut parsed_diag);
             }
-        }
 
-        // TODO it might be faster to break the keywords up into their own
-        // subtypes before sorting. This wouldn't be that hard because we are
-        // already looping through everything above, so we would just need to
-        // add a few more branches. It is faster to sort sublists rather than
-        // one giant list. The advantage of keeping everything in one list might
-        // be cache coherence; we need to loop through everything to construct
-        // the index, so this may be easier with one list. So it is a matter of
-        // cache performance of multiple vectors vs time saved doing smaller
-        // sorts.
-        std_utf8.sort_by_key(|(k, _)| *k);
-        let dedup_split = partition_dedup_by_key(&mut std_utf8, |(k, _)| *k);
-        let (std_final, _nonunique_std) = std_utf8.split_at(dedup_split);
-        let non_unique_std_keywords = _nonunique_std
-            .into_iter()
-            .copied()
-            .map(|(k, v)| (k, TruncatedNEString(v.to_owned())))
-            .collect();
+            std.sort_by_key(|(k, _)| *k);
 
-        // SAFETY: we sorted and deduplicated above
-        let index = unsafe { StdIndex::from_slice(std_final) };
+            let dedup_split = partition_dedup_by_key(&mut std, |(k, _)| *k);
+            let (std_final, non_unique_std) = std.split_at(dedup_split);
+            parsed_diag.non_unique_std_keywords = non_unique_std
+                .into_iter()
+                .copied()
+                .map(|(k, v)| (k, TruncatedNEString(v.to_owned())))
+                .collect();
 
-        let parsed_diag = ParsedKeywordsDiagnostic {
-            keys_with_non_utf8_values,
-            values_with_non_ascii_keys,
-            byte_pairs,
-            non_unique_std_keywords,
-            non_unique_pseudostd_keywords,
-            non_unique_nonstd_keywords,
-            keys_with_empty_trimmed_values,
-            keys_with_trimmed_values,
+            // SAFETY: we sorted and deduplicated above
+            unsafe { StdIndex::from_slice(std_final) }
+        } else {
+            let mut std = Vec::with_capacity(n_std_slice_kws + n_std_latin1_or_delim_kws);
+
+            for p in parsed {
+                p.dispatch_slice_or_owned(&mut std, &mut nonstd, &mut pseudo, &mut parsed_diag);
+            }
+
+            std.sort_by_key(|(k, _)| *k);
+            let dedup_split = partition_dedup_by_key(&mut std, |(k, _)| *k);
+            let (std_final, non_unique_std) = std.split_at(dedup_split);
+            parsed_diag.non_unique_std_keywords = non_unique_std
+                .into_iter()
+                .map(|(k, v)| (*k, TruncatedNEString(v.as_ref().to_owned())))
+                .collect();
+
+            // SAFETY: we sorted and deduplicated above
+            unsafe { StdIndex::from_slice(std_final) }
         };
 
         let text_diag = SplitTEXTDiagnostics {
@@ -2686,7 +2626,7 @@ impl ParsedTEXTOutput {
             })
             .collect();
 
-        let mut n_std_utf8_kws = 0;
+        let mut n_std_slice_kws = 0;
         let mut n_std_latin1_kws = 0;
         let mut n_nonstd_keys = 0;
         let mut n_pseudo_keys = 0;
@@ -2702,8 +2642,8 @@ impl ParsedTEXTOutput {
         for p in &parsed {
             match p {
                 UnescapedKeyword::Keyword(k) => match k {
-                    ParsedKeyword::StdRef(kv) => {
-                        n_std_utf8_kws += 1;
+                    ParsedKeyword::StdSlice(kv) => {
+                        n_std_slice_kws += 1;
                         n_trimmed += usize::from(kv.original.is_some());
                     }
                     ParsedKeyword::StdOwned(kv) => {
@@ -2729,119 +2669,80 @@ impl ParsedTEXTOutput {
             }
         }
 
-        let mut std_utf8 = Vec::with_capacity(n_std_utf8_kws);
-        let mut std_latin1 = Vec::with_capacity(n_std_latin1_kws);
+        // let mut nonstd = HashMap::with_capacity(n_nonstd_keys);
+        // let mut pseudo = HashMap::with_capacity(n_pseudo_keys);
+        // let mut keys_with_empty_trimmed_values = Vec::with_capacity(n_trimmed_empty_values);
+        // let mut keys_with_non_utf8_values = Vec::with_capacity(n_non_utf8_values);
+        // let mut values_with_non_ascii_keys = Vec::with_capacity(n_non_ascii_keys);
+        // let mut byte_pairs = Vec::with_capacity(n_invalid_pairs);
+        // let mut keys_with_trimmed_values = Vec::with_capacity(n_trimmed);
+        // let mut non_unique_nonstd_keywords = vec![];
+        // let mut non_unique_pseudostd_keywords = vec![];
+
         let mut nonstd = HashMap::with_capacity(n_nonstd_keys);
         let mut pseudo = HashMap::with_capacity(n_pseudo_keys);
-        let mut keys_with_empty_trimmed_values = Vec::with_capacity(n_trimmed_empty_values);
-        let mut keys_with_non_utf8_values = Vec::with_capacity(n_non_utf8_values);
-        let mut values_with_non_ascii_keys = Vec::with_capacity(n_non_ascii_keys);
-        let mut byte_pairs = Vec::with_capacity(n_invalid_pairs);
+
         let mut values_with_blank_keys = Vec::with_capacity(n_empty_keys);
         let mut keys_with_blank_values = Vec::with_capacity(n_empty_values);
-        let mut keys_with_trimmed_values = Vec::with_capacity(n_trimmed);
-        let mut non_unique_nonstd_keywords = vec![];
-        let mut non_unique_pseudostd_keywords = vec![];
 
-        // TODO this totally skips over latin1 keywords, add them back
+        let mut parsed_diag = ParsedKeywordsDiagnostic::init(
+            n_non_utf8_values,
+            n_non_ascii_keys,
+            n_invalid_pairs,
+            n_trimmed_empty_values,
+            n_trimmed,
+        );
 
-        for p in parsed {
-            match p {
-                UnescapedKeyword::Keyword(k) => match k {
-                    ParsedKeyword::StdRef(kv) => {
-                        if let Some(o) = kv.original {
-                            let k = AnyKey::Std(RealOrPseudoStdKey::Real(kv.key.clone()));
-                            keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
-                        }
-                        std_utf8.push((kv.key, kv.value));
+        let index = if n_std_latin1_kws == 0 {
+            let mut std = Vec::with_capacity(n_std_slice_kws);
+            for p in parsed {
+                match p {
+                    UnescapedKeyword::Keyword(k) => {
+                        k.dispatch_slice_only(&mut std, &mut nonstd, &mut pseudo, &mut parsed_diag)
                     }
-                    ParsedKeyword::StdOwned(kv) => {
-                        if let Some(o) = kv.original {
-                            let k = AnyKey::Std(RealOrPseudoStdKey::Real(kv.key.clone()));
-                            keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
-                        }
-                        std_latin1.push((kv.key, kv.value));
-                    }
-                    ParsedKeyword::NonStd(kv) => {
-                        if let Some(o) = kv.original {
-                            let k = AnyKey::NonStd(kv.key.clone());
-                            keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
-                        }
-                        match nonstd.entry(kv.key) {
-                            Entry::Occupied(e) => {
-                                non_unique_nonstd_keywords.push((e.key().clone(), kv.value.into()))
-                            }
-                            Entry::Vacant(e) => {
-                                let _ = e.insert(kv.value);
-                            }
-                        }
-                    }
-                    ParsedKeyword::Pseudo(kv) => {
-                        if let Some(o) = kv.original {
-                            let k = AnyKey::Std(RealOrPseudoStdKey::Pseudo(kv.key.clone()));
-                            keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
-                        }
-                        match pseudo.entry(kv.key) {
-                            Entry::Occupied(e) => non_unique_pseudostd_keywords
-                                .push((e.key().clone(), kv.value.into())),
-                            Entry::Vacant(e) => {
-                                let _ = e.insert(kv.value);
-                            }
-                        }
-                    }
-                    ParsedKeyword::TrimmedEmptyValue(k, v) => {
-                        // TODO just make a separate list for these
-                        keys_with_trimmed_values.push((k.clone().into(), v.into()));
-                        keys_with_empty_trimmed_values.push(k.into());
-                    }
-                    ParsedKeyword::NonUtf8Value(k, v) => {
-                        keys_with_non_utf8_values.push((k, v.into()))
-                    }
-                    ParsedKeyword::NonAsciiKey(kv) => {
-                        if let Some(o) = kv.original {
-                            let k = TruncatedNEBytes::from(kv.key.clone());
-                            keys_with_trimmed_values.push((KeyOrBytes::from(k), o.into()));
-                        }
-                        values_with_non_ascii_keys.push((kv.key.into(), kv.value.into()))
-                    }
-                    ParsedKeyword::BothInvalid(k, v) => byte_pairs.push((k.into(), v.into())),
-                },
-                UnescapedKeyword::EmptyKey(k) => values_with_blank_keys.push(k.into()),
-                UnescapedKeyword::EmptyValue(v) => keys_with_blank_values.push(v.into()),
-                UnescapedKeyword::EmptyPair => (),
+                    UnescapedKeyword::EmptyKey(k) => values_with_blank_keys.push(k.into()),
+                    UnescapedKeyword::EmptyValue(v) => keys_with_blank_values.push(v.into()),
+                    UnescapedKeyword::EmptyPair => (),
+                }
             }
-        }
 
-        // TODO it might be faster to break the keywords up into their own
-        // subtypes before sorting. This wouldn't be that hard because we are
-        // already looping through everything above, so we would just need to
-        // add a few more branches. It is faster to sort sublists rather than
-        // one giant list. The advantage of keeping everything in one list might
-        // be cache coherence; we need to loop through everything to construct
-        // the index, so this may be easier with one list. So it is a matter of
-        // cache performance of multiple vectors vs time saved doing smaller
-        // sorts.
-        std_utf8.sort_by_key(|(k, _)| *k);
-        let dedup_split = partition_dedup_by_key(&mut std_utf8, |(k, _)| *k);
-        let (std_final, _nonunique_std) = std_utf8.split_at(dedup_split);
-        let non_unique_std_keywords = _nonunique_std
-            .into_iter()
-            .copied()
-            .map(|(k, v)| (k, TruncatedNEString(v.to_owned())))
-            .collect();
+            std.sort_by_key(|(k, _)| *k);
+            let dedup_split = partition_dedup_by_key(&mut std, |(k, _)| *k);
+            let (std_final, _nonunique_std) = std.split_at(dedup_split);
+            parsed_diag.non_unique_std_keywords = _nonunique_std
+                .into_iter()
+                .copied()
+                .map(|(k, v)| (k, TruncatedNEString(v.to_owned())))
+                .collect();
 
-        // SAFETY: we sorted and deduplicated above
-        let index = unsafe { StdIndex::from_slice(std_final) };
+            // SAFETY: we sorted and deduplicated above
+            unsafe { StdIndex::from_slice(std_final) }
+        } else {
+            let mut std = Vec::with_capacity(n_std_slice_kws + n_std_latin1_kws);
+            for p in parsed {
+                match p {
+                    UnescapedKeyword::Keyword(k) => k.dispatch_slice_or_owned(
+                        &mut std,
+                        &mut nonstd,
+                        &mut pseudo,
+                        &mut parsed_diag,
+                    ),
+                    UnescapedKeyword::EmptyKey(k) => values_with_blank_keys.push(k.into()),
+                    UnescapedKeyword::EmptyValue(v) => keys_with_blank_values.push(v.into()),
+                    UnescapedKeyword::EmptyPair => (),
+                }
+            }
 
-        let parsed_diag = ParsedKeywordsDiagnostic {
-            keys_with_non_utf8_values,
-            values_with_non_ascii_keys,
-            byte_pairs,
-            non_unique_std_keywords,
-            non_unique_pseudostd_keywords,
-            non_unique_nonstd_keywords,
-            keys_with_empty_trimmed_values,
-            keys_with_trimmed_values,
+            std.sort_by_key(|(k, _)| *k);
+            let dedup_split = partition_dedup_by_key(&mut std, |(k, _)| *k);
+            let (std_final, non_unique_std) = std.split_at(dedup_split);
+            parsed_diag.non_unique_std_keywords = non_unique_std
+                .into_iter()
+                .map(|(k, v)| (*k, TruncatedNEString(v.as_ref().to_owned())))
+                .collect();
+
+            // SAFETY: we sorted and deduplicated above
+            unsafe { StdIndex::from_slice(std_final) }
         };
 
         let text_diag = SplitTEXTDiagnostics {

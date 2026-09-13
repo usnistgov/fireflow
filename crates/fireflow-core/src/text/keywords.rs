@@ -1360,7 +1360,7 @@ impl FromStrWith for LastModified {
                 .map(|x| Diagnosed::new(x, Some(pat.clone())))
                 .map_err(|_| LastModifiedError::AltFormat(pat.to_owned()));
         }
-        let mut it = s.as_ref().split('.');
+        let mut it = s.as_str().split('.');
         let (t, cc) = match (it.by_ref().next(), it.by_ref().next(), it.next()) {
             (Some(t), None, None) => (t, ""),
             (Some(t), Some(cc), None) => (t, cc),
@@ -1758,7 +1758,7 @@ impl FromStr for OpticalType {
     type Err = OpticalTypeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s == TIME.as_ref() {
+        if TIME == s {
             Err(OpticalTypeError)
         } else {
             Ok(Self(s.to_owned()))
@@ -1782,7 +1782,7 @@ impl FromStr for TemporalTypeInner {
     type Err = TemporalTypeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s == TIME.as_ref() {
+        if TIME == s {
             Ok(Self)
         } else {
             Err(TemporalTypeError)
@@ -2152,7 +2152,7 @@ impl FromStrWith for RegionWindow {
         (): Self::Payload<'_>,
         conf: &Self::Config,
     ) -> FromStrWithResult<Self> {
-        let it = s.as_ref().split(';');
+        let it = s.as_str().split(';');
         let flag = conf.trim_intra_value_whitespace;
         if flag.is_set() {
             let mut was_trimmed = false;

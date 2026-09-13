@@ -26,6 +26,12 @@ macro_rules! ne_str {
     }};
 }
 
+impl AsRef<Self> for NEStr {
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+
 impl ToOwned for NEStr {
     type Owned = NEString;
     fn to_owned(&self) -> Self::Owned {
@@ -62,7 +68,7 @@ impl NEStr {
     }
 
     pub fn parse<F: FromStr>(&self) -> Result<F, <F as FromStr>::Err> {
-        self.as_ref().parse()
+        self.as_str().parse()
     }
 
     pub fn from_utf8(bytes: &NESlice<u8>) -> Result<&Self, Utf8Error> {

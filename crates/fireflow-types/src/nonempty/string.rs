@@ -43,6 +43,12 @@ pub struct FromNEUtf8Error {
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub struct NonEmptyStringError;
 
+impl PartialEq<&NEStr> for NEString {
+    fn eq(&self, other: &&NEStr) -> bool {
+        self.as_ne_str() == *other
+    }
+}
+
 impl AsRef<NEStr> for NEString {
     fn as_ref(&self) -> &NEStr {
         NEStr::new_unchecked(self.0.as_ref())

@@ -45,8 +45,8 @@ use crate::validated::header_offsets::{
 use crate::validated::keys::{
     AnyKey, InvalidKeywordCharsError, KeyOrBytes, KeywordInsertError, NEDelimBytes,
     NEStringOrBytes, NonStdKey, NonStdKeywords, ParsedKeyword, ParsedKeywordCounts, ParsedKeywords,
-    ParsedKeywordsDiagnostic, RepairDiagnostics, StdKeywords, StringOrBytes, TruncatedNEBytes,
-    TruncatedNEString, ValidKeywords,
+    ParsedKeywordsDiagnostic, ParsedNonStdKeywords, RepairDiagnostics, StdKeywords, StringOrBytes,
+    TruncatedNEBytes, TruncatedNEString, ValidKeywords,
 };
 use crate::validated::read_state::{
     DatasetLen, DatasetOffset, DatasetOffsetError, FileLen, HeaderReadState, TEXTReadState,
@@ -585,31 +585,12 @@ pub struct FlatTEXTDiagnostics {
     /// HEADER data and supplemental TEXT offsets
     pub header_supp: HeaderAndSuppOffsets,
 
+    // TODO add original $NEXTDATA (so we can see if it was corrected).
     /// Amount by which which primary TEXT exceeded EOF.
     pub primary_text_overflow: u64,
 
     /// Amounts by which non-primary-TEXT HEADER offsets exceeded the dataset length.
     pub header_overflows: Vec<HeaderOffsetsOverflow>,
-
-    /// Keywords that could not be parsed.
-    ///
-    /// These have either a non-ASCII key or a non-UTF8 value (or both).
-    /// Included here for debugging
-    pub byte_pairs: Vec<(KeyOrBytes, NEStringOrBytes)>,
-
-    /// Standard keys which appear more than once with their values.
-    pub non_unique_std_keywords: Vec<(StdKey, TruncatedNEString)>,
-
-    /// Nonstandard keys which appear more than once with their values.
-    pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedNEString)>,
-
-    /// Keys with empty values as a result of trimming whitespace.
-    pub keys_with_empty_trimmed_values: Vec<KeyOrBytes>,
-
-    /// Keys with values that are not empty after whitespace was trimmed off.
-    ///
-    /// Values included here are the original values before trimming.
-    pub keys_with_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
 
     /// The total time in nanoseconds it took to read TEXT.
     pub read_text_ns: u128,
@@ -693,8 +674,35 @@ pub struct SplitTEXTDiagnostics {
     /// `true` if TEXT delimiters were escaped
     pub escaped: bool,
 
-    // TODO these don't need to be here, they can be part of the overall keyword
-    // diag struct
+    /// Valid keys with non-UTF8 values.
+    pub keys_with_non_utf8_values: Vec<(AnyKey, TruncatedNEBytes)>,
+
+    /// Valid values with non-ASCII keys.
+    pub values_with_non_ascii_keys: Vec<(TruncatedNEBytes, TruncatedNEString)>,
+
+    /// Keywords that could not be parsed.
+    ///
+    /// These have either a non-ASCII key or a non-UTF8 value (or both).
+    /// Included here for debugging
+    pub byte_pairs: Vec<(TruncatedNEBytes, TruncatedNEBytes)>,
+
+    /// Standard keys which appear more than once with their values.
+    pub non_unique_std_keywords: Vec<(StdKey, TruncatedNEString)>,
+
+    /// Standard keys which appear more than once with their values.
+    pub non_unique_pstd_keywords: Vec<(PseudoStdKey, TruncatedNEString)>,
+
+    /// Nonstandard keys which appear more than once with their values.
+    pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedNEString)>,
+
+    /// Keys with empty values as a result of trimming whitespace.
+    pub keys_with_empty_trimmed_values: Vec<KeyOrBytes>,
+
+    /// Keys with values that are not empty after whitespace was trimmed off.
+    ///
+    /// Values included here are the original values before trimming.
+    pub keys_with_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
+
     /// Keys that have blank values.
     ///
     /// Only relevant in escaped delimiter mode.
@@ -1828,50 +1836,57 @@ impl FlatTEXTOutput {
             .map_commutative_warnings(ParseFlatTEXTWarning::from)
             .into_semigroup();
 
+        // TODO note in standards compliance document that the only two keywords
+        // that are absolutely mandatory to be in the primary text are the two
+        // stext offsets (for FCS3.0+) and $NEXTDATA since I make no distinction
+        // if a keyword (required or not) comes from primary or supp unless it
+        // is necessary for parsing supp itself. The standards say that all
+        // required keywords need to be in primary.
         delim_res
             .group()
             .map_error(IOErrorGroup::Pure)
             // Parse primary TEXT and get $NEXTDATA if it exists
             .and_then_commutative(|(delim, bytes)| {
-                SplitTEXTDiagnostics::primary_from_bytes(delim, bytes, penc, st.conf().as_ref())
+                let c = st.conf().as_ref();
+                let (index, nonstd, diag) =
+                    SplitTEXTDiagnostics::primary_from_bytes(delim, bytes, penc, c);
+                Nextdata::lookup_ro(&index, ptext_offsets, st)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
-                    .and_then_commutative(|(kws, prim_diag)| {
-                        Nextdata::lookup_ro(&kws.std, ptext_offsets, st)
-                            .map_commutative_warnings(ParseFlatTEXTWarning::from)
-                            .map_errors(ParseFlatTEXTError::from)
-                            .into_semigroup()
-                            .map_ok_value(|(nextdata, txt_st)| {
-                                (kws, delim, prim_diag, nextdata, txt_st)
-                            })
-                    })
+                    .into_semigroup()
+                    .map_ok_value(|(nextdata, txt_st)| (index, nonstd, diag, nextdata, txt_st))
                     .group()
                     .map_error(IOErrorGroup::Pure)
             })
             // Parse supplemental TEXT if applicable
-            .and_then_commutative(|(mut kws, delim, prim_diag, nextdata, txt_st)| {
-                SuppTEXTOffsetsOutput::lookup(&kws.std, &mut header, &txt_st)
+            .and_then_commutative(|(prim_index, mut nonstd, prim_diag, nextdata, txt_st)| {
+                SuppTEXTOffsetsOutput::lookup(&prim_index, &mut header, &txt_st)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
                     .group()
                     .map_error(IOErrorGroup::Pure)
                     .and_then_commutative(|supp_out| {
-                        if let Some(ne) = supp_out.as_offset_pair().and_then(|p| p.as_nonempty()) {
+                        let ne_offsets = supp_out.as_offset_pair().and_then(|p| p.as_nonempty());
+                        let (index, supp_diag) = if let Some(ne) = ne_offsets {
                             let s = txt_st.conf().as_ref();
-                            SplitTEXTDiagnostics::h_read_supp(h, &ne, &mut kws, delim, s)
-                                .map_commutative_warnings(ParseFlatTEXTWarning::from)
-                                .map_pure_errors(ParseFlatTEXTError::from)
-                                .map_ok_value(|supp_diag| (supp_out, supp_diag))
+                            let supp = SplitTEXTDiagnostics::h_read_supp(h, &ne, &mut nonstd, s);
+                            let (supp_index, supp_diag) = io_to_log!(supp);
+                            let (index, non_unique_std) = prim_index.append(supp_index);
+                            supp_diag.non_unique_std_keywords.extend(non_unique_std);
+                            (index, Some(supp_diag))
                         } else {
-                            LogResult::new_ok((supp_out, None))
-                        }
+                            (prim_index, None)
+                        };
+                        LogResult::new_ok((index, supp_out, supp_diag))
                     })
-                    .map_ok_value(|(supp_out, supp_diag)| {
-                        (kws, nextdata, supp_out, prim_diag, supp_diag, txt_st)
+                    .map_ok_value(|(index, supp_out, supp_diag)| {
+                        (
+                            index, nonstd, nextdata, supp_out, prim_diag, supp_diag, txt_st,
+                        )
                     })
             })
             .and_then_commutative(
-                |(kws, nextdata, supp_text_offsets, prim_out, supp_out, txt_st)| {
+                |(index, nonstd, nextdata, supp_text_offsets, prim_out, supp_out, txt_st)| {
                     // Check if any HEADER offsets exceed $NEXTDATA
                     let hdr_trunc_res = header
                         .final_offsets
@@ -1879,7 +1894,7 @@ impl FlatTEXTOutput {
                         .nowarn_into_warn()
                         .map_errors(ParseFlatTEXTError::from);
 
-                    let vkws = ValidKeywords::new(kws.std, kws.nonstd);
+                    let vkws = ValidKeywords::new(index, nonstd.pstd, nonstd.nonstd);
 
                     let text_read_end = Instant::now();
 
@@ -1893,19 +1908,18 @@ impl FlatTEXTOutput {
                             // results so this can be folded out and run in parallel
                             // with nextdata and append checks
                             let text_read_ns = text_read_end.duration_since1(start_time).as_nanos();
-                            kws.diag
-                                .into_flat_diag(
-                                    header_supp,
-                                    ptext_overflow,
-                                    nd_overlaps,
-                                    prim_out,
-                                    supp_out,
-                                    text_read_ns,
-                                    txt_st.conf().as_ref(),
-                                )
-                                .map_commutative_warnings(ParseFlatTEXTWarning::from)
-                                .map_errors(ParseFlatTEXTError::from)
-                                .set_err_value(())
+                            FlatTEXTDiagnostics::build(
+                                header_supp,
+                                ptext_overflow,
+                                nd_overlaps,
+                                prim_out,
+                                supp_out,
+                                text_read_ns,
+                                txt_st.conf().as_ref(),
+                            )
+                            .map_commutative_warnings(ParseFlatTEXTWarning::from)
+                            .map_errors(ParseFlatTEXTError::from)
+                            .set_err_value(())
                         })
                         .map_ok_value(|diag| {
                             FlatTEXTOutputInner::new(Self::new(vkws, diag), text_read_end, txt_st)
@@ -1988,25 +2002,52 @@ impl FlatTEXTOutput {
 }
 
 impl SplitTEXTDiagnostics {
+    fn build(
+        delimiter: u8,
+        escaped: bool,
+        skipped_pairs: usize,
+        keys_with_blank_values: Vec<NEStringOrBytes>,
+        values_with_blank_keys: Vec<NEStringOrBytes>,
+        tokens_with_boundary_delims: Vec<NEStringOrBytes>,
+        last_odd_token: StringOrBytes,
+        has_even_delims: bool,
+        extra_leading_delims: usize,
+        multibyte_encoded: bool,
+        parsed: ParsedKeywordsDiagnostic,
+    ) -> Self {
+        Self {
+            delimiter,
+            escaped,
+            keys_with_non_utf8_values: parsed.keys_with_non_utf8_values,
+            values_with_non_ascii_keys: parsed.values_with_non_ascii_keys,
+            byte_pairs: parsed.byte_pairs,
+            non_unique_std_keywords: parsed.non_unique_std_keywords,
+            non_unique_pstd_keywords: parsed.non_unique_pstd_keywords,
+            non_unique_nonstd_keywords: parsed.non_unique_nonstd_keywords,
+            keys_with_empty_trimmed_values: parsed.keys_with_empty_trimmed_values,
+            keys_with_trimmed_values: parsed.keys_with_trimmed_values,
+            keys_with_blank_values,
+            values_with_blank_keys,
+            skipped_pairs,
+            tokens_with_boundary_delims,
+            last_odd_token,
+            has_even_delims,
+            extra_leading_delims,
+            multibyte_encoded,
+        }
+    }
+
     /// Read supp TEXT from file handle and store keywords in hash table.
     fn h_read_supp<R: Read + Seek>(
         h: &mut BufReader<R>,
         offsets: &NonEmptyOffsets<SupplementalTextSegmentId, OffsetsFromTEXT>,
-        kws: &mut ParsedKeywords,
-        delim: u8,
+        nonstd: &mut ParsedNonStdKeywords,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningsAndIOGroupResult<
-        Option<Self>,
-        ParseSupplementalTEXTError,
-        ParseSupplementalTEXTError,
-        (),
-    > {
-        let bytes = io_to_log!(offsets.h_read_contents(h));
+    ) -> io::Result<(StdIndex, Self)> {
+        let bytes = offsets.h_read_contents(h)?;
         let enc = conf.use_encoding.choose(bytes.as_ref());
         let ne = bytes.as_nonempty_slice();
-        Self::supp_from_bytes(kws, delim, ne, enc, conf)
-            .group()
-            .map_error(IOErrorGroup::Pure)
+        Ok(Self::supp_from_bytes(nonstd, ne, enc, conf))
     }
 
     /// Read primary TEXT from bytes and store keywords in hash table.
@@ -2015,65 +2056,26 @@ impl SplitTEXTDiagnostics {
         bytes: &[u8],
         enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningsAndErrorsResult<(ParsedKeywords, Self), (), ParseKeywordsIssue, ParseKeywordsIssue>
-    {
+    ) -> (StdIndex, ParsedNonStdKeywords, Self) {
         let raw_tokens = Self::split_bytes(delim, bytes);
         let raw_slice = raw_tokens.as_nonempty_slice();
-        // We are about to insert a massive amount of data into two hash tables,
-        // so make a guess as to how big they need to be to avoid reallocation.
-        //
-        // Assume that the number of inserts to each hash table will be roughly
-        // half the the number of tokens since they come in pairs. In
-        // practice, this will almost always be true, and may be a bit less if
-        // some escapes are present.
-        //
-        // Also assume that the number of non-standard and standard keywords is
-        // roughly equal. This probably varies quite a bit but it is hard to
-        // know without scanning each token first which is also costly.
-        //
-        // Also assume there are relatively few pseudostandard keywords; don't
-        // allocate this hash table more than default.
-        //
-        // Finally, assume the STEXT is almost never present and therefore not
-        // worth considering. This makes the estimation much simpler since we
-        // can't read STEXT without TEXT first.
-        let cap = raw_tokens.len().get() / 2;
-        let mut kws = ParsedKeywords {
-            std: HashMap::with_capacity(cap / 2),
-            pstd: HashMap::new(),
-            nonstd: HashMap::with_capacity(cap / 2),
-            diag: ParsedKeywordsDiagnostic::default(),
-        };
-        Self::from_bytes_inner(&mut kws, delim, &raw_slice, TEXTKind::Primary, enc, conf)
-            .map_ok_value(|ret| (kws, ret))
+        let mut nonstd = ParsedNonStdKeywords::default();
+        let (index, diag) = Self::from_bytes_inner(&mut nonstd, delim, &raw_slice, enc, conf);
+        (index, nonstd, diag)
     }
 
     /// Read supp TEXT from bytes and store keywords in hash table.
     fn supp_from_bytes(
-        kws: &mut ParsedKeywords,
-        delim: u8,
+        kws: &mut ParsedNonStdKeywords,
         bytes: &NESlice<u8>,
         enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningsAndErrorsResult<
-        Option<Self>,
-        (),
-        ParseSupplementalTEXTError,
-        ParseSupplementalTEXTError,
-    > {
-        let (b0, bs) = bytes.split_first();
-        let flag = conf.allow_supp_text_own_delim;
-        let raw_tokens = Self::split_bytes(*b0, bs);
+    ) -> (StdIndex, Self) {
+        let (b, bs) = bytes.split_first();
+        let raw_tokens = Self::split_bytes(*b, bs);
         let raw_slice = raw_tokens.as_nonempty_slice();
-        Self::from_bytes_inner(kws, *b0, &raw_slice, TEXTKind::Supplemental, enc, conf)
-            .map_warnings_and_errors(ParseSupplementalTEXTError::from)
-            .eval_warning_or_error3(
-                flag,
-                |_| (),
-                |()| (),
-                |_| (*b0 != delim).then_some(DelimMismatch::new(delim, *b0)),
-            )
-            .map_ok_value(Some)
+        // TODO check that the delimiters match later
+        Self::from_bytes_inner(kws, *b, &raw_slice, enc, conf)
     }
 
     fn split_bytes(delim: u8, xs: &[u8]) -> NEVec<&[u8]> {
@@ -2085,277 +2087,48 @@ impl SplitTEXTDiagnostics {
 
     /// Read TEXT segment (primary or supp) from bytes.
     fn from_bytes_inner(
-        kws: &mut ParsedKeywords,
+        nonstd: &mut ParsedNonStdKeywords,
         delim: u8,
         raw_tokens: &NESlice<&'_ [u8]>,
-        tk: TEXTKind,
         enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningsAndErrorsResult<Self, (), ParseKeywordsIssue, ParseKeywordsIssue> {
+    ) -> (StdIndex, Self) {
         let escaped = GuessedEscapeMode::is_escaped(raw_tokens, conf.delim_escape_mode);
+        let trim = conf.trim_value_whitespace.is_trim();
         if escaped {
-            Self::insert_escaped(kws, delim, raw_tokens, tk, enc, conf)
+            Self::parse_escaped(nonstd, delim, raw_tokens, trim, enc)
         } else {
-            Self::insert_unescaped(kws, delim, raw_tokens, tk, enc, conf)
+            Self::parse_unescaped(nonstd, delim, raw_tokens, trim, enc)
         }
     }
 
-    /// Split bytes without delimiter escaping and store keys in hash table.
-    fn insert_unescaped(
-        kws: &mut ParsedKeywords,
+    fn parse_escaped(
+        nonstd: &mut ParsedNonStdKeywords,
         delim: u8,
         segs: &NESlice<&[u8]>,
-        tk: TEXTKind,
+        trim: bool,
         enc: Encoding,
-        conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningsAndErrorsResult<Self, (), ParseKeywordsIssue, ParseKeywordsIssue> {
-        let mut out = Self {
-            escaped: false,
-            delimiter: delim,
-            keys_with_blank_values: vec![],
-            values_with_blank_keys: vec![],
-            tokens_with_boundary_delims: vec![],
-            skipped_pairs: 0,
-            last_odd_token: StringOrBytes::default(),
-            has_even_delims: false,
-            extra_leading_delims: 0,
-            multibyte_encoded: enc.is_multi(),
-        };
-        let mut insert_errs = vec![];
-        let mut any_insert_err = false;
-
-        let (pairs, extra_token, has_even_tokens) = ParsedTEXTOutput::trim_tokens_end(segs);
-
-        out.has_even_delims = !has_even_tokens;
-
-        for (key, value) in pairs.iter().tuples() {
-            let k = NESlice::try_from_slice(key);
-            let v = NESlice::try_from_slice(value);
-            match (k, v) {
-                (Some(kk), Some(vv)) => {
-                    if let Some((e, is_err)) = kws.insert(&kk, &vv, enc, conf) {
-                        any_insert_err = any_insert_err || is_err;
-                        insert_errs.push(ParseKeywordsIssue::from(e));
-                    }
-                }
-                (Some(kk), None) => out.keys_with_blank_values.push(kk.to_ne_vec().into()),
-                (None, Some(vv)) => out.values_with_blank_keys.push(vv.to_ne_vec().into()),
-                (None, None) => out.skipped_pairs += 1,
-            }
-        }
-
-        let blank_key_errors = out
-            .values_with_blank_keys
-            .iter()
-            .cloned()
-            .map(|k| BlankKeyError::new(tk, k))
-            .map(ParseKeywordsIssue::from);
-
-        let blank_pair_error = NonZeroUsize::new(out.skipped_pairs)
-            .map(|n| BlankPairError::new(tk, n))
-            .map(ParseKeywordsIssue::from);
-
-        out.last_odd_token = extra_token
-            .as_ref()
-            .map(|s| s.as_ref().to_vec().into())
-            .unwrap_or_default();
-
-        let last_odd_err = extra_token
-            .map(|t| UnevenTokensError::new(tk, t.to_ne_vec().into()))
-            .map(ParseKeywordsIssue::from);
-
-        let even_delim_err = (!has_even_tokens).then_some(EvenDelimiterError(tk).into());
-
-        let res = if any_insert_err {
-            LogResult::new_from_err_iter(insert_errs, (), ())
-        } else {
-            LogResult::new_ok(()).set_commutative_warnings(insert_errs)
-        };
-
-        // NOTE blank pair error shares the same flag, which technically is a
-        // bit confusing but this error is so rare it probably won't matter from
-        // ux perspective
-        res.extend_deferred_warnings_or_errors3(
-            blank_key_errors.chain(blank_pair_error),
-            conf.allow_empty_keys,
-        )
-        .extend_deferred_warnings_or_errors3(even_delim_err, conf.allow_even_delims)
-        .extend_deferred_warnings_or_errors3(last_odd_err, conf.allow_odd_tokens)
-        .set_ok_value(out)
-    }
-
-    /// Split bytes with delimiter escaping and store keys in hash table.
-    #[allow(clippy::too_many_lines)]
-    fn insert_escaped(
-        kws: &mut ParsedKeywords,
-        delim: u8,
-        segs: &NESlice<&[u8]>,
-        tk: TEXTKind,
-        enc: Encoding,
-        conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningsAndErrorsResult<Self, (), ParseKeywordsIssue, ParseKeywordsIssue> {
-        let mut out = Self {
-            escaped: true,
-            delimiter: delim,
-            keys_with_blank_values: vec![],
-            values_with_blank_keys: vec![],
-            skipped_pairs: 0,
-            tokens_with_boundary_delims: vec![],
-            last_odd_token: StringOrBytes::default(),
-            has_even_delims: false,
-            extra_leading_delims: 0,
-            multibyte_encoded: enc.is_multi(),
-        };
-        let mut insert_results = vec![];
-        let mut any_insert_err = false;
-
-        let mut push_pair = |ks: &mut ParsedKeywords, kb: &NESlice<u8>, vb: &NESlice<u8>| {
-            let _ = ks.insert(kb, vb, enc, conf).map(|(e, is_err)| {
-                any_insert_err = any_insert_err || is_err;
-                insert_results.push(ParseKeywordsIssue::from(e));
-            });
-        };
-
-        // The number of blanks which are found in a row
-        let mut consec_blanks = 0_usize;
-
-        // Dynamic buffers to hold tokens with escaped delimiters. This is
-        // necessary because we cannot just copy escaped text as-is; we need to
-        // remove every other delimiter to make it literal, which implies we
-        // need to allocate a new string.
-        let mut keybuf: NEVec<u8>;
-        let mut valbuf: Vec<u8> = vec![];
-
-        let mut it = segs.iter();
-
-        // Prime the loop with the first token which belongs to a key. This
-        // will fail if TEXT is entirely delimiters, in which case there is
-        // nothing more to do.
-        keybuf = if let Some(token0) = it.by_ref().find_map(|token| {
-            let ne = NESlice::try_from_slice(token);
-            if ne.is_none() {
-                out.extra_leading_delims += 1;
-            }
-            ne
-        }) {
-            token0.to_ne_vec()
-        } else {
-            // No tokens found, which means TEXT is entirely delimiters
-            // (which includes TEXT being just one delim and otherwise empty).
-            out.extra_leading_delims = segs.len().get();
-            return LogResult::new_ok(out);
-        };
-
-        // Determine if the number of delimiters is even or odd, throw an error
-        // for the former. Remove leading delimiters since we 'pretend' that
-        // TEXT is missing one delimiter if this number is odd (which means the
-        // actual number of leading delims is even since we already counted
-        // the first before running this function).
-        out.has_even_delims = (segs.len().get() - out.extra_leading_delims) & 1 == 0;
-        let even_delim_err = out.has_even_delims.then_some(EvenDelimiterError(tk).into());
-
-        for token in it {
-            if let Some(ne_token) = NESlice::try_from_slice(token) {
-                if consec_blanks & 1 == 0 {
-                    // Previous consecutive delimiter sequence was odd (which
-                    // means the number of blanks is even). This is a token
-                    // boundary, and the last sequence of token can be processed
-                    // as needed.
-                    if consec_blanks > 0 {
-                        // If we have more than one delimiter (more than zero
-                        // blanks) then there are multiple delimiters on the end
-                        // which is not allowed. Scream at user, they will be
-                        // happy and enlightened.
-                        let seg = NEStringOrBytes::from(ne_token.to_ne_vec());
-                        out.tokens_with_boundary_delims.push(seg);
-                    }
-                    if let Some(ne_val) = NESlice::try_from_slice(&valbuf[..]) {
-                        push_pair(kws, keybuf.as_nonempty_slice(), &ne_val);
-                        valbuf.clear();
-                        keybuf = ne_token.to_ne_vec();
-                    } else {
-                        valbuf.extend_from_slice(ne_token.as_ref());
-                    }
-                } else {
-                    // Previous consecutive delimiter sequence was even. Push
-                    // this number / 2 followed by the current token fragment
-                    // to the active buffer.
-                    let ds = iter::repeat_n(delim, consec_blanks.div_ceil(2));
-                    if valbuf.is_empty() {
-                        keybuf.extend(ds.chain(ne_token.iter().copied()));
-                    } else {
-                        valbuf.extend(ds.chain(ne_token.iter().copied()));
-                    }
-                }
-                consec_blanks = 0;
-            } else {
-                consec_blanks += 1;
-            }
-        }
-
-        // Unprime the loop since we can only add a key/val pair after
-        // encountering the delimiter boundary after the value token. If there
-        // was an even number of tokens, we will have both a key and value that
-        // can be pushed. If we only have a key, keep this as the last odd token
-        // and throw error.
-        let last_odd_err = if let Some(ne_val) = NESlice::try_from_slice(&valbuf[..]) {
-            // both key and value are present, this is the last pair in
-            // TEXT so push to the end of keywords
-            push_pair(kws, keybuf.as_nonempty_slice(), &ne_val);
-            None
-        } else {
-            // Only key is present which means we have an odd number of
-            // tokens. Scream at user so they will be enlightened.
-            let last = NEStringOrBytes::from(keybuf.as_nonempty_slice());
-            let e = UnevenTokensError::new(tk, last.clone()).into();
-            out.last_odd_token = last.into();
-            Some(e)
-        };
-
-        // If the number of consecutive blanks was odd and greater than zero,
-        // the last token ended with a string of escaped delimiters which was
-        // not captured at the end of the loop.
-        if consec_blanks > 1 && consec_blanks & 1 == 1 {
-            let seg = NESlice::try_from_slice(&valbuf[..]).unwrap_or(keybuf.as_nonempty_slice());
-            out.tokens_with_boundary_delims
-                .push(NEStringOrBytes::from(seg));
-        }
-
-        let leading_delim_err = NonZeroUsize::try_from(out.extra_leading_delims)
-            .ok()
-            .map(|n| LeadingDelimError::new(tk, n).into());
-
-        let bound_iter = out
-            .tokens_with_boundary_delims
-            .iter()
-            .map(|token| DelimBoundError::new(tk, token.clone()).into())
-            .chain(leading_delim_err);
-
-        let res = if any_insert_err {
-            LogResult::new_from_err_iter(insert_results, (), ())
-        } else {
-            LogResult::new_ok(()).set_commutative_warnings(insert_results)
-        };
-
-        res.extend_deferred_warnings_or_errors3(bound_iter, conf.allow_delim_at_boundary)
-            .extend_deferred_warnings_or_errors3(even_delim_err, conf.allow_even_delims)
-            .extend_deferred_warnings_or_errors3(last_odd_err, conf.allow_odd_tokens)
-            .set_ok_value(out)
-    }
-}
-
-struct ParsedTEXTOutput {
-    index: StdIndex,
-    nonstd: NonStdKeywords,
-    pseudo: HashMap<PseudoStdKey, NEString>,
-    parsed_diag: ParsedKeywordsDiagnostic,
-    text_diag: SplitTEXTDiagnostics,
-}
-
-impl ParsedTEXTOutput {
-    fn parse_escaped(delim: u8, segs: &NESlice<&[u8]>, trim: bool, enc: Encoding) -> Self {
+    ) -> (StdIndex, Self) {
+        let mut diag = ParsedKeywordsDiagnostic::default();
         let mut extra_leading_delims = 0;
         let mut tokens_with_boundary_delims = vec![];
+
+        let go =
+            |delim_bound_tokens, last_odd_token, has_even_delims, extra_leading_delims, diag| {
+                SplitTEXTDiagnostics::build(
+                    delim,
+                    true,
+                    0,
+                    vec![],
+                    vec![],
+                    delim_bound_tokens,
+                    last_odd_token,
+                    has_even_delims,
+                    extra_leading_delims,
+                    enc.is_multi(),
+                    diag,
+                )
+            };
 
         // Estimate necessary capacity for destination vector based on length of
         // input. If any delimiters are escaped, this will lead to fewer
@@ -2388,27 +2161,14 @@ impl ParsedTEXTOutput {
         } else {
             // No tokens found, which means TEXT is entirely delimiters (which
             // includes TEXT being just one delim and otherwise empty).
-
-            // TODO not dry
-            let text_diag = SplitTEXTDiagnostics {
-                delimiter: delim,
-                escaped: true,
-                keys_with_blank_values: vec![],
-                values_with_blank_keys: vec![],
-                skipped_pairs: 0,
+            let text_diag = go(
                 tokens_with_boundary_delims,
-                last_odd_token: StringOrBytes::default(),
-                has_even_delims: false,
+                StringOrBytes::default(),
+                false,
                 extra_leading_delims,
-                multibyte_encoded: enc.is_multi(),
-            };
-            return Self {
-                index: StdIndex::default(),
-                nonstd: HashMap::new(),
-                pseudo: HashMap::new(),
-                text_diag,
-                parsed_diag: ParsedKeywordsDiagnostic::default(),
-            };
+                diag,
+            );
+            return (StdIndex::default(), text_diag);
         };
 
         // Determine if the number of delimiters is even or odd, throw an error
@@ -2494,49 +2254,44 @@ impl ParsedTEXTOutput {
             p.count(&mut counts)
         }
 
-        let mut nonstd = HashMap::with_capacity(counts.n_nonstd_keys);
-        let mut pseudo = HashMap::with_capacity(counts.n_pseudo_keys);
-        let mut parsed_diag = ParsedKeywordsDiagnostic::init(&counts);
+        diag.reserve(&counts);
+
+        nonstd.reserve(&counts);
 
         let (index, non_unique_std) = if counts.n_std_owned_kws == 0 {
             let mut std = Vec::with_capacity(counts.n_std_slice_kws);
             for p in parsed {
-                p.dispatch_slice_only(&mut std, &mut nonstd, &mut pseudo, &mut parsed_diag);
+                p.dispatch_slice_only(&mut std, nonstd, &mut diag);
             }
             StdIndex::from_vec(std)
         } else {
             let mut std = Vec::with_capacity(counts.n_std_slice_kws + counts.n_std_owned_kws);
             for p in parsed {
-                p.dispatch_slice_or_owned(&mut std, &mut nonstd, &mut pseudo, &mut parsed_diag);
+                p.dispatch_slice_or_owned(&mut std, nonstd, &mut diag);
             }
             StdIndex::from_vec(std)
         };
 
-        parsed_diag.non_unique_std_keywords = non_unique_std;
+        diag.non_unique_std_keywords = non_unique_std;
 
-        let text_diag = SplitTEXTDiagnostics {
-            delimiter: delim,
-            escaped: true,
-            keys_with_blank_values: vec![],
-            values_with_blank_keys: vec![],
-            skipped_pairs: 0,
+        let text_diag = go(
             tokens_with_boundary_delims,
             last_odd_token,
             has_even_delims,
             extra_leading_delims,
-            multibyte_encoded: enc.is_multi(),
-        };
+            diag,
+        );
 
-        Self {
-            index,
-            nonstd,
-            pseudo,
-            text_diag,
-            parsed_diag,
-        }
+        (index, text_diag)
     }
 
-    fn parse_unescaped(delim: u8, segs: &NESlice<&[u8]>, trim: bool, enc: Encoding) -> Self {
+    fn parse_unescaped(
+        nonstd: &mut ParsedNonStdKeywords,
+        delim: u8,
+        segs: &NESlice<&[u8]>,
+        trim: bool,
+        enc: Encoding,
+    ) -> (StdIndex, Self) {
         let (pairs, extra_token, has_even_tokens) = Self::trim_tokens_end(segs);
 
         let has_even_delims = !has_even_tokens;
@@ -2584,21 +2339,19 @@ impl ParsedTEXTOutput {
             }
         }
 
-        let mut nonstd = HashMap::with_capacity(counts.n_nonstd_keys);
-        let mut pseudo = HashMap::with_capacity(counts.n_pseudo_keys);
+        let mut diag = ParsedKeywordsDiagnostic::default();
+        diag.reserve(&counts);
+
+        nonstd.reserve(&counts);
 
         let mut values_with_blank_keys = Vec::with_capacity(n_empty_keys);
         let mut keys_with_blank_values = Vec::with_capacity(n_empty_values);
-
-        let mut parsed_diag = ParsedKeywordsDiagnostic::init(&counts);
 
         let (index, non_unique_std) = if counts.n_std_owned_kws == 0 {
             let mut std = Vec::with_capacity(counts.n_std_slice_kws);
             for p in parsed {
                 match p {
-                    Unescaped::Keyword(k) => {
-                        k.dispatch_slice_only(&mut std, &mut nonstd, &mut pseudo, &mut parsed_diag)
-                    }
+                    Unescaped::Keyword(k) => k.dispatch_slice_only(&mut std, nonstd, &mut diag),
                     Unescaped::EmptyKey(k) => values_with_blank_keys.push(k.into()),
                     Unescaped::EmptyValue(v) => keys_with_blank_values.push(v.into()),
                     Unescaped::EmptyPair => (),
@@ -2609,12 +2362,7 @@ impl ParsedTEXTOutput {
             let mut std = Vec::with_capacity(counts.n_std_slice_kws + counts.n_std_owned_kws);
             for p in parsed {
                 match p {
-                    Unescaped::Keyword(k) => k.dispatch_slice_or_owned(
-                        &mut std,
-                        &mut nonstd,
-                        &mut pseudo,
-                        &mut parsed_diag,
-                    ),
+                    Unescaped::Keyword(k) => k.dispatch_slice_or_owned(&mut std, nonstd, &mut diag),
                     Unescaped::EmptyKey(k) => values_with_blank_keys.push(k.into()),
                     Unescaped::EmptyValue(v) => keys_with_blank_values.push(v.into()),
                     Unescaped::EmptyPair => (),
@@ -2623,28 +2371,23 @@ impl ParsedTEXTOutput {
             StdIndex::from_vec(std)
         };
 
-        parsed_diag.non_unique_std_keywords = non_unique_std;
+        diag.non_unique_std_keywords = non_unique_std;
 
-        let text_diag = SplitTEXTDiagnostics {
-            delimiter: delim,
-            escaped: false,
+        let text_diag = SplitTEXTDiagnostics::build(
+            delim,
+            false,
+            n_empty_pairs,
             keys_with_blank_values,
             values_with_blank_keys,
-            skipped_pairs: n_empty_pairs,
-            tokens_with_boundary_delims: vec![],
+            vec![],
             last_odd_token,
             has_even_delims,
-            extra_leading_delims: 0,
-            multibyte_encoded: enc.is_multi(),
-        };
+            0,
+            enc.is_multi(),
+            diag,
+        );
 
-        Self {
-            index,
-            nonstd,
-            pseudo,
-            text_diag,
-            parsed_diag,
-        }
+        (index, text_diag)
     }
 
     /// Maybe trim end off slice of tokens so that the length is even.
@@ -2722,14 +2465,14 @@ impl GuessedEscapeMode {
     fn has_any_empty(raw_tokens: &NESlice<&[u8]>) -> bool {
         // Only consider the first even number of tokens since both modes should
         // deal with extra crap at the end in the same way
-        let (segs, _, _) = ParsedTEXTOutput::trim_tokens_end(raw_tokens);
+        let (segs, _, _) = SplitTEXTDiagnostics::trim_tokens_end(raw_tokens);
         segs.iter().any(|s| s.is_empty())
     }
 
     fn test_both_modes(raw_tokens: &NESlice<&[u8]>) -> Self {
         // Only consider the first even number of tokens since both modes
         // should deal with extra crap at the end in the same way
-        let (segs, _, _) = ParsedTEXTOutput::trim_tokens_end(raw_tokens);
+        let (segs, _, _) = SplitTEXTDiagnostics::trim_tokens_end(raw_tokens);
 
         let mut any_empty_tokens = false;
         let mut any_unescaped_blank_keys = false;
@@ -2772,6 +2515,92 @@ impl GuessedEscapeMode {
             (true, false) => Self::Escaped,
             _ => Self::Unescaped,
         }
+    }
+}
+
+impl FlatTEXTDiagnostics {
+    pub(crate) fn build(
+        header_supp: HeaderAndSuppOffsets,
+        primary_text_eof_overflow: u64,
+        header_overflows: Vec<HeaderOffsetsOverflow>,
+        primary_split: SplitTEXTDiagnostics,
+        supp_split: Option<SplitTEXTDiagnostics>,
+        read_text_ns: u128,
+        conf: &ReadHeaderAndTEXTConfig,
+    ) -> DeferredWarningsAndErrors<Self, InvalidKeywordCharsError, InvalidKeywordCharsError> {
+        // Throw errors or warnings for any keys or values that have invalid
+        // chars. There are two flags for keys and values respectively. For any
+        // pairs that have both an invalid key and invalid value, throw error if
+        // either flag is set (likewise for warning).
+        macro_rules! go_err {
+            ($field:ident, $err:ident) => {
+                self.$field
+                    .iter()
+                    .cloned()
+                    .map(|(key, value)| $err { key, value })
+                    .map(InvalidKeywordCharsError::from)
+            };
+        }
+
+        let es_key = go_err!(values_with_non_ascii_keys, NonAsciiKeyError);
+        let es_value = go_err!(keys_with_non_utf8_values, NonUtf8ValueError);
+        let es_both = go_err!(byte_pairs, NonAsciiOrUtf8KeywordError);
+
+        let key_flag = conf.allow_non_ascii_keys.is_error();
+        let val_flag = conf.allow_non_utf8_values.is_error();
+
+        let mut es = vec![];
+        let mut ws = vec![];
+
+        match key_flag {
+            Some(true) => es.extend(es_key),
+            Some(false) => ws.extend(es_key),
+            None => (),
+        }
+        match val_flag {
+            Some(true) => es.extend(es_value),
+            Some(false) => ws.extend(es_value),
+            None => (),
+        }
+        match key_flag.zip(val_flag).map(|(x, y)| x || y) {
+            Some(true) => es.extend(es_both),
+            Some(false) => ws.extend(es_both),
+            None => (),
+        }
+
+        // Combine all keys/values with invalid chars into one list, since
+        // use probably doesn't want to see three.
+
+        macro_rules! go_byte_pairs {
+            ($field:ident) => {
+                self.$field
+                    .into_iter()
+                    .map(|(k, v)| (KeyOrBytes::from(k), NEStringOrBytes::from(v)))
+            };
+        }
+
+        let ks = go_byte_pairs!(values_with_non_ascii_keys);
+        let vs = go_byte_pairs!(keys_with_non_utf8_values);
+        let bs = go_byte_pairs!(byte_pairs);
+
+        let byte_pairs: Vec<_> = ks.chain(vs).chain(bs).collect();
+
+        let ret = FlatTEXTDiagnostics {
+            header_supp,
+            primary_text_overflow: primary_text_eof_overflow,
+            header_overflows,
+            byte_pairs,
+            non_unique_std_keywords: self.non_unique_std_keywords,
+            non_unique_nonstd_keywords: self.non_unique_nonstd_keywords,
+            keys_with_empty_trimmed_values: self.keys_with_empty_trimmed_values,
+            keys_with_trimmed_values: self.keys_with_trimmed_values,
+            primary_split,
+            supp_split,
+            read_text_ns,
+        };
+        LogResult::new_ok(ret)
+            .extend_deferred_errors(es)
+            .set_commutative_warnings(ws)
     }
 }
 

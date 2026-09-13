@@ -1,9 +1,8 @@
-use crate::validated::keys::TruncatedNEString;
-
 use super::nested_string::{
     IterEnumKeywords, IterKeywords, IterVariableKeywords, NestedEnumString, NestedStringSize,
     NestedVariableString,
 };
+use crate::validated::keys::TruncatedNEString;
 
 use fireflow_types::{
     nonempty::NEStr,
@@ -11,6 +10,9 @@ use fireflow_types::{
         AnyIndex as _, CsvFlagKey, DfcKey, GateKey, MeasKey, N_ROOT, RegionKey, RootKey, StdKey,
     },
 };
+
+#[cfg(feature = "serde")]
+use serde::{Serialize, Serializer, ser::SerializeMap};
 
 use std::iter::Chain;
 use std::mem;
@@ -31,6 +33,7 @@ pub type IterStdKeywords<'a> = Chain<
     IterVariableKeywords<'a, DfcKey>,
 >;
 
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct StdIndex {
     root: NestedRoot,
     // TODO it might make sense to break this up into several sub-strings. As is
@@ -72,6 +75,29 @@ impl StdIndex {
             StdKey::Region(rk) => self.region.get0(rk),
             StdKey::CsvFlag(ck) => self.csv_flag.get0(ck),
             StdKey::Dfc(dk) => self.dfc.get(dk, &self.dfc_matrix_size),
+        }
+    }
+
+    pub fn n_strings(&self) -> usize {
+        self.root.n_strings()
+            + self.meas.n_strings()
+            + self.gate.n_strings()
+            + self.region.n_strings()
+            + self.csv_flag.n_strings()
+            + self.dfc.n_strings()
+    }
+
+    pub fn append(self, other: Self) -> (Self, Vec<(StdKey, TruncatedNEString)>) {
+        if self.n_strings() == 0 {
+            (other, vec![])
+        } else if other.n_strings() == 0 {
+            (self, vec![])
+        } else {
+            // TODO this is not optimal, but this will only happen for files
+            // that store standard keys in STEXT (of where there are basically
+            // none)
+            let tmp = self.iter_pairs().chain(other.iter_pairs()).collect();
+            Self::from_vec(tmp)
         }
     }
 
@@ -374,4 +400,60 @@ where
     K: PartialEq,
 {
     partition_dedup_by(xs, |a, b| key(a) == key(b))
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for StdIndex {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.n_strings()))?;
+        for (k, v) in self.iter_pairs() {
+            map.serialize_entry(&k, v)?;
+        }
+        map.end()
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::StdIndex;
+
+    use fireflow_types::{nonempty::NEString, std_key::StdKey};
+
+    use pyo3::{prelude::*, types::PyDict};
+
+    impl<'py> FromPyObject<'_, 'py> for StdIndex {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            // Cast to dict rather than going through rust hashmap to preserve
+            // order. It will be sorted anyways but this might avoid some
+            // overhead since the input will likely be partly grouped.
+            let tmp = obj
+                .cast::<PyDict>()?
+                .iter()
+                .map(|(k, v)| Ok((k.extract::<StdKey>()?, v.extract::<NEString>()?)))
+                .collect::<Result<Vec<_>, PyErr>>()?;
+            // Ignore duplicates since the input dict should not have any
+            Ok(Self::from_vec(tmp).0)
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for StdIndex {
+        type Target = PyDict;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            // Use dict to preserve order
+            let out = PyDict::new(py);
+            for (k, v) in self.iter_pairs() {
+                let k_ = k.into_pyobject(py)?;
+                let v_ = v.to_owned().into_pyobject(py)?;
+                out.set_item(k_, v_)?;
+            }
+            Ok(out)
+        }
+    }
 }

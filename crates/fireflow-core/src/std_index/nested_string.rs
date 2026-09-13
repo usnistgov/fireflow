@@ -14,7 +14,7 @@ pub type NestedEnumString<const LEN: usize, K> = NestedString<[usize; LEN], K>;
 
 pub type NestedVariableString<K> = NestedString<Vec<usize>, K>;
 
-#[derive_where(Default, Clone, Debug, PartialEq; I)]
+#[derive_where(Default, Clone, Debug, PartialEq, Eq; I)]
 pub struct NestedString<I, K> {
     inner: Vec<u8>,
     offsets: I,

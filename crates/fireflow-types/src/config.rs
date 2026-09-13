@@ -1714,6 +1714,22 @@ impl_config_flag!(
     TrimBlankSilent => TRIM_BLANK_SILENT_LEVEL
 );
 
+impl TrimValueWhitespace {
+    pub fn into_flag(&self) -> Option<DummyTriFlag> {
+        let f = match self {
+            Self::Notrim => None,
+            Self::Trim => Some(TriFlag::False),
+            Self::TrimBlankWarn => Some(TriFlag::True),
+            Self::TrimBlankSilent => Some(TriFlag::Silent),
+        };
+        f.map(Into::into)
+    }
+
+    pub fn is_trim(&self) -> bool {
+        !matches!(self, Self::Notrim)
+    }
+}
+
 pub const FORCE_LINEAR_NONE_LEVEL: &NEStr = NONE_LEVEL;
 pub const FORCE_LINEAR_TIME_LEVEL: &NEStr = ne_str!("time_only");
 pub const FORCE_LINEAR_NON_INT_LEVEL: &NEStr = ne_str!("all_non_int");

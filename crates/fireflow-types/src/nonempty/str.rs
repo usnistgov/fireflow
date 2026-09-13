@@ -26,6 +26,18 @@ macro_rules! ne_str {
     }};
 }
 
+impl PartialEq<NEString> for NEStr {
+    fn eq(&self, other: &NEString) -> bool {
+        self == other.as_ne_str()
+    }
+}
+
+impl PartialEq<NEString> for &NEStr {
+    fn eq(&self, other: &NEString) -> bool {
+        *self == other
+    }
+}
+
 impl AsRef<Self> for NEStr {
     fn as_ref(&self) -> &Self {
         self

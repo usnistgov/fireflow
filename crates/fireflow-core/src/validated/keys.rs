@@ -3,6 +3,7 @@ use crate::config::EvaledReadDataKeywordsConfig;
 use crate::fixed_vec::OneOrTwo;
 use crate::logging::{DeferredWarningsAndErrors, LogResult, WarningAndErrorResult};
 use crate::segment::read::HeaderOffsetsOverflow;
+use crate::std_index::index::StdIndex;
 use crate::text::keyword_enum::{
     AsStdKeywordPair, OptMeasKeyword, OptRootKeyword, ambassador_impl_AsStdKeywordPair,
 };
@@ -196,8 +197,9 @@ pub struct ValidKeywords {
     // would be good to avoid using a hash table as much as possible, different
     // classes of keywords can be put into different slots to avoid hashing and
     // also make it easier later when we standardize
+    pub std: StdIndex,
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize::ordered_map"))]
-    pub std: StdKeywords,
+    pub pstd: PseudoStdKeywords,
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize::ordered_map"))]
     pub nonstd: NonStdKeywords,
 }
@@ -431,6 +433,8 @@ impl<T> DollarKey_<T, BiMeasIndex> {
 
 pub type NonStdKeywords = HashMap<NonStdKey, NEString>;
 
+pub type PseudoStdKeywords = HashMap<PseudoStdKey, NEString>;
+
 #[derive(From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 pub(crate) enum StdOptKeyword<'a> {
@@ -592,7 +596,7 @@ pub(crate) struct ParsedKeywordsDiagnostic {
     pub(crate) non_unique_std_keywords: Vec<(StdKey, TruncatedNEString)>,
 
     /// Pseudostandard keys which appear more than once with their values.
-    pub(crate) non_unique_pseudostd_keywords: Vec<(PseudoStdKey, TruncatedNEString)>,
+    pub(crate) non_unique_pstd_keywords: Vec<(PseudoStdKey, TruncatedNEString)>,
 
     /// Non-standard keys which appear more than once with their values.
     pub(crate) non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedNEString)>,
@@ -607,6 +611,15 @@ pub(crate) struct ParsedKeywordsDiagnostic {
     ///
     /// The value included here is the original value.
     pub(crate) keys_with_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
+}
+
+#[derive(Default)]
+pub(crate) struct ParsedNonStdKeywords {
+    /// Nonstandard keywords (without '$').
+    pub(crate) nonstd: NonStdKeywords,
+
+    /// Pseudostdandard keywords (with '$' but still non-standard).
+    pub(crate) pstd: PseudoStdKeywords,
 }
 
 // Declare traits which map rust values to standardized keywords.
@@ -727,254 +740,254 @@ impl<'a, X> FromIterator<(&'a KeyStringOrPattern, &'a X)> for KeyMatcher<'a, X> 
 /// true)) if an error was emitted, and None if neither was emitted.
 #[allow(clippy::too_many_lines)]
 impl ParsedKeywords {
-    pub(crate) fn insert(
-        &mut self,
-        key: &NESlice<u8>,
-        val: &NESlice<u8>,
-        encoding: Encoding,
-        conf: &ReadHeaderAndTEXTConfig,
-    ) -> Option<(KeywordInsertError, bool)> {
-        enum TrimResult<'a> {
-            Trimmed(Cow<'a, NEStr>, bool),
-            Empty(DummyTriFlag),
-        }
+    // pub(crate) fn insert(
+    //     &mut self,
+    //     key: &NESlice<u8>,
+    //     val: &NESlice<u8>,
+    //     encoding: Encoding,
+    //     conf: &ReadHeaderAndTEXTConfig,
+    // ) -> Option<(KeywordInsertError, bool)> {
+    //     enum TrimResult<'a> {
+    //         Trimmed(Cow<'a, NEStr>, bool),
+    //         Empty(DummyTriFlag),
+    //     }
 
-        enum KeyValueResult<'a> {
-            Empty(KeyOrBytes, DummyTriFlag),
-            NonEmpty(AnyKey, Cow<'a, NEStr>, bool),
-            NonUtf8Value(AnyKey, TruncatedNEBytes),
-            NonAsciiKey(TruncatedNEBytes, TruncatedNEString, bool),
-            BothInvalid(TruncatedNEBytes, TruncatedNEBytes),
-        }
+    //     enum KeyValueResult<'a> {
+    //         Empty(KeyOrBytes, DummyTriFlag),
+    //         NonEmpty(AnyKey, Cow<'a, NEStr>, bool),
+    //         NonUtf8Value(AnyKey, TruncatedNEBytes),
+    //         NonAsciiKey(TruncatedNEBytes, TruncatedNEString, bool),
+    //         BothInvalid(TruncatedNEBytes, TruncatedNEBytes),
+    //     }
 
-        let parse_key = |s: &NESlice<u8>| {
-            let single_byte = matches!(encoding, Encoding::Single);
-            if let Some((&STD_PREFIX, rest)) = s.as_ref().split_first() {
-                // TODO we may wish to distinguish an error between non-ASCII
-                // and only a '$' keyword
-                let ne = NESlice::try_from_slice(rest)?;
-                let k = RealOrPseudoStdKey::from_bytes_maybe(&ne)?;
-                Some(AnyKey::Std(k))
-            } else {
-                let k = KeyString::from_bytes_maybe(s, single_byte)?;
-                Some(AnyKey::NonStd(NonStdKey(k)))
-            }
-        };
+    //     let parse_key = |s: &NESlice<u8>| {
+    //         let single_byte = matches!(encoding, Encoding::Single);
+    //         if let Some((&STD_PREFIX, rest)) = s.as_ref().split_first() {
+    //             // TODO we may wish to distinguish an error between non-ASCII
+    //             // and only a '$' keyword
+    //             let ne = NESlice::try_from_slice(rest)?;
+    //             let k = RealOrPseudoStdKey::from_bytes_maybe(&ne)?;
+    //             Some(AnyKey::Std(k))
+    //         } else {
+    //             let k = KeyString::from_bytes_maybe(s, single_byte)?;
+    //             Some(AnyKey::NonStd(NonStdKey(k)))
+    //         }
+    //     };
 
-        let parse_value = || {
-            let flag = conf.trim_value_whitespace;
-            let triflag = DummyTriFlag::from_trim_value_whitespace(flag);
-            match encoding {
-                Encoding::Single => {
-                    if let Some(tf) = triflag {
-                        if let Some(ne) = val
-                            .as_ref()
-                            .trim_ascii()
-                            .iter()
-                            .copied()
-                            .map(char::from)
-                            .try_into_nonempty_iter()
-                        {
-                            let s: NEString = ne.collect();
-                            let was_trimmed = val.len() < s.len();
-                            Some(TrimResult::Trimmed(Cow::Owned(s), was_trimmed))
-                        } else {
-                            Some(TrimResult::Empty(tf))
-                        }
-                    } else {
-                        let it = val.into_nonempty_iter().copied().map(char::from);
-                        Some(TrimResult::Trimmed(Cow::Owned(it.collect()), false))
-                    }
-                }
-                Encoding::Utf8 => {
-                    if let Ok(vv) = NEStr::from_utf8(val) {
-                        if let Some(tf) = triflag {
-                            if let Some(trimmed) = NEStr::try_new(vv.as_str().trim()) {
-                                let was_trimmed = trimmed.len() < vv.len();
-                                Some(TrimResult::Trimmed(Cow::Borrowed(trimmed), was_trimmed))
-                            } else {
-                                Some(TrimResult::Empty(tf))
-                            }
-                        } else {
-                            Some(TrimResult::Trimmed(Cow::Borrowed(vv), false))
-                        }
-                    } else {
-                        None
-                    }
-                }
-            }
-        };
+    //     let parse_value = || {
+    //         let flag = conf.trim_value_whitespace;
+    //         let triflag = DummyTriFlag::from_trim_value_whitespace(flag);
+    //         match encoding {
+    //             Encoding::Single => {
+    //                 if let Some(tf) = triflag {
+    //                     if let Some(ne) = val
+    //                         .as_ref()
+    //                         .trim_ascii()
+    //                         .iter()
+    //                         .copied()
+    //                         .map(char::from)
+    //                         .try_into_nonempty_iter()
+    //                     {
+    //                         let s: NEString = ne.collect();
+    //                         let was_trimmed = val.len() < s.len();
+    //                         Some(TrimResult::Trimmed(Cow::Owned(s), was_trimmed))
+    //                     } else {
+    //                         Some(TrimResult::Empty(tf))
+    //                     }
+    //                 } else {
+    //                     let it = val.into_nonempty_iter().copied().map(char::from);
+    //                     Some(TrimResult::Trimmed(Cow::Owned(it.collect()), false))
+    //                 }
+    //             }
+    //             Encoding::Utf8 => {
+    //                 if let Ok(vv) = NEStr::from_utf8(val) {
+    //                     if let Some(tf) = triflag {
+    //                         if let Some(trimmed) = NEStr::try_new(vv.as_str().trim()) {
+    //                             let was_trimmed = trimmed.len() < vv.len();
+    //                             Some(TrimResult::Trimmed(Cow::Borrowed(trimmed), was_trimmed))
+    //                         } else {
+    //                             Some(TrimResult::Empty(tf))
+    //                         }
+    //                     } else {
+    //                         Some(TrimResult::Trimmed(Cow::Borrowed(vv), false))
+    //                     }
+    //                 } else {
+    //                     None
+    //                 }
+    //             }
+    //         }
+    //     };
 
-        let kv_res = if let Some(parsed) = parse_key(key) {
-            match parsed {
-                AnyKey::Std(k) => {
-                    if let Some(trim_res) = parse_value() {
-                        match trim_res {
-                            TrimResult::Empty(flag) => {
-                                KeyValueResult::Empty(AnyKey::Std(k).into(), flag)
-                            }
-                            TrimResult::Trimmed(value, was_trimmed) => {
-                                KeyValueResult::NonEmpty(k.into(), value, was_trimmed)
-                            }
-                        }
-                    } else {
-                        KeyValueResult::NonUtf8Value(k.into(), TruncatedNEBytes::from(val))
-                    }
-                }
-                AnyKey::NonStd(k) => {
-                    // Non-standard key: does not start with '$' and is ASCII
-                    if let Some(trim_res) = parse_value() {
-                        match trim_res {
-                            TrimResult::Empty(flag) => {
-                                KeyValueResult::Empty(AnyKey::NonStd(k).into(), flag)
-                            }
-                            TrimResult::Trimmed(value, was_trimmed) => {
-                                KeyValueResult::NonEmpty(k.into(), value, was_trimmed)
-                            }
-                        }
-                    } else {
-                        KeyValueResult::NonUtf8Value(AnyKey::NonStd(k), TruncatedNEBytes::from(val))
-                    }
-                }
-            }
-        } else {
-            // Non-ascii key with possibly non-Utf-8 value
-            let kbytes = TruncatedNEBytes::from(key);
-            if let Some(trim_res) = parse_value() {
-                match trim_res {
-                    TrimResult::Empty(flag) => {
-                        KeyValueResult::Empty(KeyOrBytes::from(kbytes), flag)
-                    }
-                    TrimResult::Trimmed(value, was_trimmed) => {
-                        let tv = value.into_owned().into();
-                        KeyValueResult::NonAsciiKey(kbytes, tv, was_trimmed)
-                    }
-                }
-            } else {
-                KeyValueResult::BothInvalid(kbytes, val.into())
-            }
-        };
+    //     let kv_res = if let Some(parsed) = parse_key(key) {
+    //         match parsed {
+    //             AnyKey::Std(k) => {
+    //                 if let Some(trim_res) = parse_value() {
+    //                     match trim_res {
+    //                         TrimResult::Empty(flag) => {
+    //                             KeyValueResult::Empty(AnyKey::Std(k).into(), flag)
+    //                         }
+    //                         TrimResult::Trimmed(value, was_trimmed) => {
+    //                             KeyValueResult::NonEmpty(k.into(), value, was_trimmed)
+    //                         }
+    //                     }
+    //                 } else {
+    //                     KeyValueResult::NonUtf8Value(k.into(), TruncatedNEBytes::from(val))
+    //                 }
+    //             }
+    //             AnyKey::NonStd(k) => {
+    //                 // Non-standard key: does not start with '$' and is ASCII
+    //                 if let Some(trim_res) = parse_value() {
+    //                     match trim_res {
+    //                         TrimResult::Empty(flag) => {
+    //                             KeyValueResult::Empty(AnyKey::NonStd(k).into(), flag)
+    //                         }
+    //                         TrimResult::Trimmed(value, was_trimmed) => {
+    //                             KeyValueResult::NonEmpty(k.into(), value, was_trimmed)
+    //                         }
+    //                     }
+    //                 } else {
+    //                     KeyValueResult::NonUtf8Value(AnyKey::NonStd(k), TruncatedNEBytes::from(val))
+    //                 }
+    //             }
+    //         }
+    //     } else {
+    //         // Non-ascii key with possibly non-Utf-8 value
+    //         let kbytes = TruncatedNEBytes::from(key);
+    //         if let Some(trim_res) = parse_value() {
+    //             match trim_res {
+    //                 TrimResult::Empty(flag) => {
+    //                     KeyValueResult::Empty(KeyOrBytes::from(kbytes), flag)
+    //                 }
+    //                 TrimResult::Trimmed(value, was_trimmed) => {
+    //                     let tv = value.into_owned().into();
+    //                     KeyValueResult::NonAsciiKey(kbytes, tv, was_trimmed)
+    //                 }
+    //             }
+    //         } else {
+    //             KeyValueResult::BothInvalid(kbytes, val.into())
+    //         }
+    //     };
 
-        match kv_res {
-            KeyValueResult::NonEmpty(k, v, was_trimmed) => {
-                if was_trimmed {
-                    let vo = TruncatedNEString(v.clone().into_owned());
-                    let pair = (k.clone().into(), vo);
-                    self.diag.keys_with_trimmed_values.push(pair);
-                }
-                let vo = v.into_owned();
-                match k {
-                    AnyKey::Std(k) => {
-                        match k {
-                            RealOrPseudoStdKey::Pseudo(p) => {
-                                self.insert_nonunique_pstd(p, vo, conf);
-                            }
-                            RealOrPseudoStdKey::Real(p) => {
-                                self.insert_nonunique_std(p, vo, conf);
-                            }
-                        }
-                        None
-                    }
-                    AnyKey::NonStd(k) => self.insert_nonunique_nonstd(k, vo, conf),
-                }
-            }
-            KeyValueResult::Empty(k, flag) => {
-                self.diag.keys_with_empty_trimmed_values.push(k.clone());
-                let e = KeywordInsertError::from(BlankValueError(k));
-                flag.is_error().map(|is_err| (e, is_err))
-            }
-            KeyValueResult::NonAsciiKey(k, v, was_trimmed) => {
-                if was_trimmed {
-                    let pair = (k.clone().into(), v.clone());
-                    self.diag.keys_with_trimmed_values.push(pair);
-                }
-                self.diag.values_with_non_ascii_keys.push((k, v));
-                None
-            }
-            KeyValueResult::NonUtf8Value(k, v) => {
-                self.diag.keys_with_non_utf8_values.push((k, v));
-                None
-            }
-            KeyValueResult::BothInvalid(k, v) => {
-                self.diag.byte_pairs.push((k, v));
-                None
-            }
-        }
-    }
+    //     match kv_res {
+    //         KeyValueResult::NonEmpty(k, v, was_trimmed) => {
+    //             if was_trimmed {
+    //                 let vo = TruncatedNEString(v.clone().into_owned());
+    //                 let pair = (k.clone().into(), vo);
+    //                 self.diag.keys_with_trimmed_values.push(pair);
+    //             }
+    //             let vo = v.into_owned();
+    //             match k {
+    //                 AnyKey::Std(k) => {
+    //                     match k {
+    //                         RealOrPseudoStdKey::Pseudo(p) => {
+    //                             self.insert_nonunique_pstd(p, vo, conf);
+    //                         }
+    //                         RealOrPseudoStdKey::Real(p) => {
+    //                             self.insert_nonunique_std(p, vo, conf);
+    //                         }
+    //                     }
+    //                     None
+    //                 }
+    //                 AnyKey::NonStd(k) => self.insert_nonunique_nonstd(k, vo, conf),
+    //             }
+    //         }
+    //         KeyValueResult::Empty(k, flag) => {
+    //             self.diag.keys_with_empty_trimmed_values.push(k.clone());
+    //             let e = KeywordInsertError::from(BlankValueError(k));
+    //             flag.is_error().map(|is_err| (e, is_err))
+    //         }
+    //         KeyValueResult::NonAsciiKey(k, v, was_trimmed) => {
+    //             if was_trimmed {
+    //                 let pair = (k.clone().into(), v.clone());
+    //                 self.diag.keys_with_trimmed_values.push(pair);
+    //             }
+    //             self.diag.values_with_non_ascii_keys.push((k, v));
+    //             None
+    //         }
+    //         KeyValueResult::NonUtf8Value(k, v) => {
+    //             self.diag.keys_with_non_utf8_values.push((k, v));
+    //             None
+    //         }
+    //         KeyValueResult::BothInvalid(k, v) => {
+    //             self.diag.byte_pairs.push((k, v));
+    //             None
+    //         }
+    //     }
+    // }
 
-    fn insert_nonunique_std(
-        &mut self,
-        k: StdKey,
-        value: NEString,
-        conf: &ReadHeaderAndTEXTConfig,
-    ) -> Option<(KeywordInsertError, bool)> {
-        Self::insert_nonunique(
-            &mut self.std,
-            &mut self.diag.non_unique_std_keywords,
-            k,
-            value,
-            conf,
-        )
-    }
+    // fn insert_nonunique_std(
+    //     &mut self,
+    //     k: StdKey,
+    //     value: NEString,
+    //     conf: &ReadHeaderAndTEXTConfig,
+    // ) -> Option<(KeywordInsertError, bool)> {
+    //     Self::insert_nonunique(
+    //         &mut self.std,
+    //         &mut self.diag.non_unique_std_keywords,
+    //         k,
+    //         value,
+    //         conf,
+    //     )
+    // }
 
-    fn insert_nonunique_pstd(
-        &mut self,
-        k: PseudoStdKey,
-        value: NEString,
-        conf: &ReadHeaderAndTEXTConfig,
-    ) -> Option<(KeywordInsertError, bool)> {
-        Self::insert_nonunique(
-            &mut self.pstd,
-            &mut self.diag.non_unique_pseudostd_keywords,
-            k,
-            value,
-            conf,
-        )
-    }
+    // fn insert_nonunique_pstd(
+    //     &mut self,
+    //     k: PseudoStdKey,
+    //     value: NEString,
+    //     conf: &ReadHeaderAndTEXTConfig,
+    // ) -> Option<(KeywordInsertError, bool)> {
+    //     Self::insert_nonunique(
+    //         &mut self.pstd,
+    //         &mut self.diag.non_unique_pseudostd_keywords,
+    //         k,
+    //         value,
+    //         conf,
+    //     )
+    // }
 
-    fn insert_nonunique_nonstd(
-        &mut self,
-        k: NonStdKey,
-        value: NEString,
-        conf: &ReadHeaderAndTEXTConfig,
-    ) -> Option<(KeywordInsertError, bool)> {
-        Self::insert_nonunique(
-            &mut self.nonstd,
-            &mut self.diag.non_unique_nonstd_keywords,
-            k,
-            value,
-            conf,
-        )
-    }
+    // fn insert_nonunique_nonstd(
+    //     &mut self,
+    //     k: NonStdKey,
+    //     value: NEString,
+    //     conf: &ReadHeaderAndTEXTConfig,
+    // ) -> Option<(KeywordInsertError, bool)> {
+    //     Self::insert_nonunique(
+    //         &mut self.nonstd,
+    //         &mut self.diag.non_unique_nonstd_keywords,
+    //         k,
+    //         value,
+    //         conf,
+    //     )
+    // }
 
-    fn insert_nonunique<K>(
-        kws: &mut HashMap<K, NEString>,
-        nonunique: &mut Vec<(K, TruncatedNEString)>,
-        k: K,
-        value: NEString,
-        conf: &ReadHeaderAndTEXTConfig,
-    ) -> Option<(KeywordInsertError, bool)>
-    where
-        K: Hash + Eq + Clone,
-        KeywordInsertError: From<KeyPresent<K>>,
-    {
-        let flag = conf.allow_nonunique;
-        match kws.entry(k) {
-            Entry::Occupied(ent) => {
-                let key = ent.key().clone();
-                let err = KeyPresent {
-                    key: key.clone(),
-                    value: value.clone(),
-                };
-                nonunique.push((key, TruncatedNEString(value)));
-                flag.is_error().map(|is_err| (err.into(), is_err))
-            }
-            Entry::Vacant(ent) => {
-                ent.insert(value);
-                None
-            }
-        }
-    }
+    // fn insert_nonunique<K>(
+    //     kws: &mut HashMap<K, NEString>,
+    //     nonunique: &mut Vec<(K, TruncatedNEString)>,
+    //     k: K,
+    //     value: NEString,
+    //     conf: &ReadHeaderAndTEXTConfig,
+    // ) -> Option<(KeywordInsertError, bool)>
+    // where
+    //     K: Hash + Eq + Clone,
+    //     KeywordInsertError: From<KeyPresent<K>>,
+    // {
+    //     let flag = conf.allow_nonunique;
+    //     match kws.entry(k) {
+    //         Entry::Occupied(ent) => {
+    //             let key = ent.key().clone();
+    //             let err = KeyPresent {
+    //                 key: key.clone(),
+    //                 value: value.clone(),
+    //             };
+    //             nonunique.push((key, TruncatedNEString(value)));
+    //             flag.is_error().map(|is_err| (err.into(), is_err))
+    //         }
+    //         Entry::Vacant(ent) => {
+    //             ent.insert(value);
+    //             None
+    //         }
+    //     }
+    // }
 }
 
 pub(crate) enum ParsedKeyword<'a> {
@@ -1215,29 +1228,26 @@ impl<'a> ParsedKeyword<'a> {
     pub(crate) fn dispatch_slice_only(
         self,
         std: &mut Vec<(StdKey, &'a NEStr)>,
-        nonstd: &mut NonStdKeywords,
-        pseudo: &mut HashMap<PseudoStdKey, NEString>,
+        nonstd: &mut ParsedNonStdKeywords,
         diag: &mut ParsedKeywordsDiagnostic,
     ) {
         let f_owned = |_| panic!("this should only be called when input is all slices");
-        self.dispatch(std, nonstd, pseudo, diag, |v| v, f_owned);
+        self.dispatch(std, nonstd, diag, |v| v, f_owned);
     }
 
     pub(crate) fn dispatch_slice_or_owned(
         self,
         std: &mut Vec<(StdKey, Cow<'a, NEStr>)>,
-        nonstd: &mut NonStdKeywords,
-        pseudo: &mut HashMap<PseudoStdKey, NEString>,
+        nonstd: &mut ParsedNonStdKeywords,
         diag: &mut ParsedKeywordsDiagnostic,
     ) {
-        self.dispatch(std, nonstd, pseudo, diag, Cow::Borrowed, Cow::Owned);
+        self.dispatch(std, nonstd, diag, Cow::Borrowed, Cow::Owned);
     }
 
     fn dispatch<F0, F1, V>(
         self,
         std: &mut Vec<(StdKey, V)>,
-        nonstd: &mut NonStdKeywords,
-        pseudo: &mut HashMap<PseudoStdKey, NEString>,
+        nonstd: &mut ParsedNonStdKeywords,
         diag: &mut ParsedKeywordsDiagnostic,
         f_slice: F0,
         f_owned: F1,
@@ -1268,7 +1278,7 @@ impl<'a> ParsedKeyword<'a> {
                     diag.keys_with_trimmed_values
                         .push((KeyOrBytes::from(k), o.into()));
                 }
-                match nonstd.entry(kv.key) {
+                match nonstd.nonstd.entry(kv.key) {
                     Entry::Occupied(e) => diag
                         .non_unique_nonstd_keywords
                         .push((e.key().clone(), kv.value.into())),
@@ -1283,9 +1293,9 @@ impl<'a> ParsedKeyword<'a> {
                     diag.keys_with_trimmed_values
                         .push((KeyOrBytes::from(k), o.into()));
                 }
-                match pseudo.entry(kv.key) {
+                match nonstd.pstd.entry(kv.key) {
                     Entry::Occupied(e) => diag
-                        .non_unique_pseudostd_keywords
+                        .non_unique_pstd_keywords
                         .push((e.key().clone(), kv.value.into())),
                     Entry::Vacant(e) => {
                         let _ = e.insert(kv.value);
@@ -1351,18 +1361,23 @@ pub(crate) struct ParsedKeywordCounts {
     pub(crate) n_trimmed: usize,
 }
 
+impl ParsedNonStdKeywords {
+    pub(crate) fn reserve(&mut self, counts: &ParsedKeywordCounts) {
+        self.nonstd.reserve(counts.n_nonstd_keys);
+        self.pstd.reserve(counts.n_pseudo_keys);
+    }
+}
+
 impl ParsedKeywordsDiagnostic {
-    pub(crate) fn init(counts: &ParsedKeywordCounts) -> Self {
-        Self {
-            keys_with_non_utf8_values: Vec::with_capacity(counts.n_non_utf8_values),
-            values_with_non_ascii_keys: Vec::with_capacity(counts.n_non_ascii_keys),
-            byte_pairs: Vec::with_capacity(counts.n_invalid_pairs),
-            non_unique_std_keywords: vec![],
-            non_unique_pseudostd_keywords: vec![],
-            non_unique_nonstd_keywords: vec![],
-            keys_with_empty_trimmed_values: Vec::with_capacity(counts.n_trimmed_empty_values),
-            keys_with_trimmed_values: Vec::with_capacity(counts.n_trimmed),
-        }
+    pub(crate) fn reserve(&mut self, counts: &ParsedKeywordCounts) {
+        self.keys_with_non_utf8_values
+            .reserve(counts.n_non_utf8_values);
+        self.values_with_non_ascii_keys
+            .reserve(counts.n_non_ascii_keys);
+        self.byte_pairs.reserve(counts.n_invalid_pairs);
+        self.keys_with_empty_trimmed_values
+            .reserve(counts.n_trimmed_empty_values);
+        self.keys_with_trimmed_values.reserve(counts.n_trimmed);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1457,29 +1472,33 @@ impl ParsedKeywordsDiagnostic {
 }
 
 impl ValidKeywords {
-    pub(crate) fn get_any(&self, k: &AnyKey) -> Option<&NEString> {
-        unimplemented!()
-        // match k {
-        //     AnyKey::Std(k0) => match k0 {
-        //         RealOrPseudoStdKey::Real(k1) => self.get_std(k1),
-        //         RealOrPseudoStdKey::Pseudo(k1) => self.get_pstd(k1),
-        //     },
-        //     AnyKey::NonStd(k0) => self.get_nonstd(k0),
-        // }
+    pub(crate) fn get_any(&self, k: &AnyKey) -> Option<&NEStr> {
+        match k {
+            AnyKey::Std(k0) => match k0 {
+                RealOrPseudoStdKey::Real(k1) => self.get_std(k1),
+                RealOrPseudoStdKey::Pseudo(k1) => self.get_pstd(k1),
+            },
+            AnyKey::NonStd(k0) => self.get_nonstd(k0),
+        }
     }
 
-    pub(crate) fn get_std(&self, k: &StdKey) -> Option<&NEString> {
-        self.std.get(k)
+    pub(crate) fn get_std(&self, k: &StdKey) -> Option<&NEStr> {
+        NEStr::try_new(self.std.get(k))
     }
 
-    pub(crate) fn get_nonstd(&self, k: &NonStdKey) -> Option<&NEString> {
-        self.nonstd.get(k)
+    pub(crate) fn get_pstd(&self, k: &PseudoStdKey) -> Option<&NEStr> {
+        self.pstd.get(k).map(|s| s.as_ne_str())
+    }
+
+    pub(crate) fn get_nonstd(&self, k: &NonStdKey) -> Option<&NEStr> {
+        self.nonstd.get(k).map(|s| s.as_ne_str())
     }
 
     pub(crate) fn transfer_demoted(&mut self, key: StdKey) {
-        if let Some(v) = self.std.remove(&key) {
-            self.nonstd.insert_demoted(key, v);
-        }
+        unimplemented!()
+        // if let Some(v) = self.std.remove(&key) {
+        //     self.nonstd.insert_demoted(key, v);
+        // }
     }
 
     #[allow(clippy::too_many_lines)]

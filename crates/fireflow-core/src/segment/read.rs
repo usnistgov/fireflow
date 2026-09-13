@@ -872,7 +872,7 @@ macro_rules! lookup_req {
         match $kws.$fun::<$($gen),*>(&()) {
             Some(v) => v
                 .parse::<i128>()
-                .map_err(|e| ParseKeyError::new1(e, (), TruncatedNEString(v.to_owned())))
+                .map_err(|e| ParseKeyError::new1(e, (), v.to_owned()))
                 .map_err(ReqKeyErrorInner::from),
             None => Err(ReqKeyErrorInner::from(MissingKeyError::new1(()))),
         }
@@ -1151,7 +1151,7 @@ macro_rules! lookup_opt {
         $kws.$fun::<$($gen),*>(&())
             .map(|v| {
                 v.parse::<i128>()
-                    .map_err(|e| ParseKeyError::new1(e, (), TruncatedNEString(v.to_owned())))
+                    .map_err(|e| ParseKeyError::new1(e, (), v.to_owned()))
             })
             .transpose()
     }};

@@ -76,8 +76,8 @@ pub struct ParseKeyError_<E, T, I> {
 pub type ParseKeyError<E, T> = ParseKeyError_<E, T, <T as ValueToStdKey>::Index>;
 
 impl<E, T: ValueToStdKey> ParseKeyError<E, T> {
-    pub(crate) fn new1(error: E, index: T::Index, value: TruncatedNEString) -> Self {
-        Self::new(error, DollarKey::new(index), value)
+    pub(crate) fn new1(error: E, index: T::Index, value: NEString) -> Self {
+        Self::new(error, DollarKey::new(index), TruncatedNEString(value))
     }
 }
 
@@ -655,7 +655,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
     {
         let v = Self::get_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
         v.parse()
-            .map_err(|e| ParseKeyError::new1(e, i, TruncatedNEString(v.to_owned())))
+            .map_err(|e| ParseKeyError::new1(e, i, v.to_owned()))
             .map_err(ReqKeyErrorInner::from)
     }
 
@@ -672,7 +672,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
     {
         let v = Self::get_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
         Self::from_str_with(v, data, conf)
-            .map_err(|e| ParseKeyError::new1(e, i, TruncatedNEString(v.to_owned())))
+            .map_err(|e| ParseKeyError::new1(e, i, v.to_owned()))
             .map_err(ReqKeyErrorInner::from)
     }
 
@@ -686,7 +686,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
     {
         let v = Self::remove_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
         v.parse()
-            .map_err(|e| ParseKeyError::new1(e, i, TruncatedNEString(v.to_owned())))
+            .map_err(|e| ParseKeyError::new1(e, i, v.to_owned()))
             .map_err(ReqKeyErrorInner::from)
     }
 
@@ -703,7 +703,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
     {
         let v = Self::remove_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
         Self::from_str_with(v, data, conf)
-            .map_err(|e| ParseKeyError::new1(e, k, TruncatedNEString(v.to_owned())))
+            .map_err(|e| ParseKeyError::new1(e, k, v.to_owned()))
             .map_err(ReqKeyErrorInner::from)
     }
 
@@ -783,7 +783,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         kws.read::<Self>(&k)
             .map(|v| {
                 v.parse()
-                    .map_err(|e| ParseKeyError::new1(e, k, TruncatedNEString(v.to_owned())))
+                    .map_err(|e| ParseKeyError::new1(e, k, v.to_owned()))
             })
             .transpose()
             .map(|x| x.map(Self::Outer::from).unwrap_or_default())
@@ -969,7 +969,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         let action = KeywordAction::from_flag(flag);
         kws.remove_and_parse::<_, _, Self>(&k, |v| match v.parse() {
             Ok(x) => (None, Ok(x)),
-            Err(e) => (action, Err((e, TruncatedNEString(v.to_owned())))),
+            Err(e) => (action, Err((e, v.to_owned()))),
         })
         .transpose()
         .map(|x| x.map(Self::Outer::from).unwrap_or_default())
@@ -997,7 +997,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         let action = KeywordAction::from_flag(flag);
         kws.remove_and_parse::<_, _, Self>(&i, |v| match Self::from_str_with(v, data, conf) {
             Ok(x) => (None, Ok(x)),
-            Err(e) => (action, Err((e, TruncatedNEString(v.to_owned())))),
+            Err(e) => (action, Err((e, v.to_owned()))),
         })
         .transpose()
         .map(|x| x.map_or(Diagnosed::default(), |y| y.first_once(Self::Outer::from)))

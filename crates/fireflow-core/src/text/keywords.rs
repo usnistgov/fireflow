@@ -4,6 +4,7 @@ use crate::logging::{
 };
 use crate::macros::impl_newtype_try_from;
 use crate::segment::read::{IsOffsetPair as _, PrimaryTextOffsets};
+use crate::std_index::index::StdIndex;
 use crate::std_index::tx::{KeywordAction, StdIndexTx};
 use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
@@ -76,6 +77,9 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+use super::lookup::{MissingKeyError, MissingKeyError_};
+use super::optional::Nothing;
+
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{
@@ -101,7 +105,7 @@ impl Nextdata {
     // failure since it is read-only. Not sure how to fix this without
     // destroying many other things
     pub(crate) fn lookup_ro<C>(
-        kws: &StdIndexTx,
+        index: &StdIndex,
         primary_text: &PrimaryTextOffsets,
         st: HeaderReadState<C>,
     ) -> WarningAndErrorResult<
@@ -113,7 +117,7 @@ impl Nextdata {
     where
         C: AsRef<ReadHeaderAndTEXTConfig>,
     {
-        Self::lookup_ro_inner(kws, st.conf().as_ref())
+        Self::lookup_ro_inner(index, st.conf().as_ref())
             .map_errors(LookupNextdataError::from)
             .and_then_nowarn_commutative(|nextdata| {
                 // If $NEXTDATA exists (almost all the time) validate that it is
@@ -147,23 +151,23 @@ impl Nextdata {
     }
 
     pub(crate) fn lookup_ro_inner(
-        kws: &StdIndexTx,
+        index: &StdIndex,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningAndErrorResult<Option<Self>, (), ReadNextdataError, ReadNextdataError> {
-        if let Some(is_err) = conf.allow_missing_nextdata.is_error() {
-            let res = Self::get_req_with(kws, (), (), conf).map(|x| Some(x.inner));
-            if is_err {
-                res.into_log()
-            } else {
-                LogResult::Succ(res.into_succ())
+        let res = if let Some(s) = NEStr::try_new(index.get(&RootKey::Nextdata.into())) {
+            match Self::from_str_with(s, (), conf) {
+                Ok(x) => Ok(Some(x.inner)),
+                Err(e) => {
+                    let e = ParseKeyError::new1(e, (), s.to_owned());
+                    Err(ReadNextdataError::Parse(e))
+                }
             }
         } else {
-            let ret = kws
-                .read::<Self>(&())
-                .and_then(|v| Self::from_str_with(v, (), conf).ok())
-                .map(|x| x.inner);
-            LogResult::new_ok(ret)
-        }
+            Err(ReadNextdataError::Missing(MissingKeyError::new1(())))
+        };
+        res.into_deferred_switchable3(conf.allow_missing_nextdata)
+            .switchable_into_commutative()
+            .set_err_value(())
     }
 }
 
@@ -3447,7 +3451,7 @@ impl Dfc {
         let action = KeywordAction::from_flag(flag);
         kws.remove_and_parse::<_, _, Self>(&i, |v| match v.parse::<Self>() {
             Ok(x) => (None, Ok(x)),
-            Err(e) => (action, Err((e, TruncatedNEString(v.to_owned())))),
+            Err(e) => (action, Err((e, v.to_owned()))),
         })
         .transpose()
         .map_err(|(e, v)| ParseKeyError::new1(e, i, v))

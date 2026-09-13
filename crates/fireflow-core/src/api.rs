@@ -44,7 +44,7 @@ use crate::validated::header_offsets::{
 };
 use crate::validated::keys::{
     AnyKey, InvalidKeywordCharsError, KeyOrBytes, KeywordInsertError, NEDelimBytes,
-    NEStringOrBytes, NonStdKey, NonStdKeywords, ParsedKeyword, ParsedKeywords,
+    NEStringOrBytes, NonStdKey, NonStdKeywords, ParsedKeyword, ParsedKeywordCounts, ParsedKeywords,
     ParsedKeywordsDiagnostic, RepairDiagnostics, StdKeywords, StringOrBytes, TruncatedNEBytes,
     TruncatedNEString, ValidKeywords,
 };
@@ -2488,59 +2488,24 @@ impl ParsedTEXTOutput {
             Vec::from(keybuf).into()
         };
 
-        let mut n_std_slice_kws = 0;
-        let mut n_std_latin1_or_delim_kws = 0;
-        let mut n_nonstd_keys = 0;
-        let mut n_pseudo_keys = 0;
-        let mut n_trimmed_empty_values = 0;
-        let mut n_non_utf8_values = 0;
-        let mut n_non_ascii_keys = 0;
-        let mut n_invalid_pairs = 0;
-        let mut n_trimmed = 0;
+        let mut counts = ParsedKeywordCounts::default();
 
         for p in &parsed {
-            match p {
-                ParsedKeyword::StdSlice(kv) => {
-                    n_std_slice_kws += 1;
-                    n_trimmed += usize::from(kv.original.is_some());
-                }
-                ParsedKeyword::StdOwned(kv) => {
-                    n_std_latin1_or_delim_kws += 1;
-                    n_trimmed += usize::from(kv.original.is_some());
-                }
-                ParsedKeyword::NonStd(kv) => {
-                    n_nonstd_keys += 1;
-                    n_trimmed += usize::from(kv.original.is_some())
-                }
-                ParsedKeyword::Pseudo(kv) => {
-                    n_pseudo_keys += 1;
-                    n_trimmed += usize::from(kv.original.is_some())
-                }
-                ParsedKeyword::TrimmedEmptyValue(_, _) => n_trimmed_empty_values += 1,
-                ParsedKeyword::NonUtf8Value(_, _) => n_non_utf8_values += 1,
-                ParsedKeyword::NonAsciiKey(_) => n_non_ascii_keys += 1,
-                ParsedKeyword::BothInvalid(_, _) => n_invalid_pairs += 1,
-            }
+            p.count(&mut counts)
         }
 
-        let mut nonstd = HashMap::with_capacity(n_nonstd_keys);
-        let mut pseudo = HashMap::with_capacity(n_pseudo_keys);
-        let mut parsed_diag = ParsedKeywordsDiagnostic::init(
-            n_non_utf8_values,
-            n_non_ascii_keys,
-            n_invalid_pairs,
-            n_trimmed_empty_values,
-            n_trimmed,
-        );
+        let mut nonstd = HashMap::with_capacity(counts.n_nonstd_keys);
+        let mut pseudo = HashMap::with_capacity(counts.n_pseudo_keys);
+        let mut parsed_diag = ParsedKeywordsDiagnostic::init(&counts);
 
-        let (index, non_unique_std) = if n_std_latin1_or_delim_kws == 0 {
-            let mut std = Vec::with_capacity(n_std_slice_kws);
+        let (index, non_unique_std) = if counts.n_std_owned_kws == 0 {
+            let mut std = Vec::with_capacity(counts.n_std_slice_kws);
             for p in parsed {
                 p.dispatch_slice_only(&mut std, &mut nonstd, &mut pseudo, &mut parsed_diag);
             }
             StdIndex::from_vec(std)
         } else {
-            let mut std = Vec::with_capacity(n_std_slice_kws + n_std_latin1_or_delim_kws);
+            let mut std = Vec::with_capacity(counts.n_std_slice_kws + counts.n_std_owned_kws);
             for p in parsed {
                 p.dispatch_slice_or_owned(&mut std, &mut nonstd, &mut pseudo, &mut parsed_diag);
             }
@@ -2605,65 +2570,30 @@ impl ParsedTEXTOutput {
             })
             .collect();
 
-        let mut n_std_slice_kws = 0;
-        let mut n_std_latin1_kws = 0;
-        let mut n_nonstd_keys = 0;
-        let mut n_pseudo_keys = 0;
-        let mut n_trimmed_empty_values = 0;
-        let mut n_non_utf8_values = 0;
-        let mut n_non_ascii_keys = 0;
-        let mut n_invalid_pairs = 0;
+        let mut counts = ParsedKeywordCounts::default();
         let mut n_empty_keys = 0;
         let mut n_empty_values = 0;
         let mut n_empty_pairs = 0;
-        let mut n_trimmed = 0;
 
         for p in &parsed {
             match p {
-                Unescaped::Keyword(k) => match k {
-                    ParsedKeyword::StdSlice(kv) => {
-                        n_std_slice_kws += 1;
-                        n_trimmed += usize::from(kv.original.is_some());
-                    }
-                    ParsedKeyword::StdOwned(kv) => {
-                        n_std_latin1_kws += 1;
-                        n_trimmed += usize::from(kv.original.is_some());
-                    }
-                    ParsedKeyword::NonStd(kv) => {
-                        n_nonstd_keys += 1;
-                        n_trimmed += usize::from(kv.original.is_some())
-                    }
-                    ParsedKeyword::Pseudo(kv) => {
-                        n_pseudo_keys += 1;
-                        n_trimmed += usize::from(kv.original.is_some())
-                    }
-                    ParsedKeyword::TrimmedEmptyValue(_, _) => n_trimmed_empty_values += 1,
-                    ParsedKeyword::NonUtf8Value(_, _) => n_non_utf8_values += 1,
-                    ParsedKeyword::NonAsciiKey(_) => n_non_ascii_keys += 1,
-                    ParsedKeyword::BothInvalid(_, _) => n_invalid_pairs += 1,
-                },
+                Unescaped::Keyword(k) => k.count(&mut counts),
                 Unescaped::EmptyKey(_) => n_empty_keys += 1,
                 Unescaped::EmptyValue(_) => n_empty_values += 1,
                 Unescaped::EmptyPair => n_empty_pairs += 1,
             }
         }
 
-        let mut nonstd = HashMap::with_capacity(n_nonstd_keys);
-        let mut pseudo = HashMap::with_capacity(n_pseudo_keys);
+        let mut nonstd = HashMap::with_capacity(counts.n_nonstd_keys);
+        let mut pseudo = HashMap::with_capacity(counts.n_pseudo_keys);
 
         let mut values_with_blank_keys = Vec::with_capacity(n_empty_keys);
         let mut keys_with_blank_values = Vec::with_capacity(n_empty_values);
 
-        let mut parsed_diag = ParsedKeywordsDiagnostic::init(
-            n_non_utf8_values,
-            n_non_ascii_keys,
-            n_invalid_pairs,
-            n_trimmed_empty_values,
-            n_trimmed,
-        );
+        let mut parsed_diag = ParsedKeywordsDiagnostic::init(&counts);
 
-        let (index, non_unique_std) = if n_std_latin1_kws == 0 {
-            let mut std = Vec::with_capacity(n_std_slice_kws);
+        let (index, non_unique_std) = if counts.n_std_owned_kws == 0 {
+            let mut std = Vec::with_capacity(counts.n_std_slice_kws);
             for p in parsed {
                 match p {
                     Unescaped::Keyword(k) => {
@@ -2676,7 +2606,7 @@ impl ParsedTEXTOutput {
             }
             StdIndex::from_vec(std)
         } else {
-            let mut std = Vec::with_capacity(n_std_slice_kws + n_std_latin1_kws);
+            let mut std = Vec::with_capacity(counts.n_std_slice_kws + counts.n_std_owned_kws);
             for p in parsed {
                 match p {
                     Unescaped::Keyword(k) => k.dispatch_slice_or_owned(

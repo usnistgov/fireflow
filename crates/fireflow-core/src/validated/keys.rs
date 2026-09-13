@@ -1311,25 +1311,57 @@ impl<'a> ParsedKeyword<'a> {
             Self::BothInvalid(k, v) => diag.byte_pairs.push((k.into(), v.into())),
         }
     }
+
+    pub(crate) fn count(&self, counts: &mut ParsedKeywordCounts) {
+        match self {
+            Self::StdSlice(kv) => {
+                counts.n_std_slice_kws += 1;
+                counts.n_trimmed += usize::from(kv.original.is_some());
+            }
+            Self::StdOwned(kv) => {
+                counts.n_std_owned_kws += 1;
+                counts.n_trimmed += usize::from(kv.original.is_some());
+            }
+            Self::NonStd(kv) => {
+                counts.n_nonstd_keys += 1;
+                counts.n_trimmed += usize::from(kv.original.is_some())
+            }
+            Self::Pseudo(kv) => {
+                counts.n_pseudo_keys += 1;
+                counts.n_trimmed += usize::from(kv.original.is_some())
+            }
+            Self::TrimmedEmptyValue(_, _) => counts.n_trimmed_empty_values += 1,
+            Self::NonUtf8Value(_, _) => counts.n_non_utf8_values += 1,
+            Self::NonAsciiKey(_) => counts.n_non_ascii_keys += 1,
+            Self::BothInvalid(_, _) => counts.n_invalid_pairs += 1,
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct ParsedKeywordCounts {
+    pub(crate) n_std_slice_kws: usize,
+    pub(crate) n_std_owned_kws: usize,
+    pub(crate) n_nonstd_keys: usize,
+    pub(crate) n_pseudo_keys: usize,
+    pub(crate) n_trimmed_empty_values: usize,
+    pub(crate) n_non_utf8_values: usize,
+    pub(crate) n_non_ascii_keys: usize,
+    pub(crate) n_invalid_pairs: usize,
+    pub(crate) n_trimmed: usize,
 }
 
 impl ParsedKeywordsDiagnostic {
-    pub(crate) fn init(
-        n_keys_with_non_utf8_values: usize,
-        n_values_with_non_ascii_keys: usize,
-        n_byte_pairs: usize,
-        n_keys_with_empty_trimmed_values: usize,
-        n_keys_with_trimmed_values: usize,
-    ) -> Self {
+    pub(crate) fn init(counts: &ParsedKeywordCounts) -> Self {
         Self {
-            keys_with_non_utf8_values: Vec::with_capacity(n_keys_with_non_utf8_values),
-            values_with_non_ascii_keys: Vec::with_capacity(n_values_with_non_ascii_keys),
-            byte_pairs: Vec::with_capacity(n_byte_pairs),
+            keys_with_non_utf8_values: Vec::with_capacity(counts.n_non_utf8_values),
+            values_with_non_ascii_keys: Vec::with_capacity(counts.n_non_ascii_keys),
+            byte_pairs: Vec::with_capacity(counts.n_invalid_pairs),
             non_unique_std_keywords: vec![],
             non_unique_pseudostd_keywords: vec![],
             non_unique_nonstd_keywords: vec![],
-            keys_with_empty_trimmed_values: Vec::with_capacity(n_keys_with_empty_trimmed_values),
-            keys_with_trimmed_values: Vec::with_capacity(n_keys_with_trimmed_values),
+            keys_with_empty_trimmed_values: Vec::with_capacity(counts.n_trimmed_empty_values),
+            keys_with_trimmed_values: Vec::with_capacity(counts.n_trimmed),
         }
     }
 

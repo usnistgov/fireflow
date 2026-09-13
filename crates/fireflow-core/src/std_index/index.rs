@@ -13,6 +13,7 @@ use fireflow_types::{
 };
 
 use std::iter::Chain;
+use std::mem;
 
 pub type NestedRoot = NestedEnumString<N_ROOT, RootKey>;
 

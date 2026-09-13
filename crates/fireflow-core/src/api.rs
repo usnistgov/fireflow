@@ -2533,42 +2533,21 @@ impl ParsedTEXTOutput {
             n_trimmed,
         );
 
-        let index = if n_std_latin1_or_delim_kws == 0 {
+        let (index, non_unique_std) = if n_std_latin1_or_delim_kws == 0 {
             let mut std = Vec::with_capacity(n_std_slice_kws);
             for p in parsed {
                 p.dispatch_slice_only(&mut std, &mut nonstd, &mut pseudo, &mut parsed_diag);
             }
-
-            std.sort_by_key(|(k, _)| *k);
-
-            let dedup_split = partition_dedup_by_key(&mut std, |(k, _)| *k);
-            let (std_final, non_unique_std) = std.split_at(dedup_split);
-            parsed_diag.non_unique_std_keywords = non_unique_std
-                .into_iter()
-                .copied()
-                .map(|(k, v)| (k, TruncatedNEString(v.to_owned())))
-                .collect();
-
-            // SAFETY: we sorted and deduplicated above
-            unsafe { StdIndex::from_slice(std_final) }
+            StdIndex::from_vec(std)
         } else {
             let mut std = Vec::with_capacity(n_std_slice_kws + n_std_latin1_or_delim_kws);
-
             for p in parsed {
                 p.dispatch_slice_or_owned(&mut std, &mut nonstd, &mut pseudo, &mut parsed_diag);
             }
-
-            std.sort_by_key(|(k, _)| *k);
-            let dedup_split = partition_dedup_by_key(&mut std, |(k, _)| *k);
-            let (std_final, non_unique_std) = std.split_at(dedup_split);
-            parsed_diag.non_unique_std_keywords = non_unique_std
-                .into_iter()
-                .map(|(k, v)| (*k, TruncatedNEString(v.as_ref().to_owned())))
-                .collect();
-
-            // SAFETY: we sorted and deduplicated above
-            unsafe { StdIndex::from_slice(std_final) }
+            StdIndex::from_vec(std)
         };
+
+        parsed_diag.non_unique_std_keywords = non_unique_std;
 
         let text_diag = SplitTEXTDiagnostics {
             delimiter: delim,
@@ -2602,7 +2581,7 @@ impl ParsedTEXTOutput {
             .map(|s| s.as_ref().to_vec().into())
             .unwrap_or_default();
 
-        enum UnescapedKeyword<'a> {
+        enum Unescaped<'a> {
             Keyword(ParsedKeyword<'a>),
             EmptyKey(NEVec<u8>),
             EmptyValue(NEVec<u8>),
@@ -2617,11 +2596,11 @@ impl ParsedTEXTOutput {
                 let v = NESlice::try_from_slice(value);
                 match (k, v) {
                     (Some(kk), Some(vv)) => {
-                        UnescapedKeyword::Keyword(ParsedKeyword::from_pair(kk, vv, trim, enc))
+                        Unescaped::Keyword(ParsedKeyword::from_pair(kk, vv, trim, enc))
                     }
-                    (Some(kk), None) => UnescapedKeyword::EmptyValue(kk.to_ne_vec()),
-                    (None, Some(vv)) => UnescapedKeyword::EmptyKey(vv.to_ne_vec()),
-                    (None, None) => UnescapedKeyword::EmptyPair,
+                    (Some(kk), None) => Unescaped::EmptyValue(kk.to_ne_vec()),
+                    (None, Some(vv)) => Unescaped::EmptyKey(vv.to_ne_vec()),
+                    (None, None) => Unescaped::EmptyPair,
                 }
             })
             .collect();
@@ -2641,7 +2620,7 @@ impl ParsedTEXTOutput {
 
         for p in &parsed {
             match p {
-                UnescapedKeyword::Keyword(k) => match k {
+                Unescaped::Keyword(k) => match k {
                     ParsedKeyword::StdSlice(kv) => {
                         n_std_slice_kws += 1;
                         n_trimmed += usize::from(kv.original.is_some());
@@ -2663,21 +2642,11 @@ impl ParsedTEXTOutput {
                     ParsedKeyword::NonAsciiKey(_) => n_non_ascii_keys += 1,
                     ParsedKeyword::BothInvalid(_, _) => n_invalid_pairs += 1,
                 },
-                UnescapedKeyword::EmptyKey(_) => n_empty_keys += 1,
-                UnescapedKeyword::EmptyValue(_) => n_empty_values += 1,
-                UnescapedKeyword::EmptyPair => n_empty_pairs += 1,
+                Unescaped::EmptyKey(_) => n_empty_keys += 1,
+                Unescaped::EmptyValue(_) => n_empty_values += 1,
+                Unescaped::EmptyPair => n_empty_pairs += 1,
             }
         }
-
-        // let mut nonstd = HashMap::with_capacity(n_nonstd_keys);
-        // let mut pseudo = HashMap::with_capacity(n_pseudo_keys);
-        // let mut keys_with_empty_trimmed_values = Vec::with_capacity(n_trimmed_empty_values);
-        // let mut keys_with_non_utf8_values = Vec::with_capacity(n_non_utf8_values);
-        // let mut values_with_non_ascii_keys = Vec::with_capacity(n_non_ascii_keys);
-        // let mut byte_pairs = Vec::with_capacity(n_invalid_pairs);
-        // let mut keys_with_trimmed_values = Vec::with_capacity(n_trimmed);
-        // let mut non_unique_nonstd_keywords = vec![];
-        // let mut non_unique_pseudostd_keywords = vec![];
 
         let mut nonstd = HashMap::with_capacity(n_nonstd_keys);
         let mut pseudo = HashMap::with_capacity(n_pseudo_keys);
@@ -2693,57 +2662,38 @@ impl ParsedTEXTOutput {
             n_trimmed,
         );
 
-        let index = if n_std_latin1_kws == 0 {
+        let (index, non_unique_std) = if n_std_latin1_kws == 0 {
             let mut std = Vec::with_capacity(n_std_slice_kws);
             for p in parsed {
                 match p {
-                    UnescapedKeyword::Keyword(k) => {
+                    Unescaped::Keyword(k) => {
                         k.dispatch_slice_only(&mut std, &mut nonstd, &mut pseudo, &mut parsed_diag)
                     }
-                    UnescapedKeyword::EmptyKey(k) => values_with_blank_keys.push(k.into()),
-                    UnescapedKeyword::EmptyValue(v) => keys_with_blank_values.push(v.into()),
-                    UnescapedKeyword::EmptyPair => (),
+                    Unescaped::EmptyKey(k) => values_with_blank_keys.push(k.into()),
+                    Unescaped::EmptyValue(v) => keys_with_blank_values.push(v.into()),
+                    Unescaped::EmptyPair => (),
                 }
             }
-
-            std.sort_by_key(|(k, _)| *k);
-            let dedup_split = partition_dedup_by_key(&mut std, |(k, _)| *k);
-            let (std_final, _nonunique_std) = std.split_at(dedup_split);
-            parsed_diag.non_unique_std_keywords = _nonunique_std
-                .into_iter()
-                .copied()
-                .map(|(k, v)| (k, TruncatedNEString(v.to_owned())))
-                .collect();
-
-            // SAFETY: we sorted and deduplicated above
-            unsafe { StdIndex::from_slice(std_final) }
+            StdIndex::from_vec(std)
         } else {
             let mut std = Vec::with_capacity(n_std_slice_kws + n_std_latin1_kws);
             for p in parsed {
                 match p {
-                    UnescapedKeyword::Keyword(k) => k.dispatch_slice_or_owned(
+                    Unescaped::Keyword(k) => k.dispatch_slice_or_owned(
                         &mut std,
                         &mut nonstd,
                         &mut pseudo,
                         &mut parsed_diag,
                     ),
-                    UnescapedKeyword::EmptyKey(k) => values_with_blank_keys.push(k.into()),
-                    UnescapedKeyword::EmptyValue(v) => keys_with_blank_values.push(v.into()),
-                    UnescapedKeyword::EmptyPair => (),
+                    Unescaped::EmptyKey(k) => values_with_blank_keys.push(k.into()),
+                    Unescaped::EmptyValue(v) => keys_with_blank_values.push(v.into()),
+                    Unescaped::EmptyPair => (),
                 }
             }
-
-            std.sort_by_key(|(k, _)| *k);
-            let dedup_split = partition_dedup_by_key(&mut std, |(k, _)| *k);
-            let (std_final, non_unique_std) = std.split_at(dedup_split);
-            parsed_diag.non_unique_std_keywords = non_unique_std
-                .into_iter()
-                .map(|(k, v)| (*k, TruncatedNEString(v.as_ref().to_owned())))
-                .collect();
-
-            // SAFETY: we sorted and deduplicated above
-            unsafe { StdIndex::from_slice(std_final) }
+            StdIndex::from_vec(std)
         };
+
+        parsed_diag.non_unique_std_keywords = non_unique_std;
 
         let text_diag = SplitTEXTDiagnostics {
             delimiter: delim,
@@ -3299,123 +3249,6 @@ fn split_first_delim<'a>(
     let flag = conf.allow_non_ascii_delim;
     SwitchableErrorResult::new_switchable_ok_if3(is_ok, (*delim, rest), (), e, flag)
         .switchable_into_commutative()
-}
-
-// TODO this is a function I stole from nightly. It seems to work and the reason
-// it hasn't been mainlined is because there is disagreement about the API (see
-// https://github.com/rust-lang/rust/issues/54279).
-//
-// I think it is clearer to return the partition point and do with it as one
-// wishes (unlike the function in Vec) so here it is.
-fn partition_dedup_by<T, F>(xs: &mut Vec<T>, mut same_bucket: F) -> usize
-where
-    F: FnMut(&mut T, &mut T) -> bool,
-{
-    // Although we have a mutable reference to `self`, we cannot make
-    // *arbitrary* changes. The `same_bucket` calls could panic, so we
-    // must ensure that the slice is in a valid state at all times.
-    //
-    // The way that we handle this is by using swaps; we iterate
-    // over all the elements, swapping as we go so that at the end
-    // the elements we wish to keep are in the front, and those we
-    // wish to reject are at the back. We can then split the slice.
-    // This operation is still `O(n)`.
-    //
-    // Example: We start in this state, where `r` represents "next
-    // read" and `w` represents "next_write".
-    //
-    //           r
-    //     +---+---+---+---+---+---+
-    //     | 0 | 1 | 1 | 2 | 3 | 3 |
-    //     +---+---+---+---+---+---+
-    //           w
-    //
-    // Comparing self[r] against self[w-1], this is not a duplicate, so
-    // we swap self[r] and self[w] (no effect as r==w) and then increment both
-    // r and w, leaving us with:
-    //
-    //               r
-    //     +---+---+---+---+---+---+
-    //     | 0 | 1 | 1 | 2 | 3 | 3 |
-    //     +---+---+---+---+---+---+
-    //               w
-    //
-    // Comparing self[r] against self[w-1], this value is a duplicate,
-    // so we increment `r` but leave everything else unchanged:
-    //
-    //                   r
-    //     +---+---+---+---+---+---+
-    //     | 0 | 1 | 1 | 2 | 3 | 3 |
-    //     +---+---+---+---+---+---+
-    //               w
-    //
-    // Comparing self[r] against self[w-1], this is not a duplicate,
-    // so swap self[r] and self[w] and advance r and w:
-    //
-    //                       r
-    //     +---+---+---+---+---+---+
-    //     | 0 | 1 | 2 | 1 | 3 | 3 |
-    //     +---+---+---+---+---+---+
-    //                   w
-    //
-    // Not a duplicate, repeat:
-    //
-    //                           r
-    //     +---+---+---+---+---+---+
-    //     | 0 | 1 | 2 | 3 | 1 | 3 |
-    //     +---+---+---+---+---+---+
-    //                       w
-    //
-    // Duplicate, advance r. End of slice. Split at w.
-
-    let len = xs.len();
-    if len <= 1 {
-        return len;
-    }
-
-    let ptr = xs.as_mut_ptr();
-    let mut next_read: usize = 1;
-    let mut next_write: usize = 1;
-
-    // SAFETY: the `while` condition guarantees `next_read` and `next_write`
-    // are less than `len`, thus are inside `self`. `prev_ptr_write` points to
-    // one element before `ptr_write`, but `next_write` starts at 1, so
-    // `prev_ptr_write` is never less than 0 and is inside the slice.
-    // This fulfils the requirements for dereferencing `ptr_read`, `prev_ptr_write`
-    // and `ptr_write`, and for using `ptr.add(next_read)`, `ptr.add(next_write - 1)`
-    // and `prev_ptr_write.offset(1)`.
-    //
-    // `next_write` is also incremented at most once per loop at most meaning
-    // no element is skipped when it may need to be swapped.
-    //
-    // `ptr_read` and `prev_ptr_write` never point to the same element. This
-    // is required for `&mut *ptr_read`, `&mut *prev_ptr_write` to be safe.
-    // The explanation is simply that `next_read >= next_write` is always true,
-    // thus `next_read > next_write - 1` is too.
-    unsafe {
-        // Avoid bounds checks by using raw pointers.
-        while next_read < len {
-            let ptr_read = ptr.add(next_read);
-            let prev_ptr_write = ptr.add(next_write - 1);
-            if !same_bucket(&mut *ptr_read, &mut *prev_ptr_write) {
-                if next_read != next_write {
-                    let ptr_write = prev_ptr_write.add(1);
-                    mem::swap(&mut *ptr_read, &mut *ptr_write);
-                }
-                next_write += 1;
-            }
-            next_read += 1;
-        }
-    }
-    next_write
-}
-
-fn partition_dedup_by_key<T, K, F>(xs: &mut Vec<T>, mut key: F) -> usize
-where
-    F: FnMut(&mut T) -> K,
-    K: PartialEq,
-{
-    partition_dedup_by(xs, |a, b| key(a) == key(b))
 }
 
 mod built {

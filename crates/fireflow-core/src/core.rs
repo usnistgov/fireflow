@@ -2130,7 +2130,7 @@ pub(crate) struct LookupFlatDatasetTimings {
 pub(crate) trait PrivVersionSet: VersionSet {
     fn h_lookup_and_read<C, R>(
         h: &mut BufReader<R>,
-        kws: &mut StdIndexTx,
+        kws: &mut ValidKeywords,
         hns: &mut HeaderAndSuppOffsets,
         start_time: Instant,
         st: &TEXTReadState<C>,

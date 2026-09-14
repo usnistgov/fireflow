@@ -1781,6 +1781,12 @@ impl FlatDatasetOutput {
         let hdr = fd.header_supp.header;
         let ds = self.dataset;
         let txt = AsRef::<PrimaryTextOffsets>::as_ref(&hdr.final_offsets);
+        let datatype = self
+            .keywords
+            .std
+            .get(&RootKey::Datatype.to_std0())
+            .parse()
+            .ok();
         DatasetSummary {
             version: hdr.version,
             text_len: txt.nbytes(),
@@ -1790,7 +1796,7 @@ impl FlatDatasetOutput {
             n_measurements: ds.data.ncols(),
             n_other: ds.others.0.len(),
             others_len: ds.others.0.iter().map(|x| x.0.len()).sum(),
-            datatype: AlphaNumType::get_metaroot_req(&self.keywords.std).ok(),
+            datatype,
             dataset_offset: hdr.dataset_offset,
             file_crc: ds.dataset_diagnostics.file_crc,
             computed_crc: ds.dataset_diagnostics.computed_crc,
@@ -1959,23 +1965,19 @@ impl FlatTEXTOutput {
                         .and_then_commutative(|supp_out| {
                             let ne_offsets =
                                 supp_out.as_offset_pair().and_then(|p| p.as_nonempty());
-                            let (index, supp_diag) = if let Some(ne) = ne_offsets {
-                                let s = txt_st.conf().as_ref();
-                                let supp = SplitTEXTDiagnostics::h_read_supp(
-                                    h,
-                                    delim,
-                                    &ne,
-                                    &mut nonstd,
-                                    s,
-                                );
-                                let (supp_index, mut supp_diag) = io_to_log!(supp);
-                                let (index, non_unique_std) = prim_index.append(supp_index);
-                                supp_diag.non_unique_std_keywords.extend(non_unique_std);
-                                (index, Some(supp_diag))
+                            if let Some(ne) = ne_offsets {
+                                let c = txt_st.conf().as_ref();
+                                SplitTEXTDiagnostics::h_read_supp(h, delim, &ne, &mut nonstd, c)
+                                    .map_commutative_warnings(ParseFlatTEXTWarning::from)
+                                    .map_pure_errors(ParseFlatTEXTError::from)
+                                    .map_ok_value(|(supp_index, mut supp_diag)| {
+                                        let (index, non_unique_std) = prim_index.append(supp_index);
+                                        supp_diag.non_unique_std_keywords.extend(non_unique_std);
+                                        (index, supp_out, Some(supp_diag))
+                                    })
                             } else {
-                                (prim_index, None)
-                            };
-                            LogResult::new_ok((index, supp_out, supp_diag))
+                                LogResult::new_ok((prim_index, supp_out, None))
+                            }
                         })
                         .map_ok_value(|(index, supp_out, supp_diag)| {
                             (
@@ -2131,11 +2133,18 @@ impl SplitTEXTDiagnostics {
         offsets: &NonEmptyOffsets<SupplementalTextSegmentId, OffsetsFromTEXT>,
         nonstd: &mut ParsedNonStdKeywords,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> io::Result<(StdIndex, Self)> {
-        let bytes = offsets.h_read_contents(h)?;
+    ) -> WarningsAndIOGroupResult<
+        (StdIndex, Self),
+        ParseSupplementalTEXTError,
+        ParseSupplementalTEXTError,
+        (),
+    > {
+        let bytes = io_to_log!(offsets.h_read_contents(h));
         let enc = conf.use_encoding.choose(bytes.as_ref());
         let ne = bytes.as_nonempty_slice();
-        Ok(Self::supp_from_bytes(nonstd, delim, ne, enc, conf))
+        Self::supp_from_bytes(nonstd, delim, ne, enc, conf)
+            .group()
+            .map_error(IOErrorGroup::Pure)
     }
 
     /// Read primary TEXT from bytes and store keywords in hash table.

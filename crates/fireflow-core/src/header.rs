@@ -16,6 +16,7 @@ use crate::segment::write::{
     PrimaryTextOffsetsToWrite, SupplementalTextOffsetsToWrite, TEXTAnalysisOffsetsToWrite,
     TEXTDataOffsetsToWrite,
 };
+use crate::std_index::index::StdIndex;
 use crate::std_index::tx::StdIndexTx;
 use crate::text::keyword_enum::{
     AnyKeyword, Escaped, Keyword0FromValue as _, NEStringKeyword, OffsetKeyword, OptKeyword,
@@ -33,7 +34,7 @@ use crate::validated::header_offsets::{
 use crate::validated::keys::{DollarKey, StdKeywords, ValueToStdKey as _};
 use crate::validated::read_state::{DatasetOffset, HeaderReadState, WriteFCSDigest};
 
-use fireflow_types::std_key::RootKey;
+use fireflow_types::std_key::{RootKey, ToStd};
 use fireflow_types::{
     config::{
         AppendableFlag, ConfigFlag as _, EnumStrIter as _, ReadHeaderInnerConfig, ReadOffsetConfig,
@@ -319,7 +320,7 @@ fn read_version(buf: &HeaderBuf) -> Result<Version, VersionError> {
 
 pub(crate) fn autodetect_version(
     version: Version,
-    kws: &StdIndexTx,
+    kws: &StdIndex,
     ver_override: Option<&VersionOverride>,
 ) -> Result<(Version, Option<KeywordVersionScores>), GuessVersionError> {
     match ver_override {
@@ -337,7 +338,10 @@ pub(crate) fn autodetect_version(
                     SelectVersionStrategy::Loose => s0.good_opt.cmp(&s1.good_opt),
                     SelectVersionStrategy::Strict => s1.good_opt.cmp(&s0.good_opt),
                 };
-            let par = Par::get_metaroot_req(kws).map_err(|_| GuessVersionError::NoPar)?;
+            let par = kws
+                .get(&RootKey::Par.to_std0())
+                .parse::<Par>()
+                .map_err(|_| GuessVersionError::NoPar)?;
             let mut opt = KeywordOptimizer::default();
             for (k, v) in kws.iter_pairs() {
                 opt.classify_keyword(&k, v, par);

@@ -155,8 +155,8 @@ impl Nextdata {
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningAndErrorResult<Option<Self>, (), ReadNextdataError, ReadNextdataError> {
         let res = if let Some(s) = NEStr::try_new(index.get(&RootKey::Nextdata.into())) {
-            match Self::from_str_with(s, (), conf) {
-                Ok(x) => Ok(Some(x.inner)),
+            match Self::parse(s, conf) {
+                Ok(x) => Ok(Some(x)),
                 Err(e) => {
                     let e = ParseKeyError::new1(e, (), s.to_owned());
                     Err(ReadNextdataError::Parse(e))
@@ -169,15 +169,61 @@ impl Nextdata {
             .switchable_into_commutative()
             .set_err_value(())
     }
-}
 
-impl FromStrWith for Nextdata {
-    type Err = ParseNextdataError;
-    type Payload<'a> = ();
-    type Diagnostic = ();
-    type Config = ReadHeaderAndTEXTConfig;
+    // pub(crate) fn lookup_ro_nowarn<C>(
+    //     index: &StdIndex,
+    //     primary_text: &PrimaryTextOffsets,
+    //     st: HeaderReadState<C>,
+    // ) -> (
+    //     Result<Self, ReadNextdataError>,
+    //     Result<TEXTReadState<C>, NextdataFileLengthError>,
+    // )
+    // where
+    //     C: AsRef<ReadHeaderAndTEXTConfig>,
+    // {
+    //     let res = Self::lookup_ro_inner_nowarn(index, st.conf().as_ref());
+    //     // If $NEXTDATA exists (almost all the time) validate that it is a) less
+    //     // than the length of the FCS file from which it was read and b) beyond
+    //     // the end of the TEXT segment from which it was read.
+    //     let txt_st = if let Ok(nd) = res.as_ref().copied() {
+    //         let n = u64::from(nd);
+    //         let f = st.file_len();
+    //         if n == 0 {
+    //             Ok(st.into_last_dataset())
+    //         } else if let Some(ptext_end) = primary_text.as_nonempty().map(|t| t.end())
+    //                     // TODO this should always be some since we know that
+    //                     // the TEXT segment is non-empty (otherwise how did we
+    //                     // get $NEXTDATA?)
+    //                     && n < ptext_end
+    //         {
+    //             let e = NextdataInPrimaryError(nd, ptext_end);
+    //             Err(NextdataFileLengthError::PrimaryTEXT(e))
+    //         } else if n >= u64::from(f) {
+    //             let e = NextdataEOFError(nd, f);
+    //             Err(NextdataFileLengthError::FileLength(e))
+    //         } else {
+    //             Ok(st.with_nextdata(nd))
+    //         }
+    //     } else {
+    //         Ok(st.into_last_dataset())
+    //     };
+    //     (res, txt_st)
+    // }
 
-    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    // pub(crate) fn lookup_ro_inner_nowarn(
+    //     index: &StdIndex,
+    //     conf: &ReadHeaderAndTEXTConfig,
+    // ) -> Result<Self, ReadNextdataError> {
+    //     if let Some(s) = NEStr::try_new(index.get(&RootKey::Nextdata.into())) {
+    //         Self::parse(s, conf)
+    //             .map_err(|e| ParseKeyError::new1(e, (), s.to_owned()))
+    //             .map_err(ReadNextdataError::Parse)
+    //     } else {
+    //         Err(ReadNextdataError::Missing(MissingKeyError::new1(())))
+    //     }
+    // }
+
+    fn parse(s: &NEStr, conf: &ReadHeaderAndTEXTConfig) -> Result<Self, ParseNextdataError> {
         let corr = i128::from(conf.nextdata_correction);
         let x = s.parse::<i128>()?;
         let y = x.saturating_add(corr);
@@ -185,7 +231,7 @@ impl FromStrWith for Nextdata {
             Err(ParseNextdataError::from(NegativeNextdataError(x)))
         } else {
             let out = u64::try_from(y).unwrap_or(u64::MAX);
-            Ok(Diagnosed::new1(Self(UintZeroPad20(out))))
+            Ok(Self(UintZeroPad20(out)))
         }
     }
 }

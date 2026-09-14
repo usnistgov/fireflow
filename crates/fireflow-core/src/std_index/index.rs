@@ -78,6 +78,10 @@ impl StdIndex {
         }
     }
 
+    pub fn contains_key(&self, k: &StdKey) -> bool {
+        !self.get(k).is_empty()
+    }
+
     pub fn n_strings(&self) -> usize {
         self.root.n_strings()
             + self.meas.n_strings()

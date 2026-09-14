@@ -252,6 +252,13 @@ impl StringOrBytes {
     pub(crate) fn len(&self) -> usize {
         self.as_bytes().len()
     }
+
+    pub(crate) fn into_ne(self) -> Option<NEStringOrBytes> {
+        match self {
+            Self::Bytes(x) => x.into_ne().map(NEStringOrBytes::Bytes),
+            Self::Utf8(x) => x.into_ne().map(NEStringOrBytes::Utf8),
+        }
+    }
 }
 
 /// A either a UTF-8 string or a non-UTF-8 byte sequence (both non-empty).
@@ -294,6 +301,12 @@ impl From<NEVec<u8>> for NEStringOrBytes {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TruncatedBytes(pub Vec<u8>);
 
+impl TruncatedBytes {
+    pub(crate) fn into_ne(self) -> Option<TruncatedNEBytes> {
+        NEVec::try_from_vec(self.0).map(TruncatedNEBytes)
+    }
+}
+
 /// A [`NEVec<u8>`] optimized for displaying in errors.
 #[derive(Clone, From, PartialEq, Debug, Display, Into)]
 #[display("{}", trunc_bytes(self.0.as_ref()))]
@@ -322,6 +335,12 @@ impl<'a> From<&'a NESlice<u8>> for TruncatedNEBytes {
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TruncatedString(pub String);
+
+impl TruncatedString {
+    pub(crate) fn into_ne(self) -> Option<TruncatedNEString> {
+        NEString::try_from(self.0).ok().map(TruncatedNEString)
+    }
+}
 
 /// A normal [`NEString`] that will be shortened when displaying if too long.
 #[derive(Clone, From, PartialEq, Debug, Display, Into)]
@@ -453,20 +472,6 @@ pub enum NonStdKeyError {
     Prefix(KeyString),
 }
 
-/// Error when parsed keyword cannot be inserted into [`ParsedKeywords`]
-#[derive(Debug, Display, From, PartialEq, Error, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum KeywordInsertError {
-    StdPresent(StdPresent),
-    PseudoStdPresent(PseudoStdPresent),
-    NonStdPresent(NonStdPresent),
-    Blank(BlankValueError),
-}
-
-pub type StdPresent = KeyPresent<StdKey>;
-pub type PseudoStdPresent = KeyPresent<PseudoStdKey>;
-pub type NonStdPresent = KeyPresent<NonStdKey>;
-
 // /// Error when applying a [`SubPattern`] resulted in an empty string.
 // #[derive(Debug, PartialEq, Error, new, Clone)]
 // #[error(
@@ -480,63 +485,6 @@ pub type NonStdPresent = KeyPresent<NonStdKey>;
 //     value: NEString,
 //     pat: SubPattern,
 // }
-
-/// Error when key has blank value
-#[derive(Debug, PartialEq, Error, Clone)]
-#[error("skipping key {0} with blank value")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct BlankValueError(pub KeyOrBytes);
-
-/// Error when key is already present in hash table.
-#[derive(Debug, PartialEq, Error, new, Clone)]
-#[error("key '{key}' already present, has value '{value}'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-#[cfg_attr(feature = "python", bound(T: fmt::Display))]
-pub struct KeyPresent<T> {
-    pub key: T,
-    pub value: NEString,
-}
-
-/// Error when keyword has any invalid chars.
-#[derive(Debug, Display, From, Error, PartialEq, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum InvalidKeywordCharsError {
-    Key(NonAsciiKeyError),
-    Value(NonUtf8ValueError),
-    Both(NonAsciiOrUtf8KeywordError),
-}
-
-/// Error when key or value with invalid UTF-8 characters is encountered
-#[derive(Debug, Error, PartialEq, Clone)]
-#[error("non ASCII key {key} and non UTF-8 value {value} encountered")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct NonAsciiOrUtf8KeywordError {
-    key: TruncatedNEBytes,
-    value: TruncatedNEBytes,
-}
-
-/// Error when key is not ASCII
-#[derive(Debug, Error, PartialEq, Clone)]
-#[error("non ASCII key encountered with bytes {key} and value '{value}'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct NonAsciiKeyError {
-    key: TruncatedNEBytes,
-    value: TruncatedNEString,
-}
-
-/// Error when value is not Utf8
-#[derive(Debug, Error, PartialEq, Clone)]
-#[error("non UTF-8 key encountered with bytes {value} and key '{key}'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct NonUtf8ValueError {
-    key: AnyKey,
-    value: TruncatedNEBytes,
-}
 
 /// Error when keyword repair process resulted in colliding non-unique keys.
 #[derive(Debug, Error, PartialEq, Clone)]
@@ -605,7 +553,7 @@ pub(crate) struct ParsedKeywordsDiagnostic {
     ///
     /// The only way this can happen at this stage is if the value is entirely
     /// whitespace and is trimmed.
-    pub(crate) keys_with_empty_trimmed_values: Vec<KeyOrBytes>,
+    pub(crate) keys_with_empty_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
 
     /// Keys with values that were trimmed
     ///
@@ -637,7 +585,7 @@ pub trait ValueToStdKey {
         Self::std(index)
     }
 
-    fn std0(&self) -> StdKey
+    fn std0() -> StdKey
     where
         Self: ValueToStdKey<Index = ()>,
     {
@@ -1303,10 +1251,8 @@ impl<'a> ParsedKeyword<'a> {
                 }
             }
             Self::TrimmedEmptyValue(k, v) => {
-                // TODO just make a separate list for these
-                diag.keys_with_trimmed_values
+                diag.keys_with_empty_trimmed_values
                     .push((k.clone().into(), v.into()));
-                diag.keys_with_empty_trimmed_values.push(k.into());
             }
             Self::NonUtf8Value(k, v) => diag.keys_with_non_utf8_values.push((k, v.into())),
             Self::NonAsciiKey(kv) => {
@@ -1380,95 +1326,95 @@ impl ParsedKeywordsDiagnostic {
         self.keys_with_trimmed_values.reserve(counts.n_trimmed);
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn into_flat_diag(
-        self,
-        header_supp: HeaderAndSuppOffsets,
-        primary_text_eof_overflow: u64,
-        header_overflows: Vec<HeaderOffsetsOverflow>,
-        primary_split: SplitTEXTDiagnostics,
-        supp_split: Option<SplitTEXTDiagnostics>,
-        read_text_ns: u128,
-        conf: &ReadHeaderAndTEXTConfig,
-    ) -> DeferredWarningsAndErrors<
-        FlatTEXTDiagnostics,
-        InvalidKeywordCharsError,
-        InvalidKeywordCharsError,
-    > {
-        // Throw errors or warnings for any keys or values that have invalid
-        // chars. There are two flags for keys and values respectively. For any
-        // pairs that have both an invalid key and invalid value, throw error if
-        // either flag is set (likewise for warning).
-        macro_rules! go_err {
-            ($field:ident, $err:ident) => {
-                self.$field
-                    .iter()
-                    .cloned()
-                    .map(|(key, value)| $err { key, value })
-                    .map(InvalidKeywordCharsError::from)
-            };
-        }
+    // #[allow(clippy::too_many_arguments)]
+    // pub(crate) fn into_flat_diag(
+    //     self,
+    //     header_supp: HeaderAndSuppOffsets,
+    //     primary_text_eof_overflow: u64,
+    //     header_overflows: Vec<HeaderOffsetsOverflow>,
+    //     primary_split: SplitTEXTDiagnostics,
+    //     supp_split: Option<SplitTEXTDiagnostics>,
+    //     read_text_ns: u128,
+    //     conf: &ReadHeaderAndTEXTConfig,
+    // ) -> DeferredWarningsAndErrors<
+    //     FlatTEXTDiagnostics,
+    //     InvalidKeywordCharsError,
+    //     InvalidKeywordCharsError,
+    // > {
+    //     // Throw errors or warnings for any keys or values that have invalid
+    //     // chars. There are two flags for keys and values respectively. For any
+    //     // pairs that have both an invalid key and invalid value, throw error if
+    //     // either flag is set (likewise for warning).
+    //     macro_rules! go_err {
+    //         ($field:ident, $err:ident) => {
+    //             self.$field
+    //                 .iter()
+    //                 .cloned()
+    //                 .map(|(key, value)| $err { key, value })
+    //                 .map(InvalidKeywordCharsError::from)
+    //         };
+    //     }
 
-        let es_key = go_err!(values_with_non_ascii_keys, NonAsciiKeyError);
-        let es_value = go_err!(keys_with_non_utf8_values, NonUtf8ValueError);
-        let es_both = go_err!(byte_pairs, NonAsciiOrUtf8KeywordError);
+    //     let es_key = go_err!(values_with_non_ascii_keys, NonAsciiKeyError);
+    //     let es_value = go_err!(keys_with_non_utf8_values, NonUtf8ValueError);
+    //     let es_both = go_err!(byte_pairs, NonAsciiOrUtf8KeywordError);
 
-        let key_flag = conf.allow_non_ascii_keys.is_error();
-        let val_flag = conf.allow_non_utf8_values.is_error();
+    //     let key_flag = conf.allow_non_ascii_keys.is_error();
+    //     let val_flag = conf.allow_non_utf8_values.is_error();
 
-        let mut es = vec![];
-        let mut ws = vec![];
+    //     let mut es = vec![];
+    //     let mut ws = vec![];
 
-        match key_flag {
-            Some(true) => es.extend(es_key),
-            Some(false) => ws.extend(es_key),
-            None => (),
-        }
-        match val_flag {
-            Some(true) => es.extend(es_value),
-            Some(false) => ws.extend(es_value),
-            None => (),
-        }
-        match key_flag.zip(val_flag).map(|(x, y)| x || y) {
-            Some(true) => es.extend(es_both),
-            Some(false) => ws.extend(es_both),
-            None => (),
-        }
+    //     match key_flag {
+    //         Some(true) => es.extend(es_key),
+    //         Some(false) => ws.extend(es_key),
+    //         None => (),
+    //     }
+    //     match val_flag {
+    //         Some(true) => es.extend(es_value),
+    //         Some(false) => ws.extend(es_value),
+    //         None => (),
+    //     }
+    //     match key_flag.zip(val_flag).map(|(x, y)| x || y) {
+    //         Some(true) => es.extend(es_both),
+    //         Some(false) => ws.extend(es_both),
+    //         None => (),
+    //     }
 
-        // Combine all keys/values with invalid chars into one list, since
-        // use probably doesn't want to see three.
+    //     // Combine all keys/values with invalid chars into one list, since
+    //     // use probably doesn't want to see three.
 
-        macro_rules! go_byte_pairs {
-            ($field:ident) => {
-                self.$field
-                    .into_iter()
-                    .map(|(k, v)| (KeyOrBytes::from(k), NEStringOrBytes::from(v)))
-            };
-        }
+    //     macro_rules! go_byte_pairs {
+    //         ($field:ident) => {
+    //             self.$field
+    //                 .into_iter()
+    //                 .map(|(k, v)| (KeyOrBytes::from(k), NEStringOrBytes::from(v)))
+    //         };
+    //     }
 
-        let ks = go_byte_pairs!(values_with_non_ascii_keys);
-        let vs = go_byte_pairs!(keys_with_non_utf8_values);
-        let bs = go_byte_pairs!(byte_pairs);
+    //     let ks = go_byte_pairs!(values_with_non_ascii_keys);
+    //     let vs = go_byte_pairs!(keys_with_non_utf8_values);
+    //     let bs = go_byte_pairs!(byte_pairs);
 
-        let byte_pairs: Vec<_> = ks.chain(vs).chain(bs).collect();
+    //     let byte_pairs: Vec<_> = ks.chain(vs).chain(bs).collect();
 
-        let ret = FlatTEXTDiagnostics {
-            header_supp,
-            primary_text_overflow: primary_text_eof_overflow,
-            header_overflows,
-            byte_pairs,
-            non_unique_std_keywords: self.non_unique_std_keywords,
-            non_unique_nonstd_keywords: self.non_unique_nonstd_keywords,
-            keys_with_empty_trimmed_values: self.keys_with_empty_trimmed_values,
-            keys_with_trimmed_values: self.keys_with_trimmed_values,
-            primary_split,
-            supp_split,
-            read_text_ns,
-        };
-        LogResult::new_ok(ret)
-            .extend_deferred_errors(es)
-            .set_commutative_warnings(ws)
-    }
+    //     let ret = FlatTEXTDiagnostics {
+    //         header_supp,
+    //         primary_text_overflow: primary_text_eof_overflow,
+    //         header_overflows,
+    //         byte_pairs,
+    //         non_unique_std_keywords: self.non_unique_std_keywords,
+    //         non_unique_nonstd_keywords: self.non_unique_nonstd_keywords,
+    //         keys_with_empty_trimmed_values: self.keys_with_empty_trimmed_values,
+    //         keys_with_trimmed_values: self.keys_with_trimmed_values,
+    //         primary_split,
+    //         supp_split,
+    //         read_text_ns,
+    //     };
+    //     LogResult::new_ok(ret)
+    //         .extend_deferred_errors(es)
+    //         .set_commutative_warnings(ws)
+    // }
 }
 
 impl ValidKeywords {

@@ -11,7 +11,7 @@ use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
 };
-use crate::std_index::tx::StdIndexTx;
+use crate::std_index::index::StdTransaction;
 use crate::text::lookup::{
     MissingKeyError, OptValue, ParseKeyError, ParseKeyError_, ReqKeyErrorInner, ReqKeyErrorInner_,
     ReqValue,
@@ -910,26 +910,26 @@ where
         }
     }
 
-    fn get_req_pair(kws: &StdIndexTx) -> ReqPair<Self::B, Self::E> {
+    fn get_req_pair(kws: &StdTransaction) -> ReqPair<Self::B, Self::E> {
         let x0 = Self::get_req::<Self::B>(kws).map_err(ReqSegmentKeyError::Begin);
         let x1 = Self::get_req::<Self::E>(kws).map_err(ReqSegmentKeyError::End);
         OneOrTwo::from_results(x0, x1)
     }
 
-    fn remove_req_pair(kws: &mut StdIndexTx) -> ReqPair<Self::B, Self::E> {
+    fn remove_req_pair(kws: &mut StdTransaction) -> ReqPair<Self::B, Self::E> {
         let x0 = Self::remove_req::<Self::B>(kws).map_err(ReqSegmentKeyError::Begin);
         let x1 = Self::remove_req::<Self::E>(kws).map_err(ReqSegmentKeyError::End);
         OneOrTwo::from_results(x0, x1)
     }
 
-    fn get_req<K>(kws: &StdIndexTx) -> Result<i128, ReqKeyErrorInner<ParseIntError, K>>
+    fn get_req<K>(kws: &StdTransaction) -> Result<i128, ReqKeyErrorInner<ParseIntError, K>>
     where
         K: ValueToStdKey<Index = ()>,
     {
         lookup_req!(kws, read, K)
     }
 
-    fn remove_req<K>(kws: &mut StdIndexTx) -> Result<i128, ReqKeyErrorInner<ParseIntError, K>>
+    fn remove_req<K>(kws: &mut StdTransaction) -> Result<i128, ReqKeyErrorInner<ParseIntError, K>>
     where
         K: ValueToStdKey<Index = ()>,
     {
@@ -955,7 +955,7 @@ where
     type OtherDataId: HasRegion;
 
     fn get_req_or<C>(
-        kws: &StdIndexTx,
+        kws: &StdTransaction,
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
@@ -973,7 +973,7 @@ where
     }
 
     fn remove_req_or<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
@@ -1189,27 +1189,27 @@ where
         }
     }
 
-    fn get_opt_pair(kws: &StdIndexTx) -> OptPair<Self::B, Self::E> {
+    fn get_opt_pair(kws: &StdTransaction) -> OptPair<Self::B, Self::E> {
         let x0 = Self::get_opt::<Self::B>(kws).map_err(OptSegmentKeyError::Begin);
         let x1 = Self::get_opt::<Self::E>(kws).map_err(OptSegmentKeyError::End);
         OneOrTwo::from_results(x0, x1).map(|(x, y)| x.zip(y))
     }
 
-    fn remove_opt_pair(kws: &mut StdIndexTx) -> OptPair<Self::B, Self::E> {
+    fn remove_opt_pair(kws: &mut StdTransaction) -> OptPair<Self::B, Self::E> {
         // TODO these should process optional keywords the same as everything else
         let x0 = Self::remove_opt::<Self::B>(kws).map_err(OptSegmentKeyError::Begin);
         let x1 = Self::remove_opt::<Self::E>(kws).map_err(OptSegmentKeyError::End);
         OneOrTwo::from_results(x0, x1).map(|(x, y)| x.zip(y))
     }
 
-    fn get_opt<K>(kws: &StdIndexTx) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
+    fn get_opt<K>(kws: &StdTransaction) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
     where
         K: ValueToStdKey<Index = ()>,
     {
         lookup_opt!(kws, read, K)
     }
 
-    fn remove_opt<K>(kws: &mut StdIndexTx) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
+    fn remove_opt<K>(kws: &mut StdTransaction) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
     where
         K: ValueToStdKey<Index = ()>,
     {
@@ -1234,7 +1234,7 @@ where
     type OtherDataId: HasRegion;
 
     fn get_opt_or<C>(
-        kws: &StdIndexTx,
+        kws: &StdTransaction,
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
@@ -1253,7 +1253,7 @@ where
     }
 
     fn remove_opt_or<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,

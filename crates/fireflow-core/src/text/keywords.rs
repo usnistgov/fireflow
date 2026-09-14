@@ -1,11 +1,11 @@
 use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
+use crate::core::DroppedStdKeywords;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
 };
 use crate::macros::impl_newtype_try_from;
 use crate::segment::read::{IsOffsetPair as _, PrimaryTextOffsets};
-use crate::std_index::index::StdIndex;
-use crate::std_index::tx::{KeywordAction, StdIndexTx};
+use crate::std_index::index::{KeywordAction, StdKeywords, StdTransaction};
 use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::keyword_enum::SplitKeyword_;
@@ -27,7 +27,7 @@ use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
 use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
-use crate::validated::keys::{DollarKey, StdKeywords, TruncatedNEString, ValueToStdKey};
+use crate::validated::keys::{DollarKey, PseudoStdKeywords, TruncatedNEString, ValueToStdKey};
 use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
 use crate::validated::unaligned::{U24, U40, U48, U56};
@@ -105,7 +105,7 @@ impl Nextdata {
     // failure since it is read-only. Not sure how to fix this without
     // destroying many other things
     pub(crate) fn lookup_ro<C>(
-        index: &StdIndex,
+        index: &StdKeywords,
         primary_text: &PrimaryTextOffsets,
         st: HeaderReadState<C>,
     ) -> WarningAndErrorResult<
@@ -151,7 +151,7 @@ impl Nextdata {
     }
 
     pub(crate) fn lookup_ro_inner(
-        index: &StdIndex,
+        index: &StdKeywords,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningAndErrorResult<Option<Self>, (), ReadNextdataError, ReadNextdataError> {
         let res = if let Some(s) = NEStr::try_new(index.get(&RootKey::Nextdata.into())) {
@@ -515,7 +515,7 @@ pub struct Gain(pub PositiveFloat);
 
 impl Gain {
     pub(crate) fn lookup_temporal_3_0<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         i: MeasIndex,
         conf: &C,
     ) -> DeferredSwitchableErrors<Option<Self>, DummyTriFlag, LookupTemporalGainError>
@@ -575,7 +575,7 @@ impl Default for Timestep {
 
 impl Timestep {
     pub(crate) fn lookup(
-        std: &mut StdIndexTx,
+        std: &mut StdTransaction,
         conf: &EvaledReadStdKeywordsConfig,
     ) -> Result<Diagnosed<Self, TimestepAdded>, ReqKeyError<Self>> {
         match Self::remove_metaroot_req(std) {
@@ -1486,7 +1486,7 @@ pub struct DfcKeyword {
 
 impl Compensation2_0 {
     pub(crate) fn lookup(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         par: Par,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableErrors<Option<Self>, ProcessOptionalFailure, LookupComp2_0Error> {
@@ -2918,10 +2918,10 @@ impl_from_str_with_delim!(UnstainedCenters, ParseUnstainedCenterError);
 #[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ExtraStdKeywords {
-    pub pseudostandard: StdKeywords,
-    pub hyper_par: StdKeywords,
-    pub hyper_gate: StdKeywords,
-    pub other_version: StdKeywords,
+    pub pseudostandard: PseudoStdKeywords,
+    pub hyper_par: DroppedStdKeywords,
+    pub hyper_gate: DroppedStdKeywords,
+    pub other_version: DroppedStdKeywords,
     pub timestep: Option<NEString>,
 }
 
@@ -3008,7 +3008,7 @@ impl ExtraStdKeywords {
         let mut hyper_gate_es = vec![];
         let mut other_version_es = vec![];
         let mut timestep = None;
-        for (k, v) in kws {
+        for (k, v) in kws.iter_pairs() {
             if let Some(m) = Self::partition_extra_keywords(&k, current_version, par, gate) {
                 match m {
                     ExtraKeywordClass::HyperPar => {
@@ -3490,7 +3490,7 @@ impl ValueToStdKey for Dfc {
 
 impl Dfc {
     pub(crate) fn lookup(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         i: BiMeasIndex,
         flag: ProcessOptionalFailure,
     ) -> Result<Option<Self>, LookupDfcError> {

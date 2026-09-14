@@ -58,7 +58,7 @@ use crate::segment::read::{
     TextToHeaderOrSuppOffsetsOverlap,
 };
 use crate::segment::read::{PrimaryTextOffsets, SupplementalTextOffsets};
-use crate::std_index::tx::StdIndexTx;
+use crate::std_index::index::{RepairCollisionError, RepairDiagnostics, StdTransaction};
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, DatetimesDiagnostics, EndDateTime, LookupDatetimesError,
     ReversedDatetimesError,
@@ -112,8 +112,8 @@ use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
-    DollarKey, NonStdKeywords, NonStdKeywordsExt as _, RepairCollisionError, RepairDiagnostics,
-    StdKeywords, StringOrBytes, ValidKeywords, ValueToStdKey as _,
+    DollarKey, NonStdKeywords, NonStdKeywordsExt as _, PseudoStdKeywords, StringOrBytes,
+    ValidKeywords, ValueToStdKey as _,
 };
 use crate::validated::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
@@ -1101,25 +1101,27 @@ impl WriteHeaderAndTextConfig<'_> {
     }
 }
 
+pub(crate) type DroppedStdKeywords = HashMap<StdKey, NEString>;
+
 /// Diagnostic output from standardizing TEXT
 #[derive(Clone, PartialEq, new)]
 #[allow(clippy::too_many_arguments)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct StdTEXTDiagnostics {
     /// Optional keys which could not be parsed
-    pub optional: StdKeywords,
+    pub optional: DroppedStdKeywords,
 
     /// Keys which start with `"$"` but are not part of the standard.
-    pub pseudostandard: StdKeywords,
+    pub pseudostandard: PseudoStdKeywords,
 
     /// Standard $Pn* keys where `n` is higher than $PAR
-    pub hyper_par: StdKeywords,
+    pub hyper_par: DroppedStdKeywords,
 
     /// Standard $Gn* keys where `n` is higher than $GATE
-    pub hyper_gate: StdKeywords,
+    pub hyper_gate: DroppedStdKeywords,
 
     /// Keys which do not belong in this version but are valid in another.
-    pub other_version: StdKeywords,
+    pub other_version: DroppedStdKeywords,
 
     /// $TIMESTEP if it is given but not used.
     pub timestep: Option<NEString>,
@@ -1183,7 +1185,7 @@ impl StdTEXTDiagnostics {
     #[allow(clippy::too_many_arguments)]
     fn from_extra(
         extra: ExtraStdKeywords,
-        optional: StdKeywords,
+        optional: DroppedStdKeywords,
         original_names: Vec<Option<Shortname>>,
         metaroot: MetarootDiagnostics,
         meas: MeasurementDiagnostics,
@@ -2130,7 +2132,7 @@ pub(crate) struct LookupFlatDatasetTimings {
 pub(crate) trait PrivVersionSet: VersionSet {
     fn h_lookup_and_read<C, R>(
         h: &mut BufReader<R>,
-        kws: &mut ValidKeywords,
+        kws: ValidKeywords,
         hns: &mut HeaderAndSuppOffsets,
         start_time: Instant,
         st: &TEXTReadState<C>,
@@ -2156,7 +2158,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
             offsets: ReadOffsetConfig,
         }
 
-        eval_data_conf(st.conf().as_ref(), kws)
+        eval_data_conf(st.conf().as_ref(), &kws)
             .map_ok_value(|data_kws| {
                 st.as_ref().first_once(|conf| LookupConfig {
                     data_kws,
@@ -2170,7 +2172,8 @@ pub(crate) trait PrivVersionSet: VersionSet {
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|lst| {
                 // Repair the keyword list before doing anything.
-                let repair_res = kws
+                let mut tx = kws.std.into_transation();
+                let repair_res = tx
                     .repair(&lst.conf().data_kws)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_errors(LookupAndReadDataAnalysisError::from)
@@ -2180,15 +2183,15 @@ pub(crate) trait PrivVersionSet: VersionSet {
                 // timing, since now offset lookup is considered part of data
                 // schema lookup, but if this were flipped with the next
                 // expression it would be counted as part of DATA read
-                let offset_res = Self::Offsets::lookup_ro(kws, hns, &lst)
+                let offset_res = Self::Offsets::lookup_ro(&tx, hns, &lst)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_errors(LookupAndReadDataAnalysisError::from);
 
-                let layout_res = Par::get_metaroot_req(kws)
+                let layout_res = Par::get_metaroot_req(&tx)
                     .map_err(LookupAndReadDataAnalysisError::from)
                     .into_log()
                     .and_then_commutative(|par| {
-                        Self::DataSchema::lookup_ro(kws, par, start_time, lst.conf().as_ref())
+                        Self::DataSchema::lookup_ro(&tx, par, start_time, lst.conf().as_ref())
                             .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                             .map_errors(LookupAndReadDataAnalysisError::from)
                     });
@@ -2245,7 +2248,7 @@ impl PrivVersionSet for Version3_2 {}
 
 pub trait LookupMetaroot<N>: Sized {
     fn lookup_specific<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         ms: &[N],
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
@@ -2255,7 +2258,7 @@ pub trait LookupMetaroot<N>: Sized {
 
 impl LookupMetaroot<Option<Shortname>> for InnerRootMeta2_0 {
     fn lookup_specific<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         ms: &[Option<Shortname>],
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
@@ -2292,7 +2295,7 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta2_0 {
 
 impl LookupMetaroot<Option<Shortname>> for InnerRootMeta3_0 {
     fn lookup_specific<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         _: &[Option<Shortname>],
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
@@ -2347,7 +2350,7 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta3_0 {
 
 impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_1 {
     fn lookup_specific<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         ms: &[Identity<Shortname>],
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
@@ -2405,7 +2408,7 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_1 {
 
 impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_2 {
     fn lookup_specific<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         ms: &[Identity<Shortname>],
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
@@ -2487,7 +2490,7 @@ pub trait LookupTEXTOffsets: Sized {
     type TotDef: IsTot;
 
     fn lookup<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -2495,7 +2498,7 @@ pub trait LookupTEXTOffsets: Sized {
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>;
 
     fn lookup_ro<C>(
-        kws: &StdIndexTx,
+        kws: &StdTransaction,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -2507,7 +2510,7 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
     type TotDef = Option<Tot>;
 
     fn lookup<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -2527,7 +2530,7 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
     }
 
     fn lookup_ro<C>(
-        kws: &StdIndexTx,
+        kws: &StdTransaction,
         offsets: &mut HeaderAndSuppOffsets,
         _: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -2578,7 +2581,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_0 {
     type TotDef = Identity<Tot>;
 
     fn lookup<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -2589,7 +2592,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_0 {
     }
 
     fn lookup_ro<C>(
-        kws: &StdIndexTx,
+        kws: &StdTransaction,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -2633,7 +2636,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_2 {
     type TotDef = Identity<Tot>;
 
     fn lookup<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -2651,7 +2654,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_2 {
     }
 
     fn lookup_ro<C>(
-        kws: &StdIndexTx,
+        kws: &StdTransaction,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -3451,7 +3454,7 @@ impl<M: VersionedRootMeta> RootMeta<M> {
     }
 
     fn lookup_metaroot<C, N>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         ms: &[N],
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
@@ -5615,7 +5618,7 @@ where
 
     #[allow(clippy::type_complexity)]
     fn lookup_names<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         par: Par,
         conf: &C,
     ) -> WarningsAndErrorsResult<
@@ -5649,7 +5652,7 @@ where
     }
 
     fn lookup_measurements<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         names: Vec<V::Name>,
         dts: &[AlphaNumType],
         conf: &C,
@@ -5770,7 +5773,8 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             + AsRef<ReadOffsetConfig>,
     {
         // Repair the keyword list before doing anything.
-        let repair_res = kws
+        let mut tx = kws.std.into_transation();
+        let repair_res = tx
             .repair(st.conf().as_ref())
             .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
             .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
@@ -5780,11 +5784,11 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         // Core struct but they will be needed later for parsing DATA and
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
-        let offsets_res = V::Offsets::lookup(&mut kws, offsets, st)
+        let offsets_res = V::Offsets::lookup(&mut tx, offsets, st)
             .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
             .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
 
-        Self::lookup_inner(kws, start_time, st.conf())
+        Self::lookup_inner(tx, start_time, st.conf())
             .zip3_commutative(offsets_res, repair_res)
             .map_ok_value(|(core, core_offsets, repair_diag)| {
                 LookupCoreWithOffsetOutput::new(core, core_offsets, repair_diag)
@@ -5834,13 +5838,14 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             .nowarn_into_warn()
             .group()
             .and_then_commutative(|lconf| {
-                let repair_res = kws
+                let mut tx = kws.std.into_transation();
+                let repair_res = tx
                     .repair(&lconf.data)
                     .map_errors(StdTEXTFromKeywordsError::from)
                     .map_commutative_warnings(StdTEXTFromKeywordsWarning::from)
                     .into_semigroup();
 
-                Self::lookup_inner(kws, start_time, &lconf)
+                Self::lookup_inner(tx, start_time, &lconf)
                     .map_errors(StdTEXTFromKeywordsError::from)
                     .map_commutative_warnings(StdTEXTFromKeywordsWarning::from)
                     .zip_commutative(repair_res)
@@ -5851,7 +5856,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
 
     #[allow(clippy::too_many_lines)]
     fn lookup_inner<C>(
-        mut kws: StdIndexTx,
+        mut kws: StdTransaction,
         start_time: Instant,
         conf: &C,
     ) -> WarningsAndErrorsResult<
@@ -7168,7 +7173,7 @@ impl AnyCoreDataset {
 
 impl UnstainedData {
     fn lookup<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         conf: &C,
     ) -> DeferredSwitchableError<
         DiagnosedUnstainedData<Self>,
@@ -7194,7 +7199,7 @@ impl UnstainedData {
 
 impl SubsetData {
     fn lookup(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupSubsetError, LookupSubsetError> {
         let f = CSVFlags::lookup(kws, conf).map_warnings_and_errors(LookupSubsetError::from);
@@ -7221,7 +7226,7 @@ impl SubsetData {
 
 impl CSVFlags {
     fn lookup(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupCSVFlagsError, LookupCSVFlagsError> {
         CSMode::remove_or_drop_root_opt(kws, conf)
@@ -7262,7 +7267,7 @@ impl CSVFlags {
 
 impl ModificationData {
     fn lookup<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
         Diagnosed<Self, Option<String>>,
@@ -7296,7 +7301,7 @@ impl ModificationData {
 }
 
 impl CarrierData {
-    fn lookup(kws: &mut StdIndexTx) -> Self {
+    fn lookup(kws: &mut StdTransaction) -> Self {
         let l = Locationid::remove_root_opt_nofail(kws);
         let i = Carrierid::remove_root_opt_nofail(kws);
         let t = Carriertype::remove_root_opt_nofail(kws);
@@ -7312,7 +7317,7 @@ impl CarrierData {
 }
 
 impl PlateData {
-    fn lookup(kws: &mut StdIndexTx) -> Self {
+    fn lookup(kws: &mut StdTransaction) -> Self {
         let w = Wellid::remove_root_opt_nofail(kws);
         let n = Platename::remove_root_opt_nofail(kws);
         let i = Plateid::remove_root_opt_nofail(kws);

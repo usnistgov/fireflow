@@ -16,8 +16,7 @@ use crate::segment::write::{
     PrimaryTextOffsetsToWrite, SupplementalTextOffsetsToWrite, TEXTAnalysisOffsetsToWrite,
     TEXTDataOffsetsToWrite,
 };
-use crate::std_index::index::StdIndex;
-use crate::std_index::tx::StdIndexTx;
+use crate::std_index::index::{StdTransaction, StdKeywords};
 use crate::text::keyword_enum::{
     AnyKeyword, Escaped, Keyword0FromValue as _, NEStringKeyword, OffsetKeyword, OptKeyword,
     OptRootKeyword, ReqKeyword, StdOrNonStdOptRootKeyword,
@@ -31,7 +30,7 @@ use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZe
 use crate::validated::header_offsets::{
     FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
 };
-use crate::validated::keys::{DollarKey, StdKeywords, ValueToStdKey as _};
+use crate::validated::keys::{DollarKey, ValueToStdKey as _};
 use crate::validated::read_state::{DatasetOffset, HeaderReadState, WriteFCSDigest};
 
 use fireflow_types::std_key::{RootKey, ToStd};
@@ -320,7 +319,7 @@ fn read_version(buf: &HeaderBuf) -> Result<Version, VersionError> {
 
 pub(crate) fn autodetect_version(
     version: Version,
-    kws: &StdIndex,
+    kws: &StdKeywords,
     ver_override: Option<&VersionOverride>,
 ) -> Result<(Version, Option<KeywordVersionScores>), GuessVersionError> {
     match ver_override {

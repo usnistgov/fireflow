@@ -6,7 +6,7 @@ use crate::logging::{
     DeferredIter as _, DeferredSwitchableErrors, DeferredWarningsAndErrors, LogResult,
     ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
 };
-use crate::std_index::tx::{KeywordAction, StdIndexTx};
+use crate::std_index::index::{KeywordAction, StdTransaction};
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, GateMeasKeyword, Keyword0FromValue as _, Keyword1FromValue as _,
     OptRootKeyword, RegionKeyword, SplitKeyword,
@@ -331,7 +331,7 @@ impl<I> AppliedGatesPre3_2<I> {
 
     #[allow(clippy::type_complexity)]
     pub(crate) fn lookup<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         conf: &C,
     ) -> WarningsAndErrorsResult<
         Diagnosed<Self, AppliedGatesDiagnostics>,
@@ -500,7 +500,7 @@ impl AppliedGates3_2 {
     }
 
     pub(crate) fn lookup<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         conf: &C,
     ) -> WarningsAndErrorsResult<
         Diagnosed<Self, AppliedGatesDiagnostics>,
@@ -529,7 +529,7 @@ impl AppliedGates3_2 {
 
 impl GatedMeasurement {
     fn lookup<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         i: GateIndex,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
@@ -586,7 +586,7 @@ impl GatedMeasurement {
         [x0, x1, x2, x3, x4, x5, x6, x7].into_iter().flatten()
     }
 
-    fn set_action(self, i: GateIndex, kws: &mut StdIndexTx, a: KeywordAction) {
+    fn set_action(self, i: GateIndex, kws: &mut StdTransaction, a: KeywordAction) {
         for x in self.opt_keywords(i) {
             let k = x.as_std_key();
             kws.set_action_at_key(&k, a);
@@ -739,7 +739,7 @@ impl<I> GatingScheme<I> {
 
     #[allow(clippy::type_complexity)]
     fn lookup<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
         Diagnosed<Self, TrimmedKeywords>,
@@ -789,7 +789,7 @@ impl<I> GatingScheme<I> {
             })
     }
 
-    fn set_action(self, kws: &mut StdIndexTx, a: KeywordAction)
+    fn set_action(self, kws: &mut StdTransaction, a: KeywordAction)
     where
         I: Copy,
         RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
@@ -870,7 +870,7 @@ impl<I> Region<I> {
 
     #[allow(clippy::type_complexity)]
     fn lookup<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         ri: RegionIndex,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
@@ -937,7 +937,7 @@ impl<I> Region<I> {
             })
     }
 
-    pub(crate) fn set_action<'a>(&'a self, i: RegionIndex, kws: &mut StdIndexTx, a: KeywordAction)
+    pub(crate) fn set_action<'a>(&'a self, i: RegionIndex, kws: &mut StdTransaction, a: KeywordAction)
     where
         I: Copy,
         RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
@@ -1076,7 +1076,7 @@ impl GatedMeasurements {
         }
     }
 
-    fn set_action(self, kws: &mut StdIndexTx, a: KeywordAction) {
+    fn set_action(self, kws: &mut StdTransaction, a: KeywordAction) {
         if let Some(k) = self.gate().map(|v| v.std0_()) {
             kws.set_action_at_key(&k, a);
         }
@@ -1086,7 +1086,7 @@ impl GatedMeasurements {
     }
 
     fn lookup<C>(
-        kws: &mut StdIndexTx,
+        kws: &mut StdTransaction,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
         Diagnosed<Self, Vec<ScaleFix>>,

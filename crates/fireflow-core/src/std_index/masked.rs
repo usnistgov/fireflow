@@ -2,7 +2,9 @@ use fireflow_types::std_key::{AnyIndex, StdKey};
 
 use crate::validated::dataframe::HasLen;
 
-use super::nested_string::{IterKeywords, NestedString, NestedStringSize};
+use super::nested_string::{
+    IterKeywords, NestedEnumString, NestedString, NestedStringSize, NestedVariableString,
+};
 
 use std::{
     marker::PhantomData,
@@ -20,9 +22,9 @@ pub struct MaskedString<I, K, C, M> {
 }
 
 impl<const LEN: usize, K, M: Default + Copy> MaskedEnumString<LEN, K, M> {
-    pub fn init_array(n_bytes: usize) -> Self {
+    pub fn init_array(inner: NestedEnumString<LEN, K>) -> Self {
         Self {
-            inner: NestedString::init_array(n_bytes),
+            inner,
             mask: [M::default(); LEN],
             _mask_element: PhantomData,
         }
@@ -30,10 +32,11 @@ impl<const LEN: usize, K, M: Default + Copy> MaskedEnumString<LEN, K, M> {
 }
 
 impl<K, M: Default + Copy> MaskedVariableString<K, M> {
-    pub fn init_var(size: &NestedStringSize) -> Self {
+    pub fn init_var(inner: NestedVariableString<K>) -> Self {
+        let n = inner.n_strings();
         Self {
-            inner: NestedString::init_var(size),
-            mask: vec![M::default(); size.n_strings],
+            inner,
+            mask: vec![M::default(); n],
             _mask_element: PhantomData,
         }
     }

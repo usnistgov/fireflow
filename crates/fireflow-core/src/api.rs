@@ -33,7 +33,7 @@ use crate::segment::read::{
     SuppOffsetsOverflow, SuppTextOffsetsName, SuppToHeaderOffsetsOverlap, SupplementalTextOffsets,
     TEXTOffsets, TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
 };
-use crate::std_index::index::StdIndex;
+use crate::std_index::index::{RepairDiagnostics, StdKeywords};
 use crate::text::keywords::{
     AlphaNumType, Beginstext, Endstext, LookupNextdataError, Nextdata, ReadNextdataError, Tot,
 };
@@ -47,9 +47,8 @@ use crate::validated::header_offsets::{
 };
 use crate::validated::keys::{
     AnyKey, KeyOrBytes, NEDelimBytes, NEStringOrBytes, NonStdKey, ParsedKeyword,
-    ParsedKeywordCounts, ParsedKeywords, ParsedKeywordsDiagnostic, ParsedNonStdKeywords,
-    RepairDiagnostics, StdKeywords, StringOrBytes, TruncatedNEBytes, TruncatedNEString,
-    ValidKeywords, ValueToStdKey,
+    ParsedKeywordCounts, ParsedKeywordsDiagnostic, ParsedNonStdKeywords, StringOrBytes,
+    TruncatedNEBytes, TruncatedNEString, ValidKeywords, ValueToStdKey,
 };
 use crate::validated::read_state::{
     DatasetLen, DatasetOffset, DatasetOffsetError, FileLen, HeaderReadState, TEXTReadState,
@@ -213,7 +212,7 @@ pub fn fcs_read_std_dataset(
 pub fn fcs_read_flat_dataset_with_keywords(
     path: &PathBuf,
     mut hns: HeaderAndSuppOffsets,
-    kws: &mut ValidKeywords,
+    kws: ValidKeywords,
     dataset_offset: DatasetOffset,
     dataset_len: Option<DatasetLen>,
     conf: &ReadFlatDatasetFromKeywordsConfig,
@@ -1371,7 +1370,7 @@ impl FCSFileReader {
                 FlatDatasetFromKwsOutput::h_read_with_header_and_text(
                     &mut self.buf_read,
                     new_ver,
-                    &mut kws,
+                    kws,
                     hns,
                     scan_next_dataset,
                     out.read_end,
@@ -1818,7 +1817,7 @@ impl FlatDatasetFromKwsOutput {
     fn h_read_with_header_and_text<C, R>(
         h: &mut BufReader<R>,
         new_version: Version,
-        kws: &mut ValidKeywords,
+        kws: ValidKeywords,
         hns: &mut HeaderAndSuppOffsets,
         scan_next_dataset: bool,
         start_time: Instant,
@@ -2134,7 +2133,7 @@ impl SplitTEXTDiagnostics {
         nonstd: &mut ParsedNonStdKeywords,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndIOGroupResult<
-        (StdIndex, Self),
+        (StdKeywords, Self),
         ParseSupplementalTEXTError,
         ParseSupplementalTEXTError,
         (),
@@ -2154,7 +2153,7 @@ impl SplitTEXTDiagnostics {
         enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<
-        (StdIndex, ParsedNonStdKeywords, Self),
+        (StdKeywords, ParsedNonStdKeywords, Self),
         (),
         ParseKeywordsIssue,
         ParseKeywordsIssue,
@@ -2175,7 +2174,7 @@ impl SplitTEXTDiagnostics {
         enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<
-        (StdIndex, Self),
+        (StdKeywords, Self),
         (),
         ParseSupplementalTEXTError,
         ParseSupplementalTEXTError,
@@ -2209,7 +2208,8 @@ impl SplitTEXTDiagnostics {
         raw_tokens: &NESlice<&'_ [u8]>,
         enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningsAndErrorsResult<(StdIndex, Self), (), ParseKeywordsIssue, ParseKeywordsIssue> {
+    ) -> WarningsAndErrorsResult<(StdKeywords, Self), (), ParseKeywordsIssue, ParseKeywordsIssue>
+    {
         let escaped = GuessedEscapeMode::is_escaped(raw_tokens, conf.delim_escape_mode);
         let trim = conf.trim_value_whitespace.is_trim();
         let (index, diag) = if escaped {
@@ -2350,7 +2350,7 @@ impl SplitTEXTDiagnostics {
         segs: &NESlice<&[u8]>,
         trim: bool,
         enc: Encoding,
-    ) -> (StdIndex, Self) {
+    ) -> (StdKeywords, Self) {
         let mut diag = ParsedKeywordsDiagnostic::default();
         let mut extra_leading_delims = 0;
         let mut tokens_with_boundary_delims = vec![];
@@ -2410,7 +2410,7 @@ impl SplitTEXTDiagnostics {
                 extra_leading_delims,
                 diag,
             );
-            return (StdIndex::default(), text_diag);
+            return (StdKeywords::default(), text_diag);
         };
 
         // Determine if the number of delimiters is even or odd, throw an error
@@ -2505,13 +2505,13 @@ impl SplitTEXTDiagnostics {
             for p in parsed {
                 p.dispatch_slice_only(&mut std, nonstd, &mut diag);
             }
-            StdIndex::from_vec(std)
+            StdKeywords::from_vec(std)
         } else {
             let mut std = Vec::with_capacity(counts.n_std_slice_kws + counts.n_std_owned_kws);
             for p in parsed {
                 p.dispatch_slice_or_owned(&mut std, nonstd, &mut diag);
             }
-            StdIndex::from_vec(std)
+            StdKeywords::from_vec(std)
         };
 
         diag.non_unique_std_keywords = non_unique_std;
@@ -2533,7 +2533,7 @@ impl SplitTEXTDiagnostics {
         segs: &NESlice<&[u8]>,
         trim: bool,
         enc: Encoding,
-    ) -> (StdIndex, Self) {
+    ) -> (StdKeywords, Self) {
         let (pairs, extra_token, has_even_tokens) = Self::trim_tokens_end(segs);
 
         let has_even_delims = !has_even_tokens;
@@ -2599,7 +2599,7 @@ impl SplitTEXTDiagnostics {
                     Unescaped::EmptyPair => (),
                 }
             }
-            StdIndex::from_vec(std)
+            StdKeywords::from_vec(std)
         } else {
             let mut std = Vec::with_capacity(counts.n_std_slice_kws + counts.n_std_owned_kws);
             for p in parsed {
@@ -2610,7 +2610,7 @@ impl SplitTEXTDiagnostics {
                     Unescaped::EmptyPair => (),
                 }
             }
-            StdIndex::from_vec(std)
+            StdKeywords::from_vec(std)
         };
 
         diag.non_unique_std_keywords = non_unique_std;
@@ -2771,7 +2771,7 @@ impl SuppTEXTOffsetsOutput {
 
     #[allow(clippy::too_many_lines)]
     fn lookup<C>(
-        index: &StdIndex,
+        index: &StdKeywords,
         header: &mut Header,
         st: &TEXTReadState<C>,
     ) -> WarningsAndErrorsResult<Self, (), STextOffsetsWarning, STextOffsetsError>
@@ -2785,7 +2785,7 @@ impl SuppTEXTOffsetsOutput {
             Valid(SupplementalTextOffsets, OriginalOffsets),
         }
 
-        fn get_req<T>(index: &StdIndex) -> Result<i128, ReqKeyErrorInner_<ParseIntError, T, ()>>
+        fn get_req<T>(index: &StdKeywords) -> Result<i128, ReqKeyErrorInner_<ParseIntError, T, ()>>
         where
             T: ValueToStdKey<Index = ()>,
         {
@@ -2799,7 +2799,7 @@ impl SuppTEXTOffsetsOutput {
             }
         }
 
-        fn get_opt<T>(index: &StdIndex) -> Result<Option<i128>, ParseKeyError<ParseIntError, T>>
+        fn get_opt<T>(index: &StdKeywords) -> Result<Option<i128>, ParseKeyError<ParseIntError, T>>
         where
             T: ValueToStdKey<Index = ()>,
         {
@@ -3162,7 +3162,7 @@ impl SuppTEXTOffsetsOutput {
 fn kws_to_flat_dataset<C, R>(
     new_version: Version,
     h: &mut BufReader<R>,
-    kws: &mut ValidKeywords,
+    kws: ValidKeywords,
     hns: &mut HeaderAndSuppOffsets,
     start_time: Instant,
     st: &TEXTReadState<C>,

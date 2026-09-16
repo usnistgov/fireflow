@@ -49,7 +49,7 @@ use {
     pyo3::prelude::*,
 };
 
-type LookupRoot = LookupEnumString<N_ROOT, RootKey>;
+type LookupRoot<'a> = LookupEnumString<'a, N_ROOT, RootKey>;
 
 type OpticalOnlyResult = WarningsAndErrorsResult<
     Vec<(StdKey, NEString)>,
@@ -60,20 +60,6 @@ type OpticalOnlyResult = WarningsAndErrorsResult<
 
 pub type NestedRoot = NestedEnumString<N_ROOT, RootKey>;
 
-// pub type IterStdKeywords<'a> = Chain<
-//     Chain<
-//         Chain<
-//             Chain<
-//                 Chain<IterEnumKeywords<'a, N_ROOT, RootKey>, IterVariableKeywords<'a, (), MeasKey>>,
-//                 IterVariableKeywords<'a, (), GateKey>,
-//             >,
-//             IterVariableKeywords<'a, (), RegionKey>,
-//         >,
-//         IterVariableKeywords<'a, (), CsvFlagKey>,
-//     >,
-//     IterVariableKeywords<'a, usize, DfcKey>,
-// >;
-
 pub(crate) type DroppedStdKeywords = Vec<(StdKey, NEString)>;
 pub(crate) type DroppedPseudoStdKeywords = Vec<(PseudoStdKey, NEString)>;
 
@@ -82,7 +68,6 @@ pub(crate) type DroppedPseudoStdKeywords = Vec<(PseudoStdKey, NEString)>;
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ExtraStdKeywords {
     pub optional: DroppedStdKeywords,
-    // pub pseudostandard: DroppedPseudoStdKeywords,
     pub hyper_par: DroppedStdKeywords,
     pub hyper_gate: DroppedStdKeywords,
     pub other_version: DroppedStdKeywords,
@@ -228,13 +213,13 @@ pub struct StdKeywords {
     dfc: NestedVariableString<DfcKey, usize>,
 }
 
-pub(crate) struct StdTransaction {
-    root: LookupRoot,
-    meas: LookupVariableString<MeasKey, ()>,
-    gate: LookupVariableString<GateKey, ()>,
-    region: LookupVariableString<RegionKey, ()>,
-    csv_flag: LookupVariableString<CsvFlagKey, ()>,
-    dfc: LookupVariableString<DfcKey, usize>,
+pub(crate) struct StdTransaction<'a> {
+    root: LookupRoot<'a>,
+    meas: LookupVariableString<'a, MeasKey, ()>,
+    gate: LookupVariableString<'a, GateKey, ()>,
+    region: LookupVariableString<'a, RegionKey, ()>,
+    csv_flag: LookupVariableString<'a, CsvFlagKey, ()>,
+    dfc: LookupVariableString<'a, DfcKey, usize>,
 }
 
 impl Default for StdKeywords {
@@ -359,14 +344,14 @@ impl StdKeywords {
         }
     }
 
-    pub(crate) fn into_transaction(self) -> StdTransaction {
+    pub(crate) fn into_transaction<'a>(&'a self) -> StdTransaction<'a> {
         StdTransaction {
-            root: MaskedString::init_lookup_array(self.root),
-            meas: MaskedString::init_lookup_var(self.meas),
-            gate: MaskedString::init_lookup_var(self.gate),
-            region: MaskedString::init_lookup_var(self.region),
-            csv_flag: MaskedString::init_lookup_var(self.csv_flag),
-            dfc: MaskedString::init_lookup_var(self.dfc),
+            root: MaskedString::init_lookup_array(&self.root),
+            meas: MaskedString::init_lookup_var(&self.meas),
+            gate: MaskedString::init_lookup_var(&self.gate),
+            region: MaskedString::init_lookup_var(&self.region),
+            csv_flag: MaskedString::init_lookup_var(&self.csv_flag),
+            dfc: MaskedString::init_lookup_var(&self.dfc),
         }
     }
 
@@ -553,7 +538,7 @@ impl StdKeywords {
     }
 }
 
-impl StdTransaction {
+impl<'a> StdTransaction<'a> {
     pub(crate) fn repair(
         &mut self,
         conf: &EvaledReadDataKeywordsConfig,

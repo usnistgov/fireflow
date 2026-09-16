@@ -2,7 +2,6 @@ use crate::std_index::nested_string::{
     Iter, IterStd, NestedEnumString, NestedString, NestedVariableString,
 };
 use crate::validated::dataframe::HasLen;
-use crate::validated::keys::NonStdKey;
 
 use Edit::Remove;
 use fireflow_types::nonempty::NEStr;
@@ -19,20 +18,20 @@ use std::{
 
 use super::index::LookupAction;
 
-pub type RepairEnumString<const LEN: usize, K> =
-    MaskedString<[usize; LEN], (), K, [RepairStatus; LEN], RepairStatus>;
+pub type RepairEnumString<'a, const LEN: usize, K> =
+    MaskedString<'a, [usize; LEN], (), K, [RepairStatus; LEN], RepairStatus>;
 
-pub type RepairVariableString<K, S> =
-    MaskedString<Vec<usize>, S, K, Vec<RepairStatus>, RepairStatus>;
+pub type RepairVariableString<'a, K, S> =
+    MaskedString<'a, Vec<usize>, S, K, Vec<RepairStatus>, RepairStatus>;
 
-pub type LookupEnumString<const LEN: usize, K> =
-    MaskedString<[usize; LEN], (), K, [LookupStatus; LEN], LookupStatus>;
+pub type LookupEnumString<'a, const LEN: usize, K> =
+    MaskedString<'a, [usize; LEN], (), K, [LookupStatus; LEN], LookupStatus>;
 
-pub type LookupVariableString<K, S> =
-    MaskedString<Vec<usize>, S, K, Vec<LookupStatus>, LookupStatus>;
+pub type LookupVariableString<'a, K, S> =
+    MaskedString<'a, Vec<usize>, S, K, Vec<LookupStatus>, LookupStatus>;
 
-pub struct MaskedString<I, S, K, C, M> {
-    inner: NestedString<I, S, K>,
+pub struct MaskedString<'a, I, S, K, C, M> {
+    inner: &'a NestedString<I, S, K>,
     mask: C,
     _mask_element: PhantomData<M>,
 }
@@ -222,8 +221,8 @@ impl Default for LookupStatus {
     }
 }
 
-impl<const LEN: usize, K> RepairEnumString<LEN, K> {
-    pub fn init_repair_array(inner: NestedEnumString<LEN, K>) -> Self
+impl<'a, const LEN: usize, K> RepairEnumString<'a, LEN, K> {
+    pub fn init_repair_array(inner: &'a NestedEnumString<LEN, K>) -> Self
     where
         K: AnyIndex<SubDimension = ()>,
     {
@@ -241,8 +240,8 @@ impl<const LEN: usize, K> RepairEnumString<LEN, K> {
     }
 }
 
-impl<K, S> RepairVariableString<K, S> {
-    pub fn init_repair_var(inner: NestedVariableString<K, S>) -> Self
+impl<'a, K, S> RepairVariableString<'a, K, S> {
+    pub fn init_repair_var(inner: &'a NestedVariableString<K, S>) -> Self
     where
         K: AnyIndex<SubDimension = S>,
     {
@@ -262,8 +261,8 @@ impl<K, S> RepairVariableString<K, S> {
     }
 }
 
-impl<const LEN: usize, K> LookupEnumString<LEN, K> {
-    pub fn init_lookup_array(inner: NestedEnumString<LEN, K>) -> Self {
+impl<'a, const LEN: usize, K> LookupEnumString<'a, LEN, K> {
+    pub fn init_lookup_array(inner: &'a NestedEnumString<LEN, K>) -> Self {
         Self {
             inner,
             mask: [LookupStatus::default(); LEN],
@@ -272,8 +271,8 @@ impl<const LEN: usize, K> LookupEnumString<LEN, K> {
     }
 }
 
-impl<K, S> LookupVariableString<K, S> {
-    pub fn init_lookup_var(inner: NestedVariableString<K, S>) -> Self {
+impl<'a, K, S> LookupVariableString<'a, K, S> {
+    pub fn init_lookup_var(inner: &'a NestedVariableString<K, S>) -> Self {
         let n = inner.n_strings();
         Self {
             inner,
@@ -283,7 +282,7 @@ impl<K, S> LookupVariableString<K, S> {
     }
 }
 
-impl<I, S, K, C> MaskedString<I, S, K, C, LookupStatus> {
+impl<'a, I, S, K, C> MaskedString<'a, I, S, K, C, LookupStatus> {
     pub(crate) fn parse_unseen<F, X>(&mut self, k: &K, f: F) -> Option<X>
     where
         F: FnOnce(&NEStr) -> (Option<LookupAction>, X),
@@ -354,13 +353,13 @@ impl<I, S, K, C> MaskedString<I, S, K, C, LookupStatus> {
         }
     }
 
-    pub(crate) fn iter_masked<'a>(
-        &'a self,
-    ) -> impl Iterator<Item = (K, &'a NEStr, &'a LookupStatus)>
+    pub(crate) fn iter_masked<'b>(
+        &'b self,
+    ) -> impl Iterator<Item = (K, &'a NEStr, &'b LookupStatus)>
     where
         I: HasLen + Index<usize, Output = usize>,
         K: AnyIndex<SubDimension = S>,
-        &'a C: IntoIterator<Item = &'a LookupStatus>,
+        &'b C: IntoIterator<Item = &'b LookupStatus> + 'a,
     {
         self.iter()
             .zip(self.mask.into_iter())
@@ -368,7 +367,7 @@ impl<I, S, K, C> MaskedString<I, S, K, C, LookupStatus> {
     }
 }
 
-impl<I, S, K, C, M> MaskedString<I, S, K, C, M> {
+impl<'a, I, S, K, C, M> MaskedString<'a, I, S, K, C, M> {
     pub fn get_value(&self, k: &K) -> &str
     where
         I: HasLen + Index<usize, Output = usize>,
@@ -413,7 +412,7 @@ impl<I, S, K, C, M> MaskedString<I, S, K, C, M> {
         &mut self.mask[i]
     }
 
-    pub(crate) fn iter_std<'a>(&'a self) -> IterStd<'a, I, K>
+    pub(crate) fn iter_std<'b>(&'b self) -> IterStd<'b, I, K>
     where
         I: HasLen + Index<usize, Output = usize>,
         K: AnyIndex<SubDimension = S> + Into<StdKey>,
@@ -421,7 +420,7 @@ impl<I, S, K, C, M> MaskedString<I, S, K, C, M> {
         self.inner.iter_std()
     }
 
-    pub(crate) fn iter<'a>(&'a self) -> Iter<'a, I, K>
+    pub(crate) fn iter<'b>(&'b self) -> Iter<'b, I, K>
     where
         I: HasLen + Index<usize, Output = usize>,
         K: AnyIndex<SubDimension = S>,

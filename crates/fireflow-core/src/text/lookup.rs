@@ -8,8 +8,7 @@ use crate::validated::keys::{
 
 use fireflow_types::{
     config::{
-        ConfigFlag as _, DummyTriFlag, KeywordFailureFlag as _, ProcessOptionalFailure,
-        TrimIntraValueWhitespace,
+        ConfigFlag as _, KeywordFailureFlag as _, ProcessOptionalFailure, TrimIntraValueWhitespace,
     },
     nonempty::{NEStr, NEString},
     std_key::StdKey,
@@ -710,20 +709,20 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
             .map_err(ReqKeyErrorInner::from)
     }
 
-    fn get_req_inner<'a, 'b>(
-        kws: &'b StdTransaction<'a>,
+    fn get_req_inner<'a>(
+        kws: &'a StdTransaction,
         i: Self::Index,
-    ) -> Result<&'b NEStr, MissingKeyError<Self>> {
+    ) -> Result<&'a NEStr, MissingKeyError<Self>> {
         match kws.read::<Self>(&i) {
             Some(v) => Ok(v),
             None => Err(MissingKeyError::new1(i)),
         }
     }
 
-    fn remove_req_inner<'a, 'b>(
-        kws: &'b mut StdTransaction<'a>,
+    fn remove_req_inner<'a>(
+        kws: &'a mut StdTransaction,
         i: Self::Index,
-    ) -> Result<&'b NEStr, MissingKeyError<Self>> {
+    ) -> Result<&'a NEStr, MissingKeyError<Self>> {
         match kws.remove::<Self>(&i) {
             Some(v) => Ok(v),
             None => Err(MissingKeyError::new1(i)),
@@ -824,14 +823,14 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     where
         Self: FromStr,
     {
-        Self::get_opt(kws, k).into_deferred_switchable(conf.process_optional_failure)
+        Self::get_opt(kws, k).into_deferred_switchable3(conf.process_optional_failure)
     }
 
     fn remove_or_transfer_opt(
         kws: &mut StdTransaction,
         k: Self::Index,
         conf: &EvaledReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, ParseKeyError<Self::Err, Self>>
+    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, ParseKeyError<Self::Err, Self>>
     where
         Self: FromStr,
         Self::Index: Copy,
@@ -848,7 +847,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         conf: &C,
     ) -> DeferredSwitchableError<
         Diagnosed<Self::Outer, Self::Diagnostic>,
-        DummyTriFlag,
+        ProcessOptionalFailure,
         ParseKeyError<Self::Err, Self>,
     >
     where
@@ -879,7 +878,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     fn remove_or_drop_root_opt(
         kws: &mut StdTransaction,
         conf: &EvaledReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptKeyError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyError<Self>>
     where
         Self: ValueToStdKey<Index = ()> + FromStr,
     {
@@ -892,7 +891,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         conf: &C,
     ) -> DeferredSwitchableError<
         Diagnosed<Self::Outer, Self::Diagnostic>,
-        DummyTriFlag,
+        ProcessOptionalFailure,
         OptStKeyError<Self>,
     >
     where
@@ -936,7 +935,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         kws: &mut StdTransaction,
         i: Self::Index,
         conf: &EvaledReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptKeyError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyError<Self>>
     where
         Self: FromStr,
         Self::Index: Copy,
@@ -951,7 +950,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         conf: &C,
     ) -> DeferredSwitchableError<
         Diagnosed<Self::Outer, Self::Diagnostic>,
-        DummyTriFlag,
+        ProcessOptionalFailure,
         OptStKeyError<Self>,
     >
     where
@@ -967,11 +966,10 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         kws: &mut StdTransaction,
         k: Self::Index,
         flag: ProcessOptionalFailure,
-    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, ParseKeyError<Self::Err, Self>>
+    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, ParseKeyError<Self::Err, Self>>
     where
         Self: FromStr,
     {
-        let triflag = flag.as_triflag();
         let action = LookupAction::from_flag(flag);
         kws.remove_and_parse::<_, _, Self>(&k, |v| match v.parse() {
             Ok(x) => (None, Ok(x)),
@@ -980,7 +978,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         .transpose()
         .map(|x| x.map(Self::Outer::from).unwrap_or_default())
         .map_err(|(e, v)| ParseKeyError::new1(e, k, v))
-        .into_deferred_switchable3(triflag)
+        .into_deferred_switchable3(flag)
     }
 
     #[allow(clippy::type_complexity)]
@@ -992,14 +990,13 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         conf: &Self::Config,
     ) -> DeferredSwitchableError<
         Diagnosed<Self::Outer, Self::Diagnostic>,
-        DummyTriFlag,
+        ProcessOptionalFailure,
         ParseKeyError<Self::Err, Self>,
     >
     where
         Self: FromStrWith,
         Self::Diagnostic: Default,
     {
-        let triflag = flag.as_triflag();
         let action = LookupAction::from_flag(flag);
         kws.remove_and_parse::<_, _, Self>(&i, |v| match Self::from_str_with(v, data, conf) {
             Ok(x) => (None, Ok(x)),
@@ -1008,7 +1005,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         .transpose()
         .map(|x| x.map_or(Diagnosed::default(), |y| y.first_once(Self::Outer::from)))
         .map_err(|(e, v)| ParseKeyError::new1(e, i, v))
-        .into_deferred_switchable3(triflag)
+        .into_deferred_switchable3(flag)
     }
 
     fn remove_opt_nofail(kws: &mut StdTransaction, i: Self::Index) -> Self::Outer

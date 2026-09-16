@@ -59,7 +59,8 @@ use crate::segment::read::{
 };
 use crate::segment::read::{PrimaryTextOffsets, SupplementalTextOffsets};
 use crate::std_index::index::{
-    DroppedStdKeywords, ExtraStdKeywords, RepairCollisionError, RepairDiagnostics, StdTransaction,
+    DroppedStdKeywords, ExtraStdKeywordError, ExtraStdKeywords, RepairCollisionError,
+    RepairDiagnostics, StdKeywords, StdTransaction,
 };
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, DatetimesDiagnostics, EndDateTime, LookupDatetimesError,
@@ -79,12 +80,10 @@ use crate::text::keyword_enum::{
 use crate::text::keywords::{
     Abrt, AlphaNumType, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Carrierid, Carriertype,
     Cells, Com, Compensation2_0, Compensation3_0, Cyt, Cyt3_2, Cytsn, Exp, Feature, Fil, Flowrate,
-    Gate, HyperGateError, HyperParError, Inst, KeywordOtherVersionError, LastModified,
-    LastModifier, Locationid, LookupComp2_0Error, Lost, MeasOrGateIndex, Mode, Mode3_2,
-    ModeUpgradeError, Nextdata, NoCytError, Op, Originality, Par, Plateid, Platename,
-    PrefixedMeasIndex, Proj, PseudostandardError, ScaleFix, Smno, Src, Sys, Timestep,
-    TimestepAdded, TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol,
-    Wellid,
+    Gate, Inst, LastModified, LastModifier, Locationid, LookupComp2_0Error, Lost, MeasOrGateIndex,
+    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, Originality, Par, Plateid,
+    Platename, PrefixedMeasIndex, Proj, PseudostandardError, ScaleFix, Smno, Src, Sys, Timestep,
+    TimestepAdded, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wellid,
 };
 use crate::text::lookup::{
     Diagnosed, OptKeyError, OptStKeyError, OptValue as _, ReqKeyError, ReqValue as _,
@@ -123,6 +122,7 @@ use crate::validated::read_state::{
 };
 use crate::validated::shortname::Shortname;
 
+use fireflow_types::config::ProcessOptionalFailure;
 use fireflow_types::{
     config::{
         AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, DummyTriFlag,
@@ -1111,9 +1111,6 @@ pub struct StdTEXTDiagnostics {
     /// Optional keys which could not be parsed
     pub optional: DroppedStdKeywords,
 
-    /// Keys which start with `"$"` but are not part of the standard.
-    pub pseudostandard: PseudoStdKeywords,
-
     /// Standard $Pn* keys where `n` is higher than $PAR
     pub hyper_par: DroppedStdKeywords,
 
@@ -1185,7 +1182,6 @@ impl StdTEXTDiagnostics {
     #[allow(clippy::too_many_arguments)]
     fn from_extra(
         extra: ExtraStdKeywords,
-        optional: DroppedStdKeywords,
         original_names: Vec<Option<Shortname>>,
         metaroot: MetarootDiagnostics,
         meas: MeasurementDiagnostics,
@@ -1205,8 +1201,8 @@ impl StdTEXTDiagnostics {
         let post = std_end.duration_since1(post_start_time);
         let read_std_ns = (post + pre).as_nanos();
         let ret = Self {
-            optional,
-            pseudostandard: extra.pseudostandard,
+            optional: extra.optional,
+            // pseudostandard: extra.pseudostandard,
             hyper_par: extra.hyper_par,
             hyper_gate: extra.hyper_gate,
             other_version: extra.other_version,
@@ -1358,17 +1354,17 @@ pub enum RemoveMeasByIndexError {
 pub enum StdTEXTFromKeywordsError {
     Error(StdTEXTFromFlatTEXTErrorInner),
     Warn(StdTEXTFromFlatTEXTWarning),
-    Repair(RepairCollisionError),
-    RepairAppend(AppendRepairFlagError),
+    // Repair(RepairCollisionError),
+    // RepairAppend(AppendRepairFlagError),
 }
 
-/// Error when reading standardized TEXT from keyword pairs
-#[derive(From, Display, Debug, Error, PartialEq, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdTEXTFromKeywordsWarning {
-    Error(StdTEXTFromFlatTEXTWarning),
-    Repair(RepairCollisionError),
-}
+// /// Error when reading standardized TEXT from keyword pairs
+// #[derive(From, Display, Debug, Error, PartialEq, Clone)]
+// #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+// pub enum StdTEXTFromKeywordsWarning {
+//     Error(StdTEXTFromFlatTEXTWarning),
+//     Repair(RepairCollisionError),
+// }
 
 /// Error when reading standardized TEXT from keyword pairs
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
@@ -1389,11 +1385,12 @@ pub enum StdTEXTFromFlatTEXTErrorInner {
     Shortname(LookupShortnameError),
     DataSchema(LookupDataSchemaError),
     Offsets(LookupTEXTOffsetsError),
-    Timestep(TimestepFoundError),
-    Pseudo(PseudostandardError),
-    HyperPar(HyperParError),
-    HyperGate(HyperGateError),
-    OtherVersion(KeywordOtherVersionError),
+    Extra(ExtraStdKeywordError),
+    // Timestep(TimestepFoundError),
+    // Pseudo(PseudostandardError),
+    // HyperPar(HyperParError),
+    // HyperGate(HyperGateError),
+    // OtherVersion(KeywordOtherVersionError),
     Repair(RepairCollisionError),
     AppendRepair(AppendRepairFlagError),
 }
@@ -1408,11 +1405,12 @@ pub enum StdTEXTFromFlatTEXTWarning {
     Shortname(OptKeyError<Shortname>),
     DataSchema(LookupDataSchemaWarning),
     Offsets(LookupTEXTOffsetsWarning),
-    Timestep(TimestepFoundError),
-    Pseudo(PseudostandardError),
-    HyperPar(HyperParError),
-    HyperGate(HyperGateError),
-    OtherVersion(KeywordOtherVersionError),
+    Extra(ExtraStdKeywordError),
+    // Timestep(TimestepFoundError),
+    // Pseudo(PseudostandardError),
+    // HyperPar(HyperParError),
+    // HyperGate(HyperGateError),
+    // OtherVersion(KeywordOtherVersionError),
     Repair(RepairCollisionError),
 }
 
@@ -2172,7 +2170,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|lst| {
                 // Repair the keyword list before doing anything.
-                let mut tx = kws.std.into_transation();
+                let mut tx = kws.std.into_transaction();
                 let repair_res = tx
                     .repair(&lst.conf().data_kws)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
@@ -5752,7 +5750,7 @@ where
 impl<V: VersionSet> VersionedCoreTEXT<V> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn new_from_keywords_with_offsets<C>(
-        mut kws: ValidKeywords,
+        kws: ValidKeywords,
         offsets: &mut HeaderAndSuppOffsets,
         start_time: Instant,
         st: &TEXTReadState<C>,
@@ -5773,7 +5771,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             + AsRef<ReadOffsetConfig>,
     {
         // Repair the keyword list before doing anything.
-        let mut tx = kws.std.into_transation();
+        let mut tx = kws.std.into_transaction();
         let repair_res = tx
             .repair(st.conf().as_ref())
             .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
@@ -5788,7 +5786,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
             .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
 
-        Self::lookup_inner(tx, start_time, st.conf())
+        Self::lookup_inner(tx, kws.nonstd, start_time, st.conf())
             .zip3_commutative(offsets_res, repair_res)
             .map_ok_value(|(core, core_offsets, repair_diag)| {
                 LookupCoreWithOffsetOutput::new(core, core_offsets, repair_diag)
@@ -5803,11 +5801,12 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     /// This will not process $TOT or $(BEGIN|END)(TEXT|DATA). If present these
     /// will trigger pseudostandard warnings.
     pub fn new_from_keywords<C>(
-        mut kws: ValidKeywords,
+        std: StdKeywords,
+        nonstd: NonStdKeywords,
         conf: &C,
     ) -> WarningsAndGroupResult<
-        (Self, StdTEXTDiagnostics, RepairDiagnostics),
-        StdTEXTFromKeywordsWarning,
+        (Self, StdTEXTDiagnostics),
+        StdTEXTFromFlatTEXTWarning,
         StdTEXTFromKeywordsError,
         CoreTEXTFromKeywordsSummary,
     >
@@ -5817,46 +5816,24 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::Optical: LookupOptical,
         V::Name: LookupShortname,
         V::DataSchema: VersionedDataSchema,
-        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
+        C: AsRef<EvaledReadStdKeywordsConfig>
+            + AsRef<EvaledReadDataKeywordsConfig>
+            + AsRef<ReadSharedConfig>,
     {
-        #[derive(AsRef)]
-        struct LookupConf {
-            #[as_ref(EvaledReadStdKeywordsConfig)]
-            text: EvaledReadStdKeywordsConfig,
-            #[as_ref(EvaledReadDataKeywordsConfig)]
-            data: EvaledReadDataKeywordsConfig,
-        }
-
         let start_time = Instant::now();
-
-        eval_data_conf(conf.as_ref(), &kws)
-            .map_ok_value(|data| LookupConf {
-                text: eval_std_conf(conf.as_ref(), &kws),
-                data,
-            })
+        let tx = std.into_transaction();
+        Self::lookup_inner(tx, nonstd, start_time, conf)
             .map_errors(StdTEXTFromKeywordsError::from)
-            .nowarn_into_warn()
+            .map_ok_value(|out| (out.this, out.std_diag))
             .group()
-            .and_then_commutative(|lconf| {
-                let mut tx = kws.std.into_transation();
-                let repair_res = tx
-                    .repair(&lconf.data)
-                    .map_errors(StdTEXTFromKeywordsError::from)
-                    .map_commutative_warnings(StdTEXTFromKeywordsWarning::from)
-                    .into_semigroup();
-
-                Self::lookup_inner(tx, start_time, &lconf)
-                    .map_errors(StdTEXTFromKeywordsError::from)
-                    .map_commutative_warnings(StdTEXTFromKeywordsWarning::from)
-                    .zip_commutative(repair_res)
-                    .map_ok_value(|(out, repair_diag)| (out.this, out.std_diag, repair_diag))
-                    .group()
-            })
+            .warnings_to_errors(conf.as_ref(), StdTEXTFromKeywordsError::from)
+            .deanonymize()
     }
 
     #[allow(clippy::too_many_lines)]
     fn lookup_inner<C>(
         mut kws: StdTransaction,
+        mut nonstd: NonStdKeywords,
         start_time: Instant,
         conf: &C,
     ) -> WarningsAndErrorsResult<
@@ -5892,20 +5869,21 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         par_res.and_then_commutative(|par| {
             // Lookup $PnN first (everything else depends on these)
             let names_res = Self::lookup_names(&mut kws, par, conf);
-            let mut core_res = go_err!(names_res)
+            go_err!(names_res)
                 // Lookup root (which depends on $PnN) and data schema
                 .and_then_commutative(|(dedup_names, original_names)| {
                     let schema_start_time = Instant::now();
                     let schema_res =
                         V::DataSchema::lookup(&mut kws, par, schema_start_time, conf.as_ref());
 
-                    let root_res = RootMeta::lookup_metaroot(&mut kws, &dedup_names[..], conf);
+                    let root_res =
+                        RootMeta::<V::RootMeta>::lookup_metaroot(&mut kws, &dedup_names[..], conf);
 
                     go_err!(root_res)
                         .zip_commutative(go_err!(schema_res))
                         .map_ok_value(|x| (x, dedup_names, (schema_start_time, original_names)))
                 })
-                // Lookup measure which depends on global datatype
+                // Lookup measurement array which depends on global datatype
                 .and_then_commutative(|((metaroot_out, schema_out), dedup_names, x)| {
                     let dts = &schema_out.data_schema.datatypes()[..];
                     let ret = Self::lookup_measurements(&mut kws, dedup_names, dts, conf);
@@ -5919,111 +5897,144 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                         (schema_start_time, original_names),
                     )| {
                         let meta_diag = metaroot_out.diagnostic;
-                        let ret = Self::try_new(
+                        let gate = metaroot_out.inner.specific.gate().unwrap_or(Gate(0));
+                        let extra_res = kws.finalize(par, gate, version, &mut nonstd, sconf);
+                        Self::try_new(
                             metaroot_out.inner,
                             meas,
                             schema_out.data_schema,
-                            kws.nonstd,
+                            nonstd,
                             conf,
                         )
-                        .map_ok_value(|ret| {
-                            (
-                                ret,
+                        .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                        .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
+                        .zip_commutative(go_err!(extra_res))
+                        .map_ok_value(|(core, extra)| {
+                            let std_pre_ns = schema_start_time.duration_since1(start_time);
+                            let (diag, std_end) = StdTEXTDiagnostics::from_extra(
+                                extra,
                                 original_names,
                                 meta_diag,
                                 meas_diag,
-                                schema_start_time,
-                                schema_out.end_time,
                                 schema_out.diagnostics,
-                            )
-                        });
-                        go_err!(ret)
-                    },
-                );
-
-            let gate = core_res
-                .as_ref()
-                .and_then(|(core, _, _, _, _, _, _)| core.rootmeta.specific.gate())
-                .unwrap_or(Gate::from(0));
-
-            // Push pseudostandard/unused warnings/errors
-            let (mut extra, errors) = ExtraStdKeywords::split_keywords(std, version, par, gate);
-
-            let flag = sconf.process_extra_timestep;
-            core_res = core_res
-                .extend_warnings_or_errors3(
-                    // Check this first because we might take the timestamp out
-                    // of this slot below to demote it
-                    extra.timestep.is_some().then_some(TimestepFoundError),
-                    |_v| (),
-                    StdTEXTFromFlatTEXTWarning::from,
-                    StdTEXTFromFlatTEXTErrorInner::from,
-                    flag.as_triflag(),
-                )
-                .map_ok_value(|mut core| {
-                    if flag.is_demote()
-                        && let Some(t) = mem::take(&mut extra.timestep)
-                    {
-                        core.0
-                            .nonstandard_keywords
-                            .insert_demoted(Timestep::std(&()), t);
-                    }
-                    core
-                });
-
-            macro_rules! go_extra {
-                ($proc:ident, $keyvals:ident, $errors:ident) => {
-                    let flag = sconf.$proc;
-                    core_res = core_res
-                        .map_ok_value(|mut core| {
-                            if flag.is_demote() {
-                                for (k, v) in mem::take(&mut extra.$keyvals) {
-                                    core.0.nonstandard_keywords.insert_demoted(k, v);
-                                }
-                            }
-                            core
+                                schema_out.end_time,
+                                std_pre_ns,
+                            );
+                            LookupCoreOutput::new(core, diag, std_end)
                         })
-                        .extend_warnings_or_errors3(
-                            errors.$errors,
-                            |_v| (),
-                            StdTEXTFromFlatTEXTWarning::from,
-                            StdTEXTFromFlatTEXTErrorInner::from,
-                            flag.as_triflag(),
-                        );
-                };
-            }
-
-            go_extra!(process_pseudostandard, pseudostandard, pseudo);
-            go_extra!(process_hyper_par, hyper_par, hyper_par);
-            go_extra!(process_hyper_par, hyper_gate, hyper_gate);
-            go_extra!(process_other_version, other_version, other_version);
-
-            core_res.map_ok_value(
-                |(
-                    ret,
-                    original_names,
-                    meta_diag,
-                    meas_diag,
-                    schema_start_time,
-                    schema_end_time,
-                    schema_diag,
-                )| {
-                    let std_pre_ns = schema_start_time.duration_since1(start_time);
-
-                    let (diag, std_end) = StdTEXTDiagnostics::from_extra(
-                        extra,
-                        dropped,
-                        original_names,
-                        meta_diag,
-                        meas_diag,
-                        schema_diag,
-                        schema_end_time,
-                        std_pre_ns,
-                    );
-                    LookupCoreOutput::new(ret, diag, std_end)
-                },
-            )
+                    },
+                )
         })
+
+        // core_res.map_ok_value(
+        //     |(
+        //         ret,
+        //         original_names,
+        //         meta_diag,
+        //         meas_diag,
+        //         schema_start_time,
+        //         schema_end_time,
+        //         schema_diag,
+        //     )| {
+        //         let std_pre_ns = schema_start_time.duration_since1(start_time);
+
+        //         let (diag, std_end) = StdTEXTDiagnostics::from_extra(
+        //             extra,
+        //             dropped,
+        //             original_names,
+        //             meta_diag,
+        //             meas_diag,
+        //             schema_diag,
+        //             schema_end_time,
+        //             std_pre_ns,
+        //         );
+        //         LookupCoreOutput::new(ret, diag, std_end)
+        //     },
+        // )
+
+        // let gate = core_res
+        //     .as_ref()
+        //     .and_then(|(core, _, _, _, _, _, _)| core.rootmeta.specific.gate())
+        //     .unwrap_or(Gate::from(0));
+
+        // // Push pseudostandard/unused warnings/errors
+        // let (mut extra, errors) = ExtraStdKeywords::split_keywords(std, version, par, gate);
+
+        // let flag = sconf.process_extra_timestep;
+        // core_res = core_res
+        //     .extend_warnings_or_errors3(
+        //         // Check this first because we might take the timestamp out
+        //         // of this slot below to demote it
+        //         extra.timestep.is_some().then_some(TimestepFoundError),
+        //         |_v| (),
+        //         StdTEXTFromFlatTEXTWarning::from,
+        //         StdTEXTFromFlatTEXTErrorInner::from,
+        //         flag,
+        //     )
+        //     .map_ok_value(|mut core| {
+        //         if flag.is_demote()
+        //             && let Some(t) = mem::take(&mut extra.timestep)
+        //         {
+        //             core.0
+        //                 .nonstandard_keywords
+        //                 .insert_demoted(Timestep::std(&()), t);
+        //         }
+        //         core
+        //     });
+
+        // macro_rules! go_extra {
+        //     ($proc:ident, $keyvals:ident, $errors:ident) => {
+        //         let flag = sconf.$proc;
+        //         core_res = core_res
+        //             .map_ok_value(|mut core| {
+        //                 if flag.is_demote() {
+        //                     for (k, v) in mem::take(&mut extra.$keyvals) {
+        //                         core.0.nonstandard_keywords.insert_demoted(k, v);
+        //                     }
+        //                 }
+        //                 core
+        //             })
+        //             .extend_warnings_or_errors3(
+        //                 errors.$errors,
+        //                 |_v| (),
+        //                 StdTEXTFromFlatTEXTWarning::from,
+        //                 StdTEXTFromFlatTEXTErrorInner::from,
+        //                 flag,
+        //             );
+        //     };
+        // }
+
+        // go_extra!(process_pseudostandard, pseudostandard, pseudo);
+        // go_extra!(process_hyper_par, hyper_par, hyper_par);
+        // go_extra!(process_hyper_par, hyper_gate, hyper_gate);
+        // go_extra!(process_other_version, other_version, other_version);
+
+        // core_res.map_ok_value(
+        //     |(
+        //         ret,
+        //         original_names,
+        //         meta_diag,
+        //         meas_diag,
+        //         schema_start_time,
+        //         schema_end_time,
+        //         schema_diag,
+        //     )| {
+        //         let std_pre_ns = schema_start_time.duration_since1(start_time);
+
+        //         let (diag, std_end) = StdTEXTDiagnostics::from_extra(
+        //             extra,
+        //             dropped,
+        //             original_names,
+        //             meta_diag,
+        //             meas_diag,
+        //             schema_diag,
+        //             schema_end_time,
+        //             std_pre_ns,
+        //         );
+        //         LookupCoreOutput::new(ret, diag, std_end)
+        //     },
+        // )
+        // })
     }
 
     /// Get reference to data schema
@@ -6268,7 +6279,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                     opt_flag.is_demote(),
                 )
                 .map_errors(NewCoreWarning::from)
-                .nowarn_into_switchable(opt_flag)
+                .nowarn_into_switchable3(opt_flag)
                 .switchable_into_commutative()
                 .map_errors(LookupCoreError::from)
                 .map_commutative_warnings(NewCoreWarning::from)
@@ -6397,7 +6408,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                 let out = NewStdDatasetFromKwsOutput::new(dataset, hns.header.final_offsets);
                 (ret, out)
             })
-            .warnings_to_pure_errors(*conf.as_ref(), StdDatasetFromKeywordsError::from)
+            .warnings_to_pure_errors(conf.as_ref(), StdDatasetFromKeywordsError::from)
             .deanonymize()
     }
 
@@ -7177,7 +7188,7 @@ impl UnstainedData {
         conf: &C,
     ) -> DeferredSwitchableError<
         DiagnosedUnstainedData<Self>,
-        DummyTriFlag,
+        ProcessOptionalFailure,
         OptStKeyError<UnstainedCenters>,
     >
     where

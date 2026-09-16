@@ -357,7 +357,7 @@ impl<I> AppliedGatesPre3_2<I> {
         let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
         ag.zip_f2_once(gm)
-            .and_then_deferred_switchable_result(flag, |(scheme, gated_ms)| {
+            .and_then_deferred_switchable_result3(flag, |(scheme, gated_ms)| {
                 let diag = AppliedGatesDiagnostics::new(scheme.diagnostic, gated_ms.diagnostic);
                 Self::try_new(gated_ms.inner.0, scheme.inner)
                     .map_err(LookupAppliedGatesError::Link)
@@ -772,7 +772,7 @@ impl<I> GatingScheme<I> {
                             })
                             .sequence_def()
                     })
-                    .and_then_deferred_switchable_result(flag, |rs| {
+                    .and_then_deferred_switchable_result3(flag, |rs| {
                         let mut regions = HashMap::new();
                         let mut trimmed = vec![];
                         for r in rs {
@@ -894,7 +894,7 @@ impl<I> Region<I> {
         let flag = rconf.process_optional_failure;
         index_res
             .zip_f2_once(window_res)
-            .and_then_deferred_switchable_result(flag, |(gi_out, w_out)| {
+            .and_then_deferred_switchable_result3(flag, |(gi_out, w_out)| {
                 // Try to combine the gateindex and window together to make a
                 // region. This will only work if both are present and
                 // they are both the same type (uni/bi-variate). If anything

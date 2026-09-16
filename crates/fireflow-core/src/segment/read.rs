@@ -1209,7 +1209,9 @@ where
         lookup_opt!(kws, read, K)
     }
 
-    fn remove_opt<K>(kws: &mut StdTransaction) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
+    fn remove_opt<K>(
+        kws: &mut StdTransaction,
+    ) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
     where
         K: ValueToStdKey<Index = ()>,
     {
@@ -1306,14 +1308,14 @@ where
                     let overflow_res = if let Some(ne) = offsets.as_nonempty_mut() {
                         ne.truncate_dataset_len((), st)
                             .map_err(OptOffsetsWithDefaultWarning::from)
-                            .into_deferred_switchable(drop_flag)
+                            .into_deferred_switchable3(drop_flag)
                             .switchable_into_commutative()
                     } else {
                         LogResult::new_ok(None)
                     };
                     let overlap_res = hdr_supp_offsets
                         .validate_text_offsets(&mut offsets, overlap_limit)
-                        .nowarn_into_switchable(drop_flag)
+                        .nowarn_into_switchable3(drop_flag)
                         .map_switchable_errors(OptOffsetsWithDefaultWarning::from)
                         .switchable_into_commutative();
                     let mut res = overflow_res.zip_commutative(overlap_res).map_ok_value(
@@ -1333,7 +1335,7 @@ where
                     res.extend_commutative_warnings(mismatch_warn);
                     res
                 }
-                Err(e) => SwitchableErrorsResult::new_deferred_switchable((), e, drop_flag)
+                Err(e) => SwitchableErrorsResult::new_deferred_switchable3((), e, drop_flag)
                     .map_switchable_errors(OptOffsetsWithDefaultWarning::from)
                     .switchable_into_commutative()
                     .set_ok_value(header_pair(ChoseHeaderReason::Malformed(txt_orig))),
@@ -1395,8 +1397,8 @@ where
                     // information to contemplate their life's decisions.
                     let (e0, e1) = es.split();
                     let hpair = header_pair(ChoseHeaderReason::Unparsed);
-                    SwitchableErrorsResult::new_deferred_switchable((), e0, drop_flag)
-                        .extend_deferred_switchable_errors(e1)
+                    SwitchableErrorsResult::new_deferred_switchable3((), e0, drop_flag)
+                        .extend_deferred_switchable_errors3(e1)
                         .set_ok_value(hpair)
                         .map_switchable_errors(OptOffsetsError::Key)
                         .map_switchable_errors(OptOffsetsWithDefaultWarningInner::from)

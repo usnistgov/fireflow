@@ -891,10 +891,13 @@ pub trait ErrorFlag {
     fn is_error(&self) -> bool;
 }
 
-pub trait TriErrorFlag: From<TriFlag> + Into<TriFlag> + Copy {
+pub trait TriErrorFlag {
     const FALSE_IS_ERROR: bool;
 
-    fn is_error(&self) -> Option<bool> {
+    fn is_error(&self) -> Option<bool>
+    where
+        Self: Into<TriFlag> + Copy,
+    {
         match (*self).into() {
             TriFlag::Silent => None,
             TriFlag::False => Some(Self::FALSE_IS_ERROR),
@@ -902,13 +905,17 @@ pub trait TriErrorFlag: From<TriFlag> + Into<TriFlag> + Copy {
         }
     }
 
-    fn from_partial_str(s: &str) -> Result<Self, PartialTriErrorFlagError> {
+    fn from_partial_str(s: &str) -> Result<Self, PartialTriErrorFlagError>
+    where
+        Self: Sized,
+        TriFlag: Into<Self>,
+    {
         let res = match s {
             "silent" => Ok(TriFlag::Silent),
             "true" => Ok(TriFlag::True),
             _ => Err(PartialTriErrorFlagError),
         };
-        res.map(Self::from)
+        res.map(Into::into)
     }
 }
 
@@ -1478,17 +1485,6 @@ impl OpticalOnlyKeys {
 // pattern, hence macro.
 
 pub trait KeywordFailureFlag: Into<ProcessKeywordFailure> + Copy {
-    fn as_triflag(&self) -> DummyTriFlag {
-        let flag = match (*self).into() {
-            ProcessKeywordFailure::Error => TriFlag::False,
-            ProcessKeywordFailure::DemoteWarn | ProcessKeywordFailure::DropWarn => TriFlag::True,
-            ProcessKeywordFailure::DemoteSilent | ProcessKeywordFailure::DropSilent => {
-                TriFlag::Silent
-            }
-        };
-        flag.into()
-    }
-
     fn is_demote(&self) -> bool {
         self.is_demote_or_drop() == Some(true)
     }
@@ -1509,10 +1505,14 @@ macro_rules! impl_proc_key_fail {
         #[cfg_attr(feature = "serde", derive(Serialize))]
         pub struct $t(pub ProcessKeywordFailure);
 
-        impl ErrorFlag for $t {
-            fn is_error(&self) -> bool {
-                matches!(&self.0, ProcessKeywordFailure::Error)
+        impl From<$t> for TriFlag {
+            fn from(value: $t) -> Self {
+                value.0.into()
             }
+        }
+
+        impl TriErrorFlag for $t {
+            const FALSE_IS_ERROR: bool = true;
         }
 
         impl KeywordFailureFlag for $t {}
@@ -1669,6 +1669,16 @@ impl_config_flag!(
     DropWarn     => KW_DROP_WARN_LEVEL,
     DropSilent   => KW_DROP_SILENT_LEVEL
 );
+
+impl From<ProcessKeywordFailure> for TriFlag {
+    fn from(value: ProcessKeywordFailure) -> Self {
+        match value {
+            ProcessKeywordFailure::Error => Self::False,
+            ProcessKeywordFailure::DemoteWarn | ProcessKeywordFailure::DropWarn => Self::True,
+            ProcessKeywordFailure::DemoteSilent | ProcessKeywordFailure::DropSilent => Self::Silent,
+        }
+    }
+}
 
 pub const DELIM_ESCAPED_LEVEL: &NEStr = ne_str!("escaped");
 pub const DELIM_UNESCAPED_LEVEL: &NEStr = ne_str!("unescaped");

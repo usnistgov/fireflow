@@ -246,7 +246,7 @@ pub fn fcs_read_flat_dataset_with_keywords(
             )
         })
         .map_ok_value(|dataset| NewFlatDatasetFromKwsOutput::new(dataset, hns.header.final_offsets))
-        .warnings_to_pure_errors(conf.shared, LookupAndReadDataAnalysisError::from)
+        .warnings_to_pure_errors(&conf.shared, LookupAndReadDataAnalysisError::from)
         .deanonymize()
 }
 
@@ -1309,7 +1309,7 @@ impl FCSFileReader {
     > {
         self.read_flat_text_inner(dataset_offset, start_time, conf)
             .map_ok_value(|out| out.this)
-            .warnings_to_pure_errors(conf.shared, HeaderOrFlatTextError::from)
+            .warnings_to_pure_errors(&conf.shared, HeaderOrFlatTextError::from)
             .deanonymize()
     }
 
@@ -1335,7 +1335,7 @@ impl FCSFileReader {
                     .group()
                     .map_errors(IOErrorGroup::Pure)
             })
-            .warnings_to_pure_errors(conf.shared, StdTEXTError::from)
+            .warnings_to_pure_errors(&conf.shared, StdTEXTError::from)
             .deanonymize()
     }
 
@@ -1382,7 +1382,7 @@ impl FCSFileReader {
                 .map_commutative_warnings(FlatDatasetWarning::from)
                 .map_pure_errors(FlatDatasetError::from)
             })
-            .warnings_to_pure_errors(conf.shared, FlatDatasetError::from)
+            .warnings_to_pure_errors(&conf.shared, FlatDatasetError::from)
             .deanonymize()
     }
 
@@ -1412,7 +1412,7 @@ impl FCSFileReader {
                     .map_commutative_warnings(StdDatasetWarning::from)
                     .map_pure_errors(StdDatasetError::from)
             })
-            .warnings_to_pure_errors(conf.shared, StdDatasetError::from)
+            .warnings_to_pure_errors(&conf.shared, StdDatasetError::from)
             .deanonymize()
     }
 

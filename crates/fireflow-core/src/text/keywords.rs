@@ -31,6 +31,7 @@ use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
+use fireflow_types::config::TriFlag;
 use fireflow_types::std_key::DfcKey;
 use fireflow_types::{
     byteord::ConfigByteOrd,
@@ -517,16 +518,15 @@ impl Gain {
         kws: &mut StdTransaction,
         i: MeasIndex,
         conf: &C,
-    ) -> DeferredSwitchableErrors<Option<Self>, DummyTriFlag, LookupTemporalGainError>
+    ) -> DeferredSwitchableErrors<Option<Self>, ProcessOptionalFailure, LookupTemporalGainError>
     where
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let ignore = &AsRef::<EvaledReadStdKeywordsConfig>::as_ref(conf).ignore_optical_only_keys;
         let flag = AsRef::<EvaledReadDataKeywordsConfig>::as_ref(conf).process_optional_failure;
-        let triflag = flag.as_triflag();
         if ignore.0.contains(&OpticalOnlyKey::Gain) {
             kws.set_failure_flag(&Self::std(&i), flag);
-            LogResult::new_switchable_ok(None, triflag)
+            LogResult::new_switchable_ok(None, flag)
         } else {
             Self::remove_or_drop_meas_opt(kws, i, conf.as_ref())
                 .map_switchable_errors(LookupTemporalGainError::from)
@@ -1532,9 +1532,9 @@ impl Compensation2_0 {
                     }
                     LookupComp2_0Error::Matrix(e)
                 })
-                .into_deferred_switchable(flag)
+                .into_deferred_switchable3(flag)
         };
-        res.extend_deferred_switchable_errors(warnings.into_iter().flatten())
+        res.extend_deferred_switchable_errors3(warnings.into_iter().flatten())
     }
 
     // TODO this awkward, if all the entries are zero then we will be saving
@@ -2916,13 +2916,13 @@ pub(crate) enum ExtraKeywordClass {
     UnusedTimestep,
 }
 
-#[derive(new)]
-pub(crate) struct ExtraKeywordOutput {
-    pub(crate) pseudo: Vec<PseudostandardError>,
-    pub(crate) hyper_par: Vec<HyperParError>,
-    pub(crate) hyper_gate: Vec<HyperGateError>,
-    pub(crate) other_version: Vec<KeywordOtherVersionError>,
-}
+// #[derive(new)]
+// pub(crate) struct ExtraKeywordOutput {
+//     pub(crate) pseudo: Vec<PseudostandardError>,
+//     pub(crate) hyper_par: Vec<HyperParError>,
+//     pub(crate) hyper_gate: Vec<HyperGateError>,
+//     pub(crate) other_version: Vec<KeywordOtherVersionError>,
+// }
 
 // impl ExtraStdKeywords {
 //     /// Classify unused keyword based on all known FCS versions
@@ -3033,47 +3033,6 @@ pub(crate) struct ExtraKeywordOutput {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct PseudostandardError(pub StdKey);
-
-/// Error denoting that measurement keyword within standard but above $PAR was found
-#[derive(Debug, Error, new, PartialEq, Clone)]
-#[error("measurement keyword is part of standard but outside $PAR ({par}): {key}")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
-pub struct HyperParError {
-    pub par: Par,
-    pub key: StdKey,
-}
-
-/// Error denoting that gating keyword within standard but above $GATE was found
-#[derive(Debug, Error, new, PartialEq, Clone)]
-#[error("gating keyword is part of standard but outside $GATE ({gate}): {key}")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
-pub struct HyperGateError {
-    pub gate: Gate,
-    pub key: StdKey,
-}
-
-/// Error denoting that keyword from different version was found
-#[derive(Debug, Error, new, PartialEq, Clone)]
-#[error(
-    "keyword is not compatible with {current} but is compatible with {os}: {key}",
-    os = self.others.iter().join(", ")
-)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
-pub struct KeywordOtherVersionError {
-    pub key: StdKey,
-    pub current: Version,
-    pub others: NEVec<Version>,
-}
-
-/// Error denoting that $TIMESTEP was unused and possibly should have been
-#[derive(Debug, Error, PartialEq, Clone)]
-#[error("$TIMESTEP found, this may indicate a time measurement exists but was not identified")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
-pub struct TimestepFoundError;
 
 macro_rules! newtype_string {
     ($t:ident) => {

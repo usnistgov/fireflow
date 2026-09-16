@@ -20,7 +20,7 @@ use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_st
 use crate::validated::header_offsets::{
     FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
 };
-use crate::validated::keys::{NEStringOrBytes, TruncatedNEString, ValueToStdKey};
+use crate::validated::keys::{NEStringOrBytes, ValueToStdKey};
 use crate::validated::read_state::{
     DatasetOffset, HeaderReadState, ReadDatasetState, TEXTReadState,
 };

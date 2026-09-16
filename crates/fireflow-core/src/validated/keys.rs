@@ -1,29 +1,19 @@
-use crate::api::{FlatTEXTDiagnostics, HeaderAndSuppOffsets, SplitTEXTDiagnostics};
-use crate::config::EvaledReadDataKeywordsConfig;
 use crate::fixed_vec::OneOrTwo;
-use crate::logging::{DeferredWarningsAndErrors, LogResult, WarningAndErrorResult};
-use crate::segment::read::HeaderOffsetsOverflow;
 use crate::std_index::index::StdKeywords;
 use crate::text::keyword_enum::{
     AsStdKeywordPair, OptMeasKeyword, OptRootKeyword, ambassador_impl_AsStdKeywordPair,
 };
 
-use fireflow_types::nonempty::{DisplayableNE, HasNELen};
 use fireflow_types::{
-    case_ins_regex::CaseInsRegex,
-    config::{
-        DummyTriFlag, Encoding, ReadHeaderAndTEXTConfig, TriErrorFlag as _, TrimValueWhitespace,
-    },
+    config::Encoding,
     index::{BiMeasIndex, MeasIndex},
-    keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns, NEAsciiStringError},
+    keystring::{KeyString, NEAsciiStringError},
     ne_str, nev,
     nonempty::{
-        self as ne, DisplayNE, IntoIteratorExt as _, IntoNonEmptyIterator as _, NEAlt, NEConcat,
-        NESlice, NEStr, NEString, NEVec, NonEmptyIterator as _, ToDisplayNE, ToNE,
+        HasNELen, NEAlt, NEConcat, NESlice, NEStr, NEString, NEVec, ToDisplayNE, ToNE,
         ambassador_impl_ToDisplayNE,
     },
     std_key::{PseudoStdKey, RealOrPseudoStdKey, STD_PREFIX, StdKey, ToStd},
-    sub_pattern::SubPattern,
 };
 
 use ambassador::Delegate;
@@ -32,48 +22,25 @@ use derive_new::new;
 use derive_where::derive_where;
 use hashbrown::HashMap;
 use hashbrown::hash_map::Entry;
-use itertools::Itertools as _;
 use thiserror::Error;
 
 use std::borrow::Cow;
 use std::fmt;
 use std::hash::Hash;
-use std::iter;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::string::ToString;
-use std::vec::IntoIter;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{
-        AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString,
-    },
+    fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString},
     fireflow_types::python as py,
     pyo3::prelude::*,
 };
-
-// /// A key from TEXT which is codified by the FCS standard.
-// ///
-// /// These may only contain ASCII and must start with `"$"`. The `"$"` is not
-// /// actually stored but will be appended when converting to a [`String`].
-// #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, AsRef, Display)]
-// #[cfg_attr(feature = "serde", derive(Serialize))]
-// #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-// #[as_ref(KeyString, str, NEStr)]
-// #[display("${_0}")]
-// pub struct StdKey(KeyString);
-
-// impl<'a> ToDisplayNE<'a> for StdKey {
-//     type NE = NEConcat<char, ToNE<&'a KeyString>>;
-//     fn to_ne(&'a self) -> Self::NE {
-//         NEConcat::new('$', ToNE(&self.0))
-//     }
-// }
 
 /// A key from TEXT which is not codified by the FCS standard.
 ///
@@ -1203,96 +1170,6 @@ impl ParsedKeywordsDiagnostic {
             .reserve(counts.n_trimmed_empty_values);
         self.keys_with_trimmed_values.reserve(counts.n_trimmed);
     }
-
-    // #[allow(clippy::too_many_arguments)]
-    // pub(crate) fn into_flat_diag(
-    //     self,
-    //     header_supp: HeaderAndSuppOffsets,
-    //     primary_text_eof_overflow: u64,
-    //     header_overflows: Vec<HeaderOffsetsOverflow>,
-    //     primary_split: SplitTEXTDiagnostics,
-    //     supp_split: Option<SplitTEXTDiagnostics>,
-    //     read_text_ns: u128,
-    //     conf: &ReadHeaderAndTEXTConfig,
-    // ) -> DeferredWarningsAndErrors<
-    //     FlatTEXTDiagnostics,
-    //     InvalidKeywordCharsError,
-    //     InvalidKeywordCharsError,
-    // > {
-    //     // Throw errors or warnings for any keys or values that have invalid
-    //     // chars. There are two flags for keys and values respectively. For any
-    //     // pairs that have both an invalid key and invalid value, throw error if
-    //     // either flag is set (likewise for warning).
-    //     macro_rules! go_err {
-    //         ($field:ident, $err:ident) => {
-    //             self.$field
-    //                 .iter()
-    //                 .cloned()
-    //                 .map(|(key, value)| $err { key, value })
-    //                 .map(InvalidKeywordCharsError::from)
-    //         };
-    //     }
-
-    //     let es_key = go_err!(values_with_non_ascii_keys, NonAsciiKeyError);
-    //     let es_value = go_err!(keys_with_non_utf8_values, NonUtf8ValueError);
-    //     let es_both = go_err!(byte_pairs, NonAsciiOrUtf8KeywordError);
-
-    //     let key_flag = conf.allow_non_ascii_keys.is_error();
-    //     let val_flag = conf.allow_non_utf8_values.is_error();
-
-    //     let mut es = vec![];
-    //     let mut ws = vec![];
-
-    //     match key_flag {
-    //         Some(true) => es.extend(es_key),
-    //         Some(false) => ws.extend(es_key),
-    //         None => (),
-    //     }
-    //     match val_flag {
-    //         Some(true) => es.extend(es_value),
-    //         Some(false) => ws.extend(es_value),
-    //         None => (),
-    //     }
-    //     match key_flag.zip(val_flag).map(|(x, y)| x || y) {
-    //         Some(true) => es.extend(es_both),
-    //         Some(false) => ws.extend(es_both),
-    //         None => (),
-    //     }
-
-    //     // Combine all keys/values with invalid chars into one list, since
-    //     // use probably doesn't want to see three.
-
-    //     macro_rules! go_byte_pairs {
-    //         ($field:ident) => {
-    //             self.$field
-    //                 .into_iter()
-    //                 .map(|(k, v)| (KeyOrBytes::from(k), NEStringOrBytes::from(v)))
-    //         };
-    //     }
-
-    //     let ks = go_byte_pairs!(values_with_non_ascii_keys);
-    //     let vs = go_byte_pairs!(keys_with_non_utf8_values);
-    //     let bs = go_byte_pairs!(byte_pairs);
-
-    //     let byte_pairs: Vec<_> = ks.chain(vs).chain(bs).collect();
-
-    //     let ret = FlatTEXTDiagnostics {
-    //         header_supp,
-    //         primary_text_overflow: primary_text_eof_overflow,
-    //         header_overflows,
-    //         byte_pairs,
-    //         non_unique_std_keywords: self.non_unique_std_keywords,
-    //         non_unique_nonstd_keywords: self.non_unique_nonstd_keywords,
-    //         keys_with_empty_trimmed_values: self.keys_with_empty_trimmed_values,
-    //         keys_with_trimmed_values: self.keys_with_trimmed_values,
-    //         primary_split,
-    //         supp_split,
-    //         read_text_ns,
-    //     };
-    //     LogResult::new_ok(ret)
-    //         .extend_deferred_errors(es)
-    //         .set_commutative_warnings(ws)
-    // }
 }
 
 impl ValidKeywords {
@@ -1317,155 +1194,6 @@ impl ValidKeywords {
     pub(crate) fn get_nonstd(&self, k: &NonStdKey) -> Option<&NEStr> {
         self.nonstd.get(k).map(|s| s.as_ne_str())
     }
-
-    pub(crate) fn transfer_demoted(&mut self, key: StdKey) {
-        unimplemented!()
-        // if let Some(v) = self.std.remove(&key) {
-        //     self.nonstd.insert_demoted(key, v);
-        // }
-    }
-
-    // #[allow(clippy::too_many_lines)]
-    // pub(crate) fn repair(
-    //     &mut self,
-    //     conf: &EvaledReadDataKeywordsConfig,
-    // ) -> WarningAndErrorResult<RepairDiagnostics, (), RepairCollisionError, RepairCollisionError>
-    // {
-    //     unimplemented!()
-    //     // let matchers = AllKeyMatchers::from_config(conf);
-    //     // let mut ignored = vec![];
-    //     // let mut non_unique_std = vec![];
-    //     // let mut non_unique_nonstd = vec![];
-    //     // let mut removed = vec![];
-    //     // let mut replaced = vec![];
-    //     // let mut renamed = vec![];
-    //     // let mut subbed = vec![];
-    //     // let mut demoted = vec![];
-    //     // let mut promoted = vec![];
-
-    //     // // Update standard keys
-    //     // self.std = mem::take(&mut self.std)
-    //     //     .into_iter()
-    //     //     .filter_map(|(k, v)| {
-    //     //         // TODO this seem inefficient; every std key needs to be
-    //     //         // converted to a string to make this work, which doesn't seem
-    //     //         // right
-    //     //         let ks = k.as_keystring();
-    //     //         if matchers.ignore.is_match(&ks) {
-    //     //             // First remove keys that should be flat-out ignored
-    //     //             ignored.push((k, TruncatedNEString(v)));
-    //     //             None
-    //     //         } else if matchers.demote.is_match(&ks) {
-    //     //             // Next remove keys that should be demoted and put them
-    //     //             // in non-std.
-    //     //             let nsk = NonStdKey(ks);
-    //     //             if self.nonstd.contains_key(&nsk) {
-    //     //                 non_unique_nonstd.push((nsk, TruncatedNEString(v)));
-    //     //             } else {
-    //     //                 demoted.push(k);
-    //     //                 let _ = self.nonstd.insert(nsk, v);
-    //     //             }
-    //     //             None
-    //     //         } else if let Some(s) = matchers.subs.get(&ks) {
-    //     //             // Next try to sub the value of keys with matches; this
-    //     //             // might produce a blank key which will effectively remove
-    //     //             // it.
-    //     //             if let Ok(vf) = NEString::try_from(s.sub(v.as_str())) {
-    //     //                 subbed.push((k.clone(), TruncatedNEString(v)));
-    //     //                 Some((k, vf))
-    //     //             } else {
-    //     //                 removed.push((k, TruncatedNEString(v)));
-    //     //                 None
-    //     //             }
-    //     //         } else {
-    //     //             Some((k, v))
-    //     //         }
-    //     //     })
-    //     //     .map(|(k, v)| {
-    //     //         // After removing everything we can, update values as needed.
-    //     //         let replace = &conf.replace_standard_key_values;
-    //     //         let ks = k.as_keystring();
-    //     //         if let Some(vf) = replace.get(&ks).cloned() {
-    //     //             replaced.push((k.clone(), TruncatedNEString(v)));
-    //     //             (k, vf)
-    //     //         } else {
-    //     //             (k, v)
-    //     //         }
-    //     //     })
-    //     //     .map(|(k, v)| {
-    //     //         // Finally, rename keys. Assume that this name mapping is
-    //     //         // validated such that we will never get a name collision.
-    //     //         let to_rename = conf.rename_standard_keys.as_ref();
-    //     //         let ks = k.as_keystring();
-    //     //         if let Some(kf) = to_rename.get(&ks).cloned().map(StdKey) {
-    //     //             renamed.push((k, kf.clone()));
-    //     //             (kf, v)
-    //     //         } else {
-    //     //             (k, v)
-    //     //         }
-    //     //     })
-    //     //     .collect();
-
-    //     // // Update non-standard keys
-    //     // let nonstd_removed = self
-    //     //     .nonstd
-    //     //     .extract_if(|k, _| matchers.promote.is_match(k.as_ref()));
-
-    //     // for (k, v) in nonstd_removed {
-    //     //     let sk = StdKey(k.0);
-    //     //     if self.std.contains_key(&sk) {
-    //     //         non_unique_std.push((sk, TruncatedNEString(v)));
-    //     //     } else {
-    //     //         promoted.push(NonStdKey(sk.0.clone()));
-    //     //         let _ = self.std.insert(sk, v);
-    //     //     }
-    //     // }
-
-    //     // let non_unique_appended = conf.append_standard_keywords.iter().filter_map(|(k, v)| {
-    //     //     match self.std.entry(StdKey(k.clone())) {
-    //     //         Entry::Occupied(e) => Some((e.key().clone(), TruncatedNEString(v.clone()))),
-    //     //         Entry::Vacant(e) => {
-    //     //             e.insert(v.clone());
-    //     //             None
-    //     //         }
-    //     //     }
-    //     // });
-    //     // non_unique_std.extend(non_unique_appended);
-    //     // let res = match conf.allow_repair_non_unique.is_error() {
-    //     //     Some(is_err) => {
-    //     //         let ss = non_unique_std.iter().cloned().map(|(k, _)| AnyKey::Std(k));
-    //     //         let ns = non_unique_nonstd
-    //     //             .iter()
-    //     //             .cloned()
-    //     //             .map(|(k, _)| AnyKey::NonStd(k));
-    //     //         let xs = ss.chain(ns).collect();
-    //     //         if let Some(ne) = NEVec::try_from_vec(xs) {
-    //     //             let e = RepairCollisionError(ne);
-    //     //             if is_err {
-    //     //                 LogResult::new_err(e)
-    //     //             } else {
-    //     //                 LogResult::new_ok(()).set_commutative_warnings(Some(e))
-    //     //             }
-    //     //         } else {
-    //     //             LogResult::new_ok(())
-    //     //         }
-    //     //     }
-    //     //     None => LogResult::new_ok(()),
-    //     // };
-
-    //     // let ret = RepairDiagnostics {
-    //     //     non_unique_std,
-    //     //     non_unique_nonstd,
-    //     //     demoted,
-    //     //     promoted,
-    //     //     subbed,
-    //     //     replaced,
-    //     //     renamed,
-    //     //     ignored,
-    //     //     removed,
-    //     // };
-    //     // res.set_ok_value(ret)
-    // }
 }
 
 // Declare misc free functions and constants

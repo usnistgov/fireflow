@@ -80,10 +80,10 @@ use crate::text::keyword_enum::{
 use crate::text::keywords::{
     Abrt, AlphaNumType, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Carrierid, Carriertype,
     Cells, Com, Compensation2_0, Compensation3_0, Cyt, Cyt3_2, Cytsn, Exp, Feature, Fil, Flowrate,
-    Gate, Inst, LastModified, LastModifier, Locationid, LookupComp2_0Error, Lost, MeasOrGateIndex,
-    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, Originality, Par, Plateid,
-    Platename, PrefixedMeasIndex, Proj, PseudostandardError, ScaleFix, Smno, Src, Sys, Timestep,
-    TimestepAdded, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wellid,
+    Gate, Inst, LastModified, LastModifier, Locationid, LookupComp2_0Error, Lost, Mode, Mode3_2,
+    ModeUpgradeError, Nextdata, NoCytError, Op, Originality, Par, Plateid, Platename, Proj,
+    ScaleFix, Smno, Src, Sys, Timestep, TimestepAdded, Tot, Trigger, Unicode, UnstainedCenters,
+    UnstainedInfo, Vol, Wellid,
 };
 use crate::text::lookup::{
     Diagnosed, OptKeyError, OptStKeyError, OptValue as _, ReqKeyError, ReqValue as _,
@@ -113,8 +113,7 @@ use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
-    DollarKey, NonStdKeywords, NonStdKeywordsExt as _, PseudoStdKeywords, StringOrBytes,
-    ValidKeywords, ValueToStdKey as _,
+    DollarKey, NonStdKeywords, StringOrBytes, ValidKeywords, ValueToStdKey as _,
 };
 use crate::validated::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
@@ -122,13 +121,12 @@ use crate::validated::read_state::{
 };
 use crate::validated::shortname::Shortname;
 
-use fireflow_types::config::{ProcessOptionalFailure, TriErrorFlag};
 use fireflow_types::{
     config::{
-        AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, DummyTriFlag,
-        IncludeReqOrOpt, IncludeRootOrMeas, KeywordFailureFlag as _, OverBitmaskAction,
-        OverRangeAction, OverlapCorrectionLimit, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
-        ReadOffsetConfig, ReadSharedConfig, WriteDatasetInnerConfig, WriteMultiConfig,
+        AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, IncludeReqOrOpt,
+        IncludeRootOrMeas, OverBitmaskAction, OverRangeAction, OverlapCorrectionLimit,
+        ProcessOptionalFailure, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadOffsetConfig,
+        ReadSharedConfig, TriErrorFlag, WriteDatasetInnerConfig, WriteMultiConfig,
         WriteTEXTInnerConfig,
     },
     datepattern::DatePattern,

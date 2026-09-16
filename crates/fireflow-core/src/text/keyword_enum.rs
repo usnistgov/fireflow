@@ -4,7 +4,6 @@
 //! fast access and easy filtering if required.
 
 use crate::meas::GainLossError;
-use crate::std_index::index::{LookupAction, StdTransaction};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::keywords as kws;
 use crate::text::spillover::Spillover;

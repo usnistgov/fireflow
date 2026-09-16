@@ -7,15 +7,14 @@ use crate::{
     logging::{LogResult, WarningAndErrorResult, WarningsAndErrorsResult},
     text::keywords::{Gate, Par},
     validated::keys::{
-        self, AnyKey, NonStdKey, NonStdKeywords, NonStdKeywordsExt, TruncatedNEString,
-        ValueToStdKey,
+        AnyKey, NonStdKey, NonStdKeywords, NonStdKeywordsExt, TruncatedNEString, ValueToStdKey,
     },
 };
 
 use fireflow_types::{
     case_ins_regex::CaseInsRegex,
     config::{
-        ErrorFlag, KeywordFailureFlag, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,
+        KeywordFailureFlag, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,
         TemporalHasOpticalKeyError, TriErrorFlag as _,
     },
     index::MeasIndex,
@@ -31,12 +30,11 @@ use fireflow_types::{
 
 use derive_more::{Display, From};
 use derive_new::new;
-use hashbrown::{HashMap, hash_map::OccupiedEntry};
+use hashbrown::HashMap;
 use itertools::Itertools as _;
 use strum::EnumCount as _;
 use thiserror::Error;
 
-use std::iter::Chain;
 use std::mem;
 
 #[cfg(feature = "serde")]

@@ -7,7 +7,6 @@ use crate::segment::read::{IsOffsetPair as _, PrimaryTextOffsets};
 use crate::std_index::index::{LookupAction, StdKeywords, StdTransaction};
 use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
-use crate::text::keyword_enum::SplitKeyword_;
 use crate::text::lookup::{
     Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, OptKeyError, OptValue as _,
     ParseKeyError, ReqKeyError, ReqKeyErrorInner, ReqValue as _, Trimmed, impl_from_str_with_delim,
@@ -26,19 +25,17 @@ use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
 use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
-use crate::validated::keys::{DollarKey, PseudoStdKeywords, TruncatedNEString, ValueToStdKey};
+use crate::validated::keys::{DollarKey, ValueToStdKey};
 use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
-use fireflow_types::config::TriFlag;
 use fireflow_types::std_key::DfcKey;
 use fireflow_types::{
     byteord::ConfigByteOrd,
     config::{
-        ConfigFlag as _, DummyTriFlag, ForceLinearScale, KeywordFailureFlag as _, NumericByteWidth,
-        OpticalOnlyKey, ProcessOptionalFailure, ReadHeaderAndTEXTConfig, TriErrorFlag as _,
-        TrimIntraValueWhitespace,
+        ConfigFlag as _, ForceLinearScale, NumericByteWidth, OpticalOnlyKey,
+        ProcessOptionalFailure, ReadHeaderAndTEXTConfig, TrimIntraValueWhitespace,
     },
     index::{BiMeasIndex, GateIndex, IndexFromOne, MeasIndex, RegionIndex, SubsetIndex},
     keywords::{MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version},
@@ -77,8 +74,7 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use super::lookup::{MissingKeyError, MissingKeyError_};
-use super::optional::Nothing;
+use super::lookup::MissingKeyError;
 
 #[cfg(feature = "python")]
 use {
@@ -169,59 +165,6 @@ impl Nextdata {
             .switchable_into_commutative()
             .set_err_value(())
     }
-
-    // pub(crate) fn lookup_ro_nowarn<C>(
-    //     index: &StdIndex,
-    //     primary_text: &PrimaryTextOffsets,
-    //     st: HeaderReadState<C>,
-    // ) -> (
-    //     Result<Self, ReadNextdataError>,
-    //     Result<TEXTReadState<C>, NextdataFileLengthError>,
-    // )
-    // where
-    //     C: AsRef<ReadHeaderAndTEXTConfig>,
-    // {
-    //     let res = Self::lookup_ro_inner_nowarn(index, st.conf().as_ref());
-    //     // If $NEXTDATA exists (almost all the time) validate that it is a) less
-    //     // than the length of the FCS file from which it was read and b) beyond
-    //     // the end of the TEXT segment from which it was read.
-    //     let txt_st = if let Ok(nd) = res.as_ref().copied() {
-    //         let n = u64::from(nd);
-    //         let f = st.file_len();
-    //         if n == 0 {
-    //             Ok(st.into_last_dataset())
-    //         } else if let Some(ptext_end) = primary_text.as_nonempty().map(|t| t.end())
-    //                     // TODO this should always be some since we know that
-    //                     // the TEXT segment is non-empty (otherwise how did we
-    //                     // get $NEXTDATA?)
-    //                     && n < ptext_end
-    //         {
-    //             let e = NextdataInPrimaryError(nd, ptext_end);
-    //             Err(NextdataFileLengthError::PrimaryTEXT(e))
-    //         } else if n >= u64::from(f) {
-    //             let e = NextdataEOFError(nd, f);
-    //             Err(NextdataFileLengthError::FileLength(e))
-    //         } else {
-    //             Ok(st.with_nextdata(nd))
-    //         }
-    //     } else {
-    //         Ok(st.into_last_dataset())
-    //     };
-    //     (res, txt_st)
-    // }
-
-    // pub(crate) fn lookup_ro_inner_nowarn(
-    //     index: &StdIndex,
-    //     conf: &ReadHeaderAndTEXTConfig,
-    // ) -> Result<Self, ReadNextdataError> {
-    //     if let Some(s) = NEStr::try_new(index.get(&RootKey::Nextdata.into())) {
-    //         Self::parse(s, conf)
-    //             .map_err(|e| ParseKeyError::new1(e, (), s.to_owned()))
-    //             .map_err(ReadNextdataError::Parse)
-    //     } else {
-    //         Err(ReadNextdataError::Missing(MissingKeyError::new1(())))
-    //     }
-    // }
 
     fn parse(s: &NEStr, conf: &ReadHeaderAndTEXTConfig) -> Result<Self, ParseNextdataError> {
         let corr = i128::from(conf.nextdata_correction);
@@ -2911,124 +2854,6 @@ impl FromStrDelim for UnstainedCenters {
 }
 
 impl_from_str_with_delim!(UnstainedCenters, ParseUnstainedCenterError);
-
-pub(crate) enum ExtraKeywordClass {
-    Version(NEVec<Version>),
-    HyperPar,
-    HyperGate,
-    UnusedTimestep,
-}
-
-// #[derive(new)]
-// pub(crate) struct ExtraKeywordOutput {
-//     pub(crate) pseudo: Vec<PseudostandardError>,
-//     pub(crate) hyper_par: Vec<HyperParError>,
-//     pub(crate) hyper_gate: Vec<HyperGateError>,
-//     pub(crate) other_version: Vec<KeywordOtherVersionError>,
-// }
-
-// impl ExtraStdKeywords {
-//     /// Classify unused keyword based on all known FCS versions
-//     ///
-//     /// Will not try to match $PAR since we can assume this function will never
-//     /// get called if $PAR is not parsed properly. Will also not match
-//     /// $NEXTDATA, $BEGINSTEXT, or $ENDSTEXT since these should have already
-//     /// been processed when parsing TEXT itself.
-//     fn partition_extra_keywords(
-//         key: &StdKey,
-//         current_version: Version,
-//         par: Par,
-//         gate: Gate,
-//     ) -> Option<ExtraKeywordClass> {
-//         let if_invalid_version = || {
-//             let vs = key.membership();
-//             (!vs.contains_version(current_version))
-//                 .then(|| ExtraKeywordClass::Version(vs.versions()))
-//         };
-//         let if_hyperpar = |i: usize| {
-//             if i >= par.0 {
-//                 Some(ExtraKeywordClass::HyperPar)
-//             } else {
-//                 if_invalid_version()
-//             }
-//         };
-//         match AnyKeywordClass::classify_keyword(key) {
-//             AnyKeywordClass::Root(c) => {
-//                 let m = key.membership();
-//                 if m.contains_version(current_version) {
-//                     matches!(c, RootKeywordClass::Timestep)
-//                         .then_some(ExtraKeywordClass::UnusedTimestep)
-//                 } else {
-//                     Some(ExtraKeywordClass::Version(m.versions()))
-//                 }
-//             }
-//             AnyKeywordClass::Meas(i, _) | AnyKeywordClass::Peak(i) => if_hyperpar(i.into()),
-//             // TODO we could also flag these as outside of $CSTOT but hardly
-//             // anyone uses these so probably not worth it
-//             AnyKeywordClass::CSVFlag(_) => if_invalid_version(),
-//             AnyKeywordClass::Dfc(i) => {
-//                 if usize::from(i.i0) >= par.0 || usize::from(i.i1) >= par.0 {
-//                     Some(ExtraKeywordClass::HyperPar)
-//                 } else {
-//                     if_invalid_version()
-//                 }
-//             }
-//             AnyKeywordClass::GateOptLE3_1(i) => {
-//                 (usize::from(i) >= gate.0).then_some(ExtraKeywordClass::HyperGate)
-//             }
-//             AnyKeywordClass::RegionIndex | AnyKeywordClass::RegionWindow => None,
-//         }
-//     }
-
-//     pub(crate) fn split_keywords(
-//         kws: StdKeywords,
-//         current_version: Version,
-//         par: Par,
-//         gate: Gate,
-//     ) -> (Self, ExtraKeywordOutput) {
-//         let mut pseudo = HashMap::new();
-//         let mut hyper_par = HashMap::new();
-//         let mut hyper_gate = HashMap::new();
-//         let mut other_version = HashMap::new();
-//         let mut pseudo_es = vec![];
-//         let mut hyper_par_es = vec![];
-//         let mut hyper_gate_es = vec![];
-//         let mut other_version_es = vec![];
-//         let mut timestep = None;
-//         for (k, v) in kws.iter_keywords() {
-//             if let Some(m) = Self::partition_extra_keywords(&k, current_version, par, gate) {
-//                 match m {
-//                     ExtraKeywordClass::HyperPar => {
-//                         hyper_par_es.push(HyperParError::new(par, k));
-//                         hyper_par.insert(k, v);
-//                     }
-//                     ExtraKeywordClass::HyperGate => {
-//                         hyper_gate_es.push(HyperGateError::new(gate, k));
-//                         hyper_gate.insert(k, v);
-//                     }
-//                     ExtraKeywordClass::Version(vs) => {
-//                         let e = KeywordOtherVersionError::new(k, current_version, vs);
-//                         other_version_es.push(e);
-//                         other_version.insert(k, v);
-//                     }
-//                     // TODO pstd is already separated so need to pull from the
-//                     // struct here when applicable
-//                     //
-//                     // ExtraKeywordClass::Pseudostandard => {
-//                     //     pseudo_es.push(PseudostandardError(k.clone()));
-//                     //     pseudo.insert(k, v);
-//                     // }
-//                     ExtraKeywordClass::UnusedTimestep => {
-//                         timestep = Some(v);
-//                     }
-//                 }
-//             }
-//         }
-//         let ret = Self::new(pseudo, hyper_par, hyper_gate, other_version, timestep);
-//         let out = ExtraKeywordOutput::new(pseudo_es, hyper_par_es, hyper_gate_es, other_version_es);
-//         (ret, out)
-//     }
-// }
 
 /// Error denoting that pseudostandard keyword was found.
 #[derive(Debug, Error, PartialEq, Clone)]

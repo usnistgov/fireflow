@@ -18,10 +18,10 @@ use crate::header::{
     GuessVersionError, Header, HeaderError, KeywordVersionScores, autodetect_version,
 };
 use crate::logging::{
-    DeferredErrors, DeferredWarningsAndErrors, ErrorGroup, IOAnonErrorGroup, IOErrorGroup,
-    IOGroupResult, IOResult, ImpureError, LogResult, ResultExt as _, SuccessResultIter as _,
-    SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorResult,
-    WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log, split_log,
+    DeferredErrors, DeferredWarningsAndErrors, IOAnonErrorGroup, IOErrorGroup, IOResult,
+    ImpureError, LogResult, ResultExt as _, SuccessResultIter as _, SwitchableErrorResult,
+    SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
+    WarningsAndIOGroupResult, io_to_log, split_log,
 };
 use crate::macros::def_summary;
 use crate::segment::read::{
@@ -29,17 +29,15 @@ use crate::segment::read::{
     HasRegion, HeaderOffsetsName, HeaderOffsetsOverflow, IsDataOrAnalysis, IsOffsetPair as _,
     KeyedOptSegment as _, KeyedReqSegment as _, NonEmptyOffsets, OffsetPairsOverlapError,
     OffsetsOverlap, OptOffsetsError, OptSegmentKeyError, OriginalOffsets, PairResult,
-    PrimaryTextOffsets, ReqOffsetsError, ReqSegmentKeyError, SegmentOffsetError,
-    SuppOffsetsOverflow, SuppTextOffsetsName, SuppToHeaderOffsetsOverlap, SupplementalTextOffsets,
-    TEXTOffsets, TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
+    PrimaryTextOffsets, ReqOffsetsError, ReqSegmentKeyError, SuppOffsetsOverflow,
+    SuppTextOffsetsName, SuppToHeaderOffsetsOverlap, SupplementalTextOffsets, TEXTOffsets,
+    TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
 };
 use crate::std_index::index::{RepairDiagnostics, StdKeywords};
 use crate::text::keywords::{
     AlphaNumType, Beginstext, Endstext, LookupNextdataError, Nextdata, ReadNextdataError, Tot,
 };
-use crate::text::lookup::{
-    MissingKeyError, ParseKeyError, ReqKeyError, ReqKeyErrorInner_, ReqValue as _,
-};
+use crate::text::lookup::{MissingKeyError, ParseKeyError, ReqKeyErrorInner_};
 use crate::validated::dataframe::PrimitiveDataFrame;
 use crate::validated::header_offsets::{
     FinalHeaderOffsets, OffsetsValidationError, PrimaryTEXTOverflowError,
@@ -54,37 +52,33 @@ use crate::validated::read_state::{
     DatasetLen, DatasetOffset, DatasetOffsetError, FileLen, HeaderReadState, TEXTReadState,
 };
 
-use fireflow_types::config::TriErrorFlag;
-use fireflow_types::std_key::{PseudoStdKey, RealOrPseudoStdKey};
 use fireflow_types::{
     config::{
         AppendFlag, AppendableFlag, ConfigFlag as _, DelimEscapeMode, Encoding,
         OverlapCorrectionLimit, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadHeaderInnerConfig,
-        ReadOffsetConfig, ReadSharedConfig, VersionOverride, WriteDatasetInnerConfig,
+        ReadOffsetConfig, ReadSharedConfig, TriErrorFlag, VersionOverride, WriteDatasetInnerConfig,
         WriteMultiConfig,
     },
     keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2},
     nonempty::{IntoIteratorExt as _, NESlice, NEStr, NEVec, NonEmptyIterator as _},
     segment::{OffsetsFromTEXT, SupplementalTextSegmentId},
-    std_key::{RootKey, StdKey, ToStd as _},
+    std_key::{PseudoStdKey, RootKey, StdKey, ToStd as _},
 };
 
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
 
 use derive_more::{Display, From};
 use derive_new::new;
-use hashbrown::{HashMap, hash_map::Entry};
 use itertools::Itertools as _;
 use thiserror::Error;
 
 use std::{
-    fmt, fs,
-    fs::File,
+    fmt,
+    fs::{self, File},
     io::{self, BufReader, Read, Seek},
     iter, mem,
     num::{NonZeroUsize, ParseIntError},
     path::PathBuf,
-    str::FromStr,
     time::Instant,
 };
 

@@ -1599,8 +1599,8 @@ impl Compensation2_0 {
                 (false, true) => Some(Comp2_0Missing::Col),
                 (false, false) => None,
             };
-            let k = DollarKey::new_i2(kw.row, kw.col);
-            which.map(|b| RemovedComp2_0Cell::new(SplitKeyword_::new(k, kw.value), b))
+            let k = DfcKey::new(BiMeasIndex::new(kw.row, kw.col));
+            which.map(|b| RemovedComp2_0Cell::new(k, b))
         });
         let ret = es
             .try_into_nonempty_iter()
@@ -2861,7 +2861,10 @@ impl UnstainedCenters {
         names: &NamedSet<'_>,
     ) -> Option<RemovedNamedLink<Self>> {
         let ln = names.error_link_name(self.0.keys());
-        ln.map(|x| RemovedNamedLink::new(take(self), x))
+        ln.map(|x| {
+            let _ = take(self);
+            RemovedNamedLink::new(x)
+        })
     }
 }
 

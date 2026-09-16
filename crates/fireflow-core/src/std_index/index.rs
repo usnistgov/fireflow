@@ -956,14 +956,18 @@ impl<'a> StdTransaction<'a> {
 
     pub(crate) fn set_failure_flag<F: KeywordFailureFlag>(&mut self, k: &StdKey, f: F) {
         if let Some(a) = LookupAction::from_flag(f) {
-            match k {
-                StdKey::Root(rk) => self.root.set_lookup_action_seen(rk, a),
-                StdKey::Meas(mk) => self.meas.set_lookup_action_seen(mk, a),
-                StdKey::Gate(gk) => self.gate.set_lookup_action_seen(gk, a),
-                StdKey::Region(rk) => self.region.set_lookup_action_seen(rk, a),
-                StdKey::CsvFlag(ck) => self.csv_flag.set_lookup_action_seen(ck, a),
-                StdKey::Dfc(dk) => self.dfc.set_lookup_action_seen(dk, a),
-            }
+            self.set_lookup_action_seen(k, a);
+        }
+    }
+
+    pub(crate) fn set_lookup_action_seen(&mut self, k: &StdKey, a: LookupAction) {
+        match k {
+            StdKey::Root(rk) => self.root.set_lookup_action_seen(rk, a),
+            StdKey::Meas(mk) => self.meas.set_lookup_action_seen(mk, a),
+            StdKey::Gate(gk) => self.gate.set_lookup_action_seen(gk, a),
+            StdKey::Region(rk) => self.region.set_lookup_action_seen(rk, a),
+            StdKey::CsvFlag(ck) => self.csv_flag.set_lookup_action_seen(ck, a),
+            StdKey::Dfc(dk) => self.dfc.set_lookup_action_seen(dk, a),
         }
     }
 

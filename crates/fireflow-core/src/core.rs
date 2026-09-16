@@ -122,7 +122,7 @@ use crate::validated::read_state::{
 };
 use crate::validated::shortname::Shortname;
 
-use fireflow_types::config::ProcessOptionalFailure;
+use fireflow_types::config::{ProcessOptionalFailure, TriErrorFlag};
 use fireflow_types::{
     config::{
         AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, DummyTriFlag,
@@ -1577,8 +1577,10 @@ pub enum NewCoreError {
 pub enum LookupCoreError {
     /// Error when looking up measurement keywords
     Meas(LookupMeasError),
-    /// Any other warning which is configured to be a fatal error
-    Warn(NewCoreWarning),
+    /// A keyword has invalid links (and is dropped in the case of a warning)
+    Link(BrokenOrDependentLinkError),
+    /// Extra standard keywords were found which were not used or invalid
+    Extra(ExtraStdKeywordError),
 }
 
 /// Warning when building new [`CoreTEXT`]
@@ -1592,6 +1594,8 @@ pub enum NewCoreWarning {
     Time(MissingTimeError),
     /// A keyword has invalid links (and is dropped in the case of a warning)
     Link(BrokenOrDependentLinkError),
+    /// Extra standard keywords were found which were not used or invalid
+    Extra(ExtraStdKeywordError),
 }
 
 type LookupMetarootResult<V> =
@@ -3577,30 +3581,15 @@ impl<M: VersionedRootMeta> RootMeta<M> {
             .chain(tr)
     }
 
-    // Return a vector of errors here to let the caller decide how to package
-    // them. This allows the caller to hardcode the drop flag which allows for
-    // a simpler result type.
     fn remove_invalid_links(
         &mut self,
         par: Par,
         names: &NamedSet<'_>,
-        nonstandard_keywords: &mut NonStdKeywords,
-        demote: bool,
-    ) -> Vec<BrokenOrDependentLinkError> {
+    ) -> impl Iterator<Item = RemovedLink> {
         let tr = Trigger::remove_invalid_links(&mut self.tr, names);
-        let mut es = vec![];
-        for x in self
-            .specific
+        self.specific
             .remove_invalid_links(par, names)
             .chain(tr.map(RemovedLink::from))
-        {
-            // TODO what if I want to drop without error?
-            if demote {
-                x.insert_keyvals(nonstandard_keywords);
-            }
-            x.push_errors(&mut es);
-        }
-        es
     }
 
     /// Check that links will not be broken when setting new measurement names.
@@ -4978,7 +4967,7 @@ where
     pub fn set_applied_gates_3_0(
         &mut self,
         ag: AppliedGates3_0,
-    ) -> GroupResult<(), BrokenRegionLinkError<MeasOrGateIndex>, SetAppliedGatesSummary>
+    ) -> GroupResult<(), BrokenRegionLinkError, SetAppliedGatesSummary>
     where
         V::RootMeta: HasAppliedGates<Gates = AppliedGates3_0>,
     {
@@ -4993,7 +4982,7 @@ where
     pub fn set_applied_gates_3_2(
         &mut self,
         ag: AppliedGates3_2,
-    ) -> GroupResult<(), BrokenRegionLinkError<PrefixedMeasIndex>, SetAppliedGatesSummary>
+    ) -> GroupResult<(), BrokenRegionLinkError, SetAppliedGatesSummary>
     where
         V::RootMeta: HasAppliedGates<Gates = AppliedGates3_2>,
     {
@@ -5832,8 +5821,8 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
 
     #[allow(clippy::too_many_lines)]
     fn lookup_inner<C>(
-        mut kws: StdTransaction,
-        mut nonstd: NonStdKeywords,
+        mut std: StdTransaction,
+        nonstd: NonStdKeywords,
         start_time: Instant,
         conf: &C,
     ) -> WarningsAndErrorsResult<
@@ -5851,13 +5840,10 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         C: AsRef<EvaledReadStdKeywordsConfig> + AsRef<EvaledReadDataKeywordsConfig>,
     {
         // Lookup $PAR first since we need this to get the measurements
-        let par_res = Par::remove_metaroot_req(&mut kws)
+        let par_res = Par::remove_metaroot_req(&mut std)
             .map_err(LookupMetarootError::from)
             .map_err(StdTEXTFromFlatTEXTErrorInner::from)
             .into_log();
-
-        let version = V::as_version();
-        let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
 
         macro_rules! go_err {
             ($x:expr) => {
@@ -5868,16 +5854,16 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
 
         par_res.and_then_commutative(|par| {
             // Lookup $PnN first (everything else depends on these)
-            let names_res = Self::lookup_names(&mut kws, par, conf);
+            let names_res = Self::lookup_names(&mut std, par, conf);
             go_err!(names_res)
                 // Lookup root (which depends on $PnN) and data schema
                 .and_then_commutative(|(dedup_names, original_names)| {
                     let schema_start_time = Instant::now();
                     let schema_res =
-                        V::DataSchema::lookup(&mut kws, par, schema_start_time, conf.as_ref());
+                        V::DataSchema::lookup(&mut std, par, schema_start_time, conf.as_ref());
 
                     let root_res =
-                        RootMeta::<V::RootMeta>::lookup_metaroot(&mut kws, &dedup_names[..], conf);
+                        RootMeta::<V::RootMeta>::lookup_metaroot(&mut std, &dedup_names[..], conf);
 
                     go_err!(root_res)
                         .zip_commutative(go_err!(schema_res))
@@ -5886,7 +5872,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                 // Lookup measurement array which depends on global datatype
                 .and_then_commutative(|((metaroot_out, schema_out), dedup_names, x)| {
                     let dts = &schema_out.data_schema.datatypes()[..];
-                    let ret = Self::lookup_measurements(&mut kws, dedup_names, dts, conf);
+                    let ret = Self::lookup_measurements(&mut std, dedup_names, dts, conf);
                     go_err!(ret).map_ok_value(|y| (metaroot_out, schema_out, y, x))
                 })
                 .and_then_commutative(
@@ -5897,18 +5883,16 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                         (schema_start_time, original_names),
                     )| {
                         let meta_diag = metaroot_out.diagnostic;
-                        let gate = metaroot_out.inner.specific.gate().unwrap_or(Gate(0));
-                        let extra_res = kws.finalize(par, gate, version, &mut nonstd, sconf);
                         Self::try_new(
+                            std,
+                            nonstd,
                             metaroot_out.inner,
                             meas,
                             schema_out.data_schema,
-                            nonstd,
                             conf,
                         )
                         .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                         .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
-                        .zip_commutative(go_err!(extra_res))
                         .map_ok_value(|(core, extra)| {
                             let std_pre_ns = schema_start_time.duration_since1(start_time);
                             let (diag, std_end) = StdTEXTDiagnostics::from_extra(
@@ -6256,34 +6240,35 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     // only meant to be called during lookup when keywords are being read from
     // a hashtable
     pub(crate) fn try_new<C>(
+        mut std: StdTransaction,
+        mut nonstd: NonStdKeywords,
         mut metaroot: RootMeta<V::RootMeta>,
         measurements: VNamedTemporalsAndScaledOpticals<V>,
         data_schema: V::DataSchema,
-        mut nonstd: NonStdKeywords,
         conf: &C,
-    ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, LookupCoreError>
+    ) -> WarningsAndErrorsResult<(Self, ExtraStdKeywords), (), NewCoreWarning, LookupCoreError>
     where
         V::DataSchema: LayoutWidth,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         let opt_flag = rconf.process_optional_failure;
+        let par = Par(measurements.len());
+        let version = V::as_version();
         CoreMeasurements::try_new(measurements, data_schema, conf.as_ref())
-            .map_errors(LookupCoreError::from)
-            .map_commutative_warnings(NewCoreWarning::from)
+            .map_errors(LookupCoreError::Meas)
+            .map_commutative_warnings(NewCoreWarning::Time)
             .and_then_commutative(|ml| {
-                Self::check_relationships(
-                    &mut metaroot,
-                    ml.meta(),
-                    &mut nonstd,
-                    opt_flag.is_demote(),
-                )
-                .map_errors(NewCoreWarning::from)
-                .nowarn_into_switchable3(opt_flag)
-                .switchable_into_commutative()
-                .map_errors(LookupCoreError::from)
-                .map_commutative_warnings(NewCoreWarning::from)
-                .map_ok_value(|()| Self::new(metaroot, ml, nonstd, (), ()))
+                Self::check_relationships(&mut std, &mut metaroot, ml.meta(), opt_flag)
+                    .map_errors(LookupCoreError::Link)
+                    .map_commutative_warnings(NewCoreWarning::Link)
+                    .and_then_commutative(|()| {
+                        let gate = metaroot.specific.gate().unwrap_or(Gate(0));
+                        std.finalize(par, gate, version, &mut nonstd, conf.as_ref())
+                            .map_errors(LookupCoreError::Extra)
+                            .map_commutative_warnings(NewCoreWarning::Extra)
+                    })
+                    .map_ok_value(|extra| (Self::new(metaroot, ml, nonstd, (), ()), extra))
             })
     }
 
@@ -6291,12 +6276,12 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         mut metaroot: RootMeta<V::RootMeta>,
         measurements: VNamedTemporalsAndOpticalsWithScale<V>,
         data_schema: V::DataSchema,
-        mut nonstd: NonStdKeywords,
+        nonstd: NonStdKeywords,
     ) -> ErrorsResult<Self, (), NewCoreError> {
         CoreMeasurements::try_new_nodrop(measurements, data_schema)
             .map_errors(NewCoreError::from)
             .and_then_commutative(|ml| {
-                Self::check_relationships(&mut metaroot, ml.meta(), &mut nonstd, false)
+                Self::check_relationships_nodrop(&mut metaroot, ml.meta())
                     .map_errors(NewCoreError::from)
                     .map_ok_value(|()| Self::new(metaroot, ml, nonstd, (), ()))
             })
@@ -6306,18 +6291,46 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     ///
     /// For example, $SPILLOVER in the metaroot must refer to valid
     /// measurements.
-    ///
-    /// If allow_dropping is true, remove keywords with invalid relationships.
     fn check_relationships(
+        std: &mut StdTransaction,
         metaroot: &mut RootMeta<V::RootMeta>,
         measurements: &MeasMeta<V::Name, V::Temporal, V::Optical, V::OpticalScale>,
-        nonstd: &mut NonStdKeywords,
-        demote: bool,
+        flag: ProcessOptionalFailure,
+    ) -> WarningsAndErrorsResult<(), (), BrokenOrDependentLinkError, BrokenOrDependentLinkError>
+    {
+        let ns = measurements.named_set();
+        let par = Par(measurements.len());
+        let mut errors = vec![];
+        let flag_error = flag.is_error();
+        for x in metaroot.remove_invalid_links(par, &ns) {
+            x.insert_keyvals(std, flag);
+            if flag_error.is_some() {
+                x.push_errors(&mut errors);
+            }
+        }
+        LogResult::new_switchable_iter3((), (), errors, flag).switchable_into_commutative()
+    }
+
+    /// Check for invalid keyword relationships.
+    ///
+    /// For example, $SPILLOVER in the metaroot must refer to valid
+    /// measurements.
+    ///
+    /// This will only return errors and does not provide the option of
+    /// dropping/demoting. It is intended to be used inside functions that build
+    /// Core structs from native Rust values rather than keywords, since these
+    /// have relationships that need to be validated but no "keyword index".
+    fn check_relationships_nodrop(
+        metaroot: &mut RootMeta<V::RootMeta>,
+        measurements: &MeasMeta<V::Name, V::Temporal, V::Optical, V::OpticalScale>,
     ) -> ErrorsResult<(), (), BrokenOrDependentLinkError> {
         let ns = measurements.named_set();
         let par = Par(measurements.len());
-        let link_errs = metaroot.remove_invalid_links(par, &ns, nonstd, demote);
-        LogResult::new_from_err_iter(link_errs, (), ())
+        let mut errors = vec![];
+        for x in metaroot.remove_invalid_links(par, &ns) {
+            x.push_errors(&mut errors);
+        }
+        LogResult::new_from_err_iter(errors, (), ())
     }
 }
 

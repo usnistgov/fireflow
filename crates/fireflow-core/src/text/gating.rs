@@ -19,7 +19,7 @@ use crate::text::keywords::{
 use crate::text::lookup::{OptKeyError, OptStKeyError};
 use crate::text::relational::{
     BrokenRegionLinkError, DependentKeyError, ExistingIndexedLinkError, IndicesToRemove,
-    KeyToIndexLinkError, RemovedGateLink, RemovedGating, RemovedLink,
+    KeyToIndexLinkError, RemovedGateLink, RemovedLink,
 };
 use crate::validated::keys::{DollarKey, ValueToStdKey};
 
@@ -365,8 +365,8 @@ impl<I> AppliedGatesPre3_2<I> {
             })
             .map_err_value(|ret| {
                 let flag = rconf.process_optional_failure;
-                ret.inner.scheme.set_action(kws, flag);
-                ret.inner.gated_measurements.set_action(kws, flag);
+                ret.inner.scheme.set_failure_flag(kws, flag);
+                ret.inner.gated_measurements.set_failure_flag(kws, flag);
             })
     }
 
@@ -424,7 +424,7 @@ impl AppliedGates3_0 {
     pub(crate) fn invalid_link_errors(
         &self,
         par: &Par,
-    ) -> impl Iterator<Item = BrokenRegionLinkError<MeasOrGateIndex>> {
+    ) -> impl Iterator<Item = BrokenRegionLinkError> {
         self.scheme.invalid_link_errors(par)
     }
 
@@ -494,7 +494,7 @@ impl AppliedGates3_2 {
     pub(crate) fn invalid_link_errors(
         &self,
         par: &Par,
-    ) -> impl Iterator<Item = BrokenRegionLinkError<PrefixedMeasIndex>> {
+    ) -> impl Iterator<Item = BrokenRegionLinkError> {
         self.0.invalid_link_errors(par)
     }
 
@@ -515,7 +515,7 @@ impl AppliedGates3_2 {
             .map_ok_value(|out| out.bimap_once(Self, |d| AppliedGatesDiagnostics::new(d, vec![])))
             .map_err_value(|ret| {
                 let flag = rconf.process_optional_failure;
-                ret.inner.set_action(kws, flag)
+                ret.inner.set_failure_flag(kws, flag)
             })
     }
 
@@ -583,7 +583,12 @@ impl GatedMeasurement {
         [x0, x1, x2, x3, x4, x5, x6, x7].into_iter().flatten()
     }
 
-    fn set_action(self, i: GateIndex, kws: &mut StdTransaction, flag: ProcessOptionalFailure) {
+    fn set_failure_flag(
+        self,
+        i: GateIndex,
+        kws: &mut StdTransaction,
+        flag: ProcessOptionalFailure,
+    ) {
         for x in self.opt_keywords(i) {
             let k = x.as_std_key();
             kws.set_failure_flag(&k, flag);
@@ -670,9 +675,8 @@ impl<I> GatingScheme<I> {
     pub(crate) fn invalid_link_errors(
         &self,
         par: &Par,
-    ) -> impl Iterator<Item = BrokenRegionLinkError<I>>
+    ) -> impl Iterator<Item = BrokenRegionLinkError>
     where
-        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         I: LinkedMeasIndex,
     {
         self.meas_indices()
@@ -686,7 +690,7 @@ impl<I> GatingScheme<I> {
     pub(crate) fn remove_invalid_links(&mut self, par: Par) -> Vec<RemovedLink>
     where
         I: LinkedMeasIndex,
-        RemovedLink: From<RemovedGateLink<I>>,
+        RemovedLink: From<RemovedGateLink>,
     {
         let mut bad_indices = HashSet::new();
         let mut removed_links = vec![];
@@ -694,17 +698,17 @@ impl<I> GatingScheme<I> {
         // don't exist.
         self.regions = take(&mut self.regions)
             .into_iter()
-            .filter_map(|(rni, rnw)| {
-                if let Some(xs) = rnw.indices().filter_map(|x| {
+            .filter_map(|(ri, region)| {
+                if let Some(xs) = region.indices().filter_map(|x| {
                     let y = x.meas_index()?;
                     (usize::from(y) >= par.0).then_some(y)
                 }) {
-                    let e = RemovedLink::from(RemovedGateLink::new(rni, rnw, xs));
+                    let e = RemovedLink::from(RemovedGateLink::new(ri, xs));
                     removed_links.push(e);
-                    bad_indices.insert(rni);
+                    bad_indices.insert(ri);
                     None
                 } else {
-                    Some((rni, rnw))
+                    Some((ri, region))
                 }
             })
             .collect();
@@ -715,7 +719,7 @@ impl<I> GatingScheme<I> {
             let xs = g.region_indices();
             let ys = xs.iter().copied().filter(|rni| bad_indices.contains(rni));
             if let Some(zs) = ys.try_into_nonempty_iter() {
-                let e = RemovedLink::Gating(RemovedGating::new(zs.collect(), g));
+                let e = RemovedLink::Gating(zs.collect());
                 removed_links.push(e);
                 None
             } else {
@@ -786,14 +790,14 @@ impl<I> GatingScheme<I> {
             })
     }
 
-    fn set_action(self, kws: &mut StdTransaction, flag: ProcessOptionalFailure)
+    fn set_failure_flag(self, kws: &mut StdTransaction, flag: ProcessOptionalFailure)
     where
         I: Copy,
         RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         for (ri, r) in self.regions {
-            r.set_action(ri, kws, flag);
+            r.set_failure_flag(ri, kws, flag);
         }
         if let Some(g) = self.gating.as_ref().map(|v| v.std0_()) {
             kws.set_failure_flag(&g, flag);
@@ -927,7 +931,7 @@ impl<I> Region<I> {
             })
     }
 
-    pub(crate) fn set_action<'a>(
+    pub(crate) fn set_failure_flag<'a>(
         &'a self,
         i: RegionIndex,
         kws: &mut StdTransaction,
@@ -940,6 +944,22 @@ impl<I> Region<I> {
         for r in self.opt_keywords(i) {
             let k = r.as_std_key();
             kws.set_failure_flag(&k, flag);
+        }
+    }
+
+    pub(crate) fn set_lookup_action_seen<'a>(
+        &'a self,
+        i: RegionIndex,
+        kws: &mut StdTransaction,
+        a: LookupAction,
+    ) where
+        I: Copy,
+        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
+        RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
+    {
+        for r in self.opt_keywords(i) {
+            let k = r.as_std_key();
+            kws.set_lookup_action_seen(&k, a);
         }
     }
 
@@ -1070,12 +1090,12 @@ impl GatedMeasurements {
         }
     }
 
-    fn set_action(self, kws: &mut StdTransaction, flag: ProcessOptionalFailure) {
+    fn set_failure_flag(self, kws: &mut StdTransaction, flag: ProcessOptionalFailure) {
         if let Some(k) = self.gate().map(|v| v.std0_()) {
             kws.set_failure_flag(&k, flag);
         }
         for (i, g) in self.0.into_iter().enumerate() {
-            g.set_action(i.into(), kws, flag);
+            g.set_failure_flag(i.into(), kws, flag);
         }
     }
 

@@ -27,9 +27,11 @@
 //! a file and parse keywords from a hash table. The former doesn't require
 //! demoting optional keywords.
 
+use crate::api::ParseKeywordsIssue::Uneven;
 use crate::fixed_vec::OneOrTwo;
 use crate::logging::ErrorGroup;
 use crate::macros::def_summary;
+use crate::std_index::index::{LookupAction, StdTransaction};
 use crate::text::gating::Region;
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword, RefKeyword, RegionKeyword,
@@ -45,9 +47,12 @@ use crate::validated::keys::{
 };
 use crate::validated::shortname::Shortname;
 
-use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeyId};
+use fireflow_types::config::ProcessOptionalFailure;
+use fireflow_types::index::BiMeasIndex;
+use fireflow_types::std_key::{DfcKey, IndexedKey, RegionKey, RegionKeyId, ToStd as _};
 use fireflow_types::{
     index::{MeasIndex, RegionIndex},
+    nev,
     nonempty::{
         IntoIteratorExt as _, IntoNonEmptyIterator as _, NEString, NEVec, NonEmptyIterator as _,
     },
@@ -61,6 +66,7 @@ use itertools::Itertools as _;
 use thiserror::Error;
 
 use std::collections::HashSet;
+use std::marker::PhantomData;
 use std::mem::take;
 
 #[cfg(feature = "python")]
@@ -160,9 +166,8 @@ pub type ExistingIndexedLinkError<T, J> =
 /// A relational keyword that has been removed due having a broken reference.
 #[derive(From)]
 pub enum RemovedLink {
-    GatingRegion3_0(RemovedGateLink<MeasOrGateIndex>),
-    GatingRegion3_2(RemovedGateLink<PrefixedMeasIndex>),
-    Gating(RemovedGating),
+    GatingRegion(RemovedGateLink),
+    Gating(NEVec<RegionIndex>),
     Comp2_0(NEVec<RemovedComp2_0Cell>),
     Comp3_0(RemovedIndexLink<Compensation3_0>),
     Spillover(RemovedNamedLink<Spillover>),
@@ -173,7 +178,7 @@ pub enum RemovedLink {
 /// An invalid $DFCmTOn keyword that was removed
 #[derive(new)]
 pub struct RemovedComp2_0Cell {
-    kw: SplitKeyword<Dfc>,
+    key: DfcKey,
     missing: Comp2_0Missing,
 }
 
@@ -187,8 +192,8 @@ pub(crate) enum Comp2_0Missing {
 /// A keyword which links to a non-existent $PnN which was removed.
 #[derive(new)]
 pub struct RemovedNamedLink<T> {
-    key: T,
     names: LinkName,
+    _key: PhantomData<T>,
 }
 
 pub(crate) enum LinkName {
@@ -199,23 +204,15 @@ pub(crate) enum LinkName {
 /// A keyword which links to a non-existent measurement index which was removed.
 #[derive(new)]
 pub struct RemovedIndexLink<T> {
-    key: T,
     indices: NEVec<MeasIndex>,
+    _key: PhantomData<T>,
 }
 
 /// A $RnI/$RnW pair which refers to a non-existent measurement index which was removed.
 #[derive(new)]
-pub struct RemovedGateLink<I> {
+pub struct RemovedGateLink {
     pub(crate) region_index: RegionIndex,
-    pub(crate) region: Region<I>,
     pub(crate) meas_indices: OneOrTwo<MeasIndex>,
-}
-
-/// A $GATING keyword which references non-existent $RnI/$RnW keywords and was removed.
-#[derive(new)]
-pub struct RemovedGating {
-    pub(crate) region_indices: NEVec<RegionIndex>,
-    pub(crate) gating: Gating,
 }
 
 /// All possible relational errors
@@ -233,8 +230,7 @@ pub enum BrokenOrDependentLinkError {
 pub enum BrokenIndexedLinkError {
     Comp2_0(KeyToIndexLinkError<Dfc>),
     Comp3_0(KeyToIndexLinkError<Compensation3_0>),
-    Region3_0(BrokenRegionLinkError<MeasOrGateIndex>),
-    Region3_2(BrokenRegionLinkError<PrefixedMeasIndex>),
+    Region(BrokenRegionLinkError),
 }
 
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
@@ -245,7 +241,9 @@ pub enum BrokenNamedLinkError {
     UnstainedCenters(KeyToNameLinkError<UnstainedCenters>),
 }
 
-pub(crate) type BrokenRegionLinkError<I> = KeyToIndexLinkError<RegionGateIndex<I>>;
+// NOTE the index for RegionGateIndex<I> is arbitrary, it should not affect how
+// the error is printed
+pub(crate) type BrokenRegionLinkError = KeyToIndexLinkError<RegionGateIndex<PrefixedMeasIndex>>;
 
 /// Error when key which references a non-existent optical $PnN or the temporal $PnN
 #[derive(From, Display, Error)]
@@ -360,54 +358,33 @@ impl<T, I> DependentKeyError_<T, I> {
 }
 
 impl RemovedLink {
-    pub(crate) fn insert_keyvals(&self, kws: &mut NonStdKeywords) {
-        fn go_ref<'a, T>(x: &'a T, kws: &mut NonStdKeywords)
+    pub(crate) fn insert_keyvals(&self, kws: &mut StdTransaction, flag: ProcessOptionalFailure) {
+        fn go<T>(kws: &mut StdTransaction, flag: ProcessOptionalFailure)
         where
             T: ValueToStdKey<Index = ()>,
-            OptRootKeyword<'a>: From<RefKeyword<'a, T>>,
         {
-            let kw = OptRootKeyword::from_ref(x);
-            kws.insert_demoted_keyword(kw.into());
-        }
-
-        fn go_gate<'a, I>(r: &'a RemovedGateLink<I>, kws: &mut NonStdKeywords)
-        where
-            I: Copy,
-            RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
-            RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
-        {
-            r.region.demote_keywords(r.region_index, kws);
+            kws.set_failure_flag(&T::std0(), flag)
         }
 
         match self {
-            Self::GatingRegion3_0(x) => go_gate(x, kws),
-            Self::GatingRegion3_2(x) => go_gate(x, kws),
-            Self::Gating(x) => go_ref(&x.gating, kws),
+            Self::GatingRegion(x) => {
+                kws.set_failure_flag(&RegionKeyId::I.to_std(&x.region_index), flag);
+                kws.set_failure_flag(&RegionKeyId::W.to_std(&x.region_index), flag);
+            }
+            Self::Gating(_) => go::<Gating>(kws, flag),
             Self::Comp2_0(xs) => {
-                for x in xs {
-                    let (k, v) = x.as_keyval();
-                    kws.insert_demoted(k, v);
+                for k in xs {
+                    kws.set_failure_flag(&k.key.into(), flag);
                 }
             }
-            Self::Comp3_0(x) => go_ref(&x.key, kws),
-            Self::Spillover(x) => go_ref(&x.key, kws),
-            Self::UnstainedCenters(x) => {
-                if let Some(kw) = OptRootKeyword::from_unstainedcenters(&x.key) {
-                    kws.insert_demoted_keyword(kw.into());
-                }
-            }
-            Self::Trigger(x) => go_ref(&x.key, kws),
+            Self::Comp3_0(_) => go::<Compensation3_0>(kws, flag),
+            Self::Spillover(_) => go::<Spillover>(kws, flag),
+            Self::UnstainedCenters(_) => go::<UnstainedCenters>(kws, flag),
+            Self::Trigger(_) => go::<Trigger>(kws, flag),
         }
     }
 
     pub(crate) fn push_errors(self, es: &mut Vec<BrokenOrDependentLinkError>) {
-        macro_rules! go_gate {
-            ($es:expr, $x:expr) => {{
-                for e in $x.into_errors() {
-                    $es.push(e);
-                }
-            }};
-        }
         macro_rules! go_named {
             ($es:expr, $x:expr) => {{
                 $es.extend(
@@ -418,12 +395,15 @@ impl RemovedLink {
             }};
         }
         match self {
-            Self::GatingRegion3_0(x) => go_gate!(es, x),
-            Self::GatingRegion3_2(x) => go_gate!(es, x),
-            Self::Gating(x) => {
-                let ks = x.region_indices.into_nonempty_iter().flat_map(|ri| {
-                    let k0 = StdKey::from(RegionKey::new(ri, RegionKeyId::I));
-                    let k1 = StdKey::from(RegionKey::new(ri, RegionKeyId::W));
+            Self::GatingRegion(x) => {
+                for e in x.into_errors() {
+                    es.push(e);
+                }
+            }
+            Self::Gating(indices) => {
+                let ks = indices.into_nonempty_iter().flat_map(|ri| {
+                    let k0 = RegionKeyId::I.to_std(&ri);
+                    let k1 = RegionKeyId::W.to_std(&ri);
                     [k0, k1]
                 });
                 let e = DependentKeyError::<Gating>::new1(ks.collect());
@@ -443,12 +423,12 @@ impl RemovedLink {
 }
 
 impl RemovedComp2_0Cell {
-    fn as_keyval(&self) -> (StdKey, NEString) {
-        self.kw.as_std_key_pair()
-    }
+    // fn as_keyval(&self) -> (StdKey, NEString) {
+    //     self.kw.as_std_key_pair()
+    // }
 
     fn as_error(&self) -> KeyToIndexLinkError<Dfc> {
-        let i = self.kw.key.index();
+        let i = self.key.index;
         let xs = match self.missing {
             Comp2_0Missing::Row => NEVec::new(i.i1),
             Comp2_0Missing::Col => NEVec::new(i.i0),
@@ -458,7 +438,7 @@ impl RemovedComp2_0Cell {
                 xs
             }
         };
-        KeyToIndexLinkError::new(xs, self.kw.key)
+        KeyToIndexLinkError::new(xs, DollarKey_::new_i2(i.i0, i.i1))
     }
 }
 
@@ -485,7 +465,7 @@ impl<T: ValueToStdKey> RemovedNamedLink<T> {
         let mut removed = None;
         *src = take(src).and_then(|s| {
             if let Some(ln) = f(&s) {
-                removed = Some(Self::new(s, ln));
+                removed = Some(Self::new(ln));
                 None
             } else {
                 Some(s)
@@ -511,7 +491,7 @@ impl<T: ValueToStdKey> RemovedIndexLink<T> {
         let mut removed = None;
         *src = take(src).and_then(|s| {
             if let Some(js) = f(&s).try_into_nonempty_iter() {
-                removed = Some(Self::new(s, js.collect()));
+                removed = Some(Self::new(js.collect()));
                 None
             } else {
                 Some(s)
@@ -521,11 +501,10 @@ impl<T: ValueToStdKey> RemovedIndexLink<T> {
     }
 }
 
-impl<I> RemovedGateLink<I> {
+impl RemovedGateLink {
     fn into_errors(self) -> impl Iterator<Item = BrokenOrDependentLinkError>
     where
-        BrokenIndexedLinkError: From<BrokenRegionLinkError<I>>,
-        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
+        BrokenIndexedLinkError: From<BrokenRegionLinkError>,
     {
         let ri = self.region_index;
         let region_key = IndexedKey::new(ri, RegionKeyId::I).into();

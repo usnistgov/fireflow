@@ -1,6 +1,6 @@
 use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
-use crate::std_index::index::{KeywordAction, StdTransaction};
+use crate::std_index::index::{LookupAction, StdTransaction};
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword, SplitKeyword,
 };
@@ -248,12 +248,9 @@ impl<X> Timestamps<X> {
                         let bk = old_btim.map(|v| v.std0_());
                         let ek = old_etim.map(|v| v.std0_());
                         let dk = old_date.map(|v| v.std0_());
-                        let failed_kws = [bk, ek, dk].into_iter().flatten();
                         let flag = rconf.process_optional_failure;
-                        if let Some(a) = KeywordAction::from_flag(flag) {
-                            for k in failed_kws {
-                                kws.set_action_at_key(&k, a);
-                            }
+                        for k in [bk, ek, dk].into_iter().flatten() {
+                            kws.set_failure_flag(&k, flag);
                         }
                     })
                     .into_semigroup()

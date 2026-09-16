@@ -1,6 +1,6 @@
 use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
-use crate::std_index::index::{KeywordAction, StdTransaction};
+use crate::std_index::index::{LookupAction, StdTransaction};
 use crate::text::keyword_enum::{AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword};
 use crate::text::lookup::{Diagnosed, FromStrWith, OptStKeyError, OptValue as _};
 use crate::validated::keys::ValueToStdKey as _;
@@ -167,10 +167,8 @@ impl Datetimes {
                         let ek = old_end.map(|v| v.std0_());
                         let failed_kws = [bk, ek].into_iter().flatten();
                         let flag = rconf.process_optional_failure;
-                        if let Some(a) = KeywordAction::from_flag(flag) {
-                            for k in failed_kws {
-                                kws.set_action_at_key(&k, a);
-                            }
+                        for k in failed_kws {
+                            kws.set_failure_flag(&k, flag);
                         }
                     })
                     .into_semigroup()

@@ -6,7 +6,7 @@ use crate::logging::{
     DeferredIter as _, DeferredSwitchableErrors, DeferredWarningsAndErrors, LogResult,
     ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
 };
-use crate::std_index::index::{KeywordAction, StdTransaction};
+use crate::std_index::index::{LookupAction, StdTransaction};
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, GateMeasKeyword, Keyword0FromValue as _, Keyword1FromValue as _,
     OptRootKeyword, RegionKeyword, SplitKeyword,
@@ -23,6 +23,7 @@ use crate::text::relational::{
 };
 use crate::validated::keys::{DollarKey, ValueToStdKey};
 
+use fireflow_types::config::{ProcessOpticalOnlyKeys, ProcessOptionalFailure};
 use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeyId};
 use fireflow_types::{
     config::AllowLoss,
@@ -364,10 +365,8 @@ impl<I> AppliedGatesPre3_2<I> {
             })
             .map_err_value(|ret| {
                 let flag = rconf.process_optional_failure;
-                if let Some(a) = KeywordAction::from_flag(flag) {
-                    ret.inner.scheme.set_action(kws, a);
-                    ret.inner.gated_measurements.set_action(kws, a);
-                }
+                ret.inner.scheme.set_action(kws, flag);
+                ret.inner.gated_measurements.set_action(kws, flag);
             })
     }
 
@@ -516,9 +515,7 @@ impl AppliedGates3_2 {
             .map_ok_value(|out| out.bimap_once(Self, |d| AppliedGatesDiagnostics::new(d, vec![])))
             .map_err_value(|ret| {
                 let flag = rconf.process_optional_failure;
-                if let Some(a) = KeywordAction::from_flag(flag) {
-                    ret.inner.set_action(kws, a)
-                }
+                ret.inner.set_action(kws, flag)
             })
     }
 
@@ -586,10 +583,10 @@ impl GatedMeasurement {
         [x0, x1, x2, x3, x4, x5, x6, x7].into_iter().flatten()
     }
 
-    fn set_action(self, i: GateIndex, kws: &mut StdTransaction, a: KeywordAction) {
+    fn set_action(self, i: GateIndex, kws: &mut StdTransaction, flag: ProcessOptionalFailure) {
         for x in self.opt_keywords(i) {
             let k = x.as_std_key();
-            kws.set_action_at_key(&k, a);
+            kws.set_failure_flag(&k, flag);
         }
     }
 }
@@ -789,17 +786,17 @@ impl<I> GatingScheme<I> {
             })
     }
 
-    fn set_action(self, kws: &mut StdTransaction, a: KeywordAction)
+    fn set_action(self, kws: &mut StdTransaction, flag: ProcessOptionalFailure)
     where
         I: Copy,
         RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         for (ri, r) in self.regions {
-            r.set_action(ri, kws, a);
+            r.set_action(ri, kws, flag);
         }
         if let Some(g) = self.gating.as_ref().map(|v| v.std0_()) {
-            kws.set_action_at_key(&g, a);
+            kws.set_failure_flag(&g, flag);
         }
     }
 
@@ -895,7 +892,6 @@ impl<I> Region<I> {
             .into_semigroup();
         let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
-        let action = KeywordAction::from_flag(flag);
         index_res
             .zip_f2_once(window_res)
             .and_then_deferred_switchable_result(flag, |(gi_out, w_out)| {
@@ -911,23 +907,17 @@ impl<I> Region<I> {
                     (Some(gi), Some(w)) => match Self::try_new(gi, w) {
                         Ok(x) => Ok(Some(x.fmap_into())),
                         Err((old_gi, old_w)) => {
-                            if let Some(a) = action {
-                                kws.set_action_at_key(&old_gi.std_(&ri), a);
-                                kws.set_action_at_key(&old_w.std_(&ri), a);
-                            }
+                            kws.set_failure_flag(&old_gi.std_(&ri), flag);
+                            kws.set_failure_flag(&old_w.std_(&ri), flag);
                             Err(IndexWindowMismatchError::Both(ri))
                         }
                     },
                     (Some(old_gi), None) => {
-                        if let Some(a) = action {
-                            kws.set_action_at_key(&old_gi.std_(&ri), a);
-                        }
+                        kws.set_failure_flag(&old_gi.std_(&ri), flag);
                         Err(IndexWindowMismatchError::NoWindow(ri))
                     }
                     (None, Some(old_w)) => {
-                        if let Some(a) = action {
-                            kws.set_action_at_key(&old_w.std_(&ri), a);
-                        }
+                        kws.set_failure_flag(&old_w.std_(&ri), flag);
                         Err(IndexWindowMismatchError::NoIndex(ri))
                     }
                     (None, None) => Ok(None),
@@ -937,15 +927,19 @@ impl<I> Region<I> {
             })
     }
 
-    pub(crate) fn set_action<'a>(&'a self, i: RegionIndex, kws: &mut StdTransaction, a: KeywordAction)
-    where
+    pub(crate) fn set_action<'a>(
+        &'a self,
+        i: RegionIndex,
+        kws: &mut StdTransaction,
+        flag: ProcessOptionalFailure,
+    ) where
         I: Copy,
         RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         for r in self.opt_keywords(i) {
             let k = r.as_std_key();
-            kws.set_action_at_key(&k, a);
+            kws.set_failure_flag(&k, flag);
         }
     }
 
@@ -1076,12 +1070,12 @@ impl GatedMeasurements {
         }
     }
 
-    fn set_action(self, kws: &mut StdTransaction, a: KeywordAction) {
+    fn set_action(self, kws: &mut StdTransaction, flag: ProcessOptionalFailure) {
         if let Some(k) = self.gate().map(|v| v.std0_()) {
-            kws.set_action_at_key(&k, a);
+            kws.set_failure_flag(&k, flag);
         }
         for (i, g) in self.0.into_iter().enumerate() {
-            g.set_action(i.into(), kws, a);
+            g.set_action(i.into(), kws, flag);
         }
     }
 

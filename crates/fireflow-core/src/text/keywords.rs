@@ -1,11 +1,10 @@
 use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
-use crate::core::DroppedStdKeywords;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
 };
 use crate::macros::impl_newtype_try_from;
 use crate::segment::read::{IsOffsetPair as _, PrimaryTextOffsets};
-use crate::std_index::index::{KeywordAction, StdKeywords, StdTransaction};
+use crate::std_index::index::{LookupAction, StdKeywords, StdTransaction};
 use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::keyword_enum::SplitKeyword_;
@@ -526,9 +525,7 @@ impl Gain {
         let flag = AsRef::<EvaledReadDataKeywordsConfig>::as_ref(conf).process_optional_failure;
         let triflag = flag.as_triflag();
         if ignore.0.contains(&OpticalOnlyKey::Gain) {
-            if let Some(a) = KeywordAction::from_flag(flag) {
-                kws.set_action_at_key(&Self::std(&i), a);
-            }
+            kws.set_failure_flag(&Self::std(&i), flag);
             LogResult::new_switchable_ok(None, triflag)
         } else {
             Self::remove_or_drop_meas_opt(kws, i, conf.as_ref())
@@ -1530,10 +1527,8 @@ impl Compensation2_0 {
                             Some(StdKey::from(DfcKey::new(i)))
                         }
                     });
-                    if let Some(a) = KeywordAction::from_flag(flag) {
-                        for k in failed_kws {
-                            kws.set_action_at_key(&k, a);
-                        }
+                    for k in failed_kws {
+                        kws.set_failure_flag(&k, flag);
                     }
                     LookupComp2_0Error::Matrix(e)
                 })
@@ -2914,17 +2909,6 @@ impl FromStrDelim for UnstainedCenters {
 
 impl_from_str_with_delim!(UnstainedCenters, ParseUnstainedCenterError);
 
-/// Leftover standard keyword after parsing
-#[derive(Clone, new, PartialEq)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct ExtraStdKeywords {
-    pub pseudostandard: PseudoStdKeywords,
-    pub hyper_par: DroppedStdKeywords,
-    pub hyper_gate: DroppedStdKeywords,
-    pub other_version: DroppedStdKeywords,
-    pub timestep: Option<NEString>,
-}
-
 pub(crate) enum ExtraKeywordClass {
     Version(NEVec<Version>),
     HyperPar,
@@ -2940,108 +2924,108 @@ pub(crate) struct ExtraKeywordOutput {
     pub(crate) other_version: Vec<KeywordOtherVersionError>,
 }
 
-impl ExtraStdKeywords {
-    /// Classify unused keyword based on all known FCS versions
-    ///
-    /// Will not try to match $PAR since we can assume this function will never
-    /// get called if $PAR is not parsed properly. Will also not match
-    /// $NEXTDATA, $BEGINSTEXT, or $ENDSTEXT since these should have already
-    /// been processed when parsing TEXT itself.
-    fn partition_extra_keywords(
-        key: &StdKey,
-        current_version: Version,
-        par: Par,
-        gate: Gate,
-    ) -> Option<ExtraKeywordClass> {
-        let if_invalid_version = || {
-            let vs = key.membership();
-            (!vs.contains_version(current_version))
-                .then(|| ExtraKeywordClass::Version(vs.versions()))
-        };
-        let if_hyperpar = |i: usize| {
-            if i >= par.0 {
-                Some(ExtraKeywordClass::HyperPar)
-            } else {
-                if_invalid_version()
-            }
-        };
-        match AnyKeywordClass::classify_keyword(key) {
-            AnyKeywordClass::Root(c) => {
-                let m = key.membership();
-                if m.contains_version(current_version) {
-                    matches!(c, RootKeywordClass::Timestep)
-                        .then_some(ExtraKeywordClass::UnusedTimestep)
-                } else {
-                    Some(ExtraKeywordClass::Version(m.versions()))
-                }
-            }
-            AnyKeywordClass::Meas(i, _) | AnyKeywordClass::Peak(i) => if_hyperpar(i.into()),
-            // TODO we could also flag these as outside of $CSTOT but hardly
-            // anyone uses these so probably not worth it
-            AnyKeywordClass::CSVFlag(_) => if_invalid_version(),
-            AnyKeywordClass::Dfc(i) => {
-                if usize::from(i.i0) >= par.0 || usize::from(i.i1) >= par.0 {
-                    Some(ExtraKeywordClass::HyperPar)
-                } else {
-                    if_invalid_version()
-                }
-            }
-            AnyKeywordClass::GateOptLE3_1(i) => {
-                (usize::from(i) >= gate.0).then_some(ExtraKeywordClass::HyperGate)
-            }
-            AnyKeywordClass::RegionIndex | AnyKeywordClass::RegionWindow => None,
-        }
-    }
+// impl ExtraStdKeywords {
+//     /// Classify unused keyword based on all known FCS versions
+//     ///
+//     /// Will not try to match $PAR since we can assume this function will never
+//     /// get called if $PAR is not parsed properly. Will also not match
+//     /// $NEXTDATA, $BEGINSTEXT, or $ENDSTEXT since these should have already
+//     /// been processed when parsing TEXT itself.
+//     fn partition_extra_keywords(
+//         key: &StdKey,
+//         current_version: Version,
+//         par: Par,
+//         gate: Gate,
+//     ) -> Option<ExtraKeywordClass> {
+//         let if_invalid_version = || {
+//             let vs = key.membership();
+//             (!vs.contains_version(current_version))
+//                 .then(|| ExtraKeywordClass::Version(vs.versions()))
+//         };
+//         let if_hyperpar = |i: usize| {
+//             if i >= par.0 {
+//                 Some(ExtraKeywordClass::HyperPar)
+//             } else {
+//                 if_invalid_version()
+//             }
+//         };
+//         match AnyKeywordClass::classify_keyword(key) {
+//             AnyKeywordClass::Root(c) => {
+//                 let m = key.membership();
+//                 if m.contains_version(current_version) {
+//                     matches!(c, RootKeywordClass::Timestep)
+//                         .then_some(ExtraKeywordClass::UnusedTimestep)
+//                 } else {
+//                     Some(ExtraKeywordClass::Version(m.versions()))
+//                 }
+//             }
+//             AnyKeywordClass::Meas(i, _) | AnyKeywordClass::Peak(i) => if_hyperpar(i.into()),
+//             // TODO we could also flag these as outside of $CSTOT but hardly
+//             // anyone uses these so probably not worth it
+//             AnyKeywordClass::CSVFlag(_) => if_invalid_version(),
+//             AnyKeywordClass::Dfc(i) => {
+//                 if usize::from(i.i0) >= par.0 || usize::from(i.i1) >= par.0 {
+//                     Some(ExtraKeywordClass::HyperPar)
+//                 } else {
+//                     if_invalid_version()
+//                 }
+//             }
+//             AnyKeywordClass::GateOptLE3_1(i) => {
+//                 (usize::from(i) >= gate.0).then_some(ExtraKeywordClass::HyperGate)
+//             }
+//             AnyKeywordClass::RegionIndex | AnyKeywordClass::RegionWindow => None,
+//         }
+//     }
 
-    pub(crate) fn split_keywords(
-        kws: StdKeywords,
-        current_version: Version,
-        par: Par,
-        gate: Gate,
-    ) -> (Self, ExtraKeywordOutput) {
-        let mut pseudo = HashMap::new();
-        let mut hyper_par = HashMap::new();
-        let mut hyper_gate = HashMap::new();
-        let mut other_version = HashMap::new();
-        let mut pseudo_es = vec![];
-        let mut hyper_par_es = vec![];
-        let mut hyper_gate_es = vec![];
-        let mut other_version_es = vec![];
-        let mut timestep = None;
-        for (k, v) in kws.iter_pairs() {
-            if let Some(m) = Self::partition_extra_keywords(&k, current_version, par, gate) {
-                match m {
-                    ExtraKeywordClass::HyperPar => {
-                        hyper_par_es.push(HyperParError::new(par, k));
-                        hyper_par.insert(k, v);
-                    }
-                    ExtraKeywordClass::HyperGate => {
-                        hyper_gate_es.push(HyperGateError::new(gate, k));
-                        hyper_gate.insert(k, v);
-                    }
-                    ExtraKeywordClass::Version(vs) => {
-                        let e = KeywordOtherVersionError::new(k, current_version, vs);
-                        other_version_es.push(e);
-                        other_version.insert(k, v);
-                    }
-                    // TODO pstd is already separated so need to pull from the
-                    // struct here when applicable
-                    //
-                    // ExtraKeywordClass::Pseudostandard => {
-                    //     pseudo_es.push(PseudostandardError(k.clone()));
-                    //     pseudo.insert(k, v);
-                    // }
-                    ExtraKeywordClass::UnusedTimestep => {
-                        timestep = Some(v);
-                    }
-                }
-            }
-        }
-        let ret = Self::new(pseudo, hyper_par, hyper_gate, other_version, timestep);
-        let out = ExtraKeywordOutput::new(pseudo_es, hyper_par_es, hyper_gate_es, other_version_es);
-        (ret, out)
-    }
-}
+//     pub(crate) fn split_keywords(
+//         kws: StdKeywords,
+//         current_version: Version,
+//         par: Par,
+//         gate: Gate,
+//     ) -> (Self, ExtraKeywordOutput) {
+//         let mut pseudo = HashMap::new();
+//         let mut hyper_par = HashMap::new();
+//         let mut hyper_gate = HashMap::new();
+//         let mut other_version = HashMap::new();
+//         let mut pseudo_es = vec![];
+//         let mut hyper_par_es = vec![];
+//         let mut hyper_gate_es = vec![];
+//         let mut other_version_es = vec![];
+//         let mut timestep = None;
+//         for (k, v) in kws.iter_keywords() {
+//             if let Some(m) = Self::partition_extra_keywords(&k, current_version, par, gate) {
+//                 match m {
+//                     ExtraKeywordClass::HyperPar => {
+//                         hyper_par_es.push(HyperParError::new(par, k));
+//                         hyper_par.insert(k, v);
+//                     }
+//                     ExtraKeywordClass::HyperGate => {
+//                         hyper_gate_es.push(HyperGateError::new(gate, k));
+//                         hyper_gate.insert(k, v);
+//                     }
+//                     ExtraKeywordClass::Version(vs) => {
+//                         let e = KeywordOtherVersionError::new(k, current_version, vs);
+//                         other_version_es.push(e);
+//                         other_version.insert(k, v);
+//                     }
+//                     // TODO pstd is already separated so need to pull from the
+//                     // struct here when applicable
+//                     //
+//                     // ExtraKeywordClass::Pseudostandard => {
+//                     //     pseudo_es.push(PseudostandardError(k.clone()));
+//                     //     pseudo.insert(k, v);
+//                     // }
+//                     ExtraKeywordClass::UnusedTimestep => {
+//                         timestep = Some(v);
+//                     }
+//                 }
+//             }
+//         }
+//         let ret = Self::new(pseudo, hyper_par, hyper_gate, other_version, timestep);
+//         let out = ExtraKeywordOutput::new(pseudo_es, hyper_par_es, hyper_gate_es, other_version_es);
+//         (ret, out)
+//     }
+// }
 
 /// Error denoting that pseudostandard keyword was found.
 #[derive(Debug, Error, PartialEq, Clone)]
@@ -3494,7 +3478,7 @@ impl Dfc {
         i: BiMeasIndex,
         flag: ProcessOptionalFailure,
     ) -> Result<Option<Self>, LookupDfcError> {
-        let action = KeywordAction::from_flag(flag);
+        let action = LookupAction::from_flag(flag);
         kws.remove_and_parse::<_, _, Self>(&i, |v| match v.parse::<Self>() {
             Ok(x) => (None, Ok(x)),
             Err(e) => (action, Err((e, v.to_owned()))),

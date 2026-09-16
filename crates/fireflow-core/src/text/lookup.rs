@@ -1,6 +1,6 @@
 use crate::config::EvaledReadDataKeywordsConfig;
 use crate::logging::{DeferredSwitchableError, LogResult, ResultExt as _};
-use crate::std_index::index::{KeywordAction, StdTransaction};
+use crate::std_index::index::{LookupAction, StdTransaction};
 use crate::validated::keys::{
     DollarKey, DollarKey_, NonStdKeywords, NonStdKeywordsExt as _, TruncatedNEString,
     ValidKeywords, ValueToStdKey,
@@ -648,7 +648,10 @@ pub(crate) use impl_from_str_with_delim;
 
 /// A required key
 pub(crate) trait ReqValue: Sized + ValueToStdKey {
-    fn get_req(kws: &StdTransaction, i: Self::Index) -> Result<Self, ReqKeyErrorInner<Self::Err, Self>>
+    fn get_req(
+        kws: &StdTransaction,
+        i: Self::Index,
+    ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self>>
     where
         Self: FromStr,
         Self::Index: Copy,
@@ -707,17 +710,20 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
             .map_err(ReqKeyErrorInner::from)
     }
 
-    fn get_req_inner(kws: &StdTransaction, i: Self::Index) -> Result<&NEStr, MissingKeyError<Self>> {
+    fn get_req_inner<'a, 'b>(
+        kws: &'b StdTransaction<'a>,
+        i: Self::Index,
+    ) -> Result<&'b NEStr, MissingKeyError<Self>> {
         match kws.read::<Self>(&i) {
             Some(v) => Ok(v),
             None => Err(MissingKeyError::new1(i)),
         }
     }
 
-    fn remove_req_inner(
-        kws: &mut StdTransaction,
+    fn remove_req_inner<'a, 'b>(
+        kws: &'b mut StdTransaction<'a>,
         i: Self::Index,
-    ) -> Result<&NEStr, MissingKeyError<Self>> {
+    ) -> Result<&'b NEStr, MissingKeyError<Self>> {
         match kws.remove::<Self>(&i) {
             Some(v) => Ok(v),
             None => Err(MissingKeyError::new1(i)),
@@ -966,7 +972,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         Self: FromStr,
     {
         let triflag = flag.as_triflag();
-        let action = KeywordAction::from_flag(flag);
+        let action = LookupAction::from_flag(flag);
         kws.remove_and_parse::<_, _, Self>(&k, |v| match v.parse() {
             Ok(x) => (None, Ok(x)),
             Err(e) => (action, Err((e, v.to_owned()))),
@@ -994,7 +1000,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         Self::Diagnostic: Default,
     {
         let triflag = flag.as_triflag();
-        let action = KeywordAction::from_flag(flag);
+        let action = LookupAction::from_flag(flag);
         kws.remove_and_parse::<_, _, Self>(&i, |v| match Self::from_str_with(v, data, conf) {
             Ok(x) => (None, Ok(x)),
             Err(e) => (action, Err((e, v.to_owned()))),

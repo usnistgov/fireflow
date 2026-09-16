@@ -10,14 +10,15 @@ use std::iter;
 use std::marker::PhantomData;
 use std::ops::Index;
 
-pub type NestedEnumString<const LEN: usize, K> = NestedString<[usize; LEN], K>;
+pub type NestedEnumString<const LEN: usize, K> = NestedString<[usize; LEN], (), K>;
 
-pub type NestedVariableString<K> = NestedString<Vec<usize>, K>;
+pub type NestedVariableString<K, S> = NestedString<Vec<usize>, S, K>;
 
-#[derive_where(Default, Clone, Debug, PartialEq, Eq; I)]
-pub struct NestedString<I, K> {
+#[derive_where(Default, Clone, Debug, PartialEq, Eq; I, S)]
+pub struct NestedString<I, S, K> {
     inner: Vec<u8>,
     offsets: I,
+    sub_dimension: S,
     _key: PhantomData<K>,
 }
 
@@ -27,27 +28,21 @@ pub struct NestedStringSize {
     pub n_strings: usize,
 }
 
-pub(crate) struct Iter<'a, I, K> {
-    inner: &'a NestedString<I, K>,
+pub(crate) struct Iter<'a, I, K: AnyIndex> {
+    keys: K::Generator,
+    inner: &'a NestedString<I, K::SubDimension, K>,
     index: usize,
 }
 
-pub(crate) type IterPairs<'a, I, K> = iter::Zip<<K as AnyIndex>::Generator, Iter<'a, I, K>>;
-
-pub(crate) type IterKeywords<'a, I, K> = iter::Map<
-    iter::Zip<<K as AnyIndex>::Generator, Iter<'a, I, K>>,
-    fn((K, &NEStr)) -> (StdKey, &NEStr),
->;
-
-pub(crate) type IterEnumKeywords<'a, const LEN: usize, K> = IterKeywords<'a, [usize; LEN], K>;
-
-pub(crate) type IterVariableKeywords<'a, K> = IterKeywords<'a, Vec<usize>, K>;
+pub(crate) type IterStd<'a, I, K> =
+    iter::FilterMap<Iter<'a, I, K>, fn((K, &str)) -> Option<(StdKey, &NEStr)>>;
 
 impl<const LEN: usize, K> NestedEnumString<LEN, K> {
     pub fn init_array(n_bytes: usize) -> Self {
         Self {
             inner: Vec::with_capacity(n_bytes),
             offsets: [0; LEN],
+            sub_dimension: (),
             _key: PhantomData,
         }
     }
@@ -73,11 +68,12 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
     }
 }
 
-impl<K> NestedVariableString<K> {
-    pub fn init_var(size: &NestedStringSize) -> Self {
+impl<K, S> NestedVariableString<K, S> {
+    pub fn init_var(size: &NestedStringSize, sub_dimension: S) -> Self {
         Self {
             inner: Vec::with_capacity(size.n_bytes),
             offsets: Vec::with_capacity(size.n_strings),
+            sub_dimension,
             _key: PhantomData,
         }
     }
@@ -119,7 +115,7 @@ impl<K> NestedVariableString<K> {
     }
 }
 
-impl<I, K> NestedString<I, K> {
+impl<I, S, K> NestedString<I, S, K> {
     pub fn n_bytes(&self) -> usize {
         self.inner.len()
     }
@@ -131,20 +127,16 @@ impl<I, K> NestedString<I, K> {
         self.offsets.len()
     }
 
-    pub fn get(&self, k: &K, sub: &K::SubDimension) -> &str
-    where
-        I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex,
-    {
-        self.get_index(k.offset(sub))
+    pub fn sub_dimension(&self) -> &S {
+        &self.sub_dimension
     }
 
-    pub fn get0(&self, k: &K) -> &str
+    pub fn get(&self, k: &K) -> &str
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = ()>,
+        K: AnyIndex<SubDimension = S>,
     {
-        self.get(k, &())
+        self.get_index(k.offset(&self.sub_dimension))
     }
 
     pub fn get_index(&self, i: usize) -> &str
@@ -168,27 +160,22 @@ impl<I, K> NestedString<I, K> {
         unsafe { str::from_utf8_unchecked(&self.inner[start..end]) }
     }
 
-    pub(crate) fn iter_keywords<'a>(&'a self, sub: &K::SubDimension) -> IterKeywords<'a, I, K>
+    pub(crate) fn iter_std<'a>(&'a self) -> IterStd<'a, I, K>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex + Into<StdKey>,
+        K: AnyIndex<SubDimension = S> + Into<StdKey>,
     {
-        self.iter_pairs(sub).map(|(k, v)| (k.into(), v))
+        self.iter()
+            .filter_map(|(k, v)| NEStr::try_new(v).map(|ne| (k.into(), ne)))
     }
 
-    pub(crate) fn iter_pairs<'a>(&'a self, sub: &K::SubDimension) -> IterPairs<'a, I, K>
+    pub(crate) fn iter<'a>(&'a self) -> Iter<'a, I, K>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex,
-    {
-        K::generate(&sub).zip(self.iter())
-    }
-
-    fn iter<'a>(&'a self) -> Iter<'a, I, K>
-    where
-        I: HasLen + Index<usize, Output = usize>,
+        K: AnyIndex<SubDimension = S>,
     {
         Iter {
+            keys: K::generate(&self.sub_dimension),
             inner: &self,
             index: 0,
         }
@@ -197,18 +184,26 @@ impl<I, K> NestedString<I, K> {
 
 impl<'a, I, K> Iterator for Iter<'a, I, K>
 where
+    K: AnyIndex,
     I: HasLen + Index<usize, Output = usize>,
 {
-    type Item = &'a NEStr;
+    type Item = (K, &'a str);
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.index < self.inner.offsets.len() {
+        if self.index < self.inner.offsets.len() {
+            let k = self.keys.next()?;
             let s = self.inner.get_index(self.index);
             self.index += 1;
-            if let Some(ne) = NEStr::try_new(s) {
-                return Some(ne);
-            }
+            Some((k, s))
+        } else {
+            None
         }
-        None
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        // TODO this assumes the generator at least the same length as the
+        // offset array (which should be true?)
+        let s = self.inner.offsets.len().saturating_sub(self.index);
+        (s, Some(s))
     }
 }

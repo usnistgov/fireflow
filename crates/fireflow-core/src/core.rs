@@ -58,7 +58,9 @@ use crate::segment::read::{
     TextToHeaderOrSuppOffsetsOverlap,
 };
 use crate::segment::read::{PrimaryTextOffsets, SupplementalTextOffsets};
-use crate::std_index::index::{RepairCollisionError, RepairDiagnostics, StdTransaction};
+use crate::std_index::index::{
+    DroppedStdKeywords, ExtraStdKeywords, RepairCollisionError, RepairDiagnostics, StdTransaction,
+};
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, DatetimesDiagnostics, EndDateTime, LookupDatetimesError,
     ReversedDatetimesError,
@@ -76,10 +78,10 @@ use crate::text::keyword_enum::{
 };
 use crate::text::keywords::{
     Abrt, AlphaNumType, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Carrierid, Carriertype,
-    Cells, Com, Compensation2_0, Compensation3_0, Cyt, Cyt3_2, Cytsn, Exp, ExtraStdKeywords,
-    Feature, Fil, Flowrate, Gate, HyperGateError, HyperParError, Inst, KeywordOtherVersionError,
-    LastModified, LastModifier, Locationid, LookupComp2_0Error, Lost, MeasOrGateIndex, Mode,
-    Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, Originality, Par, Plateid, Platename,
+    Cells, Com, Compensation2_0, Compensation3_0, Cyt, Cyt3_2, Cytsn, Exp, Feature, Fil, Flowrate,
+    Gate, HyperGateError, HyperParError, Inst, KeywordOtherVersionError, LastModified,
+    LastModifier, Locationid, LookupComp2_0Error, Lost, MeasOrGateIndex, Mode, Mode3_2,
+    ModeUpgradeError, Nextdata, NoCytError, Op, Originality, Par, Plateid, Platename,
     PrefixedMeasIndex, Proj, PseudostandardError, ScaleFix, Smno, Src, Sys, Timestep,
     TimestepAdded, TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol,
     Wellid,
@@ -1100,8 +1102,6 @@ impl WriteHeaderAndTextConfig<'_> {
             .collect()
     }
 }
-
-pub(crate) type DroppedStdKeywords = HashMap<StdKey, NEString>;
 
 /// Diagnostic output from standardizing TEXT
 #[derive(Clone, PartialEq, new)]

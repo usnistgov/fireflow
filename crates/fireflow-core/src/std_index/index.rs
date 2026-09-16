@@ -1,30 +1,35 @@
 use super::{
-    masked::{MaskedEnumString, MaskedString, MaskedVariableString},
-    nested_string::{
-        IterEnumKeywords, IterKeywords, IterVariableKeywords, NestedEnumString, NestedStringSize,
-        NestedVariableString,
-    },
+    masked::{MaskedEnumString, MaskedString, MaskedVariableString, Status},
+    nested_string::{NestedEnumString, NestedStringSize, NestedVariableString},
 };
 use crate::{
     config::EvaledReadDataKeywordsConfig,
     logging::{WarningAndErrorResult, WarningsAndErrorsResult},
+    text::keywords::{Gate, Par},
     validated::keys::{AnyKey, NonStdKey, TruncatedNEString, ValueToStdKey},
 };
 
 use fireflow_types::{
+    case_ins_regex::CaseInsRegex,
     config::{
         KeywordFailureFlag, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,
         TemporalHasOpticalKeyError,
     },
     index::MeasIndex,
+    keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns},
+    keywords::Version,
     nonempty::{NEStr, NEString, NEVec},
     std_key::{
-        AnyIndex as _, CsvFlagKey, DfcKey, GateKey, MeasKey, N_ROOT, RegionKey, RootKey, StdKey,
+        AnyIndex as _, CsvFlagKey, DfcKey, GateKey, GateKeyId, MeasKey, MeasKeyId, N_ROOT,
+        PseudoStdKey, RegionKey, RootKey, StdKey,
     },
+    sub_pattern::SubPattern,
 };
 
 use derive_new::new;
+use hashbrown::{HashMap, hash_map::OccupiedEntry};
 use itertools::Itertools as _;
+use strum::EnumCount as _;
 use thiserror::Error;
 
 use std::iter::Chain;
@@ -34,28 +39,9 @@ use std::mem;
 use serde::{Serialize, Serializer, ser::SerializeMap};
 
 #[cfg(feature = "python")]
-use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py};
+use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py, pyo3::prelude::*};
 
-type MaskedRoot = MaskedEnumString<N_ROOT, RootKey, Status>;
-
-#[derive(Clone, Copy)]
-enum Status {
-    Unseen,
-    Seen,
-    Deferred(KeywordAction),
-}
-
-impl Default for Status {
-    fn default() -> Self {
-        Self::Unseen
-    }
-}
-
-#[derive(Clone, Copy)]
-pub enum KeywordAction {
-    Drop,
-    Demote,
-}
+type MaskedRoot<'a> = MaskedEnumString<'a, N_ROOT, RootKey>;
 
 type OpticalOnlyResult = WarningsAndErrorsResult<
     Vec<(StdKey, NEString)>,
@@ -66,19 +52,57 @@ type OpticalOnlyResult = WarningsAndErrorsResult<
 
 pub type NestedRoot = NestedEnumString<N_ROOT, RootKey>;
 
-pub type IterStdKeywords<'a> = Chain<
-    Chain<
-        Chain<
-            Chain<
-                Chain<IterEnumKeywords<'a, N_ROOT, RootKey>, IterVariableKeywords<'a, MeasKey>>,
-                IterVariableKeywords<'a, GateKey>,
-            >,
-            IterVariableKeywords<'a, RegionKey>,
-        >,
-        IterVariableKeywords<'a, CsvFlagKey>,
-    >,
-    IterVariableKeywords<'a, DfcKey>,
->;
+// pub type IterStdKeywords<'a> = Chain<
+//     Chain<
+//         Chain<
+//             Chain<
+//                 Chain<IterEnumKeywords<'a, N_ROOT, RootKey>, IterVariableKeywords<'a, (), MeasKey>>,
+//                 IterVariableKeywords<'a, (), GateKey>,
+//             >,
+//             IterVariableKeywords<'a, (), RegionKey>,
+//         >,
+//         IterVariableKeywords<'a, (), CsvFlagKey>,
+//     >,
+//     IterVariableKeywords<'a, usize, DfcKey>,
+// >;
+
+pub(crate) type DroppedStdKeywords = Vec<(StdKey, NEString)>;
+pub(crate) type DroppedPseudoStdKeywords = Vec<(PseudoStdKey, NEString)>;
+
+/// Leftover standard keyword after parsing
+#[derive(Clone, new, PartialEq)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct ExtraStdKeywords {
+    pub optional: DroppedStdKeywords,
+    // pub pseudostandard: DroppedPseudoStdKeywords,
+    pub hyper_par: DroppedStdKeywords,
+    pub hyper_gate: DroppedStdKeywords,
+    pub other_version: DroppedStdKeywords,
+    pub timestep: Option<NEString>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum LookupAction {
+    None,
+    ErrorDrop,
+    ErrorDemote,
+}
+
+impl LookupAction {
+    // fn key_had_error(&self) -> bool {
+    //     !matches!(self, Self::None)
+    // }
+
+    pub(crate) fn from_flag<F: KeywordFailureFlag>(flag: F) -> Option<Self> {
+        flag.is_demote_or_drop().map(|is_demote| {
+            if is_demote {
+                Self::ErrorDemote
+            } else {
+                Self::ErrorDrop
+            }
+        })
+    }
+}
 
 /// Error when keyword repair process resulted in colliding non-unique keys.
 #[derive(Debug, Error, PartialEq, Clone)]
@@ -139,22 +163,20 @@ pub struct StdKeywords {
     // This could be solved by having a double-index that first indexes on the
     // measurement and returns 'none' if there are no keywords for that index.
     // From there it directs to the real index that points to the strings.
-    meas: NestedVariableString<MeasKey>,
-    gate: NestedVariableString<GateKey>,
-    region: NestedVariableString<RegionKey>,
-    csv_flag: NestedVariableString<CsvFlagKey>,
-    dfc: NestedVariableString<DfcKey>,
-    dfc_matrix_size: usize,
+    meas: NestedVariableString<MeasKey, ()>,
+    gate: NestedVariableString<GateKey, ()>,
+    region: NestedVariableString<RegionKey, ()>,
+    csv_flag: NestedVariableString<CsvFlagKey, ()>,
+    dfc: NestedVariableString<DfcKey, usize>,
 }
 
-pub(crate) struct StdTransaction {
-    root: MaskedRoot,
-    meas: MaskedVariableString<MeasKey, Status>,
-    gate: MaskedVariableString<GateKey, Status>,
-    region: MaskedVariableString<RegionKey, Status>,
-    csv_flag: MaskedVariableString<CsvFlagKey, Status>,
-    dfc: MaskedVariableString<DfcKey, Status>,
-    dfc_matrix_size: usize,
+pub(crate) struct StdTransaction<'a> {
+    root: MaskedRoot<'a>,
+    meas: MaskedVariableString<'a, MeasKey, ()>,
+    gate: MaskedVariableString<'a, GateKey, ()>,
+    region: MaskedVariableString<'a, RegionKey, ()>,
+    csv_flag: MaskedVariableString<'a, CsvFlagKey, ()>,
+    dfc: MaskedVariableString<'a, DfcKey, usize>,
 }
 
 impl Default for StdKeywords {
@@ -166,7 +188,75 @@ impl Default for StdKeywords {
             region: NestedVariableString::default(),
             csv_flag: NestedVariableString::default(),
             dfc: NestedVariableString::default(),
-            dfc_matrix_size: 0,
+        }
+    }
+}
+
+// TODO sealme in mod
+
+/// A "compiled" object to match keys efficiently.
+pub(crate) struct KeyMatcher<'a, T> {
+    literal: HashMap<&'a KeyString, &'a T>,
+    pattern: Vec<(&'a CaseInsRegex, &'a T)>,
+}
+
+impl<'a, T> KeyMatcher<'a, T> {
+    pub(crate) fn from_keys(keys: &'a KeyStringsOrPatterns<T>) -> Self {
+        keys.0.iter().collect()
+    }
+}
+
+impl KeyMatcher<'_, ()> {
+    fn is_match(&self, other: &KeyString) -> bool {
+        self.literal.contains_key(other)
+            || self
+                .pattern
+                .iter()
+                .any(|p| p.0.as_ref().is_match(other.as_ref()))
+    }
+}
+
+impl<T> KeyMatcher<'_, T> {
+    fn get(&self, other: &KeyString) -> Option<&T> {
+        self.literal.get(other).copied().or(self
+            .pattern
+            .iter()
+            .find(|p| p.0.as_ref().is_match(other.as_ref()))
+            .map(|(_, x)| *x))
+    }
+}
+
+impl<'a, X> FromIterator<(&'a KeyStringOrPattern, &'a X)> for KeyMatcher<'a, X> {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = (&'a KeyStringOrPattern, &'a X)>,
+    {
+        let (literal, pattern): (HashMap<_, _>, Vec<_>) = iter
+            .into_iter()
+            .map(|(k, v)| match k {
+                KeyStringOrPattern::Literal(l) => Ok((l, v)),
+                KeyStringOrPattern::Pattern(p) => Err((p, v)),
+            })
+            .partition_result();
+        Self { literal, pattern }
+    }
+}
+
+/// All compiled key matchers to prevent repeated allocations in loops
+pub(crate) struct AllKeyMatchers<'a> {
+    pub(crate) promote: KeyMatcher<'a, ()>,
+    pub(crate) demote: KeyMatcher<'a, ()>,
+    pub(crate) ignore: KeyMatcher<'a, ()>,
+    pub(crate) subs: KeyMatcher<'a, SubPattern>,
+}
+
+impl<'a> AllKeyMatchers<'a> {
+    pub(crate) fn from_config(conf: &'a EvaledReadDataKeywordsConfig) -> Self {
+        Self {
+            promote: KeyMatcher::from_keys(&conf.promote_nonstandard_keys),
+            demote: KeyMatcher::from_keys(&conf.demote_standard_keys),
+            ignore: KeyMatcher::from_keys(&conf.ignore_standard_keys),
+            subs: KeyMatcher::from_keys(&conf.substitute_standard_key_values),
         }
     }
 }
@@ -175,12 +265,12 @@ impl StdKeywords {
     #[must_use]
     pub fn get(&self, k: &StdKey) -> &str {
         match k {
-            StdKey::Root(rk) => self.root.get0(rk),
-            StdKey::Meas(mk) => self.meas.get0(mk),
-            StdKey::Gate(gk) => self.gate.get0(gk),
-            StdKey::Region(rk) => self.region.get0(rk),
-            StdKey::CsvFlag(ck) => self.csv_flag.get0(ck),
-            StdKey::Dfc(dk) => self.dfc.get(dk, &self.dfc_matrix_size),
+            StdKey::Root(rk) => self.root.get(rk),
+            StdKey::Meas(mk) => self.meas.get(mk),
+            StdKey::Gate(gk) => self.gate.get(gk),
+            StdKey::Region(rk) => self.region.get(rk),
+            StdKey::CsvFlag(ck) => self.csv_flag.get(ck),
+            StdKey::Dfc(dk) => self.dfc.get(dk),
         }
     }
 
@@ -206,12 +296,12 @@ impl StdKeywords {
             // TODO this is not optimal, but this will only happen for files
             // that store standard keys in STEXT (of where there are basically
             // none)
-            let tmp = self.iter_pairs().chain(other.iter_pairs()).collect();
+            let tmp = self.iter_keywords().chain(other.iter_keywords()).collect();
             Self::from_vec(tmp)
         }
     }
 
-    pub(crate) fn into_transation(self) -> StdTransaction {
+    pub(crate) fn into_transation<'a>(self) -> StdTransaction<'a> {
         StdTransaction {
             root: MaskedString::init_array(self.root),
             meas: MaskedString::init_var(self.meas),
@@ -219,7 +309,6 @@ impl StdKeywords {
             region: MaskedString::init_var(self.region),
             csv_flag: MaskedString::init_var(self.csv_flag),
             dfc: MaskedString::init_var(self.dfc),
-            dfc_matrix_size: self.dfc_matrix_size,
         }
     }
 
@@ -253,14 +342,14 @@ impl StdKeywords {
     //     self.dfc.get(k.offset(self.dfc_matrix_size))
     // }
 
-    pub fn iter_pairs<'a>(&'a self) -> IterStdKeywords<'a> {
+    pub fn iter_keywords<'a>(&'a self) -> impl Iterator<Item = (StdKey, &NEStr)> {
         self.root
-            .iter_keywords(&())
-            .chain(self.meas.iter_keywords(&()))
-            .chain(self.gate.iter_keywords(&()))
-            .chain(self.region.iter_keywords(&()))
-            .chain(self.csv_flag.iter_keywords(&()))
-            .chain(self.dfc.iter_keywords(&self.dfc_matrix_size))
+            .iter_std()
+            .chain(self.meas.iter_std())
+            .chain(self.gate.iter_std())
+            .chain(self.region.iter_std())
+            .chain(self.csv_flag.iter_std())
+            .chain(self.dfc.iter_std())
     }
 
     pub fn from_vec<V>(mut pairs: Vec<(StdKey, V)>) -> (Self, Vec<(StdKey, TruncatedNEString)>)
@@ -334,11 +423,11 @@ impl StdKeywords {
         let dfc_size = NestedStringSize::new(dfc_n_bytes, dfc_matrix_size * dfc_matrix_size);
 
         let mut root = NestedRoot::init_array(root_n_bytes);
-        let mut meas = NestedVariableString::init_var(&meas_size);
-        let mut gate = NestedVariableString::init_var(&gate_size);
-        let mut region = NestedVariableString::init_var(&region_size);
-        let mut csv_flag = NestedVariableString::init_var(&csv_flag_size);
-        let mut dfc = NestedVariableString::init_var(&dfc_size);
+        let mut meas = NestedVariableString::init_var(&meas_size, ());
+        let mut gate = NestedVariableString::init_var(&gate_size, ());
+        let mut region = NestedVariableString::init_var(&region_size, ());
+        let mut csv_flag = NestedVariableString::init_var(&csv_flag_size, ());
+        let mut dfc = NestedVariableString::init_var(&dfc_size, dfc_matrix_size);
 
         let mut it = pairs.into_iter();
         let root_it = it
@@ -402,49 +491,292 @@ impl StdKeywords {
             region,
             csv_flag,
             dfc,
-            dfc_matrix_size,
         }
     }
 }
 
-impl StdTransaction {
+impl<'a> StdTransaction<'a> {
     pub(crate) fn repair(
         &mut self,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningAndErrorResult<RepairDiagnostics, (), RepairCollisionError, RepairCollisionError>
     {
         unimplemented!()
+        // let matchers = AllKeyMatchers::from_config(conf);
+        // let mut ignored = vec![];
+        // let mut non_unique_std = vec![];
+        // let mut non_unique_nonstd = vec![];
+        // let mut removed = vec![];
+        // let mut replaced = vec![];
+        // let mut renamed = vec![];
+        // let mut subbed = vec![];
+        // let mut demoted = vec![];
+        // let mut promoted = vec![];
+
+        // // Update standard keys
+        // self.std = mem::take(&mut self.std)
+        //     .into_iter()
+        //     .filter_map(|(k, v)| {
+        //         // TODO this seem inefficient; every std key needs to be
+        //         // converted to a string to make this work, which doesn't seem
+        //         // right
+        //         let ks = k.as_keystring();
+        //         if matchers.ignore.is_match(&ks) {
+        //             // First remove keys that should be flat-out ignored
+
+        //             // DROP
+
+        //             // ignored.push((k, TruncatedNEString(v)));
+        //             // None
+        //         } else if matchers.demote.is_match(&ks) {
+        //             // Next remove keys that should be demoted and put them
+        //             // in non-std.
+
+        //             // DEMOTE
+
+        //             // let nsk = NonStdKey(ks);
+        //             // if self.nonstd.contains_key(&nsk) {
+        //             //     non_unique_nonstd.push((nsk, TruncatedNEString(v)));
+        //             // } else {
+        //             //     demoted.push(k);
+        //             //     let _ = self.nonstd.insert(nsk, v);
+        //             // }
+        //             // None
+        //         } else if let Some(s) = matchers.subs.get(&ks) {
+        //             // Next try to sub the value of keys with matches; this
+        //             // might produce a blank key which will effectively remove
+        //             // it.
+
+        //             // UPDATE(s)
+
+        //             // if let Ok(vf) = NEString::try_from(s.sub(v.as_str())) {
+        //             //     subbed.push((k.clone(), TruncatedNEString(v)));
+        //             //     Some((k, vf))
+        //             // } else {
+        //             //     removed.push((k, TruncatedNEString(v)));
+        //             //     None
+        //             // }
+        //         } else {
+        //             Some((k, v))
+        //         }
+        //     })
+        //     .map(|(k, v)| {
+        //         // After removing everything we can, update values as needed.
+
+        //         // UPDATE(s)
+
+        //         // let replace = &conf.replace_standard_key_values;
+        //         // let ks = k.as_keystring();
+        //         // if let Some(vf) = replace.get(&ks).cloned() {
+        //         //     replaced.push((k.clone(), TruncatedNEString(v)));
+        //         //     (k, vf)
+        //         // } else {
+        //         //     (k, v)
+        //         // }
+        //     })
+        //     .map(|(k, v)| {
+        //         // Finally, rename keys. Assume that this name mapping is
+        //         // validated such that we will never get a name collision.
+        //         let to_rename = conf.rename_standard_keys.as_ref();
+        //         let ks = k.as_keystring();
+        //         if let Some(kf) = to_rename.get(&ks).cloned().map(StdKey) {
+        //             renamed.push((k, kf.clone()));
+        //             (kf, v)
+        //         } else {
+        //             (k, v)
+        //         }
+        //     })
+        //     .collect();
+
+        // // Update non-standard keys
+        // let nonstd_removed = self
+        //     .nonstd
+        //     .extract_if(|k, _| matchers.promote.is_match(k.as_ref()));
+
+        // for (k, v) in nonstd_removed {
+        //     let sk = StdKey(k.0);
+        //     if self.std.contains_key(&sk) {
+        //         non_unique_std.push((sk, TruncatedNEString(v)));
+        //     } else {
+        //         promoted.push(NonStdKey(sk.0.clone()));
+        //         let _ = self.std.insert(sk, v);
+        //     }
+        // }
+
+        // let non_unique_appended = conf.append_standard_keywords.iter().filter_map(|(k, v)| {
+        //     match self.std.entry(StdKey(k.clone())) {
+        //         Entry::Occupied(e) => Some((e.key().clone(), TruncatedNEString(v.clone()))),
+        //         Entry::Vacant(e) => {
+        //             e.insert(v.clone());
+        //             None
+        //         }
+        //     }
+        // });
+        // non_unique_std.extend(non_unique_appended);
+        // let res = match conf.allow_repair_non_unique.is_error() {
+        //     Some(is_err) => {
+        //         let ss = non_unique_std.iter().cloned().map(|(k, _)| AnyKey::Std(k));
+        //         let ns = non_unique_nonstd
+        //             .iter()
+        //             .cloned()
+        //             .map(|(k, _)| AnyKey::NonStd(k));
+        //         let xs = ss.chain(ns).collect();
+        //         if let Some(ne) = NEVec::try_from_vec(xs) {
+        //             let e = RepairCollisionError(ne);
+        //             if is_err {
+        //                 LogResult::new_err(e)
+        //             } else {
+        //                 LogResult::new_ok(()).set_commutative_warnings(Some(e))
+        //             }
+        //         } else {
+        //             LogResult::new_ok(())
+        //         }
+        //     }
+        //     None => LogResult::new_ok(()),
+        // };
+
+        // let ret = RepairDiagnostics {
+        //     non_unique_std,
+        //     non_unique_nonstd,
+        //     demoted,
+        //     promoted,
+        //     subbed,
+        //     replaced,
+        //     renamed,
+        //     ignored,
+        //     removed,
+        // };
+        // res.set_ok_value(ret)
     }
 
-    pub(crate) fn read<K: ValueToStdKey>(&self, i: &K::Index) -> Option<&NEStr> {
-        self.read_key(&K::std(i))
-    }
+    pub(crate) fn finalize(&self, par: Par, gate: Gate, version: Version) -> ExtraStdKeywords {
+        unimplemented!()
+        // let n_meas = MeasKeyId::COUNT * usize::from(par);
+        // let n_gate = GateKeyId::COUNT * usize::from(gate);
+        // let mut optional = vec![];
+        // let mut other_version = vec![];
+        // let mut timestep = None;
 
-    pub(crate) fn remove<K: ValueToStdKey>(&mut self, i: &K::Index) -> Option<&NEStr> {
-        self.remove_key(&K::std(i))
-    }
+        // for (k, v) in self.root.iter() {
+        //     match self.root.get_mask(&k) {
+        //         Status::Unseen => {
+        //             if matches!(k, RootKey::Timestep) && version > Version::FCS2_0 {
+        //                 timestep = Some(v.to_owned());
+        //             } else {
+        //                 other_version.push((k.into(), v.to_owned()));
+        //             }
+        //         }
+        //         Status::Seen(a) => match a {
+        //             LookupAction::None => (),
+        //             LookupAction::Demote | LookupAction::Drop => {
+        //                 if matches!(k, RootKey::Timestep) && version > Version::FCS2_0 {
+        //                     timestep = Some(v.to_owned());
+        //                 } else {
+        //                     optional.push((k.into(), v.to_owned()))
+        //                 }
+        //             }
+        //         },
+        //     }
+        // }
 
-    pub(crate) fn remove_and_parse<F, X, K: ValueToStdKey>(
-        &mut self,
-        i: &K::Index,
-        f: F,
-    ) -> Option<X>
-    where
-        F: FnOnce(&NEStr) -> (Option<KeywordAction>, X),
-    {
-        self.remove_and_parse_key(&K::std(i), f)
-    }
+        // let mut meas_it = self.meas.iter();
 
-    pub(crate) fn set_action_at_key(&mut self, k: &StdKey, a: KeywordAction) {
-        self.set_mask(&k, Status::Deferred(a));
-    }
+        // for (k, v) in meas_it.by_ref().take(n_meas) {
+        //     match self.meas.get_mask(&k) {
+        //         Status::Unseen => {
+        //             other_version.push((k.into(), v.to_owned()));
+        //         }
+        //         Status::Seen(a) => match a {
+        //             LookupAction::None => (),
+        //             LookupAction::Demote | LookupAction::Drop => {
+        //                 optional.push((k.into(), v.to_owned()))
+        //             }
+        //         },
+        //     }
+        // }
 
-    pub(crate) fn demote_key(&mut self, k: &StdKey) {
-        self.set_mask(&k, Status::Deferred(KeywordAction::Demote));
-    }
+        // let mut hyper_par: Vec<_> = meas_it.map(|(k, v)| (k.into(), v.to_owned())).collect();
 
-    pub(crate) fn drop_key(&mut self, k: &StdKey) {
-        self.set_mask(&k, Status::Deferred(KeywordAction::Drop));
+        // let mut gate_it = self.gate.iter();
+
+        // for (k, v) in gate_it.by_ref().take(n_gate) {
+        //     match self.gate.get_mask(&k) {
+        //         Status::Unseen => {
+        //             other_version.push((k.into(), v.to_owned()));
+        //         }
+        //         Status::Seen(a) => match a {
+        //             LookupAction::None => (),
+        //             LookupAction::Demote | LookupAction::Drop => {
+        //                 optional.push((k.into(), v.to_owned()))
+        //             }
+        //         },
+        //     }
+        // }
+
+        // let hyper_gate = gate_it.map(|(k, v)| (k.into(), v.to_owned())).collect();
+
+        // // TODO we could also do something like hyper_par/gate with these but
+        // // they are hardly used anyways and doing so would be complex
+        // for (k, v) in self.region.iter() {
+        //     match self.region.get_mask(&k) {
+        //         Status::Unseen => {
+        //             other_version.push((k.into(), v.to_owned()));
+        //         }
+        //         Status::Seen(a) => match a {
+        //             LookupAction::None => (),
+        //             LookupAction::Demote | LookupAction::Drop => {
+        //                 optional.push((k.into(), v.to_owned()))
+        //             }
+        //         },
+        //     }
+        // }
+
+        // // TODO ditto $CSMODE
+        // for (k, v) in self.csv_flag.iter() {
+        //     match self.csv_flag.get_mask(&k) {
+        //         Status::Unseen => {
+        //             other_version.push((k.into(), v.to_owned()));
+        //         }
+        //         Status::Seen(a) => match a {
+        //             LookupAction::None => (),
+        //             LookupAction::Demote | LookupAction::Drop => {
+        //                 optional.push((k.into(), v.to_owned()))
+        //             }
+        //         },
+        //     }
+        // }
+
+        // for (k, v) in self.dfc.iter() {
+        //     let is_hyper_par = usize::from(k.index.i0) > usize::from(par)
+        //         || usize::from(k.index.i1) > usize::from(par);
+        //     match self.dfc.get_mask(&k) {
+        //         Status::Unseen => {
+        //             if is_hyper_par {
+        //                 hyper_par.push((k.into(), v.to_owned()));
+        //             } else {
+        //                 other_version.push((k.into(), v.to_owned()));
+        //             }
+        //         }
+        //         Status::Seen(a) => match a {
+        //             LookupAction::None => (),
+        //             LookupAction::Demote | LookupAction::Drop => {
+        //                 if is_hyper_par {
+        //                     hyper_par.push((k.into(), v.to_owned()));
+        //                 } else {
+        //                     optional.push((k.into(), v.to_owned()))
+        //                 }
+        //             }
+        //         },
+        //     }
+        // }
+
+        // ExtraStdKeywords {
+        //     optional,
+        //     hyper_par,
+        //     hyper_gate,
+        //     other_version,
+        //     timestep,
+        // }
     }
 
     pub(crate) fn remove_optical_only(
@@ -501,110 +833,149 @@ impl StdTransaction {
         // res
     }
 
-    pub fn iter_pairs(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {
+    pub fn iter_keywords(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {
         self.root
-            .iter_keywords(&())
-            .chain(self.meas.iter_keywords(&()))
-            .chain(self.gate.iter_keywords(&()))
-            .chain(self.region.iter_keywords(&()))
-            .chain(self.csv_flag.iter_keywords(&()))
-            .chain(self.dfc.iter_keywords(&self.dfc_matrix_size))
+            .iter_std()
+            .chain(self.meas.iter_std())
+            .chain(self.gate.iter_std())
+            .chain(self.region.iter_std())
+            .chain(self.csv_flag.iter_std())
+            .chain(self.dfc.iter_std())
     }
 
-    fn read_key(&self, k: &StdKey) -> Option<&NEStr> {
-        self.check_unseen(k);
-        NEStr::try_new(self.get_value(k))
+    pub(crate) fn read<K: ValueToStdKey>(&self, i: &K::Index) -> Option<&NEStr> {
+        self.get_unseen(&K::std(i))
     }
 
-    fn remove_key(&mut self, k: &StdKey) -> Option<&NEStr> {
-        self.check_unseen(k);
-        self.set_mask(k, Status::Seen);
-        NEStr::try_new(self.get_value(k))
+    pub(crate) fn remove<K: ValueToStdKey>(&mut self, i: &K::Index) -> Option<&NEStr> {
+        self.remove_unseen(&K::std(i))
     }
 
-    fn remove_and_parse_key<F, X>(&mut self, k: &StdKey, f: F) -> Option<X>
+    pub(crate) fn remove_and_parse<F, X, K: ValueToStdKey>(
+        &mut self,
+        i: &K::Index,
+        f: F,
+    ) -> Option<X>
     where
-        F: FnOnce(&NEStr) -> (Option<KeywordAction>, X),
+        F: FnOnce(&NEStr) -> (Option<LookupAction>, X),
     {
-        self.check_unseen(k);
-        if let Some(ne) = NEStr::try_new(self.get_value(k)) {
-            let (action, ret) = f(ne);
-            let new_status = action.map_or(Status::Seen, Status::Deferred);
-            self.set_mask(k, new_status);
-            Some(ret)
-        } else {
-            // Mark as seen here so that we can only look up each key once,
-            // even if its value does not exist.
-            self.set_mask(k, Status::Seen);
-            None
+        self.parse_unseen(&K::std(i), f)
+    }
+
+    pub(crate) fn set_failure_flag<F: KeywordFailureFlag>(&mut self, k: &StdKey, f: F) {
+        if let Some(a) = LookupAction::from_flag(f) {
+            match k {
+                StdKey::Root(rk) => self.root.set_lookup_action(rk, a),
+                StdKey::Meas(mk) => self.meas.set_lookup_action(mk, a),
+                StdKey::Gate(gk) => self.gate.set_lookup_action(gk, a),
+                StdKey::Region(rk) => self.region.set_lookup_action(rk, a),
+                StdKey::CsvFlag(ck) => self.csv_flag.set_lookup_action(ck, a),
+                StdKey::Dfc(dk) => self.dfc.set_lookup_action(dk, a),
+            }
         }
     }
 
-    fn get_value(&self, k: &StdKey) -> &str {
+    // pub(crate) fn demote_key(&mut self, k: &StdKey) {
+    //     match k {
+    //         StdKey::Root(rk) => self.root.demote_unseen(rk),
+    //         StdKey::Meas(mk) => self.meas.demote_unseen(mk),
+    //         StdKey::Gate(gk) => self.gate.demote_unseen(gk),
+    //         StdKey::Region(rk) => self.region.demote_unseen(rk),
+    //         StdKey::CsvFlag(ck) => self.csv_flag.demote_unseen(ck),
+    //         StdKey::Dfc(dk) => self.dfc.demote_unseen(dk),
+    //     }
+    // }
+
+    // pub(crate) fn drop_key(&mut self, k: &StdKey) {
+    //     match k {
+    //         StdKey::Root(rk) => self.root.drop_unseen(rk),
+    //         StdKey::Meas(mk) => self.meas.drop_unseen(mk),
+    //         StdKey::Gate(gk) => self.gate.drop_unseen(gk),
+    //         StdKey::Region(rk) => self.region.drop_unseen(rk),
+    //         StdKey::CsvFlag(ck) => self.csv_flag.drop_unseen(ck),
+    //         StdKey::Dfc(dk) => self.dfc.drop_unseen(dk),
+    //     }
+    // }
+
+    fn get_unseen(&self, k: &StdKey) -> Option<&NEStr> {
         match k {
-            StdKey::Root(rk) => self.root.get_value(rk, &()),
-            StdKey::Meas(mk) => self.meas.get_value(mk, &()),
-            StdKey::Gate(gk) => self.gate.get_value(gk, &()),
-            StdKey::Region(rk) => self.region.get_value(rk, &()),
-            StdKey::CsvFlag(ck) => self.csv_flag.get_value(ck, &()),
-            StdKey::Dfc(dk) => self.dfc.get_value(dk, &self.dfc_matrix_size),
+            StdKey::Root(rk) => self.root.get_unseen(rk),
+            StdKey::Meas(mk) => self.meas.get_unseen(mk),
+            StdKey::Gate(gk) => self.gate.get_unseen(gk),
+            StdKey::Region(rk) => self.region.get_unseen(rk),
+            StdKey::CsvFlag(ck) => self.csv_flag.get_unseen(ck),
+            StdKey::Dfc(dk) => self.dfc.get_unseen(dk),
         }
     }
 
-    fn get_mask(&self, k: &StdKey) -> &Status {
+    fn remove_unseen(&mut self, k: &StdKey) -> Option<&NEStr> {
         match k {
-            StdKey::Root(rk) => self.root.get_mask(rk, &()),
-            StdKey::Meas(mk) => self.meas.get_mask(mk, &()),
-            StdKey::Gate(gk) => self.gate.get_mask(gk, &()),
-            StdKey::Region(rk) => self.region.get_mask(rk, &()),
-            StdKey::CsvFlag(ck) => self.csv_flag.get_mask(ck, &()),
-            StdKey::Dfc(dk) => self.dfc.get_mask(dk, &self.dfc_matrix_size),
+            StdKey::Root(rk) => self.root.remove_unseen(rk),
+            StdKey::Meas(mk) => self.meas.remove_unseen(mk),
+            StdKey::Gate(gk) => self.gate.remove_unseen(gk),
+            StdKey::Region(rk) => self.region.remove_unseen(rk),
+            StdKey::CsvFlag(ck) => self.csv_flag.remove_unseen(ck),
+            StdKey::Dfc(dk) => self.dfc.remove_unseen(dk),
         }
     }
 
-    fn set_mask(&mut self, k: &StdKey, m: Status) {
+    fn parse_unseen<F, X>(&mut self, k: &StdKey, f: F) -> Option<X>
+    where
+        F: FnOnce(&NEStr) -> (Option<LookupAction>, X),
+    {
         match k {
-            StdKey::Root(rk) => self.root.set_mask(rk, &(), m),
-            StdKey::Meas(mk) => self.meas.set_mask(mk, &(), m),
-            StdKey::Gate(gk) => self.gate.set_mask(gk, &(), m),
-            StdKey::Region(rk) => self.region.set_mask(rk, &(), m),
-            StdKey::CsvFlag(ck) => self.csv_flag.set_mask(ck, &(), m),
-            StdKey::Dfc(dk) => self.dfc.set_mask(dk, &self.dfc_matrix_size, m),
+            StdKey::Root(rk) => self.root.parse_unseen(rk, f),
+            StdKey::Meas(mk) => self.meas.parse_unseen(mk, f),
+            StdKey::Gate(gk) => self.gate.parse_unseen(gk, f),
+            StdKey::Region(rk) => self.region.parse_unseen(rk, f),
+            StdKey::CsvFlag(ck) => self.csv_flag.parse_unseen(ck, f),
+            StdKey::Dfc(dk) => self.dfc.parse_unseen(dk, f),
         }
     }
 
-    fn check_unseen(&self, k: &StdKey) {
-        let e = match self.get_mask(k) {
-            Status::Unseen => return (),
-            Status::Seen => "seen",
-            Status::Deferred(KeywordAction::Demote) => "demoted",
-            Status::Deferred(KeywordAction::Drop) => "dropped",
-        };
-        panic!("tried to look up {k} which was already {e}")
-    }
-}
+    // fn get_value(&self, k: &StdKey) -> &str {
+    //     match k {
+    //         StdKey::Root(rk) => self.root.get_value(rk, &()),
+    //         StdKey::Meas(mk) => self.meas.get_value(mk, &()),
+    //         StdKey::Gate(gk) => self.gate.get_value(gk, &()),
+    //         StdKey::Region(rk) => self.region.get_value(rk, &()),
+    //         StdKey::CsvFlag(ck) => self.csv_flag.get_value(ck, &()),
+    //         StdKey::Dfc(dk) => self.dfc.get_value(dk, &self.dfc_matrix_size),
+    //     }
+    // }
 
-fn with_unseen_only<X>(a: &Status, k: &StdKey, x: X) -> X {
-    let res = match a {
-        Status::Unseen => Ok(x),
-        Status::Seen => Err("seen"),
-        Status::Deferred(KeywordAction::Demote) => Err("demoted"),
-        Status::Deferred(KeywordAction::Drop) => Err("dropped"),
-    };
-    match res {
-        Ok(s) => s,
-        Err(e) => panic!("tried to look up {k} which was already {e}"),
-    }
-}
+    // fn get_mask(&self, k: &StdKey) -> &Status {
+    //     match k {
+    //         StdKey::Root(rk) => self.root.get_mask(rk, &()),
+    //         StdKey::Meas(mk) => self.meas.get_mask(mk, &()),
+    //         StdKey::Gate(gk) => self.gate.get_mask(gk, &()),
+    //         StdKey::Region(rk) => self.region.get_mask(rk, &()),
+    //         StdKey::CsvFlag(ck) => self.csv_flag.get_mask(ck, &()),
+    //         StdKey::Dfc(dk) => self.dfc.get_mask(dk, &self.dfc_matrix_size),
+    //     }
+    // }
 
-impl KeywordAction {
-    pub(crate) fn from_flag<F: KeywordFailureFlag>(flag: F) -> Option<Self> {
-        flag.is_demote_or_drop().map(
-            |is_demote| {
-                if is_demote { Self::Demote } else { Self::Drop }
-            },
-        )
-    }
+    // fn get_value_and_mask(&self, k: &StdKey) -> (&str, &Status) {
+    //     match k {
+    //         StdKey::Root(rk) => self.root.get_value_and_mask(rk),
+    //         StdKey::Meas(mk) => self.meas.get_value_and_mask(mk),
+    //         StdKey::Gate(gk) => self.gate.get_value_and_mask(gk),
+    //         StdKey::Region(rk) => self.region.get_value_and_mask(rk),
+    //         StdKey::CsvFlag(ck) => self.csv_flag.get_value_and_mask(ck),
+    //         StdKey::Dfc(dk) => self.dfc.get_value_and_mask(dk),
+    //     }
+    // }
+
+    // fn set_mask(&mut self, k: &StdKey, m: Status<'a>) {
+    //     match k {
+    //         StdKey::Root(rk) => self.root.set_mask(rk, m),
+    //         StdKey::Meas(mk) => self.meas.set_mask(mk, m),
+    //         StdKey::Gate(gk) => self.gate.set_mask(gk, m),
+    //         StdKey::Region(rk) => self.region.set_mask(rk, m),
+    //         StdKey::CsvFlag(ck) => self.csv_flag.set_mask(ck, m),
+    //         StdKey::Dfc(dk) => self.dfc.set_mask(dk, m),
+    //     }
+    // }
 }
 
 // TODO this is a function I stole from nightly. It seems to work and the reason
@@ -731,7 +1102,7 @@ impl Serialize for StdKeywords {
         S: Serializer,
     {
         let mut map = serializer.serialize_map(Some(self.n_strings()))?;
-        for (k, v) in self.iter_pairs() {
+        for (k, v) in self.iter_keywords() {
             map.serialize_entry(&k, v)?;
         }
         map.end()
@@ -770,7 +1141,7 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             // Use dict to preserve order
             let out = PyDict::new(py);
-            for (k, v) in self.iter_pairs() {
+            for (k, v) in self.iter_keywords() {
                 let k_ = k.into_pyobject(py)?;
                 let v_ = v.to_owned().into_pyobject(py)?;
                 out.set_item(k_, v_)?;

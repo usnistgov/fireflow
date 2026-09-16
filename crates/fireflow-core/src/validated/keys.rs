@@ -445,39 +445,6 @@ pub enum NonStdKeyError {
 //     pat: SubPattern,
 // }
 
-// TODO sealme in mod
-
-/// A "compiled" object to match keys efficiently.
-pub(crate) struct KeyMatcher<'a, T> {
-    literal: HashMap<&'a KeyString, &'a T>,
-    pattern: Vec<(&'a CaseInsRegex, &'a T)>,
-}
-
-impl<'a, T> KeyMatcher<'a, T> {
-    pub(crate) fn from_keys(keys: &'a KeyStringsOrPatterns<T>) -> Self {
-        keys.0.iter().collect()
-    }
-}
-
-/// All compiled key matchers to prevent repeated allocations in loops
-pub(crate) struct AllKeyMatchers<'a> {
-    pub(crate) promote: KeyMatcher<'a, ()>,
-    pub(crate) demote: KeyMatcher<'a, ()>,
-    pub(crate) ignore: KeyMatcher<'a, ()>,
-    pub(crate) subs: KeyMatcher<'a, SubPattern>,
-}
-
-impl<'a> AllKeyMatchers<'a> {
-    pub(crate) fn from_config(conf: &'a EvaledReadDataKeywordsConfig) -> Self {
-        Self {
-            promote: KeyMatcher::from_keys(&conf.promote_nonstandard_keys),
-            demote: KeyMatcher::from_keys(&conf.demote_standard_keys),
-            ignore: KeyMatcher::from_keys(&conf.ignore_standard_keys),
-            subs: KeyMatcher::from_keys(&conf.substitute_standard_key_values),
-        }
-    }
-}
-
 #[derive(Default)]
 pub(crate) struct ParsedKeywordsDiagnostic {
     /// Valid keys with non-UTF8 values.
@@ -588,44 +555,6 @@ impl FromStr for NonStdKey {
         } else {
             Err(NonStdKeyError::Prefix(ks))
         }
-    }
-}
-
-// Implement methods for key matcher
-
-impl KeyMatcher<'_, ()> {
-    fn is_match(&self, other: &KeyString) -> bool {
-        self.literal.contains_key(other)
-            || self
-                .pattern
-                .iter()
-                .any(|p| p.0.as_ref().is_match(other.as_ref()))
-    }
-}
-
-impl<T> KeyMatcher<'_, T> {
-    fn get(&self, other: &KeyString) -> Option<&T> {
-        self.literal.get(other).copied().or(self
-            .pattern
-            .iter()
-            .find(|p| p.0.as_ref().is_match(other.as_ref()))
-            .map(|(_, x)| *x))
-    }
-}
-
-impl<'a, X> FromIterator<(&'a KeyStringOrPattern, &'a X)> for KeyMatcher<'a, X> {
-    fn from_iter<T>(iter: T) -> Self
-    where
-        T: IntoIterator<Item = (&'a KeyStringOrPattern, &'a X)>,
-    {
-        let (literal, pattern): (HashMap<_, _>, Vec<_>) = iter
-            .into_iter()
-            .map(|(k, v)| match k {
-                KeyStringOrPattern::Literal(l) => Ok((l, v)),
-                KeyStringOrPattern::Pattern(p) => Err((p, v)),
-            })
-            .partition_result();
-        Self { literal, pattern }
     }
 }
 

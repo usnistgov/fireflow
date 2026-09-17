@@ -1,6 +1,6 @@
 use crate::config::EvaledReadDataKeywordsConfig;
 use crate::logging::{DeferredSwitchableError, ResultExt as _};
-use crate::std_index::index::{LookupAction, StdTransaction};
+use crate::std_index::index::{LookupAction, StdLookupTx};
 use crate::validated::keys::{DollarKey, DollarKey_, TruncatedNEString, ValueToStdKey};
 
 use fireflow_types::{
@@ -235,7 +235,7 @@ pub(crate) use impl_from_str_with_delim;
 /// A required key
 pub(crate) trait ReqValue: Sized + ValueToStdKey {
     fn get_req(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         i: Self::Index,
     ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self>>
     where
@@ -250,7 +250,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
 
     #[allow(clippy::type_complexity)]
     fn get_req_with(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         i: Self::Index,
         data: Self::Payload<'_>,
         conf: &Self::Config,
@@ -266,7 +266,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
     }
 
     fn remove_req(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: Self::Index,
     ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self>>
     where
@@ -281,7 +281,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
 
     #[allow(clippy::type_complexity)]
     fn remove_req_with(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         k: Self::Index,
         data: Self::Payload<'_>,
         conf: &Self::Config,
@@ -297,7 +297,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
     }
 
     fn get_req_inner<'a>(
-        kws: &'a StdTransaction,
+        kws: &'a StdLookupTx,
         i: Self::Index,
     ) -> Result<&'a NEStr, MissingKeyError<Self>> {
         match kws.read::<Self>(&i) {
@@ -307,7 +307,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
     }
 
     fn remove_req_inner<'a>(
-        kws: &'a mut StdTransaction,
+        kws: &'a mut StdLookupTx,
         i: Self::Index,
     ) -> Result<&'a NEStr, MissingKeyError<Self>> {
         match kws.remove::<Self>(&i) {
@@ -316,21 +316,21 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
         }
     }
 
-    fn get_metaroot_req(kws: &StdTransaction) -> ReqResult<Self>
+    fn get_metaroot_req(kws: &StdLookupTx) -> ReqResult<Self>
     where
         Self: ValueToStdKey<Index = ()> + FromStr,
     {
         Self::get_req(kws, ())
     }
 
-    fn remove_metaroot_req(kws: &mut StdTransaction) -> ReqResult<Self>
+    fn remove_metaroot_req(kws: &mut StdLookupTx) -> ReqResult<Self>
     where
         Self: ValueToStdKey<Index = ()> + FromStr,
     {
         Self::remove_req(kws, ())
     }
 
-    fn get_meas_req(kws: &StdTransaction, i: Self::Index) -> ReqResult<Self>
+    fn get_meas_req(kws: &StdLookupTx, i: Self::Index) -> ReqResult<Self>
     where
         Self: FromStr,
         Self::Index: Copy,
@@ -338,7 +338,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
         Self::get_req(kws, i)
     }
 
-    fn remove_meas_req(kws: &mut StdTransaction, i: Self::Index) -> ReqResult<Self>
+    fn remove_meas_req(kws: &mut StdLookupTx, i: Self::Index) -> ReqResult<Self>
     where
         Self: FromStr,
         Self::Index: Copy,
@@ -347,7 +347,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
     }
 
     fn remove_meas_req_with(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: Self::Index,
         data: Self::Payload<'_>,
         conf: &Self::Config,
@@ -366,7 +366,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     type Outer: Default + From<Self> + Into<Option<Self>>;
 
     fn get_opt(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         k: Self::Index,
     ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self>>
     where
@@ -403,7 +403,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     // }
 
     fn get_or_ignore_opt(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         k: Self::Index,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, ParseKeyError<Self::Err, Self>>
@@ -414,7 +414,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     }
 
     fn remove_or_transfer_opt(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         k: Self::Index,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, ParseKeyError<Self::Err, Self>>
@@ -428,7 +428,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
 
     #[allow(clippy::type_complexity)]
     fn remove_or_transfer_opt_with<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         k: Self::Index,
         data: Self::Payload<'_>,
         conf: &C,
@@ -448,14 +448,14 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         Self::remove_opt_with(kws, k, data, flag, conf.as_ref())
     }
 
-    fn get_root_opt(kws: &StdTransaction) -> Result<Self::Outer, OptKeyError<Self>>
+    fn get_root_opt(kws: &StdLookupTx) -> Result<Self::Outer, OptKeyError<Self>>
     where
         Self: ValueToStdKey<Index = ()> + FromStr,
     {
         Self::get_opt(kws, ())
     }
 
-    fn remove_root_opt_nofail(kws: &mut StdTransaction) -> Self::Outer
+    fn remove_root_opt_nofail(kws: &mut StdLookupTx) -> Self::Outer
     where
         Self: ValueToStdKey<Index = ()> + FromStr<Err = Infallible>,
     {
@@ -463,7 +463,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     }
 
     fn remove_or_drop_root_opt(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyError<Self>>
     where
@@ -473,7 +473,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     }
 
     fn remove_or_drop_root_opt_with<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         data: Self::Payload<'_>,
         conf: &C,
     ) -> DeferredSwitchableError<
@@ -501,7 +501,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     // }
 
     fn get_or_ignore_meas_opt(
-        std: &StdTransaction,
+        std: &StdLookupTx,
         i: Self::Index,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyError<Self>>
@@ -511,7 +511,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         Self::get_or_ignore_opt(std, i, conf)
     }
 
-    fn remove_meas_opt_nofail(kws: &mut StdTransaction, i: Self::Index) -> Self::Outer
+    fn remove_meas_opt_nofail(kws: &mut StdLookupTx, i: Self::Index) -> Self::Outer
     where
         Self: FromStr<Err = Infallible>,
     {
@@ -519,7 +519,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     }
 
     fn remove_or_drop_meas_opt(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: Self::Index,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyError<Self>>
@@ -531,7 +531,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     }
 
     fn remove_or_drop_meas_opt_with<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: Self::Index,
         data: Self::Payload<'_>,
         conf: &C,
@@ -550,7 +550,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     }
 
     fn remove_opt(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         k: Self::Index,
         flag: ProcessOptionalFailure,
     ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, ParseKeyError<Self::Err, Self>>
@@ -570,7 +570,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
 
     #[allow(clippy::type_complexity)]
     fn remove_opt_with(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: Self::Index,
         data: Self::Payload<'_>,
         flag: ProcessOptionalFailure,
@@ -595,7 +595,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         .into_deferred_switchable3(flag)
     }
 
-    fn remove_opt_nofail(kws: &mut StdTransaction, i: Self::Index) -> Self::Outer
+    fn remove_opt_nofail(kws: &mut StdLookupTx, i: Self::Index) -> Self::Outer
     where
         Self: FromStr<Err = Infallible>,
     {

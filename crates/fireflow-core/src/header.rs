@@ -16,7 +16,7 @@ use crate::segment::write::{
     PrimaryTextOffsetsToWrite, SupplementalTextOffsetsToWrite, TEXTAnalysisOffsetsToWrite,
     TEXTDataOffsetsToWrite,
 };
-use crate::std_index::index::{StdTransaction, StdKeywords};
+use crate::std_index::index::{StdLookupTx, StdKeywords};
 use crate::text::keyword_enum::{
     AnyKeyword, Escaped, Keyword0FromValue as _, NEStringKeyword, OffsetKeyword, OptKeyword,
     OptRootKeyword, ReqKeyword, StdOrNonStdOptRootKeyword,

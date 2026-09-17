@@ -14,6 +14,7 @@ use crate::logging::{ErrorsResult, ResultExt as _};
 use crate::selector::{AppendableSelector, Selector};
 use crate::validated::keys::ValidKeywords;
 
+use fireflow_types::std_key::{RealOrPseudoStdKey, StdKey};
 use fireflow_types::{
     case_ins_regex::LiteralOrPattern,
     config::{
@@ -233,7 +234,7 @@ pub type EvaledReadDataKeywordsConfig = ReadDataKeywordsConfig_<
 /// A map of [`KeyString`]/[`String`] pairs.
 ///
 /// The main use case for this is to replace or add key values.
-pub type KeyStringValues = HashMap<KeyString, NEString>;
+pub type KeyStringValues = HashMap<StdKey, NEString>;
 
 pub(crate) fn eval_std_conf(
     conf: &ReadStdKeywordsConfig,
@@ -334,7 +335,8 @@ pub(crate) fn eval_data_conf(
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AppendRepairFlagError {
     KeyPattern(NonUniqueKeyError<LiteralOrPattern<KeyString>>),
-    KeyStringPairsHash(NonUniqueKeyError<KeyString>),
+    NonUniqueStd(NonUniqueKeyError<StdKey>),
+    NonUniqueMaybeStd(NonUniqueKeyError<RealOrPseudoStdKey>),
     KeyStringPairsValid(KeyStringPairsError),
 }
 

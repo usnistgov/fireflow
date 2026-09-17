@@ -4,7 +4,7 @@ use crate::logging::{
 };
 use crate::macros::impl_newtype_try_from;
 use crate::segment::read::{IsOffsetPair as _, PrimaryTextOffsets};
-use crate::std_index::index::{LookupAction, StdKeywords, StdTransaction};
+use crate::std_index::index::{LookupAction, StdKeywords, StdLookupTx};
 use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::lookup::{
@@ -458,7 +458,7 @@ pub struct Gain(pub PositiveFloat);
 
 impl Gain {
     pub(crate) fn lookup_temporal_3_0<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
     ) -> DeferredSwitchableErrors<Option<Self>, ProcessOptionalFailure, LookupTemporalGainError>
@@ -515,7 +515,7 @@ impl Default for Timestep {
 
 impl Timestep {
     pub(crate) fn lookup(
-        std: &mut StdTransaction,
+        std: &mut StdLookupTx,
         conf: &EvaledReadStdKeywordsConfig,
     ) -> Result<Diagnosed<Self, TimestepAdded>, ReqKeyError<Self>> {
         match Self::remove_metaroot_req(std) {
@@ -1426,7 +1426,7 @@ pub struct DfcKeyword {
 
 impl Compensation2_0 {
     pub(crate) fn lookup(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         par: Par,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableErrors<Option<Self>, ProcessOptionalFailure, LookupComp2_0Error> {
@@ -3261,7 +3261,7 @@ impl ValueToStdKey for Dfc {
 
 impl Dfc {
     pub(crate) fn lookup(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: BiMeasIndex,
         flag: ProcessOptionalFailure,
     ) -> Result<Option<Self>, LookupDfcError> {

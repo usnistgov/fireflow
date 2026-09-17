@@ -121,7 +121,7 @@ use crate::meas::{
     VNamedTemporalsAndOpticalsWithScale, VersionMeasSet, wrap_scaled_opticals,
 };
 use crate::segment::read::{AnyDataOffsets, AnyNonEmptyDataOffsets, IsOffsetPair as _};
-use crate::std_index::index::StdTransaction;
+use crate::std_index::index::StdLookupTx;
 use crate::text::byteord::{
     AnyByteOrder, ArgBytes, ArrayByteOrd, ArrayByteOrd_, BitsOrChars, ByteOrdToSizedError, Bytes,
     Endian, FixedWidthToBytesError, HasByteOrd, NoByteOrd, OrderedToEndianError, PrivBitsOrChars,
@@ -1872,14 +1872,14 @@ where
     type Tot: IsTot;
 
     fn lookup(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         par: Par,
         start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>>;
 
     fn lookup_ro(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         par: Par,
         start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
@@ -1970,7 +1970,7 @@ impl VersionedDataSchema for DataSchema2_0 {
     type Tot = Option<Tot>;
 
     fn lookup(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         par: Par,
         start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
@@ -1980,7 +1980,7 @@ impl VersionedDataSchema for DataSchema2_0 {
     }
 
     fn lookup_ro(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         par: Par,
         start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
@@ -2012,7 +2012,7 @@ impl VersionedDataSchema for DataSchema3_0 {
     type Tot = Identity<Tot>;
 
     fn lookup(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         par: Par,
         start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
@@ -2022,7 +2022,7 @@ impl VersionedDataSchema for DataSchema3_0 {
     }
 
     fn lookup_ro(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         par: Par,
         start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
@@ -2054,7 +2054,7 @@ impl VersionedDataSchema for DataSchema3_1 {
     type Tot = Identity<Tot>;
 
     fn lookup(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         par: Par,
         start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
@@ -2064,7 +2064,7 @@ impl VersionedDataSchema for DataSchema3_1 {
     }
 
     fn lookup_ro(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         par: Par,
         start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
@@ -2096,7 +2096,7 @@ impl VersionedDataSchema for DataSchema3_2 {
     type Tot = Identity<Tot>;
 
     fn lookup(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         par: Par,
         start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
@@ -2108,7 +2108,7 @@ impl VersionedDataSchema for DataSchema3_2 {
     }
 
     fn lookup_ro(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         par: Par,
         start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
@@ -6714,19 +6714,19 @@ impl IsTot for Identity<Tot> {}
 /// A type which represents a column-specific datatype (or lack thereof)
 pub trait IsNumType: Sized {
     fn lookup_datatype(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>>;
 
     fn lookup_datatype_ro(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>>;
 
     fn lookup_all(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         par: Par,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupMeasLayoutResult<Self> {
@@ -6737,7 +6737,7 @@ pub trait IsNumType: Sized {
 
     #[must_use]
     fn lookup_ro_all(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         par: Par,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupMeasLayoutResult<Self> {
@@ -6747,7 +6747,7 @@ pub trait IsNumType: Sized {
     }
 
     fn lookup_one(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupOneMeasLayoutResult<Self> {
@@ -6759,7 +6759,7 @@ pub trait IsNumType: Sized {
 
     #[must_use]
     fn lookup_one_ro(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupOneMeasLayoutResult<Self> {
@@ -6786,7 +6786,7 @@ pub trait IsNumType: Sized {
 
 impl IsNumType for Nothing<NumType> {
     fn lookup_datatype(
-        _: &mut StdTransaction,
+        _: &mut StdLookupTx,
         _: MeasIndex,
         _: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>> {
@@ -6794,7 +6794,7 @@ impl IsNumType for Nothing<NumType> {
     }
 
     fn lookup_datatype_ro(
-        _: &StdTransaction,
+        _: &StdLookupTx,
         _: MeasIndex,
         _: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>> {
@@ -6804,7 +6804,7 @@ impl IsNumType for Nothing<NumType> {
 
 impl IsNumType for Option<NumType> {
     fn lookup_datatype(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>> {
@@ -6812,7 +6812,7 @@ impl IsNumType for Option<NumType> {
     }
 
     fn lookup_datatype_ro(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>> {
@@ -8131,7 +8131,7 @@ impl DataSchema3_2 {
 
 impl<T> AnyOrderedDataSchema<T> {
     fn lookup(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         par: Par,
         start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
@@ -8143,7 +8143,7 @@ impl<T> AnyOrderedDataSchema<T> {
     }
 
     fn lookup_ro(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         par: Par,
         start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
@@ -8243,7 +8243,7 @@ impl<T> AnyOrderedDataSchema<T> {
 
 impl NonMixedDataSchema<Nothing<NumType>> {
     fn lookup(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         par: Par,
         start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
@@ -8255,7 +8255,7 @@ impl NonMixedDataSchema<Nothing<NumType>> {
     }
 
     fn lookup_ro(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         par: Par,
         start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,

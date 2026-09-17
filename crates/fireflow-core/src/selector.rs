@@ -10,7 +10,7 @@ use fireflow_types::{
     keystring_pairs::KeyStringPairs,
     ne_str, nev,
     nonempty::{NEStr, NEString, NEVec, NonEmptyIterator as _},
-    std_key::{RealOrPseudoStdKey, RootKey, StdKey, ToStd},
+    std_key::{PseudoStdKey, RealOrPseudoStdKey, RootKey, StdKey, ToStd},
     timepattern::TimePattern,
 };
 use hashbrown::HashMap;
@@ -145,8 +145,8 @@ impl AppendableSelector<KeyStringPairs> {
     /// only if the latter is not already present.
     pub fn push_rename_spill_to_spillover(&mut self) {
         let mut hm = HashMap::new();
-        let from = "SPILL".parse::<KeyString>().unwrap();
-        let to = "SPILLOVER".parse::<KeyString>().unwrap();
+        let from = RealOrPseudoStdKey::Pseudo(PseudoStdKey("SPILL".parse::<KeyString>().unwrap()));
+        let to = RootKey::Spillover.to_std0();
         hm.insert(from, to);
         let pairs = KeyStringPairs::try_from(hm).unwrap();
         let kw_test = KeyTest::HasKey(RealOrPseudoStdKey::Real(RootKey::Spillover.into()).into());

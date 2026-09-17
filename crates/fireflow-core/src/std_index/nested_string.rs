@@ -58,14 +58,14 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
         }
     }
 
-    pub(crate) unsafe fn set_key(&mut self, key: K, val: &NEStr)
-    where
-        K: EnumIndex<LEN>,
-    {
-        let start = self.inner.len();
-        self.inner.extend(val.as_str().as_bytes());
-        self.offsets[key.index()] = start;
-    }
+    // pub(crate) unsafe fn set_key(&mut self, key: K, val: &NEStr)
+    // where
+    //     K: EnumIndex<LEN>,
+    // {
+    //     let start = self.inner.len();
+    //     self.inner.extend(val.as_str().as_bytes());
+    //     self.offsets[key.index()] = start;
+    // }
 }
 
 impl<K, S> NestedVariableString<K, S> {
@@ -98,40 +98,40 @@ impl<K, S> NestedVariableString<K, S> {
         }
     }
 
-    fn extend<'a>(&mut self, ss: impl IntoIterator<Item = &'a str>) {
-        let mut prev_index = self.offsets.last().copied().unwrap_or(0);
-        for s in ss {
-            let bs = s.as_bytes();
-            self.inner.extend(bs);
-            self.offsets.push(prev_index);
-            prev_index += bs.len();
-        }
-    }
+    // pub(crate) fn extend<'a>(&mut self, ss: impl IntoIterator<Item = &'a str>) {
+    //     let mut prev_index = self.offsets.last().copied().unwrap_or(0);
+    //     for s in ss {
+    //         let bs = s.as_bytes();
+    //         self.inner.extend(bs);
+    //         self.offsets.push(prev_index);
+    //         prev_index += bs.len();
+    //     }
+    // }
 
-    pub fn push(&mut self, s: &str) {
-        let prev_index = self.offsets.last().copied().unwrap_or(0);
-        self.inner.extend(s.as_bytes());
-        self.offsets.push(prev_index);
-    }
+    // pub(crate) fn push(&mut self, s: &str) {
+    //     let prev_index = self.offsets.last().copied().unwrap_or(0);
+    //     self.inner.extend(s.as_bytes());
+    //     self.offsets.push(prev_index);
+    // }
 }
 
 impl<I, S, K> NestedString<I, S, K> {
-    pub fn n_bytes(&self) -> usize {
+    pub(crate) fn n_bytes(&self) -> usize {
         self.inner.len()
     }
 
-    pub fn n_strings(&self) -> usize
+    pub(crate) fn n_strings(&self) -> usize
     where
         I: HasLen,
     {
         self.offsets.len()
     }
 
-    pub fn sub_dimension(&self) -> &S {
+    pub(crate) fn sub_dimension(&self) -> &S {
         &self.sub_dimension
     }
 
-    pub fn get(&self, k: &K) -> &str
+    pub(crate) fn get(&self, k: &K) -> Option<&str>
     where
         I: HasLen + Index<usize, Output = usize>,
         K: AnyIndex<SubDimension = S>,
@@ -139,7 +139,30 @@ impl<I, S, K> NestedString<I, S, K> {
         self.get_index(k.offset(&self.sub_dimension))
     }
 
-    pub fn get_index(&self, i: usize) -> &str
+    pub(crate) fn occupied(&self, k: &K) -> Option<bool>
+    where
+        I: HasLen + Index<usize, Output = usize>,
+        K: AnyIndex<SubDimension = S>,
+    {
+        self.get(k).map(|v| !v.is_empty())
+    }
+
+    pub(crate) fn get_unchecked(&self, k: &K) -> &str
+    where
+        I: HasLen + Index<usize, Output = usize>,
+        K: AnyIndex<SubDimension = S>,
+    {
+        self.get_index_unchecked(k.offset(&self.sub_dimension))
+    }
+
+    pub(crate) fn get_index(&self, i: usize) -> Option<&str>
+    where
+        I: HasLen + Index<usize, Output = usize>,
+    {
+        (i < self.offsets.len()).then(|| self.get_index_unchecked(i))
+    }
+
+    pub(crate) fn get_index_unchecked(&self, i: usize) -> &str
     where
         I: HasLen + Index<usize, Output = usize>,
     {
@@ -192,7 +215,7 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.inner.offsets.len() {
             let k = self.keys.next()?;
-            let s = self.inner.get_index(self.index);
+            let s = self.inner.get_index_unchecked(self.index);
             self.index += 1;
             Some((k, s))
         } else {

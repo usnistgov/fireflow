@@ -19,7 +19,7 @@ use crate::logging::{
 };
 use crate::macros::{assert_eq_msg, def_summary};
 use crate::segment::read::AnyDataOffsets;
-use crate::std_index::index::StdTransaction;
+use crate::std_index::index::StdLookupTx;
 use crate::text::keyword_enum::{
     AnyOpticalKeyLossError, AnyOpticalToTemporalKeyLossError, AnyTemporalKeyLossError,
     AnyTemporalToOpticalKeyLossError, HasMembership as _, Keyword1FromValue as _,
@@ -1770,7 +1770,7 @@ type LookupShortnameResult<V> =
 
 pub trait LookupShortname: Sized {
     fn lookup_shortname(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupShortnameResult<Self>;
@@ -1778,7 +1778,7 @@ pub trait LookupShortname: Sized {
 
 impl LookupShortname for Option<Shortname> {
     fn lookup_shortname(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupShortnameResult<Self> {
@@ -1791,7 +1791,7 @@ impl LookupShortname for Option<Shortname> {
 
 impl LookupShortname for Identity<Shortname> {
     fn lookup_shortname(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         _: &EvaledReadDataKeywordsConfig,
     ) -> LookupShortnameResult<Self> {
@@ -1809,7 +1809,7 @@ type LookupOpticalScaleResult<S> =
 
 pub trait LookupOpticalScale: Sized {
     fn lookup_optical_scale<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
@@ -1820,7 +1820,7 @@ pub trait LookupOpticalScale: Sized {
 
 impl LookupOpticalScale for OpticalScale2_0 {
     fn lookup_optical_scale<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
@@ -1840,7 +1840,7 @@ impl LookupOpticalScale for OpticalScale2_0 {
 
 impl LookupOpticalScale for OpticalScale3_0 {
     fn lookup_optical_scale<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
@@ -1872,7 +1872,7 @@ type LookupOpticalResult<V> =
 
 pub trait LookupOptical: Sized + OpticalKeywords {
     fn lookup_specific<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
@@ -1882,7 +1882,7 @@ pub trait LookupOptical: Sized + OpticalKeywords {
 
 impl LookupOptical for InnerOptical2_0 {
     fn lookup_specific<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
@@ -1906,7 +1906,7 @@ impl LookupOptical for InnerOptical2_0 {
 
 impl LookupOptical for InnerOptical3_0 {
     fn lookup_specific<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
@@ -1930,7 +1930,7 @@ impl LookupOptical for InnerOptical3_0 {
 
 impl LookupOptical for InnerOptical3_1 {
     fn lookup_specific<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
@@ -1969,7 +1969,7 @@ impl LookupOptical for InnerOptical3_1 {
 
 impl LookupOptical for InnerOptical3_2 {
     fn lookup_specific<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
@@ -2019,7 +2019,7 @@ type LookupTemporalResult<V> =
 
 pub trait LookupTemporal: TemporalKeywords {
     fn lookup_specific<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
@@ -2029,7 +2029,7 @@ pub trait LookupTemporal: TemporalKeywords {
 
 impl LookupTemporal for InnerTemporal2_0 {
     fn lookup_specific<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
@@ -2063,7 +2063,7 @@ impl LookupTemporal for InnerTemporal2_0 {
 
 impl LookupTemporal for InnerTemporal3_0 {
     fn lookup_specific<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
@@ -2100,7 +2100,7 @@ impl LookupTemporal for InnerTemporal3_0 {
 
 impl LookupTemporal for InnerTemporal3_1 {
     fn lookup_specific<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
@@ -2143,7 +2143,7 @@ impl LookupTemporal for InnerTemporal3_1 {
 
 impl LookupTemporal for InnerTemporal3_2 {
     fn lookup_specific<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
@@ -2692,7 +2692,7 @@ impl<X, O> ScaledOptical<X, O> {
     }
 
     pub(crate) fn lookup_scaled_optical<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
@@ -2961,7 +2961,7 @@ impl<O> Optical<O> {
     }
 
     pub(crate) fn lookup_optical<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
@@ -3094,7 +3094,7 @@ impl Temporal3_2 {
 
 impl<T> Temporal<T> {
     pub(crate) fn lookup_temporal<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
@@ -4150,7 +4150,7 @@ impl TryFrom<(Scale, Option<Gain>)> for OpticalScale3_0 {
 
 impl PeakData {
     fn lookup(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupPeakError, LookupPeakError> {
@@ -4205,7 +4205,7 @@ impl OpticalScale3_0 {
 }
 
 impl CommonMeasurement {
-    fn lookup(std: &mut StdTransaction, i: MeasIndex) -> Self {
+    fn lookup(std: &mut StdLookupTx, i: MeasIndex) -> Self {
         let longname = Longname::remove_meas_opt_nofail(std, i);
         Self::new(longname)
     }

@@ -6,7 +6,7 @@ use crate::logging::{
     DeferredIter as _, DeferredSwitchableErrors, DeferredWarningsAndErrors, LogResult,
     ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
 };
-use crate::std_index::index::{LookupAction, StdTransaction};
+use crate::std_index::index::{LookupAction, StdLookupTx};
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, GateMeasKeyword, Keyword0FromValue as _, Keyword1FromValue as _,
     OptRootKeyword, RegionKeyword, SplitKeyword,
@@ -332,7 +332,7 @@ impl<I> AppliedGatesPre3_2<I> {
 
     #[allow(clippy::type_complexity)]
     pub(crate) fn lookup<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         conf: &C,
     ) -> WarningsAndErrorsResult<
         Diagnosed<Self, AppliedGatesDiagnostics>,
@@ -499,7 +499,7 @@ impl AppliedGates3_2 {
     }
 
     pub(crate) fn lookup<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         conf: &C,
     ) -> WarningsAndErrorsResult<
         Diagnosed<Self, AppliedGatesDiagnostics>,
@@ -526,7 +526,7 @@ impl AppliedGates3_2 {
 
 impl GatedMeasurement {
     fn lookup<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         i: GateIndex,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
@@ -586,7 +586,7 @@ impl GatedMeasurement {
     fn set_failure_flag(
         self,
         i: GateIndex,
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         flag: ProcessOptionalFailure,
     ) {
         for x in self.opt_keywords(i) {
@@ -740,7 +740,7 @@ impl<I> GatingScheme<I> {
 
     #[allow(clippy::type_complexity)]
     fn lookup<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
         Diagnosed<Self, TrimmedKeywords>,
@@ -790,7 +790,7 @@ impl<I> GatingScheme<I> {
             })
     }
 
-    fn set_failure_flag(self, kws: &mut StdTransaction, flag: ProcessOptionalFailure)
+    fn set_failure_flag(self, kws: &mut StdLookupTx, flag: ProcessOptionalFailure)
     where
         I: Copy,
         RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
@@ -871,7 +871,7 @@ impl<I> Region<I> {
 
     #[allow(clippy::type_complexity)]
     fn lookup<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         ri: RegionIndex,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
@@ -934,7 +934,7 @@ impl<I> Region<I> {
     pub(crate) fn set_failure_flag<'a>(
         &'a self,
         i: RegionIndex,
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         flag: ProcessOptionalFailure,
     ) where
         I: Copy,
@@ -950,7 +950,7 @@ impl<I> Region<I> {
     pub(crate) fn set_lookup_action_seen<'a>(
         &'a self,
         i: RegionIndex,
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         a: LookupAction,
     ) where
         I: Copy,
@@ -1090,7 +1090,7 @@ impl GatedMeasurements {
         }
     }
 
-    fn set_failure_flag(self, kws: &mut StdTransaction, flag: ProcessOptionalFailure) {
+    fn set_failure_flag(self, kws: &mut StdLookupTx, flag: ProcessOptionalFailure) {
         if let Some(k) = self.gate().map(|v| v.std0_()) {
             kws.set_failure_flag(&k, flag);
         }
@@ -1100,7 +1100,7 @@ impl GatedMeasurements {
     }
 
     fn lookup<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
         Diagnosed<Self, Vec<ScaleFix>>,

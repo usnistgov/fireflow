@@ -1,6 +1,6 @@
 use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
-use crate::std_index::index::StdTransaction;
+use crate::std_index::index::StdLookupTx;
 use crate::text::keyword_enum::{Keyword0FromValue as _, OptRootKeyword};
 use crate::text::lookup::{Diagnosed, FromStrWith, OptStKeyError, OptValue as _};
 use crate::validated::keys::ValueToStdKey as _;
@@ -131,7 +131,7 @@ impl Datetimes {
     }
 
     pub(crate) fn lookup<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         conf: &C,
     ) -> WarningsAndErrorsResult<
         Diagnosed<Self, DatetimesDiagnostics>,

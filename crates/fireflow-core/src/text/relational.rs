@@ -30,7 +30,7 @@
 use crate::fixed_vec::OneOrTwo;
 use crate::logging::ErrorGroup;
 use crate::macros::def_summary;
-use crate::std_index::index::StdTransaction;
+use crate::std_index::index::StdLookupTx;
 use crate::text::keywords::{
     Compensation3_0, Dfc, Gating, MeasOrGateIndex, PrefixedMeasIndex, RegionGateIndex,
     RegionWindow, Trigger, UnstainedCenters,
@@ -346,8 +346,8 @@ impl<T, I> DependentKeyError_<T, I> {
 }
 
 impl RemovedLink {
-    pub(crate) fn insert_keyvals(&self, kws: &mut StdTransaction, flag: ProcessOptionalFailure) {
-        fn go<T>(kws: &mut StdTransaction, flag: ProcessOptionalFailure)
+    pub(crate) fn insert_keyvals(&self, kws: &mut StdLookupTx, flag: ProcessOptionalFailure) {
+        fn go<T>(kws: &mut StdLookupTx, flag: ProcessOptionalFailure)
         where
             T: ValueToStdKey<Index = ()>,
         {

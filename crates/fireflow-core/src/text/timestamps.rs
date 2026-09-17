@@ -1,6 +1,6 @@
 use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
-use crate::std_index::index::StdTransaction;
+use crate::std_index::index::StdLookupTx;
 use crate::text::keyword_enum::{Keyword0FromValue as _, OptRootKeyword, SplitKeyword};
 use crate::text::lookup::{Diagnosed, FromStrWith, OptStKeyError, OptValue};
 use crate::validated::keys::ValueToStdKey;
@@ -203,7 +203,7 @@ impl<X> Timestamps<X> {
 
     #[allow(clippy::type_complexity)]
     pub(crate) fn lookup<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         conf: &C,
     ) -> WarningsAndErrorsResult<
         Diagnosed<Self, TimestampsDiagnostics>,

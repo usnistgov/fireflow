@@ -60,7 +60,7 @@ use crate::segment::read::{
 use crate::segment::read::{PrimaryTextOffsets, SupplementalTextOffsets};
 use crate::std_index::index::{
     DroppedStdKeywords, ExtraStdKeywordError, ExtraStdKeywords, RepairCollisionError,
-    RepairDiagnostics, StdKeywords, StdTransaction,
+    RepairDiagnostics, StdKeywords, StdLookupTx,
 };
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, DatetimesDiagnostics, EndDateTime, LookupDatetimesError,
@@ -2248,7 +2248,7 @@ impl PrivVersionSet for Version3_2 {}
 
 pub trait LookupMetaroot<N>: Sized {
     fn lookup_specific<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         ms: &[N],
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
@@ -2258,7 +2258,7 @@ pub trait LookupMetaroot<N>: Sized {
 
 impl LookupMetaroot<Option<Shortname>> for InnerRootMeta2_0 {
     fn lookup_specific<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         ms: &[Option<Shortname>],
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
@@ -2295,7 +2295,7 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta2_0 {
 
 impl LookupMetaroot<Option<Shortname>> for InnerRootMeta3_0 {
     fn lookup_specific<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         _: &[Option<Shortname>],
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
@@ -2350,7 +2350,7 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta3_0 {
 
 impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_1 {
     fn lookup_specific<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         ms: &[Identity<Shortname>],
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
@@ -2408,7 +2408,7 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_1 {
 
 impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_2 {
     fn lookup_specific<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         ms: &[Identity<Shortname>],
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
@@ -2490,7 +2490,7 @@ pub trait LookupTEXTOffsets: Sized {
     type TotDef: IsTot;
 
     fn lookup<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -2498,7 +2498,7 @@ pub trait LookupTEXTOffsets: Sized {
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>;
 
     fn lookup_ro<C>(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -2510,7 +2510,7 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
     type TotDef = Option<Tot>;
 
     fn lookup<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -2530,7 +2530,7 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
     }
 
     fn lookup_ro<C>(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
         _: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -2581,7 +2581,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_0 {
     type TotDef = Identity<Tot>;
 
     fn lookup<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -2592,7 +2592,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_0 {
     }
 
     fn lookup_ro<C>(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -2636,7 +2636,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_2 {
     type TotDef = Identity<Tot>;
 
     fn lookup<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -2654,7 +2654,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_2 {
     }
 
     fn lookup_ro<C>(
-        kws: &StdTransaction,
+        kws: &StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
@@ -3454,7 +3454,7 @@ impl<M: VersionedRootMeta> RootMeta<M> {
     }
 
     fn lookup_metaroot<C, N>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         ms: &[N],
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
@@ -5603,7 +5603,7 @@ where
 
     #[allow(clippy::type_complexity)]
     fn lookup_names<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         par: Par,
         conf: &C,
     ) -> WarningsAndErrorsResult<
@@ -5637,7 +5637,7 @@ where
     }
 
     fn lookup_measurements<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         names: Vec<V::Name>,
         dts: &[AlphaNumType],
         conf: &C,
@@ -5819,7 +5819,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
 
     #[allow(clippy::too_many_lines)]
     fn lookup_inner<C>(
-        mut std: StdTransaction,
+        mut std: StdLookupTx,
         nonstd: NonStdKeywords,
         start_time: Instant,
         conf: &C,
@@ -6238,7 +6238,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     // only meant to be called during lookup when keywords are being read from
     // a hashtable
     pub(crate) fn try_new<C>(
-        mut std: StdTransaction,
+        mut std: StdLookupTx,
         mut nonstd: NonStdKeywords,
         mut metaroot: RootMeta<V::RootMeta>,
         measurements: VNamedTemporalsAndScaledOpticals<V>,
@@ -6290,7 +6290,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     /// For example, $SPILLOVER in the metaroot must refer to valid
     /// measurements.
     fn check_relationships(
-        std: &mut StdTransaction,
+        std: &mut StdLookupTx,
         metaroot: &mut RootMeta<V::RootMeta>,
         measurements: &MeasMeta<V::Name, V::Temporal, V::Optical, V::OpticalScale>,
         flag: ProcessOptionalFailure,
@@ -7195,7 +7195,7 @@ impl AnyCoreDataset {
 
 impl UnstainedData {
     fn lookup<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         conf: &C,
     ) -> DeferredSwitchableError<
         DiagnosedUnstainedData<Self>,
@@ -7221,7 +7221,7 @@ impl UnstainedData {
 
 impl SubsetData {
     fn lookup(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupSubsetError, LookupSubsetError> {
         let f = CSVFlags::lookup(kws, conf).map_warnings_and_errors(LookupSubsetError::from);
@@ -7248,7 +7248,7 @@ impl SubsetData {
 
 impl CSVFlags {
     fn lookup(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupCSVFlagsError, LookupCSVFlagsError> {
         CSMode::remove_or_drop_root_opt(kws, conf)
@@ -7289,7 +7289,7 @@ impl CSVFlags {
 
 impl ModificationData {
     fn lookup<C>(
-        kws: &mut StdTransaction,
+        kws: &mut StdLookupTx,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
         Diagnosed<Self, Option<String>>,
@@ -7323,7 +7323,7 @@ impl ModificationData {
 }
 
 impl CarrierData {
-    fn lookup(kws: &mut StdTransaction) -> Self {
+    fn lookup(kws: &mut StdLookupTx) -> Self {
         let l = Locationid::remove_root_opt_nofail(kws);
         let i = Carrierid::remove_root_opt_nofail(kws);
         let t = Carriertype::remove_root_opt_nofail(kws);
@@ -7339,7 +7339,7 @@ impl CarrierData {
 }
 
 impl PlateData {
-    fn lookup(kws: &mut StdTransaction) -> Self {
+    fn lookup(kws: &mut StdLookupTx) -> Self {
         let w = Wellid::remove_root_opt_nofail(kws);
         let n = Platename::remove_root_opt_nofail(kws);
         let i = Plateid::remove_root_opt_nofail(kws);

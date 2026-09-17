@@ -1,16 +1,18 @@
 use super::{
     masked::{
-        LookupEnumString, LookupStatus, LookupStatus_, LookupVariableString, MaskedString,
-        RepairStatus,
+        LookupEnumString, LookupOverride, LookupStatus, LookupStatus_, LookupVariableString,
+        MaskedString,
     },
     nested_string::{NestedEnumString, NestedStringSize, NestedVariableString},
 };
 use crate::{
     config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig},
+    data::ReadDelimAsciiError,
     logging::{LogResult, WarningAndErrorResult, WarningsAndErrorsResult},
     text::keywords::{Gate, Par},
     validated::keys::{
-        AnyKey, NonStdKey, NonStdKeywords, NonStdKeywordsExt, TruncatedNEString, ValueToStdKey,
+        AnyKey, NonStdKey, NonStdKeywords, NonStdKeywordsExt, PseudoStdKeywords, TruncatedNEString,
+        ValueToStdKey,
     },
 };
 
@@ -26,14 +28,14 @@ use fireflow_types::{
     nonempty::{NEStr, NEString, NEVec},
     std_key::{
         AnyIndex as _, CsvFlagKey, DfcKey, GateKey, GateKeyId, MeasKey, MeasKeyId, N_ROOT,
-        PseudoStdKey, RegionKey, RootKey, StdKey, ToStd,
+        PseudoStdKey, RealOrPseudoStdKey, RegionKey, RootKey, StdKey, ToStd,
     },
     sub_pattern::SubPattern,
 };
 
 use derive_more::{Display, From};
 use derive_new::new;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, hash_map::Entry};
 use itertools::Itertools as _;
 use strum::EnumCount as _;
 use thiserror::Error;
@@ -50,16 +52,12 @@ use {
     pyo3::prelude::*,
 };
 
-type LookupRoot<'a> = LookupEnumString<'a, N_ROOT, RootKey>;
-
 type OpticalOnlyResult = WarningsAndErrorsResult<
     Vec<(StdKey, NEString)>,
     (),
     TemporalHasOpticalKeyError,
     TemporalHasOpticalKeyError,
 >;
-
-pub type NestedRoot = NestedEnumString<N_ROOT, RootKey>;
 
 pub(crate) type DroppedStdKeywords = Vec<(StdKey, NEString)>;
 pub(crate) type DroppedPseudoStdKeywords = Vec<(PseudoStdKey, NEString)>;
@@ -158,12 +156,6 @@ pub struct RepairCollisionError(NEVec<AnyKey>);
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[allow(clippy::too_many_arguments)]
 pub struct RepairDiagnostics {
-    /// Standard keys which appear more than once with their values.
-    pub non_unique_std: Vec<(StdKey, TruncatedNEString)>,
-
-    /// Non-standard keys which appear more than once with their values.
-    pub non_unique_nonstd: Vec<(NonStdKey, TruncatedNEString)>,
-
     /// Standard keys which were demoted.
     pub demoted: Vec<StdKey>,
 
@@ -183,18 +175,49 @@ pub struct RepairDiagnostics {
     /// Standard keys which were renamed.
     ///
     /// First key in pair is the original.
-    pub renamed: Vec<(StdKey, StdKey)>,
+    pub renamed_std: Vec<(StdKey, StdKey)>,
+
+    /// Pseudostandard keys which were renamed.
+    ///
+    /// First key in pair is the original.
+    pub renamed_pseudo_std: Vec<(PseudoStdKey, StdKey)>,
+
+    /// Standard keys not renamed because they collided with an existing key.
+    pub renamed_std_non_unique: Vec<(StdKey, StdKey)>,
+
+    /// Pseudostandard keys not renamed because they collided with an existing key.
+    pub renamed_pseudo_std_non_unique: Vec<(PseudoStdKey, StdKey)>,
 
     /// Standard keys which were ignored.
     pub ignored: Vec<(StdKey, TruncatedNEString)>,
 
     /// Standard keys which were removed.
+    ///
+    /// This only happens when a substitution pattern returns a blank.
     pub removed: Vec<(StdKey, TruncatedNEString)>,
-    // TODO add promoted pseudostandard, for nonstd keywords that were promoted
-    // but are not really std
 
-    // /// Keys which start with `"$"` but are not part of the standard.
-    // pub pseudostandard: PseudoStdKeywords,
+    /// Non-standard keys which collided with a standard key when promoted.
+    ///
+    /// These keys were not moved.
+    pub promote_non_unique: Vec<StdKey>,
+
+    /// Non-standard keys which are promoted and also demoted as standard keys.
+    ///
+    /// These keys were not moved.
+    pub promote_demoted_noop: Vec<NonStdKey>,
+
+    /// Non-standard keys which are promoted and also ignored as standard keys.
+    ///
+    /// These keys were not moved.
+    pub promote_ignored_noop: Vec<NonStdKey>,
+
+    /// Non-standard keys which were promoted but are pseudostandard.
+    ///
+    /// These keys were not moved.
+    pub promote_pseudo_std: Vec<NonStdKey>,
+
+    /// Appended keys which collided with an existing standard key.
+    pub appended_non_unique: Vec<(StdKey, TruncatedNEString)>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -214,14 +237,19 @@ pub struct StdKeywords {
     dfc: NestedVariableString<DfcKey, usize>,
 }
 
-pub(crate) struct StdTransaction<'a> {
-    root: LookupRoot<'a>,
-    meas: LookupVariableString<'a, MeasKey, ()>,
-    gate: LookupVariableString<'a, GateKey, ()>,
-    region: LookupVariableString<'a, RegionKey, ()>,
-    csv_flag: LookupVariableString<'a, CsvFlagKey, ()>,
-    dfc: LookupVariableString<'a, DfcKey, usize>,
+pub(crate) struct StdTransaction<'a, M> {
+    root: MaskedString<'a, [usize; N_ROOT], (), RootKey, [M; N_ROOT], M>,
+    meas: MaskedString<'a, Vec<usize>, (), MeasKey, Vec<M>, M>,
+    gate: MaskedString<'a, Vec<usize>, (), GateKey, Vec<M>, M>,
+    region: MaskedString<'a, Vec<usize>, (), RegionKey, Vec<M>, M>,
+    csv_flag: MaskedString<'a, Vec<usize>, (), CsvFlagKey, Vec<M>, M>,
+    dfc: MaskedString<'a, Vec<usize>, usize, DfcKey, Vec<M>, M>,
 }
+
+pub(crate) type StdRepairTx<'a> = StdTransaction<'a, LookupOverride>;
+pub(crate) type StdLookupTx<'a> = StdTransaction<'a, LookupStatus>;
+
+type NestedRoot = NestedEnumString<N_ROOT, RootKey>;
 
 impl Default for StdKeywords {
     fn default() -> Self {
@@ -309,12 +337,12 @@ impl StdKeywords {
     #[must_use]
     pub fn get(&self, k: &StdKey) -> &str {
         match k {
-            StdKey::Root(rk) => self.root.get(rk),
-            StdKey::Meas(mk) => self.meas.get(mk),
-            StdKey::Gate(gk) => self.gate.get(gk),
-            StdKey::Region(rk) => self.region.get(rk),
-            StdKey::CsvFlag(ck) => self.csv_flag.get(ck),
-            StdKey::Dfc(dk) => self.dfc.get(dk),
+            StdKey::Root(rk) => self.root.get_unchecked(rk),
+            StdKey::Meas(mk) => self.meas.get_unchecked(mk),
+            StdKey::Gate(gk) => self.gate.get_unchecked(gk),
+            StdKey::Region(rk) => self.region.get_unchecked(rk),
+            StdKey::CsvFlag(ck) => self.csv_flag.get_unchecked(ck),
+            StdKey::Dfc(dk) => self.dfc.get_unchecked(dk),
         }
     }
 
@@ -345,8 +373,8 @@ impl StdKeywords {
         }
     }
 
-    pub(crate) fn into_transaction<'a>(&'a self) -> StdTransaction<'a> {
-        StdTransaction {
+    pub(crate) fn into_transaction<'a>(&'a self) -> StdLookupTx<'a> {
+        StdLookupTx {
             root: MaskedString::init_lookup_array(&self.root),
             meas: MaskedString::init_lookup_var(&self.meas),
             gate: MaskedString::init_lookup_var(&self.gate),
@@ -539,24 +567,183 @@ impl StdKeywords {
     }
 }
 
-impl<'a> StdTransaction<'a> {
+impl<'a> StdRepairTx<'a> {
     pub(crate) fn repair(
         &mut self,
+        pstd: &mut PseudoStdKeywords,
+        nonstd: &mut NonStdKeywords,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningAndErrorResult<RepairDiagnostics, (), RepairCollisionError, RepairCollisionError>
     {
-        unimplemented!()
-        // let matchers = AllKeyMatchers::from_config(conf);
-        // let mut ignored = vec![];
-        // let mut non_unique_std = vec![];
-        // let mut non_unique_nonstd = vec![];
-        // let mut removed = vec![];
-        // let mut replaced = vec![];
-        // let mut renamed = vec![];
-        // let mut subbed = vec![];
-        // let mut demoted = vec![];
-        // let mut promoted = vec![];
+        // Operation order:
+        // 1. drop/demote
+        // 2. promote
+        // 3. sub/replace
+        // 4. rename
+        // 5. append
 
+        let matchers = AllKeyMatchers::from_config(conf);
+
+        // drop and demote
+
+        let mut demoted = vec![];
+        let mut ignored = vec![];
+        let mut demote_ignore = vec![];
+
+        for (k, v, m) in self.iter_ne_masked_mut() {
+            let ks = k.as_keystring();
+            let demote_match = matchers.demote.is_match(&ks);
+            let ignore_match = matchers.ignore.is_match(&ks);
+            if demote_match {
+                if ignore_match {
+                    demote_ignore.push(k);
+                }
+                *m = LookupOverride::Delete;
+                demoted.push(k);
+            } else if ignore_match {
+                *m = LookupOverride::Delete;
+                ignored.push((k, TruncatedNEString(v.to_owned())));
+            }
+        }
+
+        // promote
+
+        let mut promote_demoted_noop = vec![];
+        let mut promote_ignored_noop = vec![];
+        let mut promote_non_unique = vec![];
+        let mut promote_pseudo_std = vec![];
+        let mut promoted = vec![];
+
+        nonstd.retain(|k, v| {
+            let ks = k.as_ref();
+            if matchers.promote.is_match(ks) {
+                if matchers.demote.is_match(ks) {
+                    // Key is promoted but also demoted. These cancel so do
+                    // nothing and warn user.
+                    promote_demoted_noop.push(k.to_owned());
+                    true
+                } else if matchers.ignore.is_match(ks) {
+                    // Key is promoted but also ignored. This is probably a
+                    // mistake, so do nothing and warn user.
+                    promote_ignored_noop.push(k.to_owned());
+                    true
+                } else {
+                    if let Ok(sk) = ks.as_str().parse::<StdKey>() {
+                        // Key is promoted and std. Try to insert and take out
+                        // of nonstd list if successful.
+                        if self.insert(&sk, v.to_owned()).is_some() {
+                            promote_non_unique.push(sk);
+                            true
+                        } else {
+                            promoted.push(k.to_owned());
+                            false
+                        }
+                    } else {
+                        // Key is promoted but is pseudostandard. This is likely
+                        // a mistake so do nothing and warn user.
+                        promote_pseudo_std.push(k.to_owned());
+                        true
+                    }
+                }
+            } else {
+                // Key is not promoted, do nothing.
+                true
+            }
+        });
+
+        // replace/sub
+
+        let replace = &conf.replace_standard_key_values;
+        let mut removed = vec![];
+        let mut subbed = vec![];
+        let mut replaced = vec![];
+
+        for (k, v, m) in self.iter_ne_masked_mut() {
+            let ks = k.as_keystring();
+            if let Some(subpat) = matchers.subs.get(&ks) {
+                if let Ok(vf) = NEString::try_from(subpat.sub(v.as_str())) {
+                    subbed.push((k, TruncatedNEString(v.to_owned())));
+                    *m = LookupOverride::Insert(vf);
+                } else {
+                    removed.push((k, TruncatedNEString(v.to_owned())));
+                    *m = LookupOverride::Delete;
+                }
+            } else if let Some(r) = replace.get(&k) {
+                replaced.push((k, TruncatedNEString(v.to_owned())));
+                *m = LookupOverride::Insert(r.to_owned());
+            }
+        }
+
+        // rename
+
+        let (std_rename, pstd_rename) = conf.rename_standard_keys.clone().split();
+
+        let mut renamed_pseudo_std_non_unique = vec![];
+        let mut renamed_std_non_unique = vec![];
+        let mut not_renamed = vec![];
+        let mut renamed_pseudo_std = vec![];
+        let mut renamed_std = vec![];
+
+        for (k0, k1) in HashMap::from(pstd_rename) {
+            match pstd.entry(k0) {
+                Entry::Occupied(e) => {
+                    let k0_ = e.key().to_owned();
+                    if self.insert(&k1, e.remove()).is_some() {
+                        renamed_pseudo_std_non_unique.push((k0_, k1));
+                    } else {
+                        renamed_pseudo_std.push((k0_, k1));
+                    }
+                }
+                Entry::Vacant(e) => {
+                    not_renamed.push((RealOrPseudoStdKey::Pseudo(e.key().to_owned()), k1))
+                }
+            }
+        }
+
+        for (k0, k1) in HashMap::from(std_rename) {
+            if self.key_has_value(&k1) {
+                renamed_std_non_unique.push((k0, k1));
+            } else if let Some(v) = self.delete(&k0) {
+                renamed_std.push((k0, k1));
+                let vf = v.to_owned();
+                // we checked above so this shouldn't return anything
+                let _ = self.insert(&k1, vf);
+            } else {
+                not_renamed.push((RealOrPseudoStdKey::Real(k0), k1));
+            }
+        }
+
+        // append
+
+        let mut appended_non_unique = vec![];
+
+        for (k, v) in conf.append_standard_keywords.iter() {
+            if let Some(v) = self.insert(&k, v.to_owned()) {
+                appended_non_unique.push((*k, TruncatedNEString(v)));
+            }
+        }
+
+        // finalize
+
+        let ret = RepairDiagnostics {
+            demoted,
+            promoted,
+            subbed,
+            replaced,
+            renamed_std,
+            renamed_pseudo_std,
+            renamed_std_non_unique,
+            renamed_pseudo_std_non_unique,
+            ignored,
+            removed,
+            promote_demoted_noop,
+            promote_ignored_noop,
+            promote_non_unique,
+            promote_pseudo_std,
+            appended_non_unique,
+        };
+
+        LogResult::new_ok(ret)
         // // Update standard keys
         // self.std = mem::take(&mut self.std)
         //     .into_iter()
@@ -679,20 +866,68 @@ impl<'a> StdTransaction<'a> {
         //     None => LogResult::new_ok(()),
         // };
 
-        // let ret = RepairDiagnostics {
-        //     non_unique_std,
-        //     non_unique_nonstd,
-        //     demoted,
-        //     promoted,
-        //     subbed,
-        //     replaced,
-        //     renamed,
-        //     ignored,
-        //     removed,
-        // };
         // res.set_ok_value(ret)
     }
 
+    fn delete(&mut self, k: &StdKey) -> Option<&NEStr> {
+        match k {
+            StdKey::Root(rk) => self.root.delete(rk),
+            StdKey::Meas(mk) => self.meas.delete(mk),
+            StdKey::Gate(gk) => self.gate.delete(gk),
+            StdKey::Region(rk) => self.region.delete(rk),
+            StdKey::CsvFlag(ck) => self.csv_flag.delete(ck),
+            StdKey::Dfc(dk) => self.dfc.delete(dk),
+        }
+    }
+
+    fn insert(&mut self, k: &StdKey, v: NEString) -> Option<NEString> {
+        match k {
+            StdKey::Root(rk) => self.root.insert(rk, v),
+            StdKey::Meas(mk) => self.meas.insert(mk, v),
+            StdKey::Gate(gk) => self.gate.insert(gk, v),
+            StdKey::Region(rk) => self.region.insert(rk, v),
+            StdKey::CsvFlag(ck) => self.csv_flag.insert(ck, v),
+            StdKey::Dfc(dk) => self.dfc.insert(dk, v),
+        }
+    }
+
+    fn key_has_value(&self, k: &StdKey) -> bool {
+        match k {
+            StdKey::Root(rk) => self.root.key_has_value(rk),
+            StdKey::Meas(mk) => self.meas.key_has_value(mk),
+            StdKey::Gate(gk) => self.gate.key_has_value(gk),
+            StdKey::Region(rk) => self.region.key_has_value(rk),
+            StdKey::CsvFlag(ck) => self.csv_flag.key_has_value(ck),
+            StdKey::Dfc(dk) => self.dfc.key_has_value(dk),
+        }
+    }
+
+    fn iter_ne_masked_mut<'b>(
+        &'b mut self,
+    ) -> impl Iterator<Item = (StdKey, &NEStr, &mut LookupOverride)> {
+        self.root
+            .iter_ne_masked_mut()
+            .chain(self.meas.iter_ne_masked_mut())
+            .chain(self.gate.iter_ne_masked_mut())
+            .chain(self.region.iter_ne_masked_mut())
+            .chain(self.csv_flag.iter_ne_masked_mut())
+            .chain(self.dfc.iter_ne_masked_mut())
+    }
+
+    fn iter_masked_mut<'b>(
+        &'b mut self,
+    ) -> impl Iterator<Item = (StdKey, &str, &mut LookupOverride)> {
+        self.root
+            .iter_masked_mut()
+            .chain(self.meas.iter_masked_mut())
+            .chain(self.gate.iter_masked_mut())
+            .chain(self.region.iter_masked_mut())
+            .chain(self.csv_flag.iter_masked_mut())
+            .chain(self.dfc.iter_masked_mut())
+    }
+}
+
+impl<'a> StdLookupTx<'a> {
     pub(crate) fn finalize(
         &self,
         par: Par,
@@ -926,16 +1161,6 @@ impl<'a> StdTransaction<'a> {
         // res
     }
 
-    pub fn iter_keywords(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {
-        self.root
-            .iter_std()
-            .chain(self.meas.iter_std())
-            .chain(self.gate.iter_std())
-            .chain(self.region.iter_std())
-            .chain(self.csv_flag.iter_std())
-            .chain(self.dfc.iter_std())
-    }
-
     pub(crate) fn read<K: ValueToStdKey>(&self, i: &K::Index) -> Option<&NEStr> {
         self.get_unseen(&K::std(i))
     }
@@ -972,28 +1197,6 @@ impl<'a> StdTransaction<'a> {
         }
     }
 
-    // pub(crate) fn demote_key(&mut self, k: &StdKey) {
-    //     match k {
-    //         StdKey::Root(rk) => self.root.demote_unseen(rk),
-    //         StdKey::Meas(mk) => self.meas.demote_unseen(mk),
-    //         StdKey::Gate(gk) => self.gate.demote_unseen(gk),
-    //         StdKey::Region(rk) => self.region.demote_unseen(rk),
-    //         StdKey::CsvFlag(ck) => self.csv_flag.demote_unseen(ck),
-    //         StdKey::Dfc(dk) => self.dfc.demote_unseen(dk),
-    //     }
-    // }
-
-    // pub(crate) fn drop_key(&mut self, k: &StdKey) {
-    //     match k {
-    //         StdKey::Root(rk) => self.root.drop_unseen(rk),
-    //         StdKey::Meas(mk) => self.meas.drop_unseen(mk),
-    //         StdKey::Gate(gk) => self.gate.drop_unseen(gk),
-    //         StdKey::Region(rk) => self.region.drop_unseen(rk),
-    //         StdKey::CsvFlag(ck) => self.csv_flag.drop_unseen(ck),
-    //         StdKey::Dfc(dk) => self.dfc.drop_unseen(dk),
-    //     }
-    // }
-
     fn get_unseen(&self, k: &StdKey) -> Option<&NEStr> {
         match k {
             StdKey::Root(rk) => self.root.get_unseen(rk),
@@ -1029,50 +1232,18 @@ impl<'a> StdTransaction<'a> {
             StdKey::Dfc(dk) => self.dfc.parse_unseen(dk, f),
         }
     }
+}
 
-    // fn get_value(&self, k: &StdKey) -> &str {
-    //     match k {
-    //         StdKey::Root(rk) => self.root.get_value(rk, &()),
-    //         StdKey::Meas(mk) => self.meas.get_value(mk, &()),
-    //         StdKey::Gate(gk) => self.gate.get_value(gk, &()),
-    //         StdKey::Region(rk) => self.region.get_value(rk, &()),
-    //         StdKey::CsvFlag(ck) => self.csv_flag.get_value(ck, &()),
-    //         StdKey::Dfc(dk) => self.dfc.get_value(dk, &self.dfc_matrix_size),
-    //     }
-    // }
-
-    // fn get_mask(&self, k: &StdKey) -> &Status {
-    //     match k {
-    //         StdKey::Root(rk) => self.root.get_mask(rk, &()),
-    //         StdKey::Meas(mk) => self.meas.get_mask(mk, &()),
-    //         StdKey::Gate(gk) => self.gate.get_mask(gk, &()),
-    //         StdKey::Region(rk) => self.region.get_mask(rk, &()),
-    //         StdKey::CsvFlag(ck) => self.csv_flag.get_mask(ck, &()),
-    //         StdKey::Dfc(dk) => self.dfc.get_mask(dk, &self.dfc_matrix_size),
-    //     }
-    // }
-
-    // fn get_value_and_mask(&self, k: &StdKey) -> (&str, &Status) {
-    //     match k {
-    //         StdKey::Root(rk) => self.root.get_value_and_mask(rk),
-    //         StdKey::Meas(mk) => self.meas.get_value_and_mask(mk),
-    //         StdKey::Gate(gk) => self.gate.get_value_and_mask(gk),
-    //         StdKey::Region(rk) => self.region.get_value_and_mask(rk),
-    //         StdKey::CsvFlag(ck) => self.csv_flag.get_value_and_mask(ck),
-    //         StdKey::Dfc(dk) => self.dfc.get_value_and_mask(dk),
-    //     }
-    // }
-
-    // fn set_mask(&mut self, k: &StdKey, m: Status) {
-    //     match k {
-    //         StdKey::Root(rk) => self.root.set_mask(rk, m),
-    //         StdKey::Meas(mk) => self.meas.set_mask(mk, m),
-    //         StdKey::Gate(gk) => self.gate.set_mask(gk, m),
-    //         StdKey::Region(rk) => self.region.set_mask(rk, m),
-    //         StdKey::CsvFlag(ck) => self.csv_flag.set_mask(ck, m),
-    //         StdKey::Dfc(dk) => self.dfc.set_mask(dk, m),
-    //     }
-    // }
+impl<'a, M> StdTransaction<'a, M> {
+    pub fn iter_keywords(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {
+        self.root
+            .iter_std()
+            .chain(self.meas.iter_std())
+            .chain(self.gate.iter_std())
+            .chain(self.region.iter_std())
+            .chain(self.csv_flag.iter_std())
+            .chain(self.dfc.iter_std())
+    }
 }
 
 // TODO this is a function I stole from nightly. It seems to work and the reason

@@ -1,5 +1,8 @@
 use super::{
-    masked::{LookupEnumString, LookupStatus, LookupVariableString, MaskedString, RepairStatus},
+    masked::{
+        LookupEnumString, LookupStatus, LookupStatus_, LookupVariableString, MaskedString,
+        RepairStatus,
+    },
     nested_string::{NestedEnumString, NestedStringSize, NestedVariableString},
 };
 use crate::{
@@ -709,7 +712,7 @@ impl<'a> StdTransaction<'a> {
 
         for (k, v, m) in self.root.iter_masked() {
             match m {
-                LookupStatus::Unseen => {
+                LookupStatus_::Unseen => {
                     let vo = v.to_owned();
                     if matches!(k, RootKey::Timestep) && version > Version::FCS2_0 {
                         if conf.process_extra_timestep.is_demote() {
@@ -721,7 +724,7 @@ impl<'a> StdTransaction<'a> {
                         other_version.push((k.into(), vo));
                     }
                 }
-                LookupStatus::Seen(a) => match a {
+                LookupStatus_::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
                     LookupAction::Drop => optional.push((k.into(), v.to_owned())),
@@ -733,8 +736,8 @@ impl<'a> StdTransaction<'a> {
 
         for (k, v, m) in meas_it.by_ref().take(n_meas) {
             match m {
-                LookupStatus::Unseen => other_version.push((k.into(), v.to_owned())),
-                LookupStatus::Seen(a) => match a {
+                LookupStatus_::Unseen => other_version.push((k.into(), v.to_owned())),
+                LookupStatus_::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
                     LookupAction::Drop => optional.push((k.into(), v.to_owned())),
@@ -754,8 +757,8 @@ impl<'a> StdTransaction<'a> {
 
         for (k, v, m) in gate_it.by_ref().take(n_gate) {
             match m {
-                LookupStatus::Unseen => other_version.push((k.into(), v.to_owned())),
-                LookupStatus::Seen(a) => match a {
+                LookupStatus_::Unseen => other_version.push((k.into(), v.to_owned())),
+                LookupStatus_::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
                     LookupAction::Drop => optional.push((k.into(), v.to_owned())),
@@ -775,8 +778,8 @@ impl<'a> StdTransaction<'a> {
         // they are hardly used anyways and doing so would be complex
         for (k, v, m) in self.region.iter_masked() {
             match m {
-                LookupStatus::Unseen => other_version.push((k.into(), v.to_owned())),
-                LookupStatus::Seen(a) => match a {
+                LookupStatus_::Unseen => other_version.push((k.into(), v.to_owned())),
+                LookupStatus_::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
                     LookupAction::Drop => optional.push((k.into(), v.to_owned())),
@@ -785,10 +788,10 @@ impl<'a> StdTransaction<'a> {
         }
 
         // TODO ditto $CSMODE
-        for (k, v, _) in self.csv_flag.iter_masked() {
-            match self.csv_flag.get_mask(&k) {
-                LookupStatus::Unseen => other_version.push((k.into(), v.to_owned())),
-                LookupStatus::Seen(a) => match a {
+        for (k, v, m) in self.csv_flag.iter_masked() {
+            match m {
+                LookupStatus_::Unseen => other_version.push((k.into(), v.to_owned())),
+                LookupStatus_::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
                     LookupAction::Drop => optional.push((k.into(), v.to_owned())),
@@ -796,11 +799,11 @@ impl<'a> StdTransaction<'a> {
             }
         }
 
-        for (k, v, _) in self.dfc.iter_masked() {
+        for (k, v, m) in self.dfc.iter_masked() {
             let is_hyper_par = usize::from(k.index.i0) > usize::from(par)
                 || usize::from(k.index.i1) > usize::from(par);
-            match self.dfc.get_mask(&k) {
-                LookupStatus::Unseen => {
+            match m {
+                LookupStatus_::Unseen => {
                     if is_hyper_par {
                         if conf.process_hyper_par.is_demote() {
                             nonstd.insert_demoted(k.into(), v.to_owned());
@@ -811,7 +814,7 @@ impl<'a> StdTransaction<'a> {
                         other_version.push((k.into(), v.to_owned()));
                     }
                 }
-                LookupStatus::Seen(a) => match a {
+                LookupStatus_::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
                     LookupAction::Drop => optional.push((k.into(), v.to_owned())),

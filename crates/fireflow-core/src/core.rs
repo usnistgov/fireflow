@@ -59,8 +59,8 @@ use crate::segment::read::{
 };
 use crate::segment::read::{PrimaryTextOffsets, SupplementalTextOffsets};
 use crate::std_index::index::{
-    DroppedStdKeywords, ExtraStdKeywordError, ExtraStdKeywords, RepairCollisionError,
-    RepairDiagnostics, StdKeywords, StdLookupTx,
+    DroppedStdKeywords, ExtraStdKeywordError, ExtraStdKeywords, RepairDiagnostics, RepairError,
+    StdKeywords, StdLookupTx,
 };
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, DatetimesDiagnostics, EndDateTime, LookupDatetimesError,
@@ -1370,7 +1370,7 @@ pub enum StdTEXTFromKeywordsError {
 pub enum StdTEXTFromFlatTEXTError {
     Inner(StdTEXTFromFlatTEXTErrorInner),
     Version(GuessVersionError),
-    Repair(RepairCollisionError),
+    Repair(RepairError),
 }
 
 /// Error (inner) when reading standardized TEXT from keyword pairs
@@ -1389,7 +1389,7 @@ pub enum StdTEXTFromFlatTEXTErrorInner {
     // HyperPar(HyperParError),
     // HyperGate(HyperGateError),
     // OtherVersion(KeywordOtherVersionError),
-    Repair(RepairCollisionError),
+    Repair(RepairError),
     AppendRepair(AppendRepairFlagError),
 }
 
@@ -1409,7 +1409,7 @@ pub enum StdTEXTFromFlatTEXTWarning {
     // HyperPar(HyperParError),
     // HyperGate(HyperGateError),
     // OtherVersion(KeywordOtherVersionError),
-    Repair(RepairCollisionError),
+    Repair(RepairError),
 }
 
 /// Error when reading any version of standardized DATA from keyword pairs.
@@ -1485,7 +1485,7 @@ pub enum LookupAndReadDataAnalysisError {
     Dataframe(ReadCheckedDataframeError),
     Warn(LookupAndReadDataAnalysisWarning),
     CRC(CRCError),
-    Repair(RepairCollisionError),
+    Repair(RepairError),
     RepairAppend(AppendRepairFlagError),
 }
 
@@ -1497,7 +1497,7 @@ pub enum LookupAndReadDataAnalysisWarning {
     DataSchema(LookupDataSchemaWarning),
     Data(ReadCheckedDataframeWarning),
     CRC(CRCError),
-    Repair(RepairCollisionError),
+    Repair(RepairError),
 }
 
 /// Error when looking up offsets for parsing DATA
@@ -2111,6 +2111,7 @@ impl_version_set!(Version3_2, InnerRootMeta3_2, TEXTOffsets3_2);
 #[allow(clippy::too_many_arguments)]
 #[derive(new)]
 pub(crate) struct LookupFlatDatasetOutput {
+    pub(crate) kws: ValidKeywords,
     pub(crate) df: PrimitiveDataFrame,
     pub(crate) analysis: Analysis,
     pub(crate) others: Others,
@@ -2132,7 +2133,7 @@ pub(crate) struct LookupFlatDatasetTimings {
 pub(crate) trait PrivVersionSet: VersionSet {
     fn h_lookup_and_read<C, R>(
         h: &mut BufReader<R>,
-        kws: ValidKeywords,
+        mut kws: ValidKeywords,
         hns: &mut HeaderAndSuppOffsets,
         start_time: Instant,
         st: &TEXTReadState<C>,
@@ -2172,26 +2173,27 @@ pub(crate) trait PrivVersionSet: VersionSet {
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|lst| {
                 // Repair the keyword list before doing anything.
-                let mut tx = kws.std.into_transaction();
-                let repair_res = tx
-                    .repair(&lst.conf().data_kws)
+                let mut rtx = kws.std.into_transaction();
+                let repair_res = rtx
+                    .repair(&mut kws.pstd, &mut kws.nonstd, &lst.conf().data_kws)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_errors(LookupAndReadDataAnalysisError::from)
                     .into_semigroup();
+                let ltx = rtx.into_lookup_transaction();
 
                 // TODO which order should these be in? it matter for benchmark
                 // timing, since now offset lookup is considered part of data
                 // schema lookup, but if this were flipped with the next
                 // expression it would be counted as part of DATA read
-                let offset_res = Self::Offsets::lookup_ro(&tx, hns, &lst)
+                let offset_res = Self::Offsets::lookup_ro(&ltx, hns, &lst)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_errors(LookupAndReadDataAnalysisError::from);
 
-                let layout_res = Par::get_metaroot_req(&tx)
+                let layout_res = Par::get_metaroot_req(&ltx)
                     .map_err(LookupAndReadDataAnalysisError::from)
                     .into_log()
                     .and_then_commutative(|par| {
-                        Self::DataSchema::lookup_ro(&tx, par, start_time, lst.conf().as_ref())
+                        Self::DataSchema::lookup_ro(&ltx, par, start_time, lst.conf().as_ref())
                             .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                             .map_errors(LookupAndReadDataAnalysisError::from)
                     });
@@ -2223,6 +2225,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
                                     read_other_anal_end,
                                 );
                                 let ret = LookupFlatDatasetOutput::new(
+                                    kws,
                                     df_out.inner.into(),
                                     analysis,
                                     others,
@@ -5737,7 +5740,7 @@ where
 impl<V: VersionSet> VersionedCoreTEXT<V> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn new_from_keywords_with_offsets<C>(
-        kws: ValidKeywords,
+        mut kws: ValidKeywords,
         offsets: &mut HeaderAndSuppOffsets,
         start_time: Instant,
         st: &TEXTReadState<C>,
@@ -5758,22 +5761,23 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             + AsRef<ReadOffsetConfig>,
     {
         // Repair the keyword list before doing anything.
-        let mut tx = kws.std.into_transaction();
-        let repair_res = tx
-            .repair(st.conf().as_ref())
+        let mut rtx = kws.std.into_transaction();
+        let repair_res = rtx
+            .repair(&mut kws.pstd, &mut kws.nonstd, st.conf().as_ref())
             .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
             .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
             .into_semigroup();
+        let mut ltx = rtx.into_lookup_transaction();
 
         // Lookup DATA/ANALYSIS offsets and $TOT; these are not stored in the
         // Core struct but they will be needed later for parsing DATA and
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
-        let offsets_res = V::Offsets::lookup(&mut tx, offsets, st)
+        let offsets_res = V::Offsets::lookup(&mut ltx, offsets, st)
             .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
             .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
 
-        Self::lookup_inner(tx, kws.nonstd, start_time, st.conf())
+        Self::lookup_inner(ltx, kws.nonstd, start_time, st.conf())
             .zip3_commutative(offsets_res, repair_res)
             .map_ok_value(|(core, core_offsets, repair_diag)| {
                 LookupCoreWithOffsetOutput::new(core, core_offsets, repair_diag)

@@ -13,82 +13,21 @@ use fireflow_types::{
 use std::{
     array::from_fn,
     marker::PhantomData,
-    mem,
     ops::{Index, IndexMut},
 };
 
 use super::index::LookupAction;
 
-pub type RepairEnumString<'a, const LEN: usize, K> =
-    MaskedString<'a, [usize; LEN], (), K, [LookupOverride; LEN], LookupOverride>;
+pub type MaskedEnumString<'a, const LEN: usize, K, M> =
+    MaskedString<'a, [usize; LEN], (), K, [M; LEN], M>;
 
-pub type RepairVariableString<'a, K, S> =
-    MaskedString<'a, Vec<usize>, S, K, Vec<LookupOverride>, LookupOverride>;
-
-pub type LookupEnumString<'a, const LEN: usize, K> =
-    MaskedString<'a, [usize; LEN], (), K, [LookupStatus; LEN], LookupStatus>;
-
-pub type LookupVariableString<'a, K, S> =
-    MaskedString<'a, Vec<usize>, S, K, Vec<LookupStatus>, LookupStatus>;
+pub type MaskedVariableString<'a, K, S, M> = MaskedString<'a, Vec<usize>, S, K, Vec<M>, M>;
 
 #[derive(new)]
 pub(crate) struct MaskedString<'a, I, S, K, C, M> {
     inner: &'a NestedString<I, S, K>,
     mask: C,
     _mask_element: PhantomData<M>,
-}
-
-// pub(crate) enum RepairStatusRef<'a, 'b> {
-//     Empty(&'a mut EmptyStatus),
-//     NonEmpty(&'a mut NonEmptyStatus, &'b NEStr),
-// }
-
-pub(crate) enum RepairStatus {
-    Empty(EmptyStatus),
-    NonEmpty(NonEmptyStatus),
-}
-
-pub(crate) enum EmptyStatus {
-    EmptyValue,
-    Delete(Delete),
-}
-
-pub(crate) enum NonEmptyStatus {
-    Update(Update),
-    Insert(Insert),
-}
-
-#[derive(Default)]
-pub(crate) struct Update {
-    promote: Option<DeleteAndPromote>,
-    edit: Option<Edit>,
-}
-
-pub(crate) enum Insert {
-    Explicit(NEString),
-    Move(InsertAndEdit),
-    Promote(InsertAndEdit),
-}
-
-pub(crate) struct InsertAndEdit {
-    src: NEString,
-    edit: Option<Edit>,
-}
-
-pub(crate) struct DeleteAndPromote {
-    nonstd_val: NEString,
-    deletion: Delete,
-}
-
-pub(crate) enum Edit {
-    Replace(NEString, bool),
-    Remove,
-}
-
-pub(crate) enum Delete {
-    Drop,
-    Demote,
-    Move,
 }
 
 #[derive(new, Clone, Default)]
@@ -110,16 +49,8 @@ pub(crate) enum LookupStatus_ {
     Seen(LookupAction),
 }
 
-impl<'a, const LEN: usize, K> RepairEnumString<'a, LEN, K> {
-    pub(crate) fn init_repair_array(inner: &'a NestedEnumString<LEN, K>) -> Self
-    where
-        K: AnyIndex<SubDimension = ()>,
-    {
-        let mask = from_fn(|_| LookupOverride::default());
-        Self::new(inner, mask)
-    }
-
-    pub(crate) fn into_lookup_array(self) -> LookupEnumString<'a, LEN, K> {
+impl<'a, const LEN: usize, K> MaskedEnumString<'a, LEN, K, LookupOverride> {
+    pub(crate) fn into_lookup_array(self) -> MaskedEnumString<'a, LEN, K, LookupStatus> {
         let mask = self
             .mask
             .map(|s| LookupStatus::new(s, LookupStatus_::default()));
@@ -127,23 +58,8 @@ impl<'a, const LEN: usize, K> RepairEnumString<'a, LEN, K> {
     }
 }
 
-impl<'a, K, S> RepairVariableString<'a, K, S> {
-    pub(crate) fn init_repair_var(inner: &'a NestedVariableString<K, S>) -> Self
-    where
-        K: AnyIndex<SubDimension = S>,
-    {
-        let n = inner.n_strings();
-        let mut mask = Vec::with_capacity(n);
-        mask.resize_with(n, || LookupOverride::default());
-        // for (k, v) in inner.iter() {
-        //     if !v.is_empty() {
-        //         mask[k.offset(inner.sub_dimension())] = RepairStatus::non_empty();
-        //     }
-        // }
-        Self::new(inner, mask)
-    }
-
-    pub(crate) fn into_lookup_var(self) -> LookupVariableString<'a, K, S> {
+impl<'a, K, S> MaskedVariableString<'a, K, S, LookupOverride> {
+    pub(crate) fn into_lookup_var(self) -> MaskedVariableString<'a, K, S, LookupStatus> {
         let mask = self
             .mask
             .into_iter()
@@ -153,19 +69,21 @@ impl<'a, K, S> RepairVariableString<'a, K, S> {
     }
 }
 
-impl<'a, const LEN: usize, K> LookupEnumString<'a, LEN, K> {
-    pub fn init_lookup_array(inner: &'a NestedEnumString<LEN, K>) -> Self {
-        let mask = from_fn(|_| LookupStatus::default());
+impl<'a, const LEN: usize, K, M: Default> MaskedEnumString<'a, LEN, K, M> {
+    pub fn init_array(inner: &'a NestedEnumString<LEN, K>) -> Self {
+        let mask = from_fn(|_| M::default());
         Self::new(inner, mask)
     }
 }
 
-impl<'a, K, S> LookupVariableString<'a, K, S> {
-    pub fn init_lookup_var(inner: &'a NestedVariableString<K, S>) -> Self {
+impl<'a, K, S, M: Default> MaskedVariableString<'a, K, S, M> {
+    pub fn init_var(inner: &'a NestedVariableString<K, S>) -> Self {
         let n = inner.n_strings();
+        let mut mask = Vec::with_capacity(n);
+        mask.resize_with(n, || M::default());
         Self {
             inner,
-            mask: vec![LookupStatus::default(); n],
+            mask,
             _mask_element: PhantomData,
         }
     }
@@ -465,128 +383,6 @@ impl<'a, I, S, K, C, M> MaskedString<'a, I, S, K, C, M> {
         K: AnyIndex<SubDimension = S>,
     {
         self.inner.occupied(k)
-    }
-}
-
-impl RepairStatus {
-    pub(crate) fn non_empty() -> Self {
-        Self::NonEmpty(NonEmptyStatus::Update(Update::default()))
-    }
-
-    pub(crate) fn finalize(self) -> LookupStatus {
-        match self {
-            Self::Empty(x) => x.finalize(),
-            Self::NonEmpty(x) => x.finalize(),
-        }
-    }
-}
-
-impl Default for RepairStatus {
-    fn default() -> Self {
-        Self::Empty(EmptyStatus::EmptyValue)
-    }
-}
-
-impl EmptyStatus {
-    fn finalize(self) -> LookupStatus {
-        match self {
-            Self::EmptyValue => LookupStatus::default(),
-            Self::Delete(_) => LookupStatus::new_delete(),
-        }
-    }
-}
-
-impl NonEmptyStatus {
-    fn value<'b, 'c: 'b>(&'b self, stored: &'c str) -> Option<&'b NEStr> {
-        match self {
-            Self::Update(u) => {
-                if let Some(e) = u.edit.as_ref() {
-                    e.value()
-                } else if let Some(p) = u.promote.as_ref() {
-                    Some(p.nonstd_val.as_ne_str())
-                } else {
-                    Some(NEStr::try_new(stored).expect("stored value should not be empty"))
-                }
-            }
-            Self::Insert(i) => i.value(),
-        }
-    }
-
-    pub(crate) fn finalize(self) -> LookupStatus {
-        match self {
-            Self::Update(x) => x.finalize(),
-            Self::Insert(x) => x.finalize(),
-        }
-    }
-}
-
-impl Update {
-    pub(crate) fn finalize(self) -> LookupStatus {
-        if let Some(edit) = self.edit {
-            edit.finalize()
-        } else if let Some(promote) = self.promote {
-            promote.finalize()
-        } else {
-            LookupStatus::default()
-        }
-    }
-}
-
-impl Insert {
-    fn value(&self) -> Option<&NEStr> {
-        match self {
-            Self::Explicit(e) => Some(e.as_ne_str()),
-            Self::Move(m) => m.value(),
-            Self::Promote(p) => p.value(),
-        }
-    }
-
-    fn finalize(self) -> LookupStatus {
-        match self {
-            Self::Explicit(ne) => LookupStatus::new_insert(ne),
-            Self::Move(m) => m.finalize(),
-            Self::Promote(p) => p.finalize(),
-        }
-    }
-}
-
-impl InsertAndEdit {
-    fn value(&self) -> Option<&NEStr> {
-        if let Some(e) = self.edit.as_ref() {
-            e.value()
-        } else {
-            Some(self.src.as_ne_str())
-        }
-    }
-
-    fn finalize(self) -> LookupStatus {
-        if let Some(edit) = self.edit {
-            edit.finalize()
-        } else {
-            LookupStatus::new_insert(self.src)
-        }
-    }
-}
-
-impl Edit {
-    fn value(&self) -> Option<&NEStr> {
-        match self {
-            Self::Replace(ne, _) => Some(ne.as_ne_str()),
-            Self::Remove => None,
-        }
-    }
-
-    pub(crate) fn finalize(self) -> LookupStatus {
-        match self {
-            Self::Replace(ne, _) => LookupStatus::new_insert(ne),
-            Self::Remove => LookupStatus::new_delete(),
-        }
-    }
-}
-
-impl DeleteAndPromote {
-    pub(crate) fn finalize(self) -> LookupStatus {
-        LookupStatus::new_insert(self.nonstd_val)
     }
 }
 

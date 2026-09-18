@@ -200,6 +200,8 @@ pub fn fcs_read_std_dataset(
     fr.read_std_dataset(dataset_offset, scan_next_dataset, start_time, conf)
 }
 
+// TODO this function only needs to take the standard keyword list and doesn't
+// need repair flags
 /// Read DATA/ANALYSIS in FCS file using provided keywords.
 #[must_use]
 #[allow(clippy::too_many_arguments)]
@@ -239,7 +241,9 @@ pub fn fcs_read_flat_dataset_with_keywords(
                 &txt_st,
             )
         })
-        .map_ok_value(|dataset| NewFlatDatasetFromKwsOutput::new(dataset, hns.header.final_offsets))
+        .map_ok_value(|(dataset, _)| {
+            NewFlatDatasetFromKwsOutput::new(dataset, hns.header.final_offsets)
+        })
         .warnings_to_pure_errors(&conf.shared, LookupAndReadDataAnalysisError::from)
         .deanonymize()
 }
@@ -1360,7 +1364,7 @@ impl FCSFileReader {
             .and_then_commutative(|(new_ver, out, scores)| {
                 let mut flat = out.this;
                 let hns = &mut flat.flat_diagnostics.header_supp;
-                let mut kws = flat.keywords;
+                let kws = flat.keywords;
                 FlatDatasetFromKwsOutput::h_read_with_header_and_text(
                     &mut self.buf_read,
                     new_ver,
@@ -1370,8 +1374,8 @@ impl FCSFileReader {
                     out.read_end,
                     &out.state,
                 )
-                .map_ok_value(|dataset| {
-                    FlatDatasetOutput::new(kws, flat.flat_diagnostics, dataset, scores)
+                .map_ok_value(|(dataset, kws_)| {
+                    FlatDatasetOutput::new(kws_, flat.flat_diagnostics, dataset, scores)
                 })
                 .map_commutative_warnings(FlatDatasetWarning::from)
                 .map_pure_errors(FlatDatasetError::from)
@@ -1811,13 +1815,13 @@ impl FlatDatasetFromKwsOutput {
     fn h_read_with_header_and_text<C, R>(
         h: &mut BufReader<R>,
         new_version: Version,
-        kws: ValidKeywords,
+        mut kws: ValidKeywords,
         hns: &mut HeaderAndSuppOffsets,
         scan_next_dataset: bool,
         start_time: Instant,
         st: &TEXTReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        Self,
+        (Self, ValidKeywords),
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
         (),
@@ -1839,7 +1843,7 @@ impl FlatDatasetFromKwsOutput {
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
                     .repack_warnings()
                     .map_ok_value(|ds_diag| {
-                        Self::new(
+                        let ret = Self::new(
                             out.df,
                             out.analysis,
                             out.others,
@@ -1847,7 +1851,8 @@ impl FlatDatasetFromKwsOutput {
                             out.repair_diag,
                             out.schema_diag,
                             ds_diag,
-                        )
+                        );
+                        (ret, out.kws)
                     })
             })
     }
@@ -1964,7 +1969,7 @@ impl FlatTEXTOutput {
                                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                                     .map_pure_errors(ParseFlatTEXTError::from)
                                     .map_ok_value(|(supp_index, mut supp_diag)| {
-                                        let (index, non_unique_std) = prim_index.append(supp_index);
+                                        let (index, non_unique_std) = prim_index.concat(supp_index);
                                         supp_diag.non_unique_std_keywords.extend(non_unique_std);
                                         (index, supp_out, Some(supp_diag))
                                     })

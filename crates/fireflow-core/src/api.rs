@@ -1,16 +1,17 @@
 //! Top-level functions for parsing FCS files
 use crate::config::{
-    ReadDataKeywordsConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig,
-    ReadFlatTEXTConfig, ReadHeaderConfig, ReadStdDatasetConfig, ReadStdKeywordsConfig,
-    ReadStdTEXTConfig, WriteMultiDatasetConfig,
+    AppendRepairFlagError, EvaledReadRepairKeywordsConfig, ReadFlatDatasetConfig,
+    ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderConfig,
+    ReadRepairKeywordsConfig, ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig,
+    WriteMultiDatasetConfig, eval_repair_conf,
 };
 use crate::convert::{InstantExt as _, UsizeExt as _};
 use crate::core::{
-    Analysis, AnyCoreDataset, AnyCoreTEXT, AnyStdDatasetFromFlatTextError, CRCOutput,
-    DatasetDiagnostics, DatasetOffsets, LookupAndReadDataAnalysisError,
-    LookupAndReadDataAnalysisWarning, LookupFlatDatasetOutput, Others, PrivVersionSet as _,
-    StdDatasetFromFlatTEXTWarning, StdDatasetFromKwsOutput, StdTEXTDiagnostics,
-    StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning, StdWriterError, WriteDatasetSummary,
+    Analysis, AnyCoreDataset, AnyCoreTEXT, AnyStdDatasetFromKeywordsError,
+    AnyStdTEXTFromKeywordsError, CRCOutput, DatasetDiagnostics, DatasetOffsets,
+    LookupAndReadDataAnalysisError, LookupAndReadDataAnalysisWarning, Others, PrivVersionSet as _,
+    StdDatasetFromFlatTEXTWarning, StdDatasetFromKeywordsWarningInner, StdDatasetFromKwsOutput,
+    StdTEXTDiagnostics, StdTEXTFromKeywordsWithOffsetsWarning, StdWriterError, WriteDatasetSummary,
 };
 use crate::data::{DataSchemaDiagnostics, EventOverRangeError};
 use crate::fixed_vec::OneOrTwo;
@@ -33,7 +34,7 @@ use crate::segment::read::{
     SuppTextOffsetsName, SuppToHeaderOffsetsOverlap, SupplementalTextOffsets, TEXTOffsets,
     TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
 };
-use crate::std_index::index::{RepairDiagnostics, StdKeywords};
+use crate::std_index::index::{RepairDiagnostics, RepairError, StdKeywords, StdLookupTx};
 use crate::text::keywords::{
     AlphaNumType, Beginstext, Endstext, LookupNextdataError, Nextdata, ReadNextdataError, Tot,
 };
@@ -49,15 +50,16 @@ use crate::validated::keys::{
     TruncatedNEBytes, TruncatedNEString, ValidKeywords, ValueToStdKey,
 };
 use crate::validated::read_state::{
-    DatasetLen, DatasetOffset, DatasetOffsetError, FileLen, HeaderReadState, TEXTReadState,
+    CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError, FileLen,
+    HeaderReadState, TEXTReadState,
 };
 
 use fireflow_types::{
     config::{
         AppendFlag, AppendableFlag, ConfigFlag as _, DelimEscapeMode, Encoding,
-        OverlapCorrectionLimit, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadHeaderInnerConfig,
-        ReadOffsetConfig, ReadSharedConfig, TriErrorFlag, VersionOverride, WriteDatasetInnerConfig,
-        WriteMultiConfig,
+        OverlapCorrectionLimit, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
+        ReadHeaderInnerConfig, ReadOffsetConfig, ReadSharedConfig, TriErrorFlag, VersionOverride,
+        WriteDatasetInnerConfig, WriteMultiConfig,
     },
     keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2},
     nonempty::{IntoIteratorExt as _, NESlice, NEStr, NEVec, NonEmptyIterator as _},
@@ -67,7 +69,7 @@ use fireflow_types::{
 
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
 
-use derive_more::{Display, From};
+use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use thiserror::Error;
@@ -173,8 +175,8 @@ pub fn fcs_read_flat_dataset(
     conf: &ReadFlatDatasetConfig,
 ) -> WarningsAndIOGroupResult<
     FlatDatasetOutput,
-    FlatDatasetWarning,
-    FlatDatasetError,
+    ReadFlatDatasetWarning,
+    ReadFlatDatasetError,
     FlatDatasetSummary,
 > {
     let start_time = Instant::now();
@@ -200,51 +202,43 @@ pub fn fcs_read_std_dataset(
     fr.read_std_dataset(dataset_offset, scan_next_dataset, start_time, conf)
 }
 
-// TODO this function only needs to take the standard keyword list and doesn't
-// need repair flags
 /// Read DATA/ANALYSIS in FCS file using provided keywords.
 #[must_use]
 #[allow(clippy::too_many_arguments)]
 pub fn fcs_read_flat_dataset_with_keywords(
     path: &PathBuf,
     mut hns: HeaderAndSuppOffsets,
-    kws: ValidKeywords,
+    std: StdKeywords,
     dataset_offset: DatasetOffset,
     dataset_len: Option<DatasetLen>,
     conf: &ReadFlatDatasetFromKeywordsConfig,
 ) -> WarningsAndIOGroupResult<
     NewFlatDatasetFromKwsOutput,
-    LookupAndReadDataAnalysisWarning,
-    LookupAndReadDataAnalysisError,
+    ReadFlatDatasetFromKwsOutputWarning,
+    ReadFlatDatasetWithKwsError,
     FlatDatasetWithKwsSummary,
 > {
     let start_time = Instant::now();
     FCSFileReader::open_with_state(path, dataset_offset, start_time, conf)
-        .map_err(|e| e.fmap_once(LookupAndReadDataAnalysisError::from))
+        .map_err(|e| e.fmap_once(ReadFlatDatasetWithKwsError::from))
         .and_then(|(fr, st)| {
             st.maybe_with_dataset_length(dataset_len)
                 .map(|txt_st| (txt_st, fr))
-                .map_err(LookupAndReadDataAnalysisError::from)
+                .map_err(ReadFlatDatasetWithKwsError::from)
                 .map_err(ImpureError::Pure)
         })
         .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(txt_st, mut fr)| {
+            let br = &mut fr.buf_read;
             let v = hns.header.version;
-            FlatDatasetFromKwsOutput::h_read_with_header_and_text(
-                &mut fr.buf_read,
-                v,
-                kws,
-                &mut hns,
-                false,
-                txt_st.start_time(),
-                &txt_st,
-            )
+            let tx = std.into_transaction();
+            let st = txt_st.start_time();
+            FlatDatasetFromKwsOutput::h_read(br, v, &tx, &mut hns, false, st, &txt_st)
+                .map_pure_errors(ReadFlatDatasetWithKwsError::from)
         })
-        .map_ok_value(|(dataset, _)| {
-            NewFlatDatasetFromKwsOutput::new(dataset, hns.header.final_offsets)
-        })
-        .warnings_to_pure_errors(&conf.shared, LookupAndReadDataAnalysisError::from)
+        .map_ok_value(|dataset| NewFlatDatasetFromKwsOutput::new(dataset, hns.header.final_offsets))
+        .warnings_to_pure_errors(&conf.shared, ReadFlatDatasetWithKwsError::from)
         .deanonymize()
 }
 
@@ -525,6 +519,9 @@ pub struct FlatDatasetOutput {
 
     /// Scores generated if version was guessed.
     pub version_scores: Option<KeywordVersionScores>,
+
+    /// Diagnostic output from repairing the keyword list
+    pub repair_diagnostics: RepairDiagnostics,
 }
 
 /// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
@@ -539,6 +536,9 @@ pub struct StdDatasetOutput {
 
     /// Scores generated if version was guessed.
     pub version_scores: Option<KeywordVersionScores>,
+
+    /// Diagnostic output from repairing the keyword list
+    pub repair_diagnostics: RepairDiagnostics,
 }
 
 /// Output of using keywords to crate new flat TEXT+DATA
@@ -566,9 +566,6 @@ pub struct FlatDatasetFromKwsOutput {
 
     /// Offsets used to parse DATA and ANALYSIS
     pub dataset_offsets: DatasetOffsets,
-
-    /// Diagnostic output from repairing the keyword list
-    pub repair_diagnostics: RepairDiagnostics,
 
     /// Diagnostic output from parsing the data schema.
     pub schema_diagnostics: DataSchemaDiagnostics,
@@ -826,7 +823,7 @@ pub enum ReadHeaderError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTWarning {
     Flat(HeaderOrFlatTEXTWarning),
-    Std(StdTEXTFromFlatTEXTWarning),
+    Std(StdTEXTFromKeywordsWithOffsetsWarning),
 }
 
 /// Error when parsing TEXT in standard mode
@@ -834,7 +831,7 @@ pub enum StdTEXTWarning {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTError {
     Flat(HeaderOrFlatTextError),
-    Std(StdTEXTFromFlatTEXTError),
+    Std(AnyStdTEXTFromKeywordsError),
     Warn(StdTEXTWarning),
 }
 
@@ -843,7 +840,7 @@ pub enum StdTEXTError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetWarning {
     Flat(HeaderOrFlatTEXTWarning),
-    Std(StdDatasetFromFlatTEXTWarning),
+    Std(StdDatasetFromKeywordsWarningInner),
 }
 
 /// Error when parsing TEXT+DATA in standard mode
@@ -851,26 +848,29 @@ pub enum StdDatasetWarning {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetError {
     Flat(HeaderOrFlatTextError),
-    Std(AnyStdDatasetFromFlatTextError),
+    Std(AnyStdDatasetFromKeywordsError),
     Warn(StdDatasetWarning),
 }
 
 /// Warning when parsing TEXT+DATA in flat mode
 #[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum FlatDatasetWarning {
+pub enum ReadFlatDatasetWarning {
     Flat(HeaderOrFlatTEXTWarning),
-    Read(LookupAndReadDataAnalysisWarning),
+    Read(ReadFlatDatasetFromKwsOutputWarning),
+    Repair(RepairError),
 }
 
 /// Warning when parsing TEXT+DATA in flat mode
 #[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum FlatDatasetError {
+pub enum ReadFlatDatasetError {
     Flat(HeaderOrFlatTextError),
-    Read(LookupAndReadDataAnalysisError),
-    Warn(FlatDatasetWarning),
+    Read(ReadFlatDatasetFromKwsOutputError),
+    Warn(ReadFlatDatasetWarning),
     Version(GuessVersionError),
+    Repair(RepairError),
+    RepairAppend(AppendRepairFlagError),
 }
 
 /// Error when parsing HEADER or TEXT segments in flat mode
@@ -881,6 +881,32 @@ pub enum HeaderOrFlatTextError {
     Header(HeaderError),
     FlatTEXT(ParseFlatTEXTError),
     Warn(HeaderOrFlatTEXTWarning),
+}
+
+/// Error when reading DATA offsets from already-parsed keywords
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ReadFlatDatasetWithKwsError {
+    Dataset(ReadFlatDatasetFromKwsOutputError),
+    DatasetLen(DatasetLenEOFError),
+    DatasetOffset(DatasetOffsetError),
+    Warn(ReadFlatDatasetFromKwsOutputWarning),
+}
+
+/// Error when reading DATA offsets from already-parsed keywords
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ReadFlatDatasetFromKwsOutputError {
+    Tx(LookupAndReadDataAnalysisError),
+    CRC(CRCError),
+}
+
+/// Warning when reading DATA offsets from already-parsed keywords
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ReadFlatDatasetFromKwsOutputWarning {
+    Tx(LookupAndReadDataAnalysisWarning),
+    CRC(CRCError),
 }
 
 /// Error when looking up and parsing supplemental TEXT offsets from primary TEXT.
@@ -920,7 +946,7 @@ pub struct DuplicateSTextError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MultiFlatDatasetWarning {
     Text(HeaderOrFlatTEXTWarning), // for reading skipped datasets to get $NEXTDATA
-    Data(FlatDatasetWarning),
+    Data(ReadFlatDatasetWarning),
 }
 
 /// Error when parsing multiple [`FlatDatasetOutput`]s
@@ -928,7 +954,7 @@ pub enum MultiFlatDatasetWarning {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MultiFlatDatasetError {
     Text(HeaderOrFlatTextError), // for reading skipped datasets to get $NEXTDATA
-    Data(FlatDatasetError),
+    Data(ReadFlatDatasetError),
 }
 
 /// Error when parsing multiple TEXT segments in std mode
@@ -1144,15 +1170,6 @@ pub type StdPresent = KeyPresent<StdKey>;
 pub type PseudoStdPresent = KeyPresent<PseudoStdKey>;
 pub type NonStdPresent = KeyPresent<NonStdKey>;
 
-// /// Error when keyword has any invalid chars.
-// #[derive(Debug, Display, From, Error, PartialEq, Clone)]
-// #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-// pub enum InvalidKeywordCharsError {
-//     Key(NonAsciiKeyError),
-//     Value(NonUtf8ValueError),
-//     Both(NonAsciiOrUtf8KeywordError),
-// }
-
 /// Error when key or value with invalid UTF-8 characters is encountered
 #[derive(new, Debug, Error, PartialEq, Clone)]
 #[error("non ASCII key {key} and non UTF-8 value {value} encountered in {kind} TEXT")]
@@ -1345,42 +1362,87 @@ impl FCSFileReader {
         conf: &ReadFlatDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         FlatDatasetOutput,
-        FlatDatasetWarning,
-        FlatDatasetError,
+        ReadFlatDatasetWarning,
+        ReadFlatDatasetError,
         FlatDatasetSummary,
     > {
+        #[derive(AsRef)]
+        struct LookupConfig {
+            #[as_ref(EvaledReadRepairKeywordsConfig)]
+            repair: EvaledReadRepairKeywordsConfig,
+            #[as_ref(ReadDataKeywordsConfig)]
+            data_kws: ReadDataKeywordsConfig,
+            #[as_ref(ReadDatasetConfig)]
+            dataset: ReadDatasetConfig,
+            #[as_ref(ReadOffsetConfig)]
+            offsets: ReadOffsetConfig,
+        }
+
         self.read_flat_text_inner(dataset_offset, start_time, conf)
-            .map_commutative_warnings(FlatDatasetWarning::from)
-            .map_pure_errors(FlatDatasetError::from)
+            .map_commutative_warnings(ReadFlatDatasetWarning::from)
+            .map_pure_errors(ReadFlatDatasetError::from)
             .and_then_commutative(|out| {
                 let version = out.this.flat_diagnostics.header_supp.header.version;
                 let oride = conf.flat.version_override.as_ref();
                 autodetect_version(version, &out.this.keywords.std, oride)
-                    .map_err(FlatDatasetError::from)
+                    .map_err(ReadFlatDatasetError::from)
                     .map_err(IOErrorGroup::new_pure_one)
                     .map(|(new_version, scores)| (new_version, out, scores))
                     .into_log()
             })
             .and_then_commutative(|(new_ver, out, scores)| {
-                let mut flat = out.this;
-                let hns = &mut flat.flat_diagnostics.header_supp;
-                let kws = flat.keywords;
-                FlatDatasetFromKwsOutput::h_read_with_header_and_text(
-                    &mut self.buf_read,
-                    new_ver,
-                    kws,
-                    hns,
-                    scan_next_dataset,
-                    out.read_end,
-                    &out.state,
-                )
-                .map_ok_value(|(dataset, kws_)| {
-                    FlatDatasetOutput::new(kws_, flat.flat_diagnostics, dataset, scores)
-                })
-                .map_commutative_warnings(FlatDatasetWarning::from)
-                .map_pure_errors(FlatDatasetError::from)
+                let st = &out.state;
+                eval_repair_conf(st.conf().as_ref(), &out.this.keywords)
+                    .map_ok_value(|repair| {
+                        st.as_ref().first_once(|conf| LookupConfig {
+                            repair,
+                            // TODO useless clone
+                            data_kws: AsRef::<ReadDataKeywordsConfig>::as_ref(&conf).clone(),
+                            dataset: *AsRef::<ReadDatasetConfig>::as_ref(&conf),
+                            offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf),
+                        })
+                    })
+                    .map_errors(ReadFlatDatasetError::from)
+                    .nowarn_into_warn()
+                    .group()
+                    .map_error(IOErrorGroup::Pure)
+                    .and_then_commutative(|lst| {
+                        let mut flat = out.this;
+                        let mut rtx = flat.keywords.std.into_transaction();
+                        let repair_res = rtx
+                            .repair(
+                                &mut flat.keywords.pstd,
+                                &mut flat.keywords.nonstd,
+                                &lst.conf().repair,
+                            )
+                            .map_commutative_warnings(ReadFlatDatasetWarning::from)
+                            .map_errors(ReadFlatDatasetError::from);
+                        let ltx = rtx.into_lookup_transaction();
+                        let hns = &mut flat.flat_diagnostics.header_supp;
+                        FlatDatasetFromKwsOutput::h_read(
+                            &mut self.buf_read,
+                            new_ver,
+                            &ltx,
+                            hns,
+                            scan_next_dataset,
+                            out.read_end,
+                            &out.state,
+                        )
+                        .map_commutative_warnings(ReadFlatDatasetWarning::from)
+                        .map_pure_errors(ReadFlatDatasetError::from)
+                        .zip_io_group_commutative(repair_res)
+                        .map_ok_value(|(dataset, repair_diag)| {
+                            FlatDatasetOutput::new(
+                                flat.keywords,
+                                flat.flat_diagnostics,
+                                dataset,
+                                scores,
+                                repair_diag,
+                            )
+                        })
+                    })
             })
-            .warnings_to_pure_errors(&conf.shared, FlatDatasetError::from)
+            .warnings_to_pure_errors(&conf.shared, ReadFlatDatasetError::from)
             .deanonymize()
     }
 
@@ -1812,26 +1874,34 @@ impl FlatDatasetOutput {
 
 impl FlatDatasetFromKwsOutput {
     /// Read from handle with offsets/version from HEADER and parsed TEXT keywords.
-    fn h_read_with_header_and_text<C, R>(
+    fn h_read<C, R>(
         h: &mut BufReader<R>,
         new_version: Version,
-        mut kws: ValidKeywords,
+        tx: &StdLookupTx,
         hns: &mut HeaderAndSuppOffsets,
         scan_next_dataset: bool,
         start_time: Instant,
         st: &TEXTReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        (Self, ValidKeywords),
-        LookupAndReadDataAnalysisWarning,
-        LookupAndReadDataAnalysisError,
+        Self,
+        ReadFlatDatasetFromKwsOutputWarning,
+        ReadFlatDatasetFromKwsOutputError,
         (),
     >
     where
         R: Read + Seek,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadDatasetConfig>,
     {
-        kws_to_flat_dataset(new_version, h, kws, hns, start_time, st)
-            .map_pure_errors(LookupAndReadDataAnalysisError::from)
+        let lookup_res = match new_version {
+            Version::FCS2_0 => Version2_0::h_lookup_and_read(h, tx, hns, start_time, st),
+            Version::FCS3_0 => Version3_0::h_lookup_and_read(h, tx, hns, start_time, st),
+            Version::FCS3_1 => Version3_1::h_lookup_and_read(h, tx, hns, start_time, st),
+            Version::FCS3_2 => Version3_2::h_lookup_and_read(h, tx, hns, start_time, st),
+        };
+
+        lookup_res
+            .map_pure_errors(ReadFlatDatasetFromKwsOutputError::from)
+            .map_commutative_warnings(ReadFlatDatasetFromKwsOutputWarning::from)
             .and_then_commutative(|out| {
                 let snd = scan_next_dataset;
                 let v = new_version;
@@ -1839,20 +1909,18 @@ impl FlatDatasetFromKwsOutput {
                 let ed = out.event_diag;
                 let t = &out.timings;
                 DatasetDiagnostics::from_parts(h, v, ed, hns, d, snd, t, st)
-                    .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
-                    .map_pure_errors(LookupAndReadDataAnalysisError::from)
+                    .map_commutative_warnings(ReadFlatDatasetFromKwsOutputWarning::from)
+                    .map_pure_errors(ReadFlatDatasetFromKwsOutputError::from)
                     .repack_warnings()
                     .map_ok_value(|ds_diag| {
-                        let ret = Self::new(
+                        Self::new(
                             out.df,
                             out.analysis,
                             out.others,
                             out.ds_offsets,
-                            out.repair_diag,
                             out.schema_diag,
                             ds_diag,
-                        );
-                        (ret, out.kws)
+                        )
                     })
             })
     }
@@ -2025,11 +2093,12 @@ impl FlatTEXTOutput {
     ) -> WarningsAndErrorsResult<
         (AnyCoreTEXT, StdTEXTOutput),
         (),
-        StdTEXTFromFlatTEXTWarning,
-        StdTEXTFromFlatTEXTError,
+        StdTEXTFromKeywordsWithOffsetsWarning,
+        AnyStdTEXTFromKeywordsError,
     >
     where
         C: AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<ReadRepairKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadDataKeywordsConfig>,
@@ -2060,13 +2129,14 @@ impl FlatTEXTOutput {
         st: &TEXTReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (AnyCoreDataset, StdDatasetOutput),
-        StdDatasetFromFlatTEXTWarning,
-        AnyStdDatasetFromFlatTextError,
+        StdDatasetFromKeywordsWarningInner,
+        AnyStdDatasetFromKeywordsError,
         (),
     >
     where
         R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<ReadRepairKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadDataKeywordsConfig>
@@ -2081,8 +2151,8 @@ impl FlatTEXTOutput {
             read_text_end,
             st,
         )
-        .map_ok_value(|(core, out, scores)| {
-            let dx = StdDatasetOutput::new(out, self.flat_diagnostics, scores);
+        .map_ok_value(|(core, out, repair, scores)| {
+            let dx = StdDatasetOutput::new(out, self.flat_diagnostics, scores, repair);
             (core, dx)
         })
     }
@@ -3155,31 +3225,6 @@ impl SuppTEXTOffsetsOutput {
         } else {
             None
         }
-    }
-}
-
-fn kws_to_flat_dataset<C, R>(
-    new_version: Version,
-    h: &mut BufReader<R>,
-    kws: ValidKeywords,
-    hns: &mut HeaderAndSuppOffsets,
-    start_time: Instant,
-    st: &TEXTReadState<C>,
-) -> WarningsAndIOGroupResult<
-    LookupFlatDatasetOutput,
-    LookupAndReadDataAnalysisWarning,
-    LookupAndReadDataAnalysisError,
-    (),
->
-where
-    R: Read + Seek,
-    C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadDatasetConfig>,
-{
-    match new_version {
-        Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, hns, start_time, st),
-        Version::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, hns, start_time, st),
-        Version::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, hns, start_time, st),
-        Version::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, hns, start_time, st),
     }
 }
 

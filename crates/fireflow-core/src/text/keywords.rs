@@ -1,4 +1,4 @@
-use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
+use crate::config::EvaledReadStdKeywordsConfig;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
 };
@@ -35,7 +35,8 @@ use fireflow_types::{
     byteord::ConfigByteOrd,
     config::{
         ConfigFlag as _, ForceLinearScale, NumericByteWidth, OpticalOnlyKey,
-        ProcessOptionalFailure, ReadHeaderAndTEXTConfig, TrimIntraValueWhitespace,
+        ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig,
+        TrimIntraValueWhitespace,
     },
     index::{BiMeasIndex, GateIndex, IndexFromOne, MeasIndex, RegionIndex, SubsetIndex},
     keywords::{MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version},
@@ -463,10 +464,10 @@ impl Gain {
         conf: &C,
     ) -> DeferredSwitchableErrors<Option<Self>, ProcessOptionalFailure, LookupTemporalGainError>
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let ignore = &AsRef::<EvaledReadStdKeywordsConfig>::as_ref(conf).ignore_optical_only_keys;
-        let flag = AsRef::<EvaledReadDataKeywordsConfig>::as_ref(conf).process_optional_failure;
+        let flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).process_optional_failure;
         if ignore.0.contains(&OpticalOnlyKey::Gain) {
             kws.set_failure_flag(&Self::std(&i), flag);
             LogResult::new_switchable_ok(None, flag)
@@ -1428,7 +1429,7 @@ impl Compensation2_0 {
     pub(crate) fn lookup(
         kws: &mut StdLookupTx,
         par: Par,
-        conf: &EvaledReadDataKeywordsConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableErrors<Option<Self>, ProcessOptionalFailure, LookupComp2_0Error> {
         // column = src measurement
         // row = target measurement

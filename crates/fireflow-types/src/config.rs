@@ -548,17 +548,11 @@ pub struct ReadStdKeywordsConfig_<TMP, DP, TP, DTP, LMP> {
     pub disallow_localtime: DisallowLocaltime,
 }
 
-/// Specific instructions for reading a data layout.
-///
-/// Note that some of these are also when reading any keyword in standard mode.
-/// Since the layout keywords always need to be read, and the rest only need to
-/// be read specifically when building [`crate::core::CoreTEXT`] or
-/// [`crate::core::CoreDataset`], these options are here since the layout is the
-/// thing they have in common.
-#[derive(Default, Clone, AsRef)]
+/// Specific instructions for repairing keywords.
+#[derive(Default, Clone)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct ReadDataKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
+pub struct ReadRepairKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
     /// Remove standard keys from TEXT.
     ///
     /// Comparisons will be case-insensitive. Members of this list should not
@@ -629,7 +623,19 @@ pub struct ReadDataKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
     /// Non-unique keywords will not be kept in the final FCS file since each
     /// list of standard and non-standard keywords must be unique.
     pub allow_repair_non_unique: AllowRepairNonUnique,
+}
 
+/// Specific instructions for reading a data layout.
+///
+/// Note that some of these are also used when reading any keyword in standard
+/// mode. Since the layout keywords always need to be read, and the rest only
+/// need to be read specifically when building [`crate::core::CoreTEXT`] or
+/// [`crate::core::CoreDataset`], these options are here since the layout is the
+/// thing they have in common.
+#[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct ReadDataKeywordsConfig {
     /// Corrections for DATA offsets in TEXT segment
     #[as_ref(TEXTCorrection<DataSegmentId>)]
     pub text_data_correction: TEXTCorrection<DataSegmentId>,
@@ -2283,21 +2289,8 @@ impl<TMP, DP, TP, DTP, LMP> HasStrategy for ReadStdKeywordsConfig_<TMP, DP, TP, 
     }
 }
 
-impl<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> HasStrategy
-    for ReadDataKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV>
-{
+impl HasStrategy for ReadDataKeywordsConfig {
     fn with_scalpel(&mut self) {
-        // Enable SPILL/SPILLOVER/$SPILL->$SPILLOVER mapping, which should be
-        // fine for most/all files without doing any vendor-specific pattern
-        // matching.
-        //
-        // This also what flowcore and flowIO do, see
-        // https://github.com/RGLab/flowCore/blob/4935c7bf318697b3128ee50dae81018a6b246ab8/R/eval-methods.R#L649
-        // and
-        // https://github.com/whitews/FlowIO/blob/83d28a22d42235c10d17afb017250ee208afed95/src/flowio/flowdata.py#L761
-        // self.promote_to_standard.push_promote_spillover();
-        // self.rename_standard_keys.push_rename_spill_to_spillover();
-
         self.allow_header_text_offset_mismatch = AllowHeaderTEXTOffsetMismatch::HeaderWarn;
         self.allow_missing_required_offsets = TriFlag::True.into();
         self.process_optional_failure = ProcessKeywordFailure::DemoteWarn.into();
@@ -2309,6 +2302,22 @@ impl<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> HasStrategy
         self.process_optional_failure = ProcessKeywordFailure::DropWarn.into();
         self.ignore_text_analysis_offsets = true.into();
     }
+}
+
+impl<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> HasStrategy
+    for ReadRepairKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV>
+{
+    // TODO Enable SPILL/SPILLOVER/$SPILL->$SPILLOVER mapping, which should be
+    // fine for most/all files without doing any vendor-specific pattern
+    // matching.
+    //
+    // This also what flowcore and flowIO do, see
+    // https://github.com/RGLab/flowCore/blob/4935c7bf318697b3128ee50dae81018a6b246ab8/R/eval-methods.R#L649
+    // and
+    // https://github.com/whitews/FlowIO/blob/83d28a22d42235c10d17afb017250ee208afed95/src/flowio/flowdata.py#L761
+    // self.promote_to_standard.push_promote_spillover();
+    // self.rename_standard_keys.push_rename_spill_to_spillover();
+    fn with_scalpel(&mut self) {}
 }
 
 impl HasStrategy for ReadDatasetConfig {

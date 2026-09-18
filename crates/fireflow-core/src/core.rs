@@ -2,9 +2,9 @@
 
 use crate::api::{FCSFileReader, HeaderAndSuppOffsets, next_dataset_boundary};
 use crate::config::{
-    AppendRepairFlagError, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig,
-    ReadDataKeywordsConfig, ReadStdKeywordsConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
-    eval_data_conf, eval_std_conf,
+    AppendRepairFlagError, EvaledReadRepairKeywordsConfig, EvaledReadStdKeywordsConfig,
+    ReadRepairKeywordsConfig, ReadStdKeywordsConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
+    eval_repair_conf, eval_std_conf,
 };
 use crate::convert::{InstantExt as _, UsizeExt as _};
 use crate::data::{
@@ -125,9 +125,9 @@ use fireflow_types::{
     config::{
         AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, IncludeReqOrOpt,
         IncludeRootOrMeas, OverBitmaskAction, OverRangeAction, OverlapCorrectionLimit,
-        ProcessOptionalFailure, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadOffsetConfig,
-        ReadSharedConfig, TriErrorFlag, WriteDatasetInnerConfig, WriteMultiConfig,
-        WriteTEXTInnerConfig,
+        ProcessOptionalFailure, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
+        ReadOffsetConfig, ReadSharedConfig, TriErrorFlag, WriteDatasetInnerConfig,
+        WriteMultiConfig, WriteTEXTInnerConfig,
     },
     datepattern::DatePattern,
     index::MeasIndex,
@@ -869,9 +869,6 @@ pub struct StdDatasetFromKwsOutput {
     /// DATA+ANALYSIS
     pub dataset_offsets: DatasetOffsets,
 
-    /// Diagnostic output from repairing the keyword list
-    pub repair_diagnostics: RepairDiagnostics,
-
     /// Keywords that start with '$' that are not part of the standard
     pub std_diagnostics: StdTEXTDiagnostics,
 
@@ -1350,33 +1347,111 @@ pub enum RemoveMeasByIndexError {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromKeywordsError {
-    Error(StdTEXTFromFlatTEXTErrorInner),
-    Warn(StdTEXTFromFlatTEXTWarning),
-    // Repair(RepairCollisionError),
-    // RepairAppend(AppendRepairFlagError),
+    Error(StdTEXTFromTxErrorInner),
+    Warn(StdTEXTFromTxWarning),
 }
 
-// /// Error when reading standardized TEXT from keyword pairs
-// #[derive(From, Display, Debug, Error, PartialEq, Clone)]
-// #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-// pub enum StdTEXTFromKeywordsWarning {
-//     Error(StdTEXTFromFlatTEXTWarning),
-//     Repair(RepairCollisionError),
-// }
-
-/// Error when reading standardized TEXT from keyword pairs
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromFlatTEXTError {
     Inner(StdTEXTFromFlatTEXTErrorInner),
     Version(GuessVersionError),
     Repair(RepairError),
+    AppendRepair(AppendRepairFlagError),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdTEXTFromFlatTEXTErrorInner {
+    Tx(StdTEXTFromTxErrorInner),
+    Repair(RepairError),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdTEXTFromFlatTEXTWarning {
+    Tx(StdTEXTFromTxWarning),
+    Repair(RepairError),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdTEXTFromKeywordsWithOffsetsError {
+    Tx(StdTEXTFromTxWithOffsetsError),
+    Repair(RepairError),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdTEXTFromKeywordsWithOffsetsWarning {
+    Tx(StdTEXTFromTxWithOffsetsWarning),
+    Repair(RepairError),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdTEXTFromTxWithOffsetsError {
+    Tx(StdTEXTFromTxErrorInner),
+    Offsets(LookupTEXTOffsetsError),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdTEXTFromTxWithOffsetsWarning {
+    Tx(StdTEXTFromTxWarning),
+    Offsets(LookupTEXTOffsetsWarning),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum NewStdDatasetFromKeywordsError {
+    DatasetOffset(DatasetOffsetError),
+    DatasetLen(DatasetLenEOFError),
+    Inner(StdDatasetFromTxError),
+    Warn(NewStdDatasetFromKeywordsWarning),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum NewStdDatasetFromKeywordsWarning {
+    Inner(StdDatasetFromTxWarning),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdDatasetFromKeywordsErrorInner {
+    Tx(StdDatasetFromTxError),
+    Repair(RepairError),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdDatasetFromKeywordsWarningInner {
+    Tx(StdDatasetFromTxWarning),
+    Repair(RepairError),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdDatasetFromTxError {
+    Tx(StdTEXTFromTxWithOffsetsError),
+    Dataframe(ReadCheckedDataframeError),
+    CRC(CRCError),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdDatasetFromTxWarning {
+    Tx(StdTEXTFromTxWithOffsetsWarning),
+    Dataframe(ReadCheckedDataframeWarning),
+    CRC(CRCError),
 }
 
 /// Error (inner) when reading standardized TEXT from keyword pairs
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdTEXTFromFlatTEXTErrorInner {
+pub enum StdTEXTFromTxErrorInner {
+    Par(ReqKeyError<Par>),
     New(LookupCoreError),
     Metaroot(LookupMetarootError),
     Meas(LookupMeasurementError),
@@ -1384,19 +1459,12 @@ pub enum StdTEXTFromFlatTEXTErrorInner {
     DataSchema(LookupDataSchemaError),
     Offsets(LookupTEXTOffsetsError),
     Extra(ExtraStdKeywordError),
-    // Timestep(TimestepFoundError),
-    // Pseudo(PseudostandardError),
-    // HyperPar(HyperParError),
-    // HyperGate(HyperGateError),
-    // OtherVersion(KeywordOtherVersionError),
-    Repair(RepairError),
-    AppendRepair(AppendRepairFlagError),
 }
 
 /// Warning when reading standardized TEXT from keyword pairs
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdTEXTFromFlatTEXTWarning {
+pub enum StdTEXTFromTxWarning {
     New(NewCoreWarning),
     Metaroot(LookupMetarootWarning),
     Meas(LookupMeasurementWarning),
@@ -1404,41 +1472,43 @@ pub enum StdTEXTFromFlatTEXTWarning {
     DataSchema(LookupDataSchemaWarning),
     Offsets(LookupTEXTOffsetsWarning),
     Extra(ExtraStdKeywordError),
-    // Timestep(TimestepFoundError),
-    // Pseudo(PseudostandardError),
-    // HyperPar(HyperParError),
-    // HyperGate(HyperGateError),
-    // OtherVersion(KeywordOtherVersionError),
-    Repair(RepairError),
 }
 
-/// Error when reading any version of standardized DATA from keyword pairs.
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum AnyStdDatasetFromFlatTextError {
-    Inner(StdDatasetFromFlatTextErrorInner),
+pub enum AnyStdTEXTFromKeywordsError {
+    Inner(StdTEXTFromKeywordsWithOffsetsError),
     Version(GuessVersionError),
+    AppendRepair(AppendRepairFlagError),
 }
 
-/// Error when reading specific version of standardized DATA from keyword pairs
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdDatasetFromKeywordsError {
-    Inner(StdDatasetFromFlatTextErrorInner),
-    DatatsetLen(DatasetLenEOFError),
-    Warn(StdDatasetFromFlatTEXTWarning),
+pub enum AnyStdDatasetFromKeywordsError {
+    Inner(StdDatasetFromKeywordsErrorInner),
+    Version(GuessVersionError),
+    AppendRepair(AppendRepairFlagError),
 }
 
-/// Error (inner) when reading standardized DATA from keyword pairs
-#[derive(From, Display, Debug, Error, PartialEq, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdDatasetFromFlatTextErrorInner {
-    DatasetOffset(DatasetOffsetError),
-    TEXT(StdTEXTFromFlatTEXTErrorInner),
-    Dataframe(ReadCheckedDataframeError),
-    Offsets(LookupTEXTOffsetsError),
-    CRC(CRCError),
-}
+// /// Error when reading specific version of standardized DATA from keyword pairs
+// #[derive(From, Display, Debug, Error, PartialEq, Clone)]
+// #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+// pub enum StdDatasetFromKeywordsError {
+//     Inner(StdDatasetFromFlatTextErrorInner),
+//     DatatsetLen(DatasetLenEOFError),
+//     Warn(StdDatasetFromFlatTEXTWarning),
+// }
+
+// /// Error (inner) when reading standardized DATA from keyword pairs
+// #[derive(From, Display, Debug, Error, PartialEq, Clone)]
+// #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+// pub enum StdDatasetFromFlatTextErrorInner {
+//     DatasetOffset(DatasetOffsetError),
+//     TEXT(StdTEXTFromFlatTEXTErrorInner),
+//     Dataframe(ReadCheckedDataframeError),
+//     Offsets(LookupTEXTOffsetsError),
+//     CRC(CRCError),
+// }
 
 /// Warning when reading standardized DATA from keyword pairs
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
@@ -1477,16 +1547,10 @@ pub enum MetarootConvertWarning {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisError {
-    DatasetOffset(DatasetOffsetError),
-    DatasetLen(DatasetLenEOFError),
     Par(ReqKeyError<Par>),
     Offsets(LookupTEXTOffsetsError),
     DataSchema(LookupDataSchemaError),
     Dataframe(ReadCheckedDataframeError),
-    Warn(LookupAndReadDataAnalysisWarning),
-    CRC(CRCError),
-    Repair(RepairError),
-    RepairAppend(AppendRepairFlagError),
 }
 
 /// Warning when reading DATA offsets from already-parsed keywords
@@ -1496,8 +1560,6 @@ pub enum LookupAndReadDataAnalysisWarning {
     Offsets(LookupTEXTOffsetsWarning),
     DataSchema(LookupDataSchemaWarning),
     Data(ReadCheckedDataframeWarning),
-    CRC(CRCError),
-    Repair(RepairError),
 }
 
 /// Error when looking up offsets for parsing DATA
@@ -1605,7 +1667,6 @@ type LookupMetarootResult<V> =
 pub enum LookupMetarootError {
     Mode(ReqKeyError<Mode>),
     Cyt3_2(ReqKeyError<Cyt3_2>),
-    Par(ReqKeyError<Par>),
     Warn(LookupMetarootWarning),
 }
 
@@ -2111,14 +2172,12 @@ impl_version_set!(Version3_2, InnerRootMeta3_2, TEXTOffsets3_2);
 #[allow(clippy::too_many_arguments)]
 #[derive(new)]
 pub(crate) struct LookupFlatDatasetOutput {
-    pub(crate) kws: ValidKeywords,
     pub(crate) df: PrimitiveDataFrame,
     pub(crate) analysis: Analysis,
     pub(crate) others: Others,
     pub(crate) ds_offsets: DatasetOffsets,
     pub(crate) event_diag: EventsDiagnostics,
     pub(crate) schema_diag: DataSchemaDiagnostics,
-    pub(crate) repair_diag: RepairDiagnostics,
     pub(crate) timings: LookupFlatDatasetTimings,
 }
 
@@ -2133,7 +2192,7 @@ pub(crate) struct LookupFlatDatasetTimings {
 pub(crate) trait PrivVersionSet: VersionSet {
     fn h_lookup_and_read<C, R>(
         h: &mut BufReader<R>,
-        mut kws: ValidKeywords,
+        tx: &StdLookupTx,
         hns: &mut HeaderAndSuppOffsets,
         start_time: Instant,
         st: &TEXTReadState<C>,
@@ -2149,94 +2208,59 @@ pub(crate) trait PrivVersionSet: VersionSet {
         R: Read + Seek,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadDatasetConfig> + AsRef<ReadOffsetConfig>,
     {
-        #[derive(AsRef)]
-        struct LookupConfig {
-            #[as_ref(EvaledReadDataKeywordsConfig)]
-            data_kws: EvaledReadDataKeywordsConfig,
-            #[as_ref(ReadDatasetConfig)]
-            dataset: ReadDatasetConfig,
-            #[as_ref(ReadOffsetConfig)]
-            offsets: ReadOffsetConfig,
-        }
+        // TODO which order should these be in? it matter for benchmark
+        // timing, since now offset lookup is considered part of data
+        // schema lookup, but if this were flipped with the next
+        // expression it would be counted as part of DATA read
+        let offset_res = Self::Offsets::lookup_ro(tx, hns, &st)
+            .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
+            .map_errors(LookupAndReadDataAnalysisError::from);
 
-        eval_data_conf(st.conf().as_ref(), &kws)
-            .map_ok_value(|data_kws| {
-                st.as_ref().first_once(|conf| LookupConfig {
-                    data_kws,
-                    dataset: *AsRef::<ReadDatasetConfig>::as_ref(&conf),
-                    offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf),
-                })
-            })
-            .map_errors(LookupAndReadDataAnalysisError::from)
-            .nowarn_into_warn()
-            .group()
-            .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|lst| {
-                // Repair the keyword list before doing anything.
-                let mut rtx = kws.std.into_transaction();
-                let repair_res = rtx
-                    .repair(&mut kws.pstd, &mut kws.nonstd, &lst.conf().data_kws)
+        let layout_res = Par::get_metaroot_req(tx)
+            .map_err(LookupAndReadDataAnalysisError::from)
+            .into_log()
+            .and_then_commutative(|par| {
+                Self::DataSchema::lookup_ro(tx, par, start_time, st.conf().as_ref())
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_errors(LookupAndReadDataAnalysisError::from)
-                    .into_semigroup();
-                let ltx = rtx.into_lookup_transaction();
+            });
 
-                // TODO which order should these be in? it matter for benchmark
-                // timing, since now offset lookup is considered part of data
-                // schema lookup, but if this were flipped with the next
-                // expression it would be counted as part of DATA read
-                let offset_res = Self::Offsets::lookup_ro(&ltx, hns, &lst)
+        layout_res
+            .zip_commutative(offset_res)
+            .group()
+            .map_error(IOErrorGroup::Pure)
+            .and_then_commutative(|(mut layout_out, mut offsets)| {
+                let or = hns.header.final_offsets.others_reader();
+                let ar = AnalysisReader::new(offsets.offsets.final_analysis);
+                let fd = &mut offsets.offsets.final_data;
+                let t0 = layout_out.end_time;
+                layout_out
+                    .data_schema
+                    .h_read_df(h, offsets.tot, fd, t0, st.conf().as_ref())
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
-                    .map_errors(LookupAndReadDataAnalysisError::from);
-
-                let layout_res = Par::get_metaroot_req(&ltx)
-                    .map_err(LookupAndReadDataAnalysisError::from)
-                    .into_log()
-                    .and_then_commutative(|par| {
-                        Self::DataSchema::lookup_ro(&ltx, par, start_time, lst.conf().as_ref())
-                            .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
-                            .map_errors(LookupAndReadDataAnalysisError::from)
-                    });
-
-                layout_res
-                    .zip3_commutative(offset_res, repair_res)
-                    .group()
-                    .map_error(IOErrorGroup::Pure)
-                    .and_then_commutative(|(mut layout_out, mut offsets, repair_diag)| {
-                        let or = hns.header.final_offsets.others_reader();
-                        let ar = AnalysisReader::new(offsets.offsets.final_analysis);
-                        let fd = &mut offsets.offsets.final_data;
-                        let t0 = layout_out.end_time;
-                        layout_out
-                            .data_schema
-                            .h_read_df(h, offsets.tot, fd, t0, lst.conf().as_ref())
-                            .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
-                            .map_pure_errors(LookupAndReadDataAnalysisError::from)
-                            .and_then_commutative(|df_out| {
-                                let analysis = io_to_log!(ar.h_read(h));
-                                let others = io_to_log!(or.h_read(h));
-                                let read_other_anal_end = Instant::now();
-                                let read_other_analysis_time =
-                                    read_other_anal_end.duration_since1(df_out.read_end);
-                                let timings = LookupFlatDatasetTimings::new(
-                                    df_out.read_data_time,
-                                    df_out.check_ranges_time,
-                                    read_other_analysis_time,
-                                    read_other_anal_end,
-                                );
-                                let ret = LookupFlatDatasetOutput::new(
-                                    kws,
-                                    df_out.inner.into(),
-                                    analysis,
-                                    others,
-                                    offsets.offsets,
-                                    df_out.diagnostics,
-                                    layout_out.diagnostics,
-                                    repair_diag,
-                                    timings,
-                                );
-                                LogResult::new_ok(ret)
-                            })
+                    .map_pure_errors(LookupAndReadDataAnalysisError::from)
+                    .and_then_commutative(|df_out| {
+                        let analysis = io_to_log!(ar.h_read(h));
+                        let others = io_to_log!(or.h_read(h));
+                        let read_other_anal_end = Instant::now();
+                        let read_other_analysis_time =
+                            read_other_anal_end.duration_since1(df_out.read_end);
+                        let timings = LookupFlatDatasetTimings::new(
+                            df_out.read_data_time,
+                            df_out.check_ranges_time,
+                            read_other_analysis_time,
+                            read_other_anal_end,
+                        );
+                        let ret = LookupFlatDatasetOutput::new(
+                            df_out.inner.into(),
+                            analysis,
+                            others,
+                            offsets.offsets,
+                            df_out.diagnostics,
+                            layout_out.diagnostics,
+                            timings,
+                        );
+                        LogResult::new_ok(ret)
                     })
             })
     }
@@ -2256,7 +2280,7 @@ pub trait LookupMetaroot<N>: Sized {
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>;
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>;
 }
 
 impl LookupMetaroot<Option<Shortname>> for InnerRootMeta2_0 {
@@ -2266,7 +2290,7 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta2_0 {
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let par = Par(ms.len());
         let comp = Compensation2_0::lookup(kws, par, conf.as_ref())
@@ -2303,7 +2327,7 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta3_0 {
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -2358,7 +2382,7 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_1 {
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let ordered_names: Vec<_> = ms.iter().map(|n| &n.0).collect();
 
@@ -2416,7 +2440,7 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_2 {
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -2498,7 +2522,7 @@ pub trait LookupTEXTOffsets: Sized {
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>;
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>;
 
     fn lookup_ro<C>(
         kws: &StdLookupTx,
@@ -2506,7 +2530,7 @@ pub trait LookupTEXTOffsets: Sized {
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>;
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>;
 }
 
 impl LookupTEXTOffsets for TEXTOffsets2_0 {
@@ -2518,7 +2542,7 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
     {
         Tot::remove_or_drop_root_opt(kws, st.conf().as_ref())
             .map_ok_value(|tot| {
@@ -2538,7 +2562,7 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
         _: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
     {
         let succ = Tot::get_root_opt(kws)
             .map_err(LookupTEXTOffsetsWarning::from)
@@ -2556,7 +2580,7 @@ macro_rules! lookup_offsets_3_0 {
         let tot_res = Tot::$tot($std)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let dconf: &EvaledReadDataKeywordsConfig = $st.conf().as_ref();
+        let dconf: &ReadDataKeywordsConfig = $st.conf().as_ref();
         let data_ignore = dconf.ignore_text_data_offsets;
         let data_corr = dconf.text_data_correction;
         let data_res = DataSegmentId::$lookup($std, $offsets, data_ignore, data_corr, $st)
@@ -2589,7 +2613,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_0 {
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
     {
         lookup_offsets_3_0!(kws, offsets, st, remove_metaroot_req, remove_req_or)
     }
@@ -2600,7 +2624,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_0 {
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
     {
         lookup_offsets_3_0!(kws, offsets, st, get_metaroot_req, get_req_or)
     }
@@ -2611,7 +2635,7 @@ macro_rules! lookup_offsets_3_2 {
         let tot_res = Tot::$tot($std)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let dconf: &EvaledReadDataKeywordsConfig = $st.conf().as_ref();
+        let dconf: &ReadDataKeywordsConfig = $st.conf().as_ref();
         let data_corr = dconf.text_data_correction;
         let data_ignore = dconf.ignore_text_data_offsets;
         let data_res = DataSegmentId::$lookup_req($std, $offsets, data_ignore, data_corr, $st)
@@ -2644,7 +2668,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_2 {
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
     {
         lookup_offsets_3_2!(
             kws,
@@ -2662,7 +2686,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_2 {
         st: &TEXTReadState<C>,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
     {
         lookup_offsets_3_2!(kws, offsets, st, get_metaroot_req, get_req_or, get_opt_or)
     }
@@ -3463,7 +3487,7 @@ impl<M: VersionedRootMeta> RootMeta<M> {
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
         M: LookupMetaroot<N>,
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -5616,7 +5640,7 @@ where
         LookupShortnameError,
     >
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         V::RootMeta: LookupMetaroot<V::Name>,
         V::Name: LookupShortname,
     {
@@ -5646,7 +5670,7 @@ where
         conf: &C,
     ) -> LookupMeasurementResult<(VNamedTemporalsAndScaledOpticals<V>, MeasurementDiagnostics)>
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         V::RootMeta: LookupMetaroot<V::Name>,
         V::Temporal: LookupTemporal,
         V::Optical: LookupOptical,
@@ -5747,8 +5771,8 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     ) -> WarningsAndErrorsResult<
         LookupCoreWithOffsetOutput<Self, MetarootTEXTOffsets<V>>,
         (),
-        StdTEXTFromFlatTEXTWarning,
-        StdTEXTFromFlatTEXTErrorInner,
+        StdTEXTFromKeywordsWithOffsetsWarning,
+        StdTEXTFromKeywordsWithOffsetsError,
     >
     where
         V::RootMeta: LookupMetaroot<V::Name>,
@@ -5757,31 +5781,62 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::Name: LookupShortname,
         V::DataSchema: VersionedDataSchema,
         C: AsRef<EvaledReadStdKeywordsConfig>
-            + AsRef<EvaledReadDataKeywordsConfig>
+            + AsRef<EvaledReadRepairKeywordsConfig>
+            + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadOffsetConfig>,
     {
-        // Repair the keyword list before doing anything.
         let mut rtx = kws.std.into_transaction();
         let repair_res = rtx
             .repair(&mut kws.pstd, &mut kws.nonstd, st.conf().as_ref())
-            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-            .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
-            .into_semigroup();
-        let mut ltx = rtx.into_lookup_transaction();
+            .map_commutative_warnings(StdTEXTFromKeywordsWithOffsetsWarning::from)
+            .map_errors(StdTEXTFromKeywordsWithOffsetsError::from);
+        let ltx = rtx.into_lookup_transaction();
+        // TODO return pseudostandard keywords somewhere
+        Self::new_from_transaction_with_offsets(ltx, kws.nonstd, offsets, start_time, st)
+            .map_commutative_warnings(StdTEXTFromKeywordsWithOffsetsWarning::from)
+            .map_errors(StdTEXTFromKeywordsWithOffsetsError::from)
+            .zip_commutative(repair_res)
+            .map_ok_value(|((core, core_offsets), repair_diag)| {
+                LookupCoreWithOffsetOutput::new(core, core_offsets, repair_diag)
+            })
+    }
 
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn new_from_transaction_with_offsets<C>(
+        mut tx: StdLookupTx,
+        nonstd: NonStdKeywords,
+        offsets: &mut HeaderAndSuppOffsets,
+        start_time: Instant,
+        st: &TEXTReadState<C>,
+    ) -> WarningsAndErrorsResult<
+        (LookupCoreOutput<Self>, MetarootTEXTOffsets<V>),
+        (),
+        StdTEXTFromTxWithOffsetsWarning,
+        StdTEXTFromTxWithOffsetsError,
+    >
+    where
+        V::RootMeta: LookupMetaroot<V::Name>,
+        V::Temporal: LookupTemporal,
+        V::Optical: LookupOptical,
+        V::Name: LookupShortname,
+        V::DataSchema: VersionedDataSchema,
+        C: AsRef<EvaledReadStdKeywordsConfig>
+            + AsRef<ReadDataKeywordsConfig>
+            + AsRef<ReadOffsetConfig>,
+    {
         // Lookup DATA/ANALYSIS offsets and $TOT; these are not stored in the
         // Core struct but they will be needed later for parsing DATA and
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
-        let offsets_res = V::Offsets::lookup(&mut ltx, offsets, st)
-            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-            .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
+        let offsets_res = V::Offsets::lookup(&mut tx, offsets, st)
+            .map_commutative_warnings(StdTEXTFromTxWithOffsetsWarning::from)
+            .map_errors(StdTEXTFromTxWithOffsetsError::from);
 
-        Self::lookup_inner(ltx, kws.nonstd, start_time, st.conf())
-            .zip3_commutative(offsets_res, repair_res)
-            .map_ok_value(|(core, core_offsets, repair_diag)| {
-                LookupCoreWithOffsetOutput::new(core, core_offsets, repair_diag)
-            })
+        Self::lookup_inner(tx, nonstd, start_time, st.conf())
+            .map_commutative_warnings(StdTEXTFromTxWithOffsetsWarning::from)
+            .map_errors(StdTEXTFromTxWithOffsetsError::from)
+            .zip_commutative(offsets_res)
+            .map_ok_value(|(core, core_offsets)| (core, core_offsets))
     }
 
     /// Make a new CoreTEXT from flat keywords.
@@ -5797,7 +5852,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         conf: &C,
     ) -> WarningsAndGroupResult<
         (Self, StdTEXTDiagnostics),
-        StdTEXTFromFlatTEXTWarning,
+        StdTEXTFromTxWarning,
         StdTEXTFromKeywordsError,
         CoreTEXTFromKeywordsSummary,
     >
@@ -5808,7 +5863,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::Name: LookupShortname,
         V::DataSchema: VersionedDataSchema,
         C: AsRef<EvaledReadStdKeywordsConfig>
-            + AsRef<EvaledReadDataKeywordsConfig>
+            + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadSharedConfig>,
     {
         let start_time = Instant::now();
@@ -5830,8 +5885,8 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     ) -> WarningsAndErrorsResult<
         LookupCoreOutput<Self>,
         (),
-        StdTEXTFromFlatTEXTWarning,
-        StdTEXTFromFlatTEXTErrorInner,
+        StdTEXTFromTxWarning,
+        StdTEXTFromTxErrorInner,
     >
     where
         V::RootMeta: LookupMetaroot<V::Name>,
@@ -5839,18 +5894,17 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::Optical: LookupOptical,
         V::Name: LookupShortname,
         V::DataSchema: VersionedDataSchema,
-        C: AsRef<EvaledReadStdKeywordsConfig> + AsRef<EvaledReadDataKeywordsConfig>,
+        C: AsRef<EvaledReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
     {
         // Lookup $PAR first since we need this to get the measurements
         let par_res = Par::remove_metaroot_req(&mut std)
-            .map_err(LookupMetarootError::from)
-            .map_err(StdTEXTFromFlatTEXTErrorInner::from)
+            .map_err(StdTEXTFromTxErrorInner::from)
             .into_log();
 
         macro_rules! go_err {
             ($x:expr) => {
-                $x.map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                    .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
+                $x.map_commutative_warnings(StdTEXTFromTxWarning::from)
+                    .map_errors(StdTEXTFromTxErrorInner::from)
             };
         }
 
@@ -5885,17 +5939,15 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                         (schema_start_time, original_names),
                     )| {
                         let meta_diag = metaroot_out.diagnostic;
-                        Self::try_new(
+                        let new_res = Self::try_new(
                             std,
                             nonstd,
                             metaroot_out.inner,
                             meas,
                             schema_out.data_schema,
                             conf,
-                        )
-                        .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                        .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
-                        .map_ok_value(|(core, extra)| {
+                        );
+                        go_err!(new_res).map_ok_value(|(core, extra)| {
                             let std_pre_ns = schema_start_time.duration_since1(start_time);
                             let (diag, std_end) = StdTEXTDiagnostics::from_extra(
                                 extra,
@@ -5911,116 +5963,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                     },
                 )
         })
-
-        // core_res.map_ok_value(
-        //     |(
-        //         ret,
-        //         original_names,
-        //         meta_diag,
-        //         meas_diag,
-        //         schema_start_time,
-        //         schema_end_time,
-        //         schema_diag,
-        //     )| {
-        //         let std_pre_ns = schema_start_time.duration_since1(start_time);
-
-        //         let (diag, std_end) = StdTEXTDiagnostics::from_extra(
-        //             extra,
-        //             dropped,
-        //             original_names,
-        //             meta_diag,
-        //             meas_diag,
-        //             schema_diag,
-        //             schema_end_time,
-        //             std_pre_ns,
-        //         );
-        //         LookupCoreOutput::new(ret, diag, std_end)
-        //     },
-        // )
-
-        // let gate = core_res
-        //     .as_ref()
-        //     .and_then(|(core, _, _, _, _, _, _)| core.rootmeta.specific.gate())
-        //     .unwrap_or(Gate::from(0));
-
-        // // Push pseudostandard/unused warnings/errors
-        // let (mut extra, errors) = ExtraStdKeywords::split_keywords(std, version, par, gate);
-
-        // let flag = sconf.process_extra_timestep;
-        // core_res = core_res
-        //     .extend_warnings_or_errors3(
-        //         // Check this first because we might take the timestamp out
-        //         // of this slot below to demote it
-        //         extra.timestep.is_some().then_some(TimestepFoundError),
-        //         |_v| (),
-        //         StdTEXTFromFlatTEXTWarning::from,
-        //         StdTEXTFromFlatTEXTErrorInner::from,
-        //         flag,
-        //     )
-        //     .map_ok_value(|mut core| {
-        //         if flag.is_demote()
-        //             && let Some(t) = mem::take(&mut extra.timestep)
-        //         {
-        //             core.0
-        //                 .nonstandard_keywords
-        //                 .insert_demoted(Timestep::std(&()), t);
-        //         }
-        //         core
-        //     });
-
-        // macro_rules! go_extra {
-        //     ($proc:ident, $keyvals:ident, $errors:ident) => {
-        //         let flag = sconf.$proc;
-        //         core_res = core_res
-        //             .map_ok_value(|mut core| {
-        //                 if flag.is_demote() {
-        //                     for (k, v) in mem::take(&mut extra.$keyvals) {
-        //                         core.0.nonstandard_keywords.insert_demoted(k, v);
-        //                     }
-        //                 }
-        //                 core
-        //             })
-        //             .extend_warnings_or_errors3(
-        //                 errors.$errors,
-        //                 |_v| (),
-        //                 StdTEXTFromFlatTEXTWarning::from,
-        //                 StdTEXTFromFlatTEXTErrorInner::from,
-        //                 flag,
-        //             );
-        //     };
-        // }
-
-        // go_extra!(process_pseudostandard, pseudostandard, pseudo);
-        // go_extra!(process_hyper_par, hyper_par, hyper_par);
-        // go_extra!(process_hyper_par, hyper_gate, hyper_gate);
-        // go_extra!(process_other_version, other_version, other_version);
-
-        // core_res.map_ok_value(
-        //     |(
-        //         ret,
-        //         original_names,
-        //         meta_diag,
-        //         meas_diag,
-        //         schema_start_time,
-        //         schema_end_time,
-        //         schema_diag,
-        //     )| {
-        //         let std_pre_ns = schema_start_time.duration_since1(start_time);
-
-        //         let (diag, std_end) = StdTEXTDiagnostics::from_extra(
-        //             extra,
-        //             dropped,
-        //             original_names,
-        //             meta_diag,
-        //             meas_diag,
-        //             schema_diag,
-        //             schema_end_time,
-        //             std_pre_ns,
-        //         );
-        //         LookupCoreOutput::new(ret, diag, std_end)
-        //     },
-        // )
-        // })
     }
 
     /// Get reference to data schema
@@ -6251,9 +6193,9 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     ) -> WarningsAndErrorsResult<(Self, ExtraStdKeywords), (), NewCoreWarning, LookupCoreError>
     where
         V::DataSchema: LayoutWidth,
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let opt_flag = rconf.process_optional_failure;
         let par = Par(measurements.len());
         let version = V::as_version();
@@ -6340,14 +6282,15 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     pub fn new_from_keywords<C>(
         p: &PathBuf,
         mut hns: HeaderAndSuppOffsets,
-        kws: ValidKeywords,
+        std: StdKeywords,
+        nonstd: NonStdKeywords,
         dataset_offset: DatasetOffset,
         dataset_len: Option<DatasetLen>,
         conf: &C,
     ) -> WarningsAndIOGroupResult<
         (Self, NewStdDatasetFromKwsOutput),
-        StdDatasetFromFlatTEXTWarning,
-        StdDatasetFromKeywordsError,
+        NewStdDatasetFromKeywordsWarning,
+        NewStdDatasetFromKeywordsError,
         StdDatasetWithKwsSummary,
     >
     where
@@ -6356,24 +6299,12 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         V::Optical: LookupOptical,
         V::Name: LookupShortname,
         V::DataSchema: DataSchemaToEmptyDataFrame<DfTarget = V::DataFrame>,
-        C: AsRef<ReadStdKeywordsConfig>
-            + AsRef<ReadOffsetConfig>
+        C: AsRef<EvaledReadStdKeywordsConfig>
             + AsRef<ReadDataKeywordsConfig>
+            + AsRef<ReadOffsetConfig>
             + AsRef<ReadDatasetConfig>
             + AsRef<ReadSharedConfig>,
     {
-        #[derive(AsRef)]
-        struct LookupConfig {
-            #[as_ref(EvaledReadStdKeywordsConfig)]
-            std: EvaledReadStdKeywordsConfig,
-            #[as_ref(EvaledReadDataKeywordsConfig)]
-            data: EvaledReadDataKeywordsConfig,
-            #[as_ref(ReadOffsetConfig)]
-            offsets: ReadOffsetConfig,
-            #[as_ref(ReadDatasetConfig)]
-            dataset: ReadDatasetConfig,
-        }
-
         let start_time = Instant::now();
 
         #[allow(
@@ -6381,63 +6312,88 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             reason = "top level function, shouldn't be used often, large call stack won't matter much"
         )]
         FCSFileReader::open_with_state(p, dataset_offset, start_time, conf)
-            .map_err(|e| e.fmap_once(StdDatasetFromFlatTextErrorInner::from))
-            .map_err(|e| e.fmap_once(StdDatasetFromKeywordsError::from))
+            .map_err(|e| e.fmap_once(NewStdDatasetFromKeywordsError::from))
             .and_then(|(fr, st)| {
                 st.maybe_with_dataset_length(dataset_len)
                     .map(|txt_st| (fr, txt_st))
-                    .map_err(StdDatasetFromKeywordsError::from)
+                    .map_err(NewStdDatasetFromKeywordsError::from)
                     .map_err(ImpureError::Pure)
             })
             .map_err(IOErrorGroup::from)
             .into_log()
             .and_then_commutative(|(mut fr, txt_st)| {
-                eval_data_conf(txt_st.conf().as_ref(), &kws)
-                    .map_ok_value(|data| {
-                        txt_st.first_once(|iconf| LookupConfig {
-                            std: eval_std_conf(iconf.as_ref(), &kws),
-                            data,
-                            offsets: *AsRef::<ReadOffsetConfig>::as_ref(&iconf),
-                            dataset: *AsRef::<ReadDatasetConfig>::as_ref(&iconf),
-                        })
-                    })
-                    .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
-                    .map_errors(StdDatasetFromFlatTextErrorInner::from)
-                    .map_errors(StdDatasetFromKeywordsError::from)
-                    .nowarn_into_warn()
-                    .group()
-                    .map_error(IOErrorGroup::Pure)
-                    .and_then_commutative(|lst| {
-                        Self::new_from_keywords_inner(
-                            &mut fr.buf_read,
-                            kws,
-                            &mut hns,
-                            false,
-                            lst.start_time(),
-                            &lst,
-                        )
-                        .map_pure_errors(StdDatasetFromKeywordsError::from)
-                    })
+                let tx = std.into_transaction();
+                Self::new_from_transaction(
+                    &mut fr.buf_read,
+                    tx,
+                    nonstd,
+                    &mut hns,
+                    false,
+                    start_time,
+                    &txt_st,
+                )
+                .map_commutative_warnings(NewStdDatasetFromKeywordsWarning::from)
+                .map_pure_errors(NewStdDatasetFromKeywordsError::from)
             })
             .map_ok_value(|(ret, dataset)| {
                 let out = NewStdDatasetFromKwsOutput::new(dataset, hns.header.final_offsets);
                 (ret, out)
             })
-            .warnings_to_pure_errors(conf.as_ref(), StdDatasetFromKeywordsError::from)
+            .warnings_to_pure_errors(conf.as_ref(), NewStdDatasetFromKeywordsError::from)
             .deanonymize()
     }
 
     pub(crate) fn new_from_keywords_inner<C, R>(
         h: &mut BufReader<R>,
-        kws: ValidKeywords,
+        mut kws: ValidKeywords,
+        hns: &mut HeaderAndSuppOffsets,
+        scan_next_dataset: bool,
+        start_time: Instant,
+        st: &TEXTReadState<C>,
+    ) -> WarningsAndIOGroupResult<
+        (Self, StdDatasetFromKwsOutput, RepairDiagnostics),
+        StdDatasetFromKeywordsWarningInner,
+        StdDatasetFromKeywordsErrorInner,
+        (),
+    >
+    where
+        R: Read + Seek,
+        V::RootMeta: LookupMetaroot<V::Name>,
+        V::Temporal: LookupTemporal,
+        V::Optical: LookupOptical,
+        V::Name: LookupShortname,
+        V::DataSchema: DataSchemaToEmptyDataFrame<DfTarget = V::DataFrame>,
+        C: AsRef<EvaledReadStdKeywordsConfig>
+            + AsRef<EvaledReadRepairKeywordsConfig>
+            + AsRef<ReadOffsetConfig>
+            + AsRef<ReadDataKeywordsConfig>
+            + AsRef<ReadDatasetConfig>,
+    {
+        let mut rtx = kws.std.into_transaction();
+        let repair_res = rtx
+            .repair(&mut kws.pstd, &mut kws.nonstd, st.conf().as_ref())
+            .map_commutative_warnings(StdDatasetFromKeywordsWarningInner::from)
+            .map_errors(StdDatasetFromKeywordsErrorInner::from);
+        let ltx = rtx.into_lookup_transaction();
+        Self::new_from_transaction(h, ltx, kws.nonstd, hns, scan_next_dataset, start_time, st)
+            .map_commutative_warnings(StdDatasetFromKeywordsWarningInner::from)
+            .map_pure_errors(StdDatasetFromKeywordsErrorInner::from)
+            .zip_io_group_commutative(repair_res)
+            .map_ok_value(|((new, out), repair)| (new, out, repair))
+    }
+
+    pub(crate) fn new_from_transaction<C, R>(
+        h: &mut BufReader<R>,
+        tx: StdLookupTx,
+        nonstd: NonStdKeywords,
         hns: &mut HeaderAndSuppOffsets,
         scan_next_dataset: bool,
         start_time: Instant,
         st: &TEXTReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetFromKwsOutput),
-        StdDatasetFromFlatTEXTWarning,
-        StdDatasetFromFlatTextErrorInner,
+        StdDatasetFromTxWarning,
+        StdDatasetFromTxError,
         (),
     >
     where
@@ -6449,17 +6405,16 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         V::DataSchema: DataSchemaToEmptyDataFrame<DfTarget = V::DataFrame>,
         C: AsRef<EvaledReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
-            + AsRef<EvaledReadDataKeywordsConfig>
+            + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadDatasetConfig>,
     {
-        VersionedCoreTEXT::<V>::new_from_keywords_with_offsets(kws, hns, start_time, st)
-            .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
-            .map_errors(StdDatasetFromFlatTextErrorInner::from)
+        VersionedCoreTEXT::<V>::new_from_transaction_with_offsets(tx, nonstd, hns, start_time, st)
+            .map_commutative_warnings(StdDatasetFromTxWarning::from)
+            .map_errors(StdDatasetFromTxError::from)
             .group()
             .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|std_out| {
-                let core = std_out.core.this;
-                let mut offsets = std_out.offsets;
+            .and_then_commutative(|(core_out, mut offsets)| {
+                let core = core_out.this;
                 let or = hns.header.final_offsets.others_reader();
                 let ar = AnalysisReader::new(offsets.offsets.final_analysis);
                 let version = core.fcs_version();
@@ -6467,13 +6422,12 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                 let other = io_to_log!(or.h_read(h));
                 let analysis = io_to_log!(ar.h_read(h));
                 let read_other_anal_end = Instant::now();
-                let read_other_anal_time =
-                    read_other_anal_end.duration_since1(std_out.core.lookup_end);
+                let read_other_anal_time = read_other_anal_end.duration_since1(core_out.lookup_end);
                 let r0 = read_other_anal_end;
                 core.meas
                     .h_read_df(h, offsets.tot, final_data, r0, st.conf().as_ref())
-                    .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
-                    .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
+                    .map_commutative_warnings(StdDatasetFromTxWarning::from)
+                    .map_pure_errors(StdDatasetFromTxError::from)
                     .and_then_commutative(|df_out| {
                         let ed = df_out.diagnostics;
                         let d = &offsets.offsets;
@@ -6488,14 +6442,13 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                             df_out.read_end,
                         );
                         DatasetDiagnostics::from_parts(h, v, ed, hns, d, s, &ts, st)
-                            .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
-                            .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
+                            .map_commutative_warnings(StdDatasetFromTxWarning::from)
+                            .map_pure_errors(StdDatasetFromTxError::from)
                             .repack_warnings()
                             .map_ok_value(|ds_diag| {
                                 let diag = StdDatasetFromKwsOutput::new(
                                     offsets.offsets,
-                                    std_out.repair_diag,
-                                    std_out.core.std_diag,
+                                    core_out.std_diag,
                                     ds_diag,
                                 );
                                 (new, diag)
@@ -7036,11 +6989,12 @@ impl AnyCoreTEXT {
     ) -> WarningsAndErrorsResult<
         AnyCoreOutput<Self>,
         (),
-        StdTEXTFromFlatTEXTWarning,
-        StdTEXTFromFlatTEXTError,
+        StdTEXTFromKeywordsWithOffsetsWarning,
+        AnyStdTEXTFromKeywordsError,
     >
     where
         C: AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<ReadRepairKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadDataKeywordsConfig>,
@@ -7049,8 +7003,10 @@ impl AnyCoreTEXT {
         struct LookupConfig {
             #[as_ref(EvaledReadStdKeywordsConfig)]
             std: EvaledReadStdKeywordsConfig,
-            #[as_ref(EvaledReadDataKeywordsConfig)]
-            data: EvaledReadDataKeywordsConfig,
+            #[as_ref(EvaledReadRepairKeywordsConfig)]
+            repair: EvaledReadRepairKeywordsConfig,
+            #[as_ref(ReadDataKeywordsConfig)]
+            data: ReadDataKeywordsConfig,
             #[as_ref(ReadOffsetConfig)]
             offsets: ReadOffsetConfig,
         }
@@ -7067,22 +7023,23 @@ impl AnyCoreTEXT {
                             $s,
                         )
                     })
-                    .map_errors(StdTEXTFromFlatTEXTError::from)
+                    .map_errors(AnyStdTEXTFromKeywordsError::from)
             };
         }
 
         let sconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
 
-        eval_data_conf(st.conf().as_ref(), &kws)
-            .map_ok_value(|data| {
+        eval_repair_conf(st.conf().as_ref(), &kws)
+            .map_ok_value(|repair| {
                 st.as_ref().first_once(|conf| LookupConfig {
                     std: eval_std_conf(conf.as_ref(), &kws),
-                    data,
+                    repair,
+                    // TODO useless clone
+                    data: AsRef::<ReadDataKeywordsConfig>::as_ref(&conf).clone(),
                     offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf),
                 })
             })
-            .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
-            .map_errors(StdTEXTFromFlatTEXTError::from)
+            .map_errors(AnyStdTEXTFromKeywordsError::from)
             .nowarn_into_warn()
             .and_then_commutative(|lst| {
                 match autodetect_version(version, &kws.std, sconf.version_override.as_ref()) {
@@ -7092,7 +7049,7 @@ impl AnyCoreTEXT {
                         Version::FCS3_1 => go!(CoreTEXT3_1, scores, &lst),
                         Version::FCS3_2 => go!(CoreTEXT3_2, scores, &lst),
                     },
-                    Err(e) => LogResult::new_err(StdTEXTFromFlatTEXTError::from(e)),
+                    Err(e) => LogResult::new_err(AnyStdTEXTFromKeywordsError::from(e)),
                 }
             })
     }
@@ -7130,14 +7087,20 @@ impl AnyCoreDataset {
         start_time: Instant,
         st: &TEXTReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        (Self, StdDatasetFromKwsOutput, Option<KeywordVersionScores>),
-        StdDatasetFromFlatTEXTWarning,
-        AnyStdDatasetFromFlatTextError,
+        (
+            Self,
+            StdDatasetFromKwsOutput,
+            RepairDiagnostics,
+            Option<KeywordVersionScores>,
+        ),
+        StdDatasetFromKeywordsWarningInner,
+        AnyStdDatasetFromKeywordsError,
         (),
     >
     where
         R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<ReadRepairKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadDataKeywordsConfig>
@@ -7147,8 +7110,10 @@ impl AnyCoreDataset {
         struct LookupConfig {
             #[as_ref(EvaledReadStdKeywordsConfig)]
             std: EvaledReadStdKeywordsConfig,
-            #[as_ref(EvaledReadDataKeywordsConfig)]
-            data: EvaledReadDataKeywordsConfig,
+            #[as_ref(EvaledReadRepairKeywordsConfig)]
+            repair: EvaledReadRepairKeywordsConfig,
+            #[as_ref(ReadDataKeywordsConfig)]
+            data: ReadDataKeywordsConfig,
             #[as_ref(ReadOffsetConfig)]
             offsets: ReadOffsetConfig,
             #[as_ref(ReadDatasetConfig)]
@@ -7159,25 +7124,25 @@ impl AnyCoreDataset {
         macro_rules! go {
             ($t:ident, $s:expr, $st:expr) => {
                 $t::new_from_keywords_inner(h, kws, hns, scan_next_dataset, start_time, $st)
-                    .map_ok_value(|(x, y)| (x.into(), y, $s))
-                    .map_pure_errors(AnyStdDatasetFromFlatTextError::from)
+                    .map_ok_value(|(x, y, z)| (x.into(), y, z, $s))
+                    .map_pure_errors(AnyStdDatasetFromKeywordsError::from)
             };
         }
 
         let sconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
 
-        eval_data_conf(st.conf().as_ref(), &kws)
-            .map_ok_value(|data| {
+        eval_repair_conf(st.conf().as_ref(), &kws)
+            .map_ok_value(|repair| {
                 st.as_ref().first_once(|conf| LookupConfig {
                     std: eval_std_conf(conf.as_ref(), &kws),
-                    data,
+                    repair,
+                    // TODO useless clone
+                    data: AsRef::<ReadDataKeywordsConfig>::as_ref(&conf).clone(),
                     offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf),
                     dataset: *AsRef::<ReadDatasetConfig>::as_ref(&conf),
                 })
             })
-            .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
-            .map_errors(StdDatasetFromFlatTextErrorInner::from)
-            .map_errors(AnyStdDatasetFromFlatTextError::from)
+            .map_errors(AnyStdDatasetFromKeywordsError::from)
             .nowarn_into_warn()
             .group()
             .map_error(IOErrorGroup::Pure)
@@ -7207,7 +7172,7 @@ impl UnstainedData {
         OptStKeyError<UnstainedCenters>,
     >
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let i = UnstainedInfo::remove_root_opt_nofail(kws);
         UnstainedCenters::remove_or_drop_root_opt_with(kws, (), conf).map_deferred_value(|out| {
@@ -7226,7 +7191,7 @@ impl UnstainedData {
 impl SubsetData {
     fn lookup(
         kws: &mut StdLookupTx,
-        conf: &EvaledReadDataKeywordsConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupSubsetError, LookupSubsetError> {
         let f = CSVFlags::lookup(kws, conf).map_warnings_and_errors(LookupSubsetError::from);
         let b = CSVBits::remove_or_drop_root_opt(kws, conf)
@@ -7253,7 +7218,7 @@ impl SubsetData {
 impl CSVFlags {
     fn lookup(
         kws: &mut StdLookupTx,
-        conf: &EvaledReadDataKeywordsConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupCSVFlagsError, LookupCSVFlagsError> {
         CSMode::remove_or_drop_root_opt(kws, conf)
             .map_switchable_errors(LookupCSVFlagsError::from)
@@ -7301,7 +7266,7 @@ impl ModificationData {
         LookupModifiedDataError,
     >
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let last_mod = LastModifier::remove_root_opt_nofail(kws);
         let last_mod_date = LastModified::remove_or_drop_root_opt_with(kws, (), conf)

@@ -1,4 +1,4 @@
-use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
+use crate::config::EvaledReadStdKeywordsConfig;
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::std_index::index::StdLookupTx;
 use crate::text::keyword_enum::{Keyword0FromValue as _, OptRootKeyword};
@@ -6,7 +6,7 @@ use crate::text::lookup::{Diagnosed, FromStrWith, OptStKeyError, OptValue as _};
 use crate::validated::keys::ValueToStdKey as _;
 
 use fireflow_types::{
-    config::ConfigFlag as _,
+    config::{ConfigFlag as _, ReadDataKeywordsConfig},
     keywords::{
         ISO_DATETIME_NO_TZ, ISO_DATETIME_TZ_HH, ISO_DATETIME_TZ_HH_MAYBE_MM, ISO_DATETIME_TZ_HH_MM,
     },
@@ -140,7 +140,7 @@ impl Datetimes {
         LookupDatetimesError,
     >
     where
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -152,7 +152,7 @@ impl Datetimes {
         }
         let b = BeginDateTime::remove_or_drop_root_opt_with(kws, (), conf);
         let e = EndDateTime::remove_or_drop_root_opt_with(kws, (), conf);
-        let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         go!(b)
             .zip_commutative(go!(e))
             .and_then_commutative(|(begin, end)| {

@@ -1,10 +1,11 @@
-use crate::config::EvaledReadDataKeywordsConfig;
 use crate::logging::{DeferredSwitchableError, ResultExt as _};
 use crate::std_index::index::{LookupAction, StdLookupTx};
 use crate::validated::keys::{DollarKey, DollarKey_, TruncatedNEString, ValueToStdKey};
 
 use fireflow_types::{
-    config::{ConfigFlag as _, ProcessOptionalFailure, TrimIntraValueWhitespace},
+    config::{
+        ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, TrimIntraValueWhitespace,
+    },
     nonempty::{NEStr, NEString},
     std_key::StdKey,
 };
@@ -234,10 +235,7 @@ pub(crate) use impl_from_str_with_delim;
 
 /// A required key
 pub(crate) trait ReqValue: Sized + ValueToStdKey {
-    fn get_req(
-        kws: &StdLookupTx,
-        i: Self::Index,
-    ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self>>
+    fn get_req(kws: &StdLookupTx, i: Self::Index) -> Result<Self, ReqKeyErrorInner<Self::Err, Self>>
     where
         Self: FromStr,
         Self::Index: Copy,
@@ -405,7 +403,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     fn get_or_ignore_opt(
         kws: &StdLookupTx,
         k: Self::Index,
-        conf: &EvaledReadDataKeywordsConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, ParseKeyError<Self::Err, Self>>
     where
         Self: FromStr,
@@ -416,7 +414,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     fn remove_or_transfer_opt(
         kws: &mut StdLookupTx,
         k: Self::Index,
-        conf: &EvaledReadDataKeywordsConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, ParseKeyError<Self::Err, Self>>
     where
         Self: FromStr,
@@ -441,9 +439,9 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         Self: FromStrWith,
         Self::Index: Copy,
         Self::Diagnostic: Default,
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
-        let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
         Self::remove_opt_with(kws, k, data, flag, conf.as_ref())
     }
@@ -464,7 +462,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
 
     fn remove_or_drop_root_opt(
         kws: &mut StdLookupTx,
-        conf: &EvaledReadDataKeywordsConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyError<Self>>
     where
         Self: ValueToStdKey<Index = ()> + FromStr,
@@ -484,7 +482,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     where
         Self: ValueToStdKey<Index = ()> + FromStrWith,
         Self::Diagnostic: Default,
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
         Self::remove_or_transfer_opt_with(kws, (), data, conf)
     }
@@ -503,7 +501,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     fn get_or_ignore_meas_opt(
         std: &StdLookupTx,
         i: Self::Index,
-        conf: &EvaledReadDataKeywordsConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyError<Self>>
     where
         Self: FromStr,
@@ -521,7 +519,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     fn remove_or_drop_meas_opt(
         kws: &mut StdLookupTx,
         i: Self::Index,
-        conf: &EvaledReadDataKeywordsConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyError<Self>>
     where
         Self: FromStr,
@@ -544,7 +542,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         Self: FromStrWith,
         Self::Index: Copy,
         Self::Diagnostic: Default,
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
         Self::remove_or_transfer_opt_with(kws, i, data, conf)
     }

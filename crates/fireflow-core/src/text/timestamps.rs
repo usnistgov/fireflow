@@ -1,4 +1,4 @@
-use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
+use crate::config::EvaledReadStdKeywordsConfig;
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::std_index::index::StdLookupTx;
 use crate::text::keyword_enum::{Keyword0FromValue as _, OptRootKeyword, SplitKeyword};
@@ -6,7 +6,9 @@ use crate::text::lookup::{Diagnosed, FromStrWith, OptStKeyError, OptValue};
 use crate::validated::keys::ValueToStdKey;
 
 use fireflow_types::{
-    config::{BASE_TIME_FORMAT, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0},
+    config::{
+        BASE_TIME_FORMAT, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0, ReadDataKeywordsConfig,
+    },
     datepattern::DatePattern,
     nonempty::{NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE},
     timepattern::{ParseWithTimePatternError, TimePattern},
@@ -215,7 +217,7 @@ impl<X> Timestamps<X> {
         Btim<X>: OptValue<Outer = Option<Btim<X>>> + ValueToStdKey<Index = ()>,
         Etim<X>: OptValue<Outer = Option<Etim<X>>> + ValueToStdKey<Index = ()>,
         X: PartialOrd + FromStr + From<NaiveTime>,
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         for<'a> OptRootKeyword<'a>: From<SplitKeyword<Btim<X>>> + From<SplitKeyword<Etim<X>>>,
     {
         macro_rules! go {
@@ -229,7 +231,7 @@ impl<X> Timestamps<X> {
         let b = Btim::remove_or_drop_root_opt_with(kws, (), conf);
         let e = Etim::remove_or_drop_root_opt_with(kws, (), conf);
         let d = FCSDate::remove_or_drop_root_opt_with(kws, (), conf);
-        let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         go!(b)
             .zip3_commutative(go!(e), go!(d))
             .and_then_commutative(|(btim, etim, date)| {

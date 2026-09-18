@@ -6,8 +6,8 @@ use super::{
     nested_string::{NestedEnumString, NestedStringSize, NestedVariableString},
 };
 use crate::{
-    config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig},
-    logging::{LogResult, WarningsAndErrorsResult},
+    config::{EvaledReadRepairKeywordsConfig, EvaledReadStdKeywordsConfig},
+    logging::{DeferredWarningsAndErrors, LogResult, WarningsAndErrorsResult},
     text::keywords::{Gate, Par},
     validated::keys::{
         NonStdKey, NonStdKeywords, NonStdKeywordsExt, PseudoStdKeywords, TruncatedNEString,
@@ -19,7 +19,7 @@ use fireflow_types::{
     case_ins_regex::CaseInsRegex,
     config::{
         KeywordFailureFlag, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,
-        TemporalHasOpticalKeyError, TriErrorFlag as _,
+        ReadDataKeywordsConfig, TemporalHasOpticalKeyError, TriErrorFlag as _,
     },
     index::MeasIndex,
     keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns},
@@ -376,7 +376,7 @@ pub(crate) struct AllKeyMatchers<'a> {
 }
 
 impl<'a> AllKeyMatchers<'a> {
-    pub(crate) fn from_config(conf: &'a EvaledReadDataKeywordsConfig) -> Self {
+    pub(crate) fn from_config(conf: &'a EvaledReadRepairKeywordsConfig) -> Self {
         Self {
             promote: KeyMatcher::from_keys(&conf.promote_nonstandard_keys),
             demote: KeyMatcher::from_keys(&conf.demote_standard_keys),
@@ -606,8 +606,8 @@ impl<'a> StdRepairTx<'a> {
         &mut self,
         pstd: &mut PseudoStdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &EvaledReadDataKeywordsConfig,
-    ) -> WarningsAndErrorsResult<RepairDiagnostics, (), RepairError, RepairError> {
+        conf: &EvaledReadRepairKeywordsConfig,
+    ) -> DeferredWarningsAndErrors<RepairDiagnostics, RepairError, RepairError> {
         // Operation order:
         // 1. drop/demote
         // 2. promote
@@ -806,7 +806,7 @@ impl<'a> StdRepairTx<'a> {
         let flag = conf.allow_repair_non_unique;
         LogResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
-            .set_ok_value(ret)
+            .set_deferred_value(ret)
     }
 
     fn delete(&mut self, k: &StdKey) -> Option<&NEStr> {

@@ -18,10 +18,10 @@ use fireflow_types::std_key::{RealOrPseudoStdKey, StdKey};
 use fireflow_types::{
     case_ins_regex::LiteralOrPattern,
     config::{
-        HasStrategy, KeyPatterns, ReadDataKeywordsConfig_, ReadDatasetConfig,
-        ReadHeaderAndTEXTConfig, ReadHeaderInnerConfig, ReadOffsetConfig, ReadSharedConfig,
-        ReadStdKeywordsConfig_, SubPatterns, TimeMeasNamePattern, WriteDatasetInnerConfig,
-        WriteMultiConfig, WriteTEXTInnerConfig,
+        HasStrategy, KeyPatterns, ReadDataKeywordsConfig, ReadDatasetConfig,
+        ReadHeaderAndTEXTConfig, ReadHeaderInnerConfig, ReadOffsetConfig,
+        ReadRepairKeywordsConfig_, ReadSharedConfig, ReadStdKeywordsConfig_, SubPatterns,
+        TimeMeasNamePattern, WriteDatasetInnerConfig, WriteMultiConfig, WriteTEXTInnerConfig,
     },
     datepattern::DatePattern,
     keystring::{KeyString, KeyStringsOrPatterns, NonUniqueKeyError, checked_iter_to_hashmap},
@@ -75,6 +75,9 @@ pub struct ReadStdTEXTConfig {
     #[as_ref(ReadOffsetConfig)]
     pub offset: ReadOffsetConfig,
 
+    #[as_ref(ReadRepairKeywordsConfig)]
+    pub repair: ReadRepairKeywordsConfig,
+
     #[as_ref(ReadStdKeywordsConfig)]
     pub standard: ReadStdKeywordsConfig,
 
@@ -96,6 +99,9 @@ pub struct ReadFlatDatasetConfig {
 
     #[as_ref(ReadOffsetConfig)]
     pub offset: ReadOffsetConfig,
+
+    #[as_ref(ReadRepairKeywordsConfig)]
+    pub repair: ReadRepairKeywordsConfig,
 
     #[as_ref(ReadDataKeywordsConfig)]
     pub layout: ReadDataKeywordsConfig,
@@ -119,6 +125,9 @@ pub struct ReadStdDatasetConfig {
 
     #[as_ref(ReadOffsetConfig)]
     pub offset: ReadOffsetConfig,
+
+    #[as_ref(ReadRepairKeywordsConfig)]
+    pub repair: ReadRepairKeywordsConfig,
 
     #[as_ref(ReadStdKeywordsConfig)]
     pub standard: ReadStdKeywordsConfig,
@@ -203,7 +212,7 @@ pub type ReadStdKeywordsConfig = ReadStdKeywordsConfig_<
     Selector<Option<String>>,
 >;
 
-pub type ReadDataKeywordsConfig = ReadDataKeywordsConfig_<
+pub type ReadRepairKeywordsConfig = ReadRepairKeywordsConfig_<
     AppendableSelector<KeyPatterns>,
     AppendableSelector<KeyStringPairs>,
     AppendableSelector<KeyPatterns>,
@@ -221,7 +230,7 @@ pub type EvaledReadStdKeywordsConfig = ReadStdKeywordsConfig_<
     Option<String>,
 >;
 
-pub type EvaledReadDataKeywordsConfig = ReadDataKeywordsConfig_<
+pub type EvaledReadRepairKeywordsConfig = ReadRepairKeywordsConfig_<
     KeyPatterns,
     KeyStringPairs,
     KeyPatterns,
@@ -264,10 +273,10 @@ pub(crate) fn eval_std_conf(
     }
 }
 
-pub(crate) fn eval_data_conf(
-    conf: &ReadDataKeywordsConfig,
+pub(crate) fn eval_repair_conf(
+    conf: &ReadRepairKeywordsConfig,
     kws: &ValidKeywords,
-) -> ErrorsResult<EvaledReadDataKeywordsConfig, (), AppendRepairFlagError> {
+) -> ErrorsResult<EvaledReadRepairKeywordsConfig, (), AppendRepairFlagError> {
     let go_str_pairs = |xs: NEVec<KeyStringPairs>| {
         let checked = checked_iter_to_hashmap(xs.into_iter().flat_map(KeyStringPairs::into_iter))?;
         KeyStringPairs::try_from(checked).map_err(AppendRepairFlagError::KeyStringPairsValid)
@@ -308,7 +317,7 @@ pub(crate) fn eval_data_conf(
         .zip4_commutative(sub_res, ignore_res, promote_res)
         .zip4_commutative(demote_res, replace_res, append_res)
         .map_ok_value(
-            |((rename, sub, ignore, promote), demote, replace, append)| ReadDataKeywordsConfig_ {
+            |((rename, sub, ignore, promote), demote, replace, append)| ReadRepairKeywordsConfig_ {
                 ignore_standard_keys: ignore,
                 rename_standard_keys: rename,
                 promote_nonstandard_keys: promote,
@@ -317,16 +326,6 @@ pub(crate) fn eval_data_conf(
                 append_standard_keywords: append,
                 substitute_standard_key_values: sub,
                 allow_repair_non_unique: conf.allow_repair_non_unique,
-                text_data_correction: conf.text_data_correction,
-                text_analysis_correction: conf.text_analysis_correction,
-                ignore_text_data_offsets: conf.ignore_text_data_offsets,
-                ignore_text_analysis_offsets: conf.ignore_text_analysis_offsets,
-                allow_header_text_offset_mismatch: conf.allow_header_text_offset_mismatch,
-                allow_missing_required_offsets: conf.allow_missing_required_offsets,
-                process_optional_failure: conf.process_optional_failure,
-                int_width_override: conf.int_width_override,
-                byteord_override: conf.byteord_override.clone(),
-                disallow_range_truncation: conf.disallow_range_truncation,
             },
         )
 }

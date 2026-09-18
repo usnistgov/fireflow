@@ -105,21 +105,10 @@ macro_rules! make_args {
 
         macro_rules! data_kw_arg {
             ($field:ident) => {
-                string_arg!(
-                    $crate::config::ReadDataKeywordsConfig_::<(), (), (), (), (), (), ()>,
-                    $field
-                )
+                string_arg!($crate::config::ReadDataKeywordsConfig, $field)
             };
         }
 
-        pub const IGNORE_STD_KEYS: &str = data_kw_arg!(ignore_standard_keys);
-        pub const PROMOTE_TO_STD: &str = data_kw_arg!(promote_nonstandard_keys);
-        pub const DEMOTE_FROM_STD: &str = data_kw_arg!(demote_standard_keys);
-        pub const RENAME_STD_KEYS: &str = data_kw_arg!(rename_standard_keys);
-        pub const REPLACE_STD_KEY_VALS: &str = data_kw_arg!(replace_standard_key_values);
-        pub const APPEND_STD_KEYWORDS: &str = data_kw_arg!(append_standard_keywords);
-        pub const SUB_STD_KEY_VALS: &str = data_kw_arg!(substitute_standard_key_values);
-        pub const ALLOW_REPAIR_NON_UNIQUE: &str = data_kw_arg!(allow_repair_non_unique);
         pub const TEXT_DATA_CORR: &str = data_kw_arg!(text_data_correction);
         pub const TEXT_ANALYSIS_CORR: &str = data_kw_arg!(text_analysis_correction);
         pub const IGNORE_TEXT_DATA_OFFSETS: &str = data_kw_arg!(ignore_text_data_offsets);
@@ -132,6 +121,26 @@ macro_rules! make_args {
         pub const INT_WIDTH_OVERRIDE: &str = data_kw_arg!(int_width_override);
         pub const BYTEORD_OVERRIDE: &str = data_kw_arg!(byteord_override);
         pub const DISALLOW_RANGE_TRUNCATION: &str = data_kw_arg!(disallow_range_truncation);
+
+        // repair keyword config flags
+
+        macro_rules! repair_kw_arg {
+            ($field:ident) => {
+                string_arg!(
+                    $crate::config::ReadRepairKeywordsConfig_::<(), (), (), (), (), (), ()>,
+                    $field
+                )
+            };
+        }
+
+        pub const IGNORE_STD_KEYS: &str = repair_kw_arg!(ignore_standard_keys);
+        pub const PROMOTE_TO_STD: &str = repair_kw_arg!(promote_nonstandard_keys);
+        pub const DEMOTE_FROM_STD: &str = repair_kw_arg!(demote_standard_keys);
+        pub const RENAME_STD_KEYS: &str = repair_kw_arg!(rename_standard_keys);
+        pub const REPLACE_STD_KEY_VALS: &str = repair_kw_arg!(replace_standard_key_values);
+        pub const APPEND_STD_KEYWORDS: &str = repair_kw_arg!(append_standard_keywords);
+        pub const SUB_STD_KEY_VALS: &str = repair_kw_arg!(substitute_standard_key_values);
+        pub const ALLOW_REPAIR_NON_UNIQUE: &str = repair_kw_arg!(allow_repair_non_unique);
 
         // read data config flags
 

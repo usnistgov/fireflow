@@ -3,7 +3,6 @@
 use super::KeyedOffsets;
 
 use crate::api::HeaderAndSuppOffsets;
-use crate::config::EvaledReadDataKeywordsConfig;
 use crate::convert::U64Ext as _;
 use crate::core::{DarkBytes, MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
 use crate::fixed_vec::OneOrTwo;
@@ -29,7 +28,7 @@ use fireflow_types::{
     config::{
         AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets,
         IgnoreTEXTDataOffsets, ProcessKeywordFailure, ProcessOptionalFailure,
-        ReadHeaderInnerConfig, ReadOffsetConfig,
+        ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig,
     },
     keywords::Version,
     nonempty::{
@@ -964,7 +963,7 @@ where
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
         Self::OtherDataId: HasOffsetPair,
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
@@ -982,7 +981,7 @@ where
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
         Self::OtherDataId: HasOffsetPair,
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
@@ -1001,12 +1000,12 @@ where
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
         Self::OtherDataId: HasOffsetPair,
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
     {
-        let dconf: &EvaledReadDataKeywordsConfig = st.conf().as_ref();
+        let dconf: &ReadDataKeywordsConfig = st.conf().as_ref();
         let oconf: &ReadOffsetConfig = st.conf().as_ref();
         let (header_seg, uncorr_hdr) = Self::offset_pair(segs);
         let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);
@@ -1209,9 +1208,7 @@ where
         lookup_opt!(kws, read, K)
     }
 
-    fn remove_opt<K>(
-        kws: &mut StdLookupTx,
-    ) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
+    fn remove_opt<K>(kws: &mut StdLookupTx) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
     where
         K: ValueToStdKey<Index = ()>,
     {
@@ -1245,7 +1242,7 @@ where
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
         Self::OtherDataId: HasOffsetPair,
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
@@ -1264,7 +1261,7 @@ where
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
         Self::OtherDataId: HasOffsetPair,
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
@@ -1283,12 +1280,12 @@ where
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
         Self::OtherDataId: HasOffsetPair,
-        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
     {
-        let dconf: &EvaledReadDataKeywordsConfig = st.conf().as_ref();
+        let dconf: &ReadDataKeywordsConfig = st.conf().as_ref();
         let oconf: &ReadOffsetConfig = st.conf().as_ref();
         let (header_seg, uncorr_hdr) = Self::offset_pair(hdr_supp_offsets);
         let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);

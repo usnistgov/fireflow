@@ -13,12 +13,12 @@ use fireflow_types::{
     case_ins_regex::PATTERN_DELIMITER,
     config::{self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, NumericByteWidth},
     datepattern::DatePattern,
-    keystring::{KeyString, KeyStringOrPattern},
+    keystring::KeyStringOrPattern,
     keywords as tk,
     nonempty::{NEStr, NEString},
     other_width::OtherWidth,
     segment::OffsetsCorrection,
-    std_key as sk,
+    std_key::{self as sk, RealOrPseudoStdKey, StdKey},
     sub_pattern::SubPattern,
     textdelim::TEXTDelim,
     timepattern::TimePattern,
@@ -1615,7 +1615,7 @@ fn get_data_kws_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadDataKeywordsCo
         c.demote_standard_keys = AppendableSelector::root(xs);
     });
 
-    if let Some(xs) = s.get_one::<Vec<BiKeystringPair>>(ta::RENAME_STD_KEYS) {
+    if let Some(xs) = s.get_one::<Vec<BiKeyPair>>(ta::RENAME_STD_KEYS) {
         let Ok(ys) = xs
             .iter()
             .cloned()
@@ -1896,14 +1896,14 @@ fn parse_key_string_pattern_list(s: &str) -> StrResult<Vec<KeyStringOrPattern>> 
     }
 }
 
-fn parse_two_keystring_pair(s: &str) -> StrResult<Vec<BiKeystringPair>> {
-    let go_k = |x: &str| x.parse::<KeyString>().map_err(|e| e.to_string());
-    let go_v = |x: &str| x.parse::<KeyString>().map_err(|e| e.to_string());
+fn parse_two_keystring_pair(s: &str) -> StrResult<Vec<BiKeyPair>> {
+    let go_k = |x: &str| x.parse::<RealOrPseudoStdKey>().map_err(|e| e.to_string());
+    let go_v = |x: &str| x.parse::<StdKey>().map_err(|e| e.to_string());
     parse_pairs(s, go_k, go_v)
 }
 
 fn parse_keystring_string_pair(s: &str) -> StrResult<Vec<KeystringStringPair>> {
-    let go_k = |x: &str| x.parse::<KeyString>().map_err(|e| e.to_string());
+    let go_k = |x: &str| x.parse::<StdKey>().map_err(|e| e.to_string());
     let go_v = |x: &str| x.parse::<NEString>().map_err(|e| e.to_string());
     parse_pairs(s, go_k, go_v)
 }
@@ -2092,9 +2092,9 @@ type AppResult<T> = Result<T, Box<dyn Error>>;
 
 type StrResult<T> = Result<T, String>;
 
-type BiKeystringPair = (KeyString, KeyString);
+type BiKeyPair = (RealOrPseudoStdKey, StdKey);
 
-type KeystringStringPair = (KeyString, NEString);
+type KeystringStringPair = (StdKey, NEString);
 
 type SubPatternPair = (KeyStringOrPattern, SubPattern);
 

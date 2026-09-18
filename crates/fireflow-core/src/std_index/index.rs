@@ -252,22 +252,22 @@ pub struct RepairDiagnostics {
     /// Non-standard keys which collided with a standard key when promoted.
     ///
     /// These keys were not moved.
-    pub promote_non_unique: Vec<(StdKey, TruncatedNEString)>,
+    pub promoted_non_unique: Vec<(StdKey, TruncatedNEString)>,
 
     /// Non-standard keys which are promoted and also demoted as standard keys.
     ///
     /// These keys were not moved.
-    pub promote_demoted_noop: Vec<NonStdKey>,
+    pub promoted_demoted_noop: Vec<NonStdKey>,
 
     /// Non-standard keys which are promoted and also ignored as standard keys.
     ///
     /// These keys were not moved.
-    pub promote_ignored_noop: Vec<NonStdKey>,
+    pub promoted_ignored_noop: Vec<NonStdKey>,
 
     /// Non-standard keys which were promoted but are pseudostandard.
     ///
     /// These keys were not moved.
-    pub promote_pseudo_std: Vec<NonStdKey>,
+    pub promoted_pseudo_std: Vec<NonStdKey>,
 
     /// Appended keys which collided with an existing standard key.
     pub appended_non_unique: Vec<(StdKey, TruncatedNEString)>,
@@ -769,10 +769,10 @@ impl<'a> StdRepairTx<'a> {
             renamed_pseudo_std_non_unique,
             ignored,
             removed,
-            promote_demoted_noop,
-            promote_ignored_noop,
-            promote_non_unique,
-            promote_pseudo_std,
+            promoted_demoted_noop: promote_demoted_noop,
+            promoted_ignored_noop: promote_ignored_noop,
+            promoted_non_unique: promote_non_unique,
+            promoted_pseudo_std: promote_pseudo_std,
             appended_non_unique,
         };
 
@@ -787,7 +787,7 @@ impl<'a> StdRepairTx<'a> {
             .map(|(k0, k1)| RenamePseudoStdNonUniqueError::new(k0.clone(), *k1))
             .map(RepairError::from);
         let e2 = ret
-            .promote_non_unique
+            .promoted_non_unique
             .iter()
             .map(|(k, v)| PromoteNonUniqueError::new(*k, v.clone()))
             .map(RepairError::from);
@@ -797,7 +797,7 @@ impl<'a> StdRepairTx<'a> {
             .map(|(k, v)| AppendNonUniqueError::new(*k, v.clone()))
             .map(RepairError::from);
         let e4 = ret
-            .promote_pseudo_std
+            .promoted_pseudo_std
             .iter()
             .map(|k| PromotePseudoStdError(k.clone()))
             .map(RepairError::from);

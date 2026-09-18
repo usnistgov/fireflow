@@ -1,4 +1,4 @@
-//! Python interface for pyreflow
+//! Python interface for
 //!
 //! Just turn back now, this is almost pure macro-insanity.
 //!
@@ -58,6 +58,7 @@ use fireflow_core::{
     api, config as cfg, core,
     data::{self, LayoutByteOrder as _, LayoutDatatype as _, PhantomInto as _},
     header, match_map_uint, meas, segment,
+    std_index::index::RepairDiagnostics,
     text::{
         byteord::{ArrayByteOrd, Endian},
         gating::{self, Region},
@@ -131,7 +132,7 @@ fpp::impl_py_flat_dataset_with_kws_output!(api::FlatDatasetFromKwsOutput);
 fpp::impl_py_new_flat_dataset_with_kws_output!(api::NewFlatDatasetFromKwsOutput);
 fpp::impl_py_supp_text_offsets_origin!(api::SuppTEXTOffsetsOutput);
 fpp::impl_py_text_offsets_origin!(core::TEXTOffsetsOrigin);
-fpp::impl_py_repair_diagnostics!(keys::RepairDiagnostics);
+fpp::impl_py_repair_diagnostics!(RepairDiagnostics);
 fpp::impl_py_read_dataset_diagnostics!(core::DatasetDiagnostics);
 fpp::impl_py_intra_segment_dark_bytes!(core::IntraSegmentDarkBytes);
 fpp::impl_py_keyword_version_score!(kws::KeywordVersionScore);

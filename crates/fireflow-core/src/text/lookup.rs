@@ -6,7 +6,7 @@ use fireflow_types::config::{
     ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, TrimIntraValueWhitespace,
 };
 use fireflow_types::nonempty::{NEStr, NEString};
-use fireflow_types::std_key::{DollarStdKey, DollarWrap, StdKey};
+use fireflow_types::std_key::{DollarStdKey, DollarWrap};
 
 use type_families::{BifunctorOnce, Sibling2, impl_kind2};
 

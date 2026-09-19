@@ -407,8 +407,8 @@ impl FromStr for DollarPseudoStdKey {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.parse::<DollarRealOrPseudoStdKey>() {
             Ok(x) => match x.0 {
-                RealOrPseudoStdKey::Pseudo(x) => Ok(DollarWrap(x)),
-                RealOrPseudoStdKey::Real(x) => Err(DollarPseudoStdKeyError::IsStd(x)),
+                RealOrPseudoStdKey::Pseudo(k) => Ok(Self(k)),
+                RealOrPseudoStdKey::Real(k) => Err(DollarPseudoStdKeyError::IsStd(k)),
             },
             Err(e) => Err(DollarPseudoStdKeyError::Inner(e)),
         }

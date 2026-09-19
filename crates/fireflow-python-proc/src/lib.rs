@@ -8997,20 +8997,20 @@ impl<E: From<PyException>> PyAlias<E> {
             .set_default(PyList::new_dummy())
     }
 
-    fn new_std_keyword() -> Self {
-        let path = parse_quote!(fireflow_types::std_key::StdKey);
-        Self::new_py(["typing"], "StdKey").rstype(path)
-    }
+    // fn new_std_keyword() -> Self {
+    //     let path = parse_quote!(fireflow_types::std_key::StdKey);
+    //     Self::new_py(["typing"], "StdKey").rstype(path)
+    // }
 
     fn new_dollar_std_keyword() -> Self {
         let path = parse_quote!(fireflow_types::std_key::DollarStdKey);
         Self::new_py(["typing"], "DollarStdKey").rstype(path)
     }
 
-    fn new_pstd_keyword() -> Self {
-        let path = parse_quote!(fireflow_types::std_key::PseudoStdKey);
-        Self::new_py(["typing"], "PseudoStdKey").rstype(path)
-    }
+    // fn new_pstd_keyword() -> Self {
+    //     let path = parse_quote!(fireflow_types::std_key::PseudoStdKey);
+    //     Self::new_py(["typing"], "PseudoStdKey").rstype(path)
+    // }
 
     fn new_dollar_pstd_keyword() -> Self {
         let path = parse_quote!(fireflow_types::std_key::DollarPseudoStdKey);

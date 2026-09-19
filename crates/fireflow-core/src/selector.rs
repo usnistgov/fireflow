@@ -1,22 +1,17 @@
-use crate::{
-    text::spillover::Spillover,
-    validated::keys::{AnyKey, ValidKeywords, ValueToStdKey as _},
-};
+use crate::validated::keys::{AnyKey, ValidKeywords, ValueToStdKey as _};
 
-use fireflow_types::{
-    config::{KeyPatterns, TimeMeasNamePattern},
-    datepattern::DatePattern,
-    keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns},
-    keystring_pairs::KeyStringPairs,
-    ne_str, nev,
-    nonempty::{NEStr, NEString, NEVec, NonEmptyIterator as _},
-    std_key::{PseudoStdKey, RealOrPseudoStdKey, RootKey, StdKey, ToStd as _},
-    timepattern::TimePattern,
-};
-use hashbrown::HashMap;
+use fireflow_types::config::{KeyPatterns, TimeMeasNamePattern};
+use fireflow_types::datepattern::DatePattern;
+use fireflow_types::keystring::{KeyStringOrPattern, KeyStringsOrPatterns};
+use fireflow_types::keystring_pairs::KeyStringPairs;
+use fireflow_types::nonempty::{NEStr, NEString, NEVec, NonEmptyIterator as _};
+use fireflow_types::std_key::{DollarWrap, RealOrPseudoStdKey, RootKey, ToStd as _};
+use fireflow_types::timepattern::TimePattern;
+use fireflow_types::{ne_str, nev};
 
 use derive_more::Display;
 use derive_new::new;
+use hashbrown::HashMap;
 use regex::Regex;
 use thiserror::Error;
 
@@ -128,8 +123,8 @@ impl AppendableSelector<KeyPatterns> {
             once("/SPILL(?:OVER)?/".parse::<KeyStringOrPattern>().unwrap())
                 .map(|x| (x, ()))
                 .collect();
-        let kw_test = KeyTest::HasKey(AnyKey::Std(RealOrPseudoStdKey::Real(StdKey::Root(
-            Spillover::STD,
+        let kw_test = KeyTest::HasKey(AnyKey::Std(DollarWrap(RealOrPseudoStdKey::Real(
+            RootKey::Spillover.to_std0(),
         ))));
         let cond = Condition::Not(Condition::Root(kw_test).into());
         let new = Selector::if_then(cond, Selector::root(pats));
@@ -145,11 +140,13 @@ impl AppendableSelector<KeyStringPairs> {
     /// only if the latter is not already present.
     pub fn push_rename_spill_to_spillover(&mut self) {
         let mut hm = HashMap::new();
-        let from = RealOrPseudoStdKey::Pseudo(PseudoStdKey("SPILL".parse::<KeyString>().unwrap()));
+        let from = "SPILL".parse::<RealOrPseudoStdKey>().unwrap();
         let to = RootKey::Spillover.to_std0();
         hm.insert(from, to);
         let pairs = KeyStringPairs::try_from(hm).unwrap();
-        let kw_test = KeyTest::HasKey(RealOrPseudoStdKey::Real(RootKey::Spillover.into()).into());
+        let kw_test = KeyTest::HasKey(AnyKey::Std(DollarWrap(RealOrPseudoStdKey::Real(
+            RootKey::Spillover.to_std0(),
+        ))));
         let cond = Condition::Not(Condition::Root(kw_test).into());
         let new = Selector::if_then(cond, Selector::root(pairs));
         self.push(new);
@@ -166,7 +163,7 @@ impl Selector<TimeMeasNamePattern> {
     pub fn new_time_meas_pattern() -> Self {
         let hdr_tm_regex = "^HDR-T(M)$".parse::<TimeMeasNamePattern>().unwrap();
         let is_macsquant = KeyTest::KeyIs(
-            RealOrPseudoStdKey::Real(RootKey::Cyt.into()).into(),
+            AnyKey::Std(DollarWrap(RealOrPseudoStdKey::Real(RootKey::Cyt.to_std0()))),
             ne_str!("MACSQuant").to_owned(),
         );
         let cond = Condition::Root(is_macsquant);
@@ -367,14 +364,14 @@ impl KeyTest {
     #[must_use]
     pub fn cyt_is(cyt: &NEStr) -> Self {
         Self::KeyIs(
-            RealOrPseudoStdKey::Real(RootKey::Cyt.to_std0()).into(),
+            DollarWrap(RealOrPseudoStdKey::Real(RootKey::Cyt.to_std0())).into(),
             cyt.to_owned(),
         )
     }
 
     pub fn cyt_matches(pat: &str) -> Result<Self, ValueRegexError> {
         Ok(Self::KeyMatches(
-            RealOrPseudoStdKey::Real(RootKey::Cyt.to_std0()).into(),
+            DollarWrap(RealOrPseudoStdKey::Real(RootKey::Cyt.to_std0())).into(),
             pat.parse()?,
         ))
     }

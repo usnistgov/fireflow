@@ -13,6 +13,7 @@ use crate::validated::shortname::Shortname;
 
 #[cfg(feature = "serde")]
 use fireflow_types::std_key::BlankKeyword;
+use fireflow_types::std_key::DollarWrap;
 use fireflow_types::{
     index::{MeasIndex, RegionIndex},
     keywords::{Version, VersionMembership},
@@ -714,14 +715,17 @@ where
     for<'a> V: ToDisplayNE<'a>,
 {
     fn as_std_key_pair(&self) -> (StdKey, NEString) {
-        (StdKey::from(&self.key.0), ToNE(&self.value).to_ne_string())
+        (
+            StdKey::from(&self.key.0.0),
+            ToNE(&self.value).to_ne_string(),
+        )
     }
 }
 
 impl<T: AsStdKeywordPair> AsKeywordPair for T {
     fn as_key_pair(&self) -> (WritableKey, NEString) {
         let (k, v) = self.as_std_key_pair();
-        (k.into(), v)
+        (DollarWrap(k).into(), v)
     }
 }
 
@@ -736,7 +740,7 @@ where
     SpecificKey_<V, I>: Into<StdKey> + Copy,
 {
     fn membership(&self) -> VersionMembership {
-        self.key.0.into().membership()
+        self.key.0.0.into().membership()
     }
 }
 

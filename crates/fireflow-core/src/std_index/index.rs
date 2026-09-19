@@ -1,8 +1,7 @@
 use crate::config::{EvaledReadRepairKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{DeferredWarningsAndErrors, LogResult, WarningsAndErrorsResult};
 use crate::std_index::masked::{
-    LookupOverride, LookupStatus, LookupStatus_, MaskedEnumString, MaskedString,
-    MaskedVariableString,
+    LookupMask, LookupStatus, MaskedEnumString, MaskedString, MaskedVariableString, RepairMask,
 };
 use crate::std_index::nested_string::{NestedEnumString, NestedStringSize, NestedVariableString};
 use crate::text::keywords::{Gate, Par};
@@ -21,8 +20,8 @@ use fireflow_types::keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatte
 use fireflow_types::keywords::Version;
 use fireflow_types::nonempty::{NEStr, NEString, NEVec};
 use fireflow_types::std_key::{
-    AnyIndex as _, CsvFlagKey, DfcKey, GateKey, GateKeyId, MeasKey, MeasKeyId, N_ROOT,
-    PseudoStdKey, RegionKey, RootKey, StdKey, ToStd as _,
+    CsvFlagKey, DfcKey, DollarPseudoStdKey, DollarStdKey, DollarWrap, EnumIndex as _, GateKey,
+    GateKeyId, MeasKey, MeasKeyId, N_ROOT, RegionKey, RootKey, StdKey, ToStd as _,
 };
 use fireflow_types::sub_pattern::SubPattern;
 
@@ -46,13 +45,13 @@ use {
 };
 
 type OpticalOnlyResult = WarningsAndErrorsResult<
-    Vec<(StdKey, NEString)>,
+    Vec<(DollarStdKey, NEString)>,
     (),
     TemporalHasOpticalKeyError,
     TemporalHasOpticalKeyError,
 >;
 
-pub(crate) type DroppedStdKeywords = Vec<(StdKey, NEString)>;
+pub(crate) type DroppedStdKeywords = Vec<(DollarStdKey, NEString)>;
 
 /// Leftover standard keyword after parsing
 #[derive(Clone, new, PartialEq)]
@@ -82,7 +81,7 @@ pub enum ExtraStdKeywordError {
 #[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct HyperParError {
     pub par: Par,
-    pub key: StdKey,
+    pub key: DollarStdKey,
 }
 
 /// Error denoting that gating keyword within standard but above $GATE was found
@@ -92,21 +91,20 @@ pub struct HyperParError {
 #[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct HyperGateError {
     pub gate: Gate,
-    pub key: StdKey,
+    pub key: DollarStdKey,
 }
 
 /// Error denoting that keyword from different version was found
 #[derive(Debug, Error, new, PartialEq, Clone)]
 #[error(
     "keyword is not compatible with {current} but is compatible with {os}: {key}",
-    os = self.others.iter().join(", ")
+    os = self.key.0.membership().versions().iter().join(", ")
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct KeywordOtherVersionError {
-    pub key: StdKey,
+    pub key: DollarStdKey,
     pub current: Version,
-    pub others: NEVec<Version>,
 }
 
 /// Error denoting that $TIMESTEP was unused and possibly should have been
@@ -150,8 +148,8 @@ pub enum RepairError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct RenameStdNonUniqueError {
-    k0: StdKey,
-    k1: StdKey,
+    k0: DollarStdKey,
+    k1: DollarStdKey,
 }
 
 /// Error when renaming pseudostandard keys which are not unique.
@@ -160,8 +158,8 @@ pub struct RenameStdNonUniqueError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct RenamePseudoStdNonUniqueError {
-    k0: PseudoStdKey,
-    k1: StdKey,
+    k0: DollarPseudoStdKey,
+    k1: DollarStdKey,
 }
 
 /// Error when promoting keys which are not unique.
@@ -173,7 +171,7 @@ pub struct RenamePseudoStdNonUniqueError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct PromoteNonUniqueError {
-    key: StdKey,
+    key: DollarStdKey,
     value: TruncatedNEString,
 }
 
@@ -186,7 +184,7 @@ pub struct PromoteNonUniqueError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct AppendNonUniqueError {
-    key: StdKey,
+    key: DollarStdKey,
     value: TruncatedNEString,
 }
 
@@ -203,7 +201,7 @@ pub struct PromotePseudoStdError(NonStdKey);
 #[allow(clippy::too_many_arguments)]
 pub struct RepairDiagnostics {
     /// Standard keys which were demoted.
-    pub demoted: Vec<StdKey>,
+    pub demoted: Vec<DollarStdKey>,
 
     /// Non-standard keys which were promoted.
     pub promoted: Vec<NonStdKey>,
@@ -211,41 +209,41 @@ pub struct RepairDiagnostics {
     /// Standard keys which had values that were substituted.
     ///
     /// Values here are the original.
-    pub subbed: Vec<(StdKey, TruncatedNEString)>,
+    pub subbed: Vec<(DollarStdKey, TruncatedNEString)>,
 
     /// Standard keys which had values that were replaced.
     ///
     /// Values here are the original.
-    pub replaced: Vec<(StdKey, TruncatedNEString)>,
+    pub replaced: Vec<(DollarStdKey, TruncatedNEString)>,
 
     /// Standard keys which were renamed.
     ///
     /// First key in pair is the original.
-    pub renamed_std: Vec<(StdKey, StdKey)>,
+    pub renamed_std: Vec<(DollarStdKey, DollarStdKey)>,
 
     /// Pseudostandard keys which were renamed.
     ///
     /// First key in pair is the original.
-    pub renamed_pseudo_std: Vec<(PseudoStdKey, StdKey)>,
+    pub renamed_pseudo_std: Vec<(DollarPseudoStdKey, DollarStdKey)>,
 
     /// Standard keys not renamed because they collided with an existing key.
-    pub renamed_std_non_unique: Vec<(StdKey, StdKey)>,
+    pub renamed_std_non_unique: Vec<(DollarStdKey, DollarStdKey)>,
 
     /// Pseudostandard keys not renamed because they collided with an existing key.
-    pub renamed_pseudo_std_non_unique: Vec<(PseudoStdKey, StdKey)>,
+    pub renamed_pseudo_std_non_unique: Vec<(DollarPseudoStdKey, DollarStdKey)>,
 
     /// Standard keys which were ignored.
-    pub ignored: Vec<(StdKey, TruncatedNEString)>,
+    pub ignored: Vec<(DollarStdKey, TruncatedNEString)>,
 
     /// Standard keys which were removed.
     ///
     /// This only happens when a substitution pattern returns a blank.
-    pub removed: Vec<(StdKey, TruncatedNEString)>,
+    pub removed: Vec<(DollarStdKey, TruncatedNEString)>,
 
     /// Non-standard keys which collided with a standard key when promoted.
     ///
     /// These keys were not moved.
-    pub promoted_non_unique: Vec<(StdKey, TruncatedNEString)>,
+    pub promoted_non_unique: Vec<(DollarStdKey, TruncatedNEString)>,
 
     /// Non-standard keys which are promoted and also demoted as standard keys.
     ///
@@ -263,7 +261,7 @@ pub struct RepairDiagnostics {
     pub promoted_pseudo_std: Vec<NonStdKey>,
 
     /// Appended keys which collided with an existing standard key.
-    pub appended_non_unique: Vec<(StdKey, TruncatedNEString)>,
+    pub appended_non_unique: Vec<(DollarStdKey, TruncatedNEString)>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -292,8 +290,8 @@ pub struct StdTransaction<'a, M> {
     dfc: MaskedVariableString<'a, DfcKey, usize, M>,
 }
 
-pub(crate) type StdRepairTx<'a> = StdTransaction<'a, LookupOverride>;
-pub type StdLookupTx<'a> = StdTransaction<'a, LookupStatus>;
+pub(crate) type StdRepairTx<'a> = StdTransaction<'a, RepairMask>;
+pub type StdLookupTx<'a> = StdTransaction<'a, LookupMask>;
 
 type NestedRoot = NestedEnumString<N_ROOT, RootKey>;
 
@@ -391,7 +389,9 @@ impl StdKeywords {
     }
 
     #[must_use]
-    pub fn from_vec<V>(mut pairs: Vec<(StdKey, V)>) -> (Self, Vec<(StdKey, TruncatedNEString)>)
+    pub fn from_vec<V>(
+        mut pairs: Vec<(StdKey, V)>,
+    ) -> (Self, Vec<(DollarStdKey, TruncatedNEString)>)
     where
         V: AsRef<NEStr>,
     {
@@ -400,7 +400,7 @@ impl StdKeywords {
         let (std_final, non_unique_std_) = pairs.split_at(dedup_split);
         let non_unique_std = non_unique_std_
             .iter()
-            .map(|(k, v)| (*k, TruncatedNEString(v.as_ref().to_owned())))
+            .map(|(k, v)| (DollarWrap(*k), TruncatedNEString(v.as_ref().to_owned())))
             .collect();
 
         // SAFETY: we sorted and deduplicated above
@@ -433,7 +433,7 @@ impl StdKeywords {
             + self.dfc.n_strings()
     }
 
-    pub(crate) fn concat(self, other: Self) -> (Self, Vec<(StdKey, TruncatedNEString)>) {
+    pub(crate) fn concat(self, other: Self) -> (Self, Vec<(DollarStdKey, TruncatedNEString)>) {
         if self.n_strings() == 0 {
             (other, vec![])
         } else if other.n_strings() == 0 {
@@ -596,6 +596,7 @@ impl<'a> StdRepairTx<'a> {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn repair(
         &mut self,
         pstd: &mut PseudoStdKeywords,
@@ -617,15 +618,16 @@ impl<'a> StdRepairTx<'a> {
         let mut ignored = vec![];
 
         for (k, v, m) in self.iter_ne_masked_mut() {
+            let dk = DollarWrap(k);
             let ks = k.as_keystring();
             let demote_match = matchers.demote.is_match(&ks);
             let ignore_match = matchers.ignore.is_match(&ks);
             if demote_match {
-                *m = LookupOverride::Delete;
-                demoted.push(k);
+                *m = RepairMask::Delete;
+                demoted.push(dk);
             } else if ignore_match {
-                *m = LookupOverride::Delete;
-                ignored.push((k, TruncatedNEString(v.to_owned())));
+                *m = RepairMask::Delete;
+                ignored.push((dk, TruncatedNEString(v.to_owned())));
             }
         }
 
@@ -654,7 +656,7 @@ impl<'a> StdRepairTx<'a> {
                     // Key is promoted and std. Try to insert and take out
                     // of nonstd list if successful.
                     if self.insert(&sk, v.to_owned()).is_some() {
-                        promote_non_unique.push((sk, TruncatedNEString(v.to_owned())));
+                        promote_non_unique.push((DollarWrap(sk), TruncatedNEString(v.to_owned())));
                         true
                     } else {
                         promoted.push(k.to_owned());
@@ -680,18 +682,19 @@ impl<'a> StdRepairTx<'a> {
         let mut replaced = vec![];
 
         for (k, v, m) in self.iter_ne_masked_mut() {
+            let dk = DollarWrap(k);
             let ks = k.as_keystring();
             if let Some(subpat) = matchers.subs.get(&ks) {
                 if let Ok(vf) = NEString::try_from(subpat.sub(v.as_str())) {
-                    subbed.push((k, TruncatedNEString(v.to_owned())));
-                    *m = LookupOverride::Insert(vf);
+                    subbed.push((dk, TruncatedNEString(v.to_owned())));
+                    *m = RepairMask::Insert(vf);
                 } else {
-                    removed.push((k, TruncatedNEString(v.to_owned())));
-                    *m = LookupOverride::Delete;
+                    removed.push((dk, TruncatedNEString(v.to_owned())));
+                    *m = RepairMask::Delete;
                 }
             } else if let Some(r) = replace.get(&k) {
-                replaced.push((k, TruncatedNEString(v.to_owned())));
-                *m = LookupOverride::Insert(r.to_owned());
+                replaced.push((dk, TruncatedNEString(v.to_owned())));
+                *m = RepairMask::Insert(r.to_owned());
             }
         }
 
@@ -705,21 +708,24 @@ impl<'a> StdRepairTx<'a> {
         let mut renamed_std = vec![];
 
         for (k0, k1) in Vec::from(pstd_rename) {
+            let dk1 = DollarWrap(k1);
             if let Entry::Occupied(e) = pstd.entry(k0.clone()) {
-                let k0_ = e.key().to_owned();
+                let k0_ = DollarWrap(e.key().to_owned());
                 if self.insert(&k1, e.remove()).is_some() {
-                    renamed_pseudo_std_non_unique.push((k0_, k1));
+                    renamed_pseudo_std_non_unique.push((k0_, dk1));
                 } else {
-                    renamed_pseudo_std.push((k0_, k1));
+                    renamed_pseudo_std.push((k0_, dk1));
                 }
             }
         }
 
         for (k0, k1) in Vec::from(std_rename) {
+            let dk0 = DollarWrap(k0);
+            let dk1 = DollarWrap(k1);
             if self.key_has_value(&k1) {
-                renamed_std_non_unique.push((k0, k1));
+                renamed_std_non_unique.push((dk0, dk1));
             } else if let Some(v) = self.delete(&k0) {
-                renamed_std.push((k0, k1));
+                renamed_std.push((dk0, dk1));
                 let vf = v.to_owned();
                 // we checked above so this shouldn't return anything
                 let _ = self.insert(&k1, vf);
@@ -734,7 +740,7 @@ impl<'a> StdRepairTx<'a> {
         // and there are no pesky regex expressions
         for (k, v) in &conf.append_standard_keywords {
             if let Some(vf) = self.insert(k, v.to_owned()) {
-                appended_non_unique.push((*k, TruncatedNEString(vf)));
+                appended_non_unique.push((DollarWrap(*k), TruncatedNEString(vf)));
             }
         }
 
@@ -824,9 +830,7 @@ impl<'a> StdRepairTx<'a> {
         }
     }
 
-    fn iter_ne_masked_mut(
-        &mut self,
-    ) -> impl Iterator<Item = (StdKey, &NEStr, &mut LookupOverride)> {
+    fn iter_ne_masked_mut(&mut self) -> impl Iterator<Item = (StdKey, &NEStr, &mut RepairMask)> {
         self.root
             .iter_ne_masked_mut()
             .chain(self.meas.iter_ne_masked_mut())
@@ -838,6 +842,7 @@ impl<'a> StdRepairTx<'a> {
 }
 
 impl StdLookupTx<'_> {
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn finalize(
         &self,
         par: Par,
@@ -857,7 +862,7 @@ impl StdLookupTx<'_> {
 
         for (k, v, m) in self.root.iter_masked() {
             match m {
-                LookupStatus_::Unseen => {
+                LookupStatus::Unseen => {
                     let vo = v.to_owned();
                     if matches!(k, RootKey::Timestep) && version > Version::FCS2_0 {
                         if conf.process_extra_timestep.is_demote() {
@@ -866,13 +871,13 @@ impl StdLookupTx<'_> {
                             timestep = Some(vo);
                         }
                     } else {
-                        other_version.push((k.into(), vo));
+                        other_version.push((DollarWrap(k.into()), vo));
                     }
                 }
-                LookupStatus_::Seen(a) => match a {
+                LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
-                    LookupAction::Drop => optional.push((k.into(), v.to_owned())),
+                    LookupAction::Drop => optional.push((DollarWrap(k.into()), v.to_owned())),
                 },
             }
         }
@@ -881,11 +886,11 @@ impl StdLookupTx<'_> {
 
         for (k, v, m) in meas_it.by_ref().take(n_meas) {
             match m {
-                LookupStatus_::Unseen => other_version.push((k.into(), v.to_owned())),
-                LookupStatus_::Seen(a) => match a {
+                LookupStatus::Unseen => other_version.push((DollarWrap(k.into()), v.to_owned())),
+                LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
-                    LookupAction::Drop => optional.push((k.into(), v.to_owned())),
+                    LookupAction::Drop => optional.push((DollarWrap(k.into()), v.to_owned())),
                 },
             }
         }
@@ -895,18 +900,18 @@ impl StdLookupTx<'_> {
                 nonstd.insert_demoted(k.into(), v.to_owned());
             }
         } else {
-            hyper_par.extend(meas_it.map(|(k, v, _)| (k.into(), v.to_owned())));
+            hyper_par.extend(meas_it.map(|(k, v, _)| (DollarWrap(k.into()), v.to_owned())));
         }
 
         let mut gate_it = self.gate.iter_masked();
 
         for (k, v, m) in gate_it.by_ref().take(n_gate) {
             match m {
-                LookupStatus_::Unseen => other_version.push((k.into(), v.to_owned())),
-                LookupStatus_::Seen(a) => match a {
+                LookupStatus::Unseen => other_version.push((DollarWrap(k.into()), v.to_owned())),
+                LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
-                    LookupAction::Drop => optional.push((k.into(), v.to_owned())),
+                    LookupAction::Drop => optional.push((DollarWrap(k.into()), v.to_owned())),
                 },
             }
         }
@@ -916,18 +921,18 @@ impl StdLookupTx<'_> {
                 nonstd.insert_demoted(k.into(), v.to_owned());
             }
         } else {
-            hyper_gate.extend(gate_it.map(|(k, v, _)| (k.into(), v.to_owned())));
+            hyper_gate.extend(gate_it.map(|(k, v, _)| (DollarWrap(k.into()), v.to_owned())));
         }
 
         // TODO we could also do something like hyper_par/gate with these but
         // they are hardly used anyways and doing so would be complex
         for (k, v, m) in self.region.iter_masked() {
             match m {
-                LookupStatus_::Unseen => other_version.push((k.into(), v.to_owned())),
-                LookupStatus_::Seen(a) => match a {
+                LookupStatus::Unseen => other_version.push((DollarWrap(k.into()), v.to_owned())),
+                LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
-                    LookupAction::Drop => optional.push((k.into(), v.to_owned())),
+                    LookupAction::Drop => optional.push((DollarWrap(k.into()), v.to_owned())),
                 },
             }
         }
@@ -935,11 +940,11 @@ impl StdLookupTx<'_> {
         // TODO ditto $CSMODE
         for (k, v, m) in self.csv_flag.iter_masked() {
             match m {
-                LookupStatus_::Unseen => other_version.push((k.into(), v.to_owned())),
-                LookupStatus_::Seen(a) => match a {
+                LookupStatus::Unseen => other_version.push((DollarWrap(k.into()), v.to_owned())),
+                LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
-                    LookupAction::Drop => optional.push((k.into(), v.to_owned())),
+                    LookupAction::Drop => optional.push((DollarWrap(k.into()), v.to_owned())),
                 },
             }
         }
@@ -948,21 +953,21 @@ impl StdLookupTx<'_> {
             let is_hyper_par = usize::from(k.index.i0) > usize::from(par)
                 || usize::from(k.index.i1) > usize::from(par);
             match m {
-                LookupStatus_::Unseen => {
+                LookupStatus::Unseen => {
                     if is_hyper_par {
                         if conf.process_hyper_par.is_demote() {
                             nonstd.insert_demoted(k.into(), v.to_owned());
                         } else {
-                            hyper_par.push((k.into(), v.to_owned()));
+                            hyper_par.push((DollarWrap(k.into()), v.to_owned()));
                         }
                     } else {
-                        other_version.push((k.into(), v.to_owned()));
+                        other_version.push((DollarWrap(k.into()), v.to_owned()));
                     }
                 }
-                LookupStatus_::Seen(a) => match a {
+                LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
-                    LookupAction::Drop => optional.push((k.into(), v.to_owned())),
+                    LookupAction::Drop => optional.push((DollarWrap(k.into()), v.to_owned())),
                 },
             }
         }
@@ -993,9 +998,9 @@ impl StdLookupTx<'_> {
             None => (),
         }
 
-        let other_version_errors = hyper_par.iter().map(|(k, _)| {
-            KeywordOtherVersionError::new(*k, version, k.membership().versions()).into()
-        });
+        let other_version_errors = hyper_par
+            .iter()
+            .map(|(k, _)| KeywordOtherVersionError::new(*k, version).into());
 
         match conf.process_other_version.is_error() {
             Some(true) => errors.extend(other_version_errors),
@@ -1053,7 +1058,7 @@ impl StdLookupTx<'_> {
                     if warn {
                         ws.push(err());
                     }
-                    pairs.push((k, vf));
+                    pairs.push((DollarWrap(k), vf));
                 } else {
                     es.push(err());
                 }
@@ -1264,7 +1269,7 @@ impl Serialize for StdKeywords {
     {
         let mut map = serializer.serialize_map(Some(self.n_strings()))?;
         for (k, v) in self.iter_keywords() {
-            map.serialize_entry(&k, v)?;
+            map.serialize_entry(&DollarWrap(k), v)?;
         }
         map.end()
     }
@@ -1274,7 +1279,8 @@ impl Serialize for StdKeywords {
 mod python {
     use super::StdKeywords;
 
-    use fireflow_types::{nonempty::NEString, std_key::StdKey};
+    use fireflow_types::nonempty::NEString;
+    use fireflow_types::std_key::DollarStdKey;
 
     use pyo3::{prelude::*, types::PyDict};
 
@@ -1287,7 +1293,7 @@ mod python {
             let tmp = obj
                 .cast::<PyDict>()?
                 .iter()
-                .map(|(k, v)| Ok((k.extract::<StdKey>()?, v.extract::<NEString>()?)))
+                .map(|(k, v)| Ok((k.extract::<DollarStdKey>()?.0, v.extract::<NEString>()?)))
                 .collect::<Result<Vec<_>, PyErr>>()?;
             // Ignore duplicates since the input dict should not have any
             Ok(Self::from_vec(tmp).0)

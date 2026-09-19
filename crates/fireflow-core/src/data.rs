@@ -3307,8 +3307,8 @@ where
             let res = TotType::with_tot(
                 h,
                 tot,
-                |h_, t| go!(h_read_delim_with_rows(&rs, h_, t, nbytes)),
-                |h_| go!(h_read_delim_without_rows(&rs, h_, nbytes)),
+                |h_, t| go!(h_read_delim_with_rows(rs, h_, t, nbytes)),
+                |h_| go!(h_read_delim_without_rows(rs, h_, nbytes)),
             );
 
             res.map(|data| {

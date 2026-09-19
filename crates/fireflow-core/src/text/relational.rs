@@ -40,11 +40,12 @@ use crate::validated::keys::{DollarKey, DollarKey_, ValueToStdKey};
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::config::ProcessOptionalFailure;
-use fireflow_types::std_key::{DfcKey, IndexedKey, RegionKeyId, ToStd as _};
-use fireflow_types::{
-    index::{MeasIndex, RegionIndex},
-    nonempty::{IntoIteratorExt as _, IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _},
-    std_key::StdKey,
+use fireflow_types::index::{MeasIndex, RegionIndex};
+use fireflow_types::nonempty::{
+    IntoIteratorExt as _, IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _,
+};
+use fireflow_types::std_key::{
+    DfcKey, DollarStdKey, DollarWrap, IndexedKey, RegionKeyId, ToStd as _,
 };
 
 use derive_more::{AsRef, Display, From};
@@ -309,7 +310,7 @@ pub type KeyToIndexLinkError<T> = KeyToIndexLinkError_<T, <T as ValueToStdKey>::
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 #[cfg_attr(feature = "python", bound(DollarKey_<T, I>: Display))]
 pub struct DependentKeyError_<T, I> {
-    deps: NEVec<StdKey>,
+    deps: NEVec<DollarStdKey>,
     key: DollarKey_<T, I>,
 }
 
@@ -334,13 +335,13 @@ impl<T> KeyToIndexLinkError_<T, ()> {
 }
 
 impl<T> DependentKeyError_<T, ()> {
-    pub(crate) fn new1(deps: NEVec<StdKey>) -> Self {
+    pub(crate) fn new1(deps: NEVec<DollarStdKey>) -> Self {
         Self::new(deps, DollarKey_::default())
     }
 }
 
 impl<T, I> DependentKeyError_<T, I> {
-    pub(crate) fn new2(i: I, deps: NEVec<StdKey>) -> Self {
+    pub(crate) fn new2(i: I, deps: NEVec<DollarStdKey>) -> Self {
         Self::new(deps, DollarKey_::new(i))
     }
 }
@@ -390,8 +391,8 @@ impl RemovedLink {
             }
             Self::Gating(indices) => {
                 let ks = indices.into_nonempty_iter().flat_map(|ri| {
-                    let k0 = RegionKeyId::I.to_std(&ri);
-                    let k1 = RegionKeyId::W.to_std(&ri);
+                    let k0 = RegionKeyId::I.to_std(&ri).into();
+                    let k1 = RegionKeyId::W.to_std(&ri).into();
                     [k0, k1]
                 });
                 let e = DependentKeyError::<Gating>::new1(ks.collect());
@@ -411,10 +412,6 @@ impl RemovedLink {
 }
 
 impl RemovedComp2_0Cell {
-    // fn as_keyval(&self) -> (StdKey, NEString) {
-    //     self.kw.as_std_key_pair()
-    // }
-
     fn as_error(&self) -> KeyToIndexLinkError<Dfc> {
         let i = self.key.index;
         let xs = match self.missing {
@@ -495,7 +492,7 @@ impl RemovedGateLink {
         BrokenIndexedLinkError: From<BrokenRegionLinkError>,
     {
         let ri = self.region_index;
-        let region_key = IndexedKey::new(ri, RegionKeyId::I).into();
+        let region_key = DollarWrap(IndexedKey::new(ri, RegionKeyId::I).into());
         let k = DollarKey::new(ri);
         let e0 = KeyToIndexLinkError::new(self.meas_indices.into(), k);
         let e1 = DependentKeyError::<RegionWindow>::new2(ri, NEVec::new(region_key));

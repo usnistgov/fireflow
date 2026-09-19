@@ -30,6 +30,12 @@ use {
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub struct KeyString(Ascii<NEString>);
 
+impl From<KeyString> for NEString {
+    fn from(value: KeyString) -> Self {
+        value.0.into_inner()
+    }
+}
+
 /// The borrowed internal string for a key (standard or nonstandard).
 ///
 /// Must be non-empty and contain only ASCII characters. Comparisons will be
@@ -80,7 +86,7 @@ pub enum NEAsciiStringError {
 #[derive(PartialEq, Debug, Error, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-#[error("string should only have ASCII characters, found '{0}'")]
+#[error("string should only have printable ASCII characters, found '{0}'")]
 pub struct AsciiStringError(String);
 
 /// Error when creating a new hashtable with non-unique keys.
@@ -112,15 +118,7 @@ impl FromStr for KeyString {
     type Err = NEAsciiStringError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Ok(ne) = s.parse::<NEString>() {
-            if is_printable_ascii(s.as_ref()) {
-                Ok(Self(Ascii::new(ne)))
-            } else {
-                Err(NEAsciiStringError::Ascii(AsciiStringError(s.into())))
-            }
-        } else {
-            Err(NEAsciiStringError::Empty)
-        }
+        to_keystring(s).map(|ne| Self(Ascii::new(ne.to_owned())))
     }
 }
 
@@ -208,10 +206,6 @@ impl Serialize for KeyString {
     }
 }
 
-fn is_printable_ascii(xs: &[u8]) -> bool {
-    xs.iter().all(|x| 32 <= *x && *x <= 126)
-}
-
 impl<T> FromIterator<(KeyStringOrPattern, T)> for KeyStringsOrPatterns<T> {
     fn from_iter<I>(iter: I) -> Self
     where
@@ -236,6 +230,22 @@ impl<T> KeyStringsOrPatterns<T> {
     ) -> Result<Self, NonUniqueKeyError<LiteralOrPattern<KeyString>>> {
         checked_iter_to_hashmap(xs.into_iter().flat_map(|x| x.0.into_iter())).map(Self)
     }
+}
+
+pub(crate) fn to_keystring(s: &str) -> Result<&NEStr, NEAsciiStringError> {
+    if is_printable_ascii(s.as_bytes()) {
+        if let Some(ne) = NEStr::try_new(s) {
+            Ok(ne)
+        } else {
+            Err(NEAsciiStringError::Empty)
+        }
+    } else {
+        Err(NEAsciiStringError::Ascii(AsciiStringError(s.into())))
+    }
+}
+
+pub(crate) fn is_printable_ascii(xs: &[u8]) -> bool {
+    xs.iter().all(|x| 32 <= *x && *x <= 126)
 }
 
 // TODO put me somewhere useful

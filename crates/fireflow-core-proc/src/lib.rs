@@ -346,7 +346,7 @@ pub fn derive_from_py_via_fromstr(input: TokenStream) -> TokenStream {
             type Error = pyo3::PyErr;
 
             fn extract(obj: pyo3::Borrowed<'_, 'py, pyo3::types::PyAny>) -> pyo3::PyResult<Self> {
-                let x: String = pyo3::conversion::FromPyObject::<'_, 'py>::extract(obj)?;
+                let x: &str = pyo3::conversion::FromPyObject::<'_, 'py>::extract(obj)?;
                 let ret = x.parse()?;
                 Ok(ret)
             }

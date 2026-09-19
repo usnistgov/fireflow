@@ -1,21 +1,23 @@
-use crate::{
-    config::OpticalOnlyKey,
-    index::{BiMeasIndex, GateIndex, MeasIndex, RegionIndex, SubsetIndex},
-    keystring::{CowKeyString, KeyString},
-    keywords::{Version, VersionMembership},
-    ne_str,
-    nonempty::{
-        DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESlice, NEStr, ToDisplayNE,
-        ToNE,
-    },
+use crate::config::OpticalOnlyKey;
+use crate::index::{BiMeasIndex, GateIndex, MeasIndex, RegionIndex, SubsetIndex};
+use crate::keystring::{
+    CowKeyString, KeyString, NEAsciiStringError, is_printable_ascii, to_keystring,
+};
+use crate::keywords::{Version, VersionMembership};
+use crate::ne_str;
+use crate::nonempty::{
+    DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESlice, NEStr, ToDisplayNE, ToNE,
 };
 
-use bytemuck::{NoUninit, must_cast_ref};
+use type_families::FunctorOnce as _;
+
+use bytemuck::{NoUninit, TransparentWrapper, must_cast_ref};
 use derive_more::{AsRef, Display, From, TryInto};
 use derive_new::new;
 use strum::{EnumCount, VariantArray};
 use strum_macros::{EnumCount as EnumCount_, VariantArray};
 use thiserror::Error;
+use type_families::{impl_functor_once, impl_kind1};
 
 use std::iter;
 use std::ops;
@@ -28,9 +30,13 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use {
     crate::python as py,
-    fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
     pyo3::prelude::*,
 };
+
+pub type DollarStdKey = DollarWrap<StdKey>;
+pub type DollarPseudoStdKey = DollarWrap<PseudoStdKey>;
+pub type DollarRealOrPseudoStdKey = DollarWrap<RealOrPseudoStdKey>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
@@ -40,16 +46,42 @@ pub enum RealOrPseudoStdKey {
     Pseudo(PseudoStdKey),
 }
 
+/// A key which starts with a '$' but is not defined in any FCS standard.
+///
+/// The leading '$' is not included internally or when displayed.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, AsRef)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("${_0}")]
 #[as_ref(KeyString)]
-pub struct PseudoStdKey(pub KeyString);
+pub struct PseudoStdKey(KeyString);
 
+/// Wrap a type so its display string is prefixed with '$'.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Display,
+    From,
+    Default,
+    TransparentWrapper,
+)]
+#[display("${_0}")]
+#[repr(transparent)]
+pub struct DollarWrap<T>(pub T);
+
+impl_kind1!(pub DollarWrapFamily, DollarWrap);
+
+impl_functor_once!(DollarWrap, self, mut f, DollarWrap(f(self.0)));
+
+/// A key defined in the FCS standard ('$' not included).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From, TryInto)]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-#[display("${}", self.as_displayable())]
+#[display("{}", self.as_displayable())]
 pub enum StdKey {
     Root(RootKey),
     Meas(MeasKey),
@@ -59,6 +91,7 @@ pub enum StdKey {
     Dfc(DfcKey),
 }
 
+/// An FCS key which does not use any indices.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
 )]
@@ -128,30 +161,43 @@ pub enum RootKey {
     Gate,
 }
 
+/// A $Pn* key.
+pub type MeasKey = IndexedKey<N_MEAS, MeasIndex, MeasKeyId>;
+
+/// A $Gn* key.
+pub type GateKey = IndexedKey<N_GATE, GateIndex, GateKeyId>;
+
+/// A $Rn* key.
+pub type RegionKey = IndexedKey<N_REGION, RegionIndex, RegionKeyId>;
+
+/// An FCS keyword with an index.
 #[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct IndexedKey<const LEN: usize, I, K> {
     pub index: I,
     pub id: K,
 }
 
-#[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct DfcKey {
-    pub index: BiMeasIndex,
-}
-
+/// A $CSVnFLAG key.
 #[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CsvFlagKey {
     pub index: SubsetIndex,
 }
 
+/// A $DFCmTOn key.
+#[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct DfcKey {
+    pub index: BiMeasIndex,
+}
+
+/// A marker type representing the $CSVnFLAG key.
 pub struct CsvFlagKeyMarker;
 
+/// A marker type representing the $DFCmTOn key.
 pub struct DfcKeyMarker;
 
-pub type MeasKey = IndexedKey<N_MEAS, MeasIndex, MeasKeyId>;
-pub type GateKey = IndexedKey<N_GATE, GateIndex, GateKeyId>;
-pub type RegionKey = IndexedKey<N_REGION, RegionIndex, RegionKeyId>;
-
+/// An identifier corresponding to a $Pn* keyword.
+///
+/// Note that these can either be prefixes or suffixes depending on the key.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
 )]
@@ -181,6 +227,7 @@ pub enum MeasKeyId {
     Pkn,
 }
 
+/// An identifier corresponding to a $Gn* keyword.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
 )]
@@ -196,6 +243,7 @@ pub enum GateKeyId {
     V,
 }
 
+/// An identifier corresponding to a $Rn* keyword.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
 )]
@@ -205,24 +253,219 @@ pub enum RegionKeyId {
     W,
 }
 
-/// Error when parsing [`StdKey`] from string
-#[derive(PartialEq, Debug, Error, Clone)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub enum StdKeyError {
-    #[error("key is not printable ASCII, got {0}")]
-    NonAscii(String),
-    #[error("key is not standard, got {0}")]
-    Pseudo(PseudoStdKey),
-    #[error("key was just a '$' character")]
-    Dollar,
-    #[error("prefix must be '$', got {0}")]
-    Prefix(char),
-    #[error("standard key must not be empty")]
-    Empty,
+/// Error when parsing [`DollarRealOrPseudoStdKey`] from string.
+#[derive(PartialEq, Display, Debug, Error, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum DollarRealOrPseudoStdKeyError {
+    KeyString(NEAsciiStringError),
+    SingleDollar(SingleDollarPrefixError),
+    Prefix(DollarPrefixError),
 }
 
-/// An enum which can be used to index into an array.
+/// Error when parsing [`DollarPseudoStdKey`] from string.
+#[derive(PartialEq, Error, Debug, Clone)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub enum DollarPseudoStdKeyError {
+    #[error("{0}")]
+    Inner(DollarRealOrPseudoStdKeyError),
+    #[error("key is standard when pseudostandard is desired, got {0}")]
+    IsStd(StdKey),
+}
+
+/// Error when parsing [`StdKey`] from string.
+#[derive(PartialEq, Display, Debug, Error, Clone, From)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum DollarStdKeyError {
+    Inner(StdKeyError),
+    SingleDollar(SingleDollarPrefixError),
+    Prefix(DollarPrefixError),
+}
+
+/// Error when parsing [`StdKey`] from string.
+#[derive(PartialEq, Display, Debug, Error, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdKeyError {
+    Pseudo(PseudoStdKeyError),
+    KeyString(NEAsciiStringError),
+}
+
+/// Error when parsing key that should start with a '$' but does not.
+#[derive(PartialEq, Debug, Error, Clone)]
+#[error("key must start with '$', got {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct DollarPrefixError(char);
+
+/// Error when parsing a standard key which is just '$'
+#[derive(PartialEq, Debug, Error, Clone)]
+#[error("key was just a '$' character")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct SingleDollarPrefixError;
+
+/// Error when parsing a standard key that is actually a pseudostandard key.
+#[derive(PartialEq, Debug, Error, Clone)]
+#[error("key is not standard, got {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct PseudoStdKeyError(PseudoStdKey);
+
+/// Iterator for enums which map to numbers starting at 0
+pub type NumericEnumIter<T> = iter::Copied<Iter<'static, T>>;
+
+/// Index generator for root keys.
+pub type RootKeyGenerator = NumericEnumIter<RootKey>;
+
+/// Index generator for indexed keys.
+pub type IndexedKeyGenerator<const LEN: usize, I, K> = iter::Map<
+    iter::Zip<iter::Cycle<NumericEnumIter<K>>, ops::RangeFrom<usize>>,
+    fn((K, usize)) -> IndexedKey<LEN, I, K>,
+>;
+
+/// Index generator for $CSVnFLAG keys.
+pub type CsvFlagGenerator = iter::Map<ops::RangeFrom<usize>, fn(usize) -> CsvFlagKey>;
+
+/// Index generator for $DFCmTOn keys.
+pub type DfcKeyGenerator = iter::Map<
+    iter::Zip<
+        iter::Zip<iter::Cycle<ops::Range<usize>>, ops::RangeFrom<usize>>,
+        iter::Repeat<usize>,
+    >,
+    fn(((usize, usize), usize)) -> DfcKey,
+>;
+
+/// The number of root keys.
+pub const N_ROOT: usize = 54;
+
+/// The number of $Pn* keys (suffixes or prefixes).
+pub const N_MEAS: usize = 22;
+
+/// The number of $Gn* keys (suffixes)
+pub const N_GATE: usize = 8;
+
+/// The number of $Rn* keys (suffixes)
+pub const N_REGION: usize = 2;
+
+/// The prefix byte for a standard or pseudostandard keyword (a '$').
+pub const STD_PREFIX: u8 = 36;
+
+/// The unindexed name for the $PKn key
+pub const PKN: &NEStr = ne_str!("$PKn");
+
+/// The unindexed name for the $PKNn key
+pub const PKNN: &NEStr = ne_str!("$PKNn");
+
+/// The prefix for the $PKn key.
+pub const PK_KW_PREFIX: &NEStr = ne_str!("PK");
+
+/// The prefix for the $PKNn key.
+pub const PKN_KW_PREFIX: &NEStr = ne_str!("PKN");
+
+/// The unindexed name for the $RnI key
+pub const RNI: &NEStr = ne_str!("$RnI");
+
+/// The unindexed name for the $RnW key
+pub const RNW: &NEStr = ne_str!("$RnW");
+
+/// The suffix for the $RnI key.
+pub const REGION_I_KW_SUFFIX: &NEStr = ne_str!("I");
+
+/// The suffix for the $RnW key.
+pub const REGION_W_KW_SUFFIX: &NEStr = ne_str!("W");
+
+// Include list of all keyword names/suffixes defined in build script
+include!(concat!(env!("OUT_DIR"), "/kw_strs.rs"));
+
+// Implement string parsing for top-level key types
+
+impl FromStr for DollarRealOrPseudoStdKey {
+    type Err = DollarRealOrPseudoStdKeyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.parse::<DollarStdKey>() {
+            Ok(x) => Ok(x.fmap_once(RealOrPseudoStdKey::Real)),
+            Err(e) => match e {
+                DollarStdKeyError::Inner(StdKeyError::Pseudo(x)) => {
+                    Ok(Self(RealOrPseudoStdKey::Pseudo(x.0)))
+                }
+                DollarStdKeyError::Inner(StdKeyError::KeyString(ee)) => {
+                    Err(DollarRealOrPseudoStdKeyError::KeyString(ee))
+                }
+                DollarStdKeyError::SingleDollar(ee) => {
+                    Err(DollarRealOrPseudoStdKeyError::SingleDollar(ee))
+                }
+                DollarStdKeyError::Prefix(ee) => Err(DollarRealOrPseudoStdKeyError::Prefix(ee)),
+            },
+        }
+    }
+}
+
+impl FromStr for DollarPseudoStdKey {
+    type Err = DollarPseudoStdKeyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.parse::<DollarRealOrPseudoStdKey>() {
+            Ok(x) => match x.0 {
+                RealOrPseudoStdKey::Pseudo(x) => Ok(DollarWrap(x)),
+                RealOrPseudoStdKey::Real(x) => Err(DollarPseudoStdKeyError::IsStd(x)),
+            },
+            Err(e) => Err(DollarPseudoStdKeyError::Inner(e)),
+        }
+    }
+}
+
+impl FromStr for RealOrPseudoStdKey {
+    type Err = NEAsciiStringError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.parse::<StdKey>() {
+            Ok(x) => Ok(Self::Real(x)),
+            Err(e) => match e {
+                StdKeyError::Pseudo(x) => Ok(Self::Pseudo(x.0)),
+                StdKeyError::KeyString(ee) => Err(ee),
+            },
+        }
+    }
+}
+
+impl FromStr for DollarStdKey {
+    type Err = DollarStdKeyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some((b0, bs)) = s.as_bytes().split_first() {
+            if *b0 == STD_PREFIX {
+                // SAFETY: removing '$' from front should not break UTF8
+                let ss = unsafe { str::from_utf8_unchecked(bs) };
+                StdKey::from_str(ss).map(Self).map_err(|e| match e {
+                    StdKeyError::KeyString(NEAsciiStringError::Empty) => {
+                        SingleDollarPrefixError.into()
+                    }
+                    ee => ee.into(),
+                })
+            } else {
+                let e = DollarPrefixError(char::from(*b0));
+                Err(DollarStdKeyError::Prefix(e))
+            }
+        } else {
+            Err(DollarStdKeyError::Inner(StdKeyError::KeyString(
+                NEAsciiStringError::Empty,
+            )))
+        }
+    }
+}
+
+impl FromStr for StdKey {
+    type Err = StdKeyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_str(s)
+    }
+}
+
+// Implement numeric mapping for key id enums
+
+/// An enum which exactly maps to a sequence of numbers starting at 0.
 ///
 /// The following properties must hold:
 ///
@@ -234,7 +477,7 @@ pub enum StdKeyError {
 /// The constant parameter is meant to be used to enforce array lengths since
 /// Rust does not allow using associated constants in const/type definitions
 /// (yet).
-pub trait EnumIndex<const LEN: usize>: VariantArray + EnumCount + NoUninit {
+pub trait NumericEnum<const LEN: usize>: VariantArray + EnumCount + NoUninit {
     const _CHECK: () = {
         assert!(LEN == Self::COUNT, "const does not match var count");
         assert!(
@@ -249,7 +492,7 @@ pub trait EnumIndex<const LEN: usize>: VariantArray + EnumCount + NoUninit {
         Self::VARIANTS.iter()
     }
 
-    fn iter() -> EnumIndexIter<Self> {
+    fn iter() -> NumericEnumIter<Self> {
         Self::iter_ref().copied()
     }
 
@@ -258,8 +501,24 @@ pub trait EnumIndex<const LEN: usize>: VariantArray + EnumCount + NoUninit {
     }
 }
 
-pub trait AnyIndex {
+impl NumericEnum<N_ROOT> for RootKey {}
+impl NumericEnum<N_MEAS> for MeasKeyId {}
+impl NumericEnum<N_GATE> for GateKeyId {}
+impl NumericEnum<N_REGION> for RegionKeyId {}
+
+// Implement enum index properties for key types
+
+/// An enum which can be used to index into an array.
+pub trait EnumIndex {
+    /// Additional data used to describe the bounds of the index.
+    ///
+    /// This is currently only used for $DFCmTOn keys since these have two
+    /// dimensions; this holds the length of each dimension (they are the same).
     type SubDimension;
+
+    /// Type to generate the full sequence of offsets for array indexing.
+    ///
+    /// This may be infinite depending on [`Self`].
     type Generator: Iterator<Item = Self>;
 
     fn generate(sub: &Self::SubDimension) -> Self::Generator;
@@ -268,50 +527,13 @@ pub trait AnyIndex {
 
     fn offset0(&self) -> usize
     where
-        Self: AnyIndex<SubDimension = ()>,
+        Self: EnumIndex<SubDimension = ()>,
     {
         self.offset(&())
     }
 }
 
-pub trait ToStd {
-    type Index;
-
-    fn to_std(&self, index: &Self::Index) -> StdKey;
-
-    fn to_std0(&self) -> StdKey
-    where
-        Self: ToStd<Index = ()>,
-    {
-        self.to_std(&())
-    }
-}
-
-impl EnumIndex<N_ROOT> for RootKey {}
-impl EnumIndex<N_MEAS> for MeasKeyId {}
-impl EnumIndex<N_GATE> for GateKeyId {}
-impl EnumIndex<N_REGION> for RegionKeyId {}
-
-pub type EnumIndexIter<T> = iter::Copied<Iter<'static, T>>;
-
-pub type RootKeyGenerator = EnumIndexIter<RootKey>;
-
-pub type IndexedKeyGenerator<const LEN: usize, I, K> = iter::Map<
-    iter::Zip<iter::Cycle<EnumIndexIter<K>>, ops::RangeFrom<usize>>,
-    fn((K, usize)) -> IndexedKey<LEN, I, K>,
->;
-
-pub type CsvFlagGenerator = iter::Map<ops::RangeFrom<usize>, fn(usize) -> CsvFlagKey>;
-
-pub type DfcKeyGenerator = iter::Map<
-    iter::Zip<
-        iter::Zip<iter::Cycle<ops::Range<usize>>, ops::RangeFrom<usize>>,
-        iter::Repeat<usize>,
-    >,
-    fn(((usize, usize), usize)) -> DfcKey,
->;
-
-impl AnyIndex for RootKey {
+impl EnumIndex for RootKey {
     type SubDimension = ();
     type Generator = RootKeyGenerator;
 
@@ -324,9 +546,9 @@ impl AnyIndex for RootKey {
     }
 }
 
-impl<const LEN: usize, I, K> AnyIndex for IndexedKey<LEN, I, K>
+impl<const LEN: usize, I, K> EnumIndex for IndexedKey<LEN, I, K>
 where
-    K: EnumIndex<LEN>,
+    K: NumericEnum<LEN>,
     I: From<usize> + Into<usize> + Copy,
 {
     type SubDimension = ();
@@ -345,7 +567,7 @@ where
     }
 }
 
-impl AnyIndex for CsvFlagKey {
+impl EnumIndex for CsvFlagKey {
     type SubDimension = ();
     type Generator = CsvFlagGenerator;
 
@@ -358,7 +580,7 @@ impl AnyIndex for CsvFlagKey {
     }
 }
 
-impl AnyIndex for DfcKey {
+impl EnumIndex for DfcKey {
     type SubDimension = usize;
     type Generator = DfcKeyGenerator;
 
@@ -376,20 +598,20 @@ impl AnyIndex for DfcKey {
     }
 }
 
-pub const N_ROOT: usize = 54;
-pub const N_MEAS: usize = 22;
-pub const N_GATE: usize = 8;
-pub const N_REGION: usize = 2;
+// Implement key id -> std key mappings
 
-macro_rules! match_bytes {
-    ($src:expr, $($bytes:expr => $var:path),*) => {{
-        $(
-            if $src.eq_ignore_ascii_case($bytes.as_str().as_bytes()) {
-                return Some($var)
-            }
-        )*
-        None
-    }};
+/// Convert a key identifier to a standard key (with index as necessary).
+pub trait ToStd {
+    type Index;
+
+    fn to_std(&self, index: &Self::Index) -> StdKey;
+
+    fn to_std0(&self) -> StdKey
+    where
+        Self: ToStd<Index = ()>,
+    {
+        self.to_std(&())
+    }
 }
 
 impl ToStd for RootKey {
@@ -440,75 +662,12 @@ impl ToStd for DfcKeyMarker {
     }
 }
 
-impl FromStr for StdKey {
-    type Err = StdKeyError;
+// Implement non-empty display for std key types.
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if !is_printable_ascii(s.as_bytes()) {
-            Err(StdKeyError::NonAscii(s.into()))
-        } else if let Some((b0, bs)) = s.as_bytes().split_first() {
-            if *b0 != STD_PREFIX {
-                Err(StdKeyError::Prefix((*b0).into()))
-            } else if let Some(ne) = NESlice::try_from_slice(bs) {
-                // SAFETY: we checked that bytes are ASCII above
-                let k = unsafe { RealOrPseudoStdKey::from_ascii_bytes(ne) };
-                match k {
-                    RealOrPseudoStdKey::Pseudo(x) => Err(StdKeyError::Pseudo(x)),
-                    RealOrPseudoStdKey::Real(x) => Ok(x),
-                }
-            } else {
-                Err(StdKeyError::Dollar)
-            }
-        } else {
-            Err(StdKeyError::Empty)
-        }
-    }
-}
-
-// impl AnyStdKey {
-//     #[must_use]
-//     pub fn into_keystring(self) -> KeyString {
-//         match self {
-//             Self::Real(x) => x.as_keystring(),
-//             Self::Pseudo(x) => x.0,
-//         }
-//     }
-// }
-
-impl StdKey {
-    #[must_use]
-    pub fn as_keystring(&self) -> KeyString {
-        self.as_cow_keystring().into_keystring()
-    }
-
-    #[must_use]
-    pub fn as_cow_keystring(&self) -> CowKeyString<'_> {
-        let res = match self {
-            Self::Root(k) => k.as_ne_str().try_into(),
-            Self::Meas(k) => k.as_ne_string().try_into(),
-            Self::Gate(k) => k.as_ne_string().try_into(),
-            Self::Region(k) => k.as_ne_string().try_into(),
-            Self::Dfc(k) => k.as_ne_string().try_into(),
-            Self::CsvFlag(k) => k.as_ne_string().try_into(),
-        };
-        res.expect("standard key should make valid keystring")
-    }
-
-    #[must_use]
-    pub fn from_optical_only_key(k: OpticalOnlyKey, i: MeasIndex) -> Self {
-        Self::Meas(MeasKey::new(i, MeasKeyId::from_optical_only_key(k)))
-    }
-
-    #[must_use]
-    pub const fn membership(&self) -> VersionMembership {
-        match self {
-            Self::Root(k) => k.membership(),
-            Self::Meas(k) => k.id.membership(),
-            Self::Gate(_) => GateKeyId::membership(),
-            Self::Region(_) => RegionKeyId::membership(),
-            Self::Dfc(_) => DfcKey::membership(),
-            Self::CsvFlag(_) => CsvFlagKey::membership(),
-        }
+impl<'a, T: ToDisplayNE<'a>> ToDisplayNE<'a> for DollarWrap<T> {
+    type NE = NEConcat<char, T::NE>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEConcat::new(char::from(STD_PREFIX), self.0.to_ne())
     }
 }
 
@@ -518,17 +677,16 @@ type NEStdKey = NEAlt<
 >;
 
 impl<'a> ToDisplayNE<'a> for StdKey {
-    type NE = NEConcat<char, NEStdKey>;
+    type NE = NEStdKey;
     fn to_ne(&'a self) -> Self::NE {
-        let inner = match self {
+        match self {
             Self::Root(x) => NEAlt::Left(NEAlt::Left(ToNE(*x))),
             Self::Meas(x) => NEAlt::Left(NEAlt::Right(NEAlt::Left(ToNE(*x)))),
             Self::Gate(x) => NEAlt::Left(NEAlt::Right(NEAlt::Right(ToNE(*x)))),
             Self::Region(x) => NEAlt::Right(NEAlt::Left(ToNE(*x))),
             Self::CsvFlag(x) => NEAlt::Right(NEAlt::Right(NEAlt::Left(ToNE(*x)))),
             Self::Dfc(x) => NEAlt::Right(NEAlt::Right(NEAlt::Right(ToNE(*x)))),
-        };
-        NEConcat::new('$', inner)
+        }
     }
 }
 
@@ -596,23 +754,69 @@ impl From<RootKey> for &'static NEStr {
     }
 }
 
-// impl From<MeasKeyId> for &'static NEStr {
-//     fn from(value: MeasKeyId) -> Self {
-//         value.as_ne_str()
-//     }
-// }
+// Implement misc methods on std key types.
 
-// impl From<GateKeyId> for &'static NEStr {
-//     fn from(value: GateKeyId) -> Self {
-//         value.as_ne_str()
-//     }
-// }
+macro_rules! match_bytes {
+    ($src:expr, $($bytes:expr => $var:path),*) => {{
+        $(
+            if $src.eq_ignore_ascii_case($bytes.as_str().as_bytes()) {
+                return Some($var)
+            }
+        )*
+        None
+    }};
+}
 
-// impl From<RegionKeyId> for &'static NEStr {
-//     fn from(value: RegionKeyId) -> Self {
-//         value.to_ne_str()
-//     }
-// }
+impl StdKey {
+    #[must_use]
+    pub fn as_keystring(&self) -> KeyString {
+        self.as_cow_keystring().into_keystring()
+    }
+
+    #[must_use]
+    pub fn as_cow_keystring(&self) -> CowKeyString<'_> {
+        let res = match self {
+            Self::Root(k) => k.as_ne_str().try_into(),
+            Self::Meas(k) => k.as_ne_string().try_into(),
+            Self::Gate(k) => k.as_ne_string().try_into(),
+            Self::Region(k) => k.as_ne_string().try_into(),
+            Self::Dfc(k) => k.as_ne_string().try_into(),
+            Self::CsvFlag(k) => k.as_ne_string().try_into(),
+        };
+        res.expect("standard key should make valid keystring")
+    }
+
+    #[must_use]
+    pub fn from_optical_only_key(k: OpticalOnlyKey, i: MeasIndex) -> Self {
+        Self::Meas(MeasKey::new(i, MeasKeyId::from_optical_only_key(k)))
+    }
+
+    #[must_use]
+    pub const fn membership(&self) -> VersionMembership {
+        match self {
+            Self::Root(k) => k.membership(),
+            Self::Meas(k) => k.id.membership(),
+            Self::Gate(_) => GateKeyId::membership(),
+            Self::Region(_) => RegionKeyId::membership(),
+            Self::Dfc(_) => DfcKey::membership(),
+            Self::CsvFlag(_) => CsvFlagKey::membership(),
+        }
+    }
+
+    fn from_str(s: &str) -> Result<Self, StdKeyError> {
+        match to_keystring(s) {
+            Ok(ne) => {
+                // SAFETY: the check above ensures all bytes are 32-126
+                let k = unsafe { RealOrPseudoStdKey::from_ascii_bytes(ne.as_ne_bytes()) };
+                match k {
+                    RealOrPseudoStdKey::Pseudo(x) => Err(StdKeyError::Pseudo(PseudoStdKeyError(x))),
+                    RealOrPseudoStdKey::Real(x) => Ok(x),
+                }
+            }
+            Err(e) => Err(StdKeyError::KeyString(e)),
+        }
+    }
+}
 
 impl RealOrPseudoStdKey {
     #[must_use]
@@ -917,26 +1121,6 @@ impl RootKey {
     }
 }
 
-impl<const LEN: usize, I, K> IndexedKey<LEN, I, K> {
-    // pub fn offset(&self) -> usize
-    // where
-    //     K: EnumIndex<LEN>,
-    //     I: Into<usize> + Copy,
-    // {
-    //     K::COUNT * self.index.into() + self.id.index()
-    // }
-
-    pub fn keys_at(index: I) -> impl Iterator<Item = Self>
-    where
-        K: EnumIndex<LEN>,
-        I: Clone,
-    {
-        iter::repeat(index)
-            .zip(K::iter())
-            .map(|(i, b)| Self::new(i, b))
-    }
-}
-
 enum PrefixOrSuffix {
     Prefix(&'static NEStr),
     Suffix(&'static NEStr),
@@ -1123,10 +1307,6 @@ impl RegionKeyId {
 }
 
 impl DfcKey {
-    // pub fn offset(&self, matrix_size: usize) -> usize {
-    //     usize::from(self.index.i0) * matrix_size + usize::from(self.index.i1)
-    // }
-
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.len() >= 7
             && bytes[0..3].eq_ignore_ascii_case(b"DFC")
@@ -1167,65 +1347,45 @@ impl CsvFlagKey {
     }
 }
 
-/// Split an numeric index from a byte-string.
+// Implement blank representations for keywords.
+
+/// A key which has a blank string representation without an index.
 ///
-/// Index will be 0-based. Index will only be parsed if the byte string
-/// starts with it.
-fn split_index_and_suffix(bytes: &[u8]) -> Option<(usize, &[u8])> {
-    let mut index = 0_usize;
-    let mut it = bytes.iter();
-    // read first character, only continue if a digit 1-9 (no leading
-    // zeros)
-    if let Some(x) = it.by_ref().next()
-        && (49..58).contains(x)
+/// Example: '$PnN'
+#[cfg(feature = "serde")]
+pub trait BlankKeyword {
+    fn blank(&self) -> &'static NEStr;
+}
+
+// TODO serde_with does this more concisely
+#[cfg(feature = "serde")]
+impl Serialize for DollarRealOrPseudoStdKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
     {
-        index += usize::from(*x) - 48;
-        let mut k = 1;
-        for y in it.take_while(|&&z| (48..58).contains(&z)) {
-            index = 10 * index + (usize::from(*y) - 48);
-            k += 1;
-        }
-        assert!(index > 0, "index should be greater than 0 here");
-        Some((index - 1, bytes.split_at(k).1))
-    } else {
-        None
+        serializer.collect_str(self)
     }
 }
 
-fn is_printable_ascii(xs: &[u8]) -> bool {
-    xs.iter().all(|x| 32 <= *x && *x <= 126)
+#[cfg(feature = "serde")]
+impl Serialize for DollarPseudoStdKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_str(self)
+    }
 }
 
-pub const STD_PREFIX: u8 = 36; // '$'
-
-// Load list of all keyword constants from build script
-include!(concat!(env!("OUT_DIR"), "/kw_strs.rs"));
-
-// other keywords not in build script
-pub const PKN: &NEStr = ne_str!("$PKn");
-pub const PKNN: &NEStr = ne_str!("$PKNn");
-
-pub const PK_KW_PREFIX: &NEStr = ne_str!("PK");
-pub const PKN_KW_PREFIX: &NEStr = ne_str!("PKN");
-
-pub const RNI: &NEStr = ne_str!("$RNI");
-pub const RNW: &NEStr = ne_str!("$RNW");
-
-pub const REGION_I_KW_SUFFIX: &NEStr = ne_str!("I");
-pub const REGION_W_KW_SUFFIX: &NEStr = ne_str!("W");
-
-const fn is_zero_to_n_usize<X: NoUninit>(xs: &[X]) -> bool {
-    let mut i = 0_usize;
-
-    while i < xs.len() {
-        let x: &usize = must_cast_ref(&xs[i]);
-        if *x != i {
-            return false;
-        }
-        i += 1;
+#[cfg(feature = "serde")]
+impl Serialize for DollarStdKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_str(self)
     }
-
-    true
 }
 
 #[cfg(feature = "serde")]
@@ -1236,11 +1396,6 @@ impl Serialize for StdKey {
     {
         serializer.collect_str(self)
     }
-}
-
-#[cfg(feature = "serde")]
-pub trait BlankKeyword {
-    fn blank(&self) -> &'static NEStr;
 }
 
 #[cfg(feature = "serde")]
@@ -1271,4 +1426,80 @@ impl BlankKeyword for MeasKeyId {
             Self::Pkn => PKNN,
         }
     }
+}
+
+// Random local functions
+
+/// Split an numeric index from a byte-string.
+///
+/// Index will be 0-based. Index will only be parsed if the byte string
+/// starts with it.
+fn split_index_and_suffix(bytes: &[u8]) -> Option<(usize, &[u8])> {
+    let mut index = 0_usize;
+    let mut it = bytes.iter();
+    // read first character, only continue if a digit 1-9 (no leading
+    // zeros)
+    if let Some(x) = it.by_ref().next()
+        && (49..58).contains(x)
+    {
+        index += usize::from(*x) - 48;
+        let mut k = 1;
+        for y in it.take_while(|&&z| (48..58).contains(&z)) {
+            index = 10 * index + (usize::from(*y) - 48);
+            k += 1;
+        }
+        assert!(index > 0, "index should be greater than 0 here");
+        Some((index - 1, bytes.split_at(k).1))
+    } else {
+        None
+    }
+}
+
+const fn is_zero_to_n_usize<X: NoUninit>(xs: &[X]) -> bool {
+    let mut i = 0_usize;
+
+    while i < xs.len() {
+        let x: &usize = must_cast_ref(&xs[i]);
+        if *x != i {
+            return false;
+        }
+        i += 1;
+    }
+
+    true
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{DollarPseudoStdKey, DollarRealOrPseudoStdKey, DollarStdKey};
+
+    use pyo3::prelude::*;
+    use pyo3::types::PyString;
+
+    use std::convert::Infallible;
+
+    macro_rules! impl_to_from_str {
+        ($t:ident) => {
+            impl<'py> FromPyObject<'_, 'py> for $t {
+                type Error = PyErr;
+                fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+                    Ok(obj.extract::<&str>()?.parse()?)
+                }
+            }
+
+            impl<'py> IntoPyObject<'py> for $t {
+                type Target = PyString;
+                type Output = Bound<'py, Self::Target>;
+                type Error = Infallible;
+
+                fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+                    self.to_string().into_pyobject(py)
+                }
+            }
+        };
+    }
+
+    impl_to_from_str!(DollarStdKey);
+    impl_to_from_str!(DollarPseudoStdKey);
+    impl_to_from_str!(DollarRealOrPseudoStdKey);
 }

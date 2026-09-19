@@ -6,7 +6,7 @@ use fireflow_types::config::{
     ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, TrimIntraValueWhitespace,
 };
 use fireflow_types::nonempty::{NEStr, NEString};
-use fireflow_types::std_key::StdKey;
+use fireflow_types::std_key::{DollarStdKey, DollarWrap, StdKey};
 
 use type_families::{BifunctorOnce, Sibling2, impl_kind2};
 
@@ -112,37 +112,41 @@ pub struct Diagnosed<T, D> {
 // }
 
 impl<T> Diagnosed<T, Trimmed> {
-    pub(crate) fn into_root_pair(self) -> (T, Option<(StdKey, NEString)>)
+    pub(crate) fn into_root_pair(self) -> (T, Option<(DollarStdKey, NEString)>)
     where
         T: ValueToStdKey<Index = ()>,
     {
-        (self.inner, self.diagnostic.map(|t| (T::std(&()), t)))
+        let k = self.inner;
+        (k, self.diagnostic.map(|t| (DollarWrap(T::std0()), t)))
     }
 
-    pub(crate) fn into_indexed_pair(self, i: &T::Index) -> (T, Option<(StdKey, NEString)>)
+    pub(crate) fn into_indexed_pair(self, i: &T::Index) -> (T, Option<(DollarStdKey, NEString)>)
     where
         T: ValueToStdKey,
     {
-        (self.inner, self.diagnostic.map(|t| (T::std(i), t)))
+        let k = self.inner;
+        (k, self.diagnostic.map(|t| (DollarWrap(T::std(i)), t)))
     }
 }
 
 impl<T> Diagnosed<Option<T>, Trimmed> {
-    pub(crate) fn into_opt_root_pair(self) -> (Option<T>, Option<(StdKey, NEString)>)
+    pub(crate) fn into_opt_root_pair(self) -> (Option<T>, Option<(DollarStdKey, NEString)>)
     where
         T: ValueToStdKey<Index = ()>,
     {
-        (self.inner, self.diagnostic.map(|t| (T::std(&()), t)))
+        let k = self.inner;
+        (k, self.diagnostic.map(|t| (DollarWrap(T::std0()), t)))
     }
 
     pub(crate) fn into_opt_indexed_pair(
         self,
         i: &T::Index,
-    ) -> (Option<T>, Option<(StdKey, NEString)>)
+    ) -> (Option<T>, Option<(DollarStdKey, NEString)>)
     where
         T: ValueToStdKey,
     {
-        (self.inner, self.diagnostic.map(|t| (T::std(i), t)))
+        let k = self.inner;
+        (k, self.diagnostic.map(|t| (DollarWrap(T::std(i)), t)))
     }
 }
 

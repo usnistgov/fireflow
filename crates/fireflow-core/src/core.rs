@@ -121,25 +121,25 @@ use crate::validated::read_state::{
 };
 use crate::validated::shortname::Shortname;
 
-use fireflow_types::{
-    config::{
-        AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, IncludeReqOrOpt,
-        IncludeRootOrMeas, OverBitmaskAction, OverRangeAction, OverlapCorrectionLimit,
-        ProcessOptionalFailure, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
-        ReadOffsetConfig, ReadSharedConfig, TriErrorFlag as _, WriteDatasetInnerConfig,
-        WriteMultiConfig, WriteTEXTInnerConfig,
-    },
-    datepattern::DatePattern,
-    index::MeasIndex,
-    keywords::{
-        HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
-    },
-    nonempty::{IntoIteratorExt as _, NESlice, NEStr, NEString, NEVec, NonEmptyIterator as _},
-    segment::{AnalysisSegmentId, DataSegmentId},
-    std_key::StdKey,
-    textdelim::TEXTDelim,
-    timepattern::TimePattern,
+use fireflow_types::config::{
+    AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, IncludeReqOrOpt,
+    IncludeRootOrMeas, OverBitmaskAction, OverRangeAction, OverlapCorrectionLimit,
+    ProcessOptionalFailure, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
+    ReadOffsetConfig, ReadSharedConfig, TriErrorFlag as _, WriteDatasetInnerConfig,
+    WriteMultiConfig, WriteTEXTInnerConfig,
 };
+use fireflow_types::datepattern::DatePattern;
+use fireflow_types::index::MeasIndex;
+use fireflow_types::keywords::{
+    HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
+};
+use fireflow_types::nonempty::{
+    IntoIteratorExt as _, NESlice, NEStr, NEString, NEVec, NonEmptyIterator as _,
+};
+use fireflow_types::segment::{AnalysisSegmentId, DataSegmentId};
+use fireflow_types::std_key::DollarStdKey;
+use fireflow_types::textdelim::TEXTDelim;
+use fireflow_types::timepattern::TimePattern;
 
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
@@ -1131,7 +1131,7 @@ pub struct StdTEXTDiagnostics {
     pub trimmed: TrimmedKeywords,
 
     /// Optical keys that were found in the temporal measurement.
-    pub temporal_optical_pairs: Vec<(StdKey, NEString)>,
+    pub temporal_optical_pairs: Vec<(DollarStdKey, NEString)>,
 
     /// $TIMESTEP was missing and was added via config
     pub timestep_added: TimestepAdded,
@@ -1170,7 +1170,7 @@ pub struct StdTEXTDiagnostics {
     pub schema_diagnostics: DataSchemaDiagnostics,
 }
 
-pub(crate) type TrimmedKeyword = (StdKey, NEString);
+pub(crate) type TrimmedKeyword = (DollarStdKey, NEString);
 pub(crate) type TrimmedKeywords = Vec<TrimmedKeyword>;
 
 impl StdTEXTDiagnostics {
@@ -1232,7 +1232,7 @@ type DiagnosedUnstainedData<U> = Diagnosed<U, Option<TrimmedKeyword>>;
 pub struct MeasurementDiagnostics {
     scale: Vec<AnyMeasScaleFix>,
     trimmed: TrimmedKeywords,
-    tmp_opt_pairs: Vec<(StdKey, NEString)>,
+    tmp_opt_pairs: Vec<(DollarStdKey, NEString)>,
     timestep_added: TimestepAdded,
 }
 
@@ -6912,6 +6912,15 @@ pub(crate) struct AnyCoreOutput<T> {
     pub(crate) pseudostandard: PseudoStdKeywords,
 }
 
+#[derive(new)]
+pub(crate) struct StdDatasetFromKeywordsOutput<T> {
+    pub(crate) inner: T,
+    pub(crate) data: StdDatasetFromKwsOutput,
+    pub(crate) repair: RepairDiagnostics,
+    pub(crate) pseudo: PseudoStdKeywords,
+    pub(crate) scores: Option<KeywordVersionScores>,
+}
+
 macro_rules! match_anycore {
     ($self:expr, $bind:ident, $stuff:block) => {
         match_many_to_one!($self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], $bind, $stuff)
@@ -7095,13 +7104,7 @@ impl AnyCoreDataset {
         start_time: Instant,
         st: &TEXTReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        (
-            Self,
-            StdDatasetFromKwsOutput,
-            RepairDiagnostics,
-            PseudoStdKeywords,
-            Option<KeywordVersionScores>,
-        ),
+        StdDatasetFromKeywordsOutput<Self>,
         StdDatasetFromKeywordsWarningInner,
         AnyStdDatasetFromKeywordsError,
         (),
@@ -7133,7 +7136,9 @@ impl AnyCoreDataset {
         macro_rules! go {
             ($t:ident, $s:expr, $st:expr) => {
                 $t::new_from_keywords_inner(h, kws, hns, scan_next_dataset, start_time, $st)
-                    .map_ok_value(|(a, b, c, d)| (a.into(), b, c, d, $s))
+                    .map_ok_value(|(a, b, c, d)| {
+                        StdDatasetFromKeywordsOutput::new(a.into(), b, c, d, $s)
+                    })
                     .map_pure_errors(AnyStdDatasetFromKeywordsError::from)
             };
         }

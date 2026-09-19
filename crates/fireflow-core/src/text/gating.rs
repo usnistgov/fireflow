@@ -26,7 +26,7 @@ use crate::validated::keys::{DollarKey, ValueToStdKey};
 use fireflow_types::config::{AllowLoss, ProcessOptionalFailure, ReadDataKeywordsConfig};
 use fireflow_types::index::{GateIndex, MeasIndex, RegionIndex};
 use fireflow_types::nonempty::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
-use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeyId, StdKey};
+use fireflow_types::std_key::{DollarWrap, IndexedKey, RegionKey, RegionKeyId, StdKey};
 
 use type_families::{
     ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, impl_functor,
@@ -608,7 +608,9 @@ impl<I> GatingScheme<I> {
             g.region_indices()
                 .into_iter()
                 .filter(|ri| !regions.contains_key(ri))
-                .map(|ri| StdKey::from(RegionKey::new(ri, RegionKeyId::I)))
+                .map(|ri| RegionKey::new(ri, RegionKeyId::I))
+                .map(StdKey::from)
+                .map(DollarWrap)
                 .try_into_nonempty_iter()
         }) {
             Err(DependentKeyError::new1(ris.collect()))

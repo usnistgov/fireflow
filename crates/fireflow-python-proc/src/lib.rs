@@ -1507,7 +1507,7 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
 
     let demoted = DocArgROIvar::new_ivar_ro(
         "demoted",
-        PyList::new1(PyAlias::new_std_keyword()),
+        PyList::new1(PyAlias::new_dollar_std_keyword()),
         "Standard keys which were demoted.",
         |_, _| quote!(self.0.demoted.clone()),
     );
@@ -1522,7 +1522,7 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
     let subbed = DocArgROIvar::new_ivar_ro(
         "subbed",
         PyList::new1(
-            PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+            PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_ne_truncated_str()),
         ),
         "Standard keys which had values that were edited by substitution.",
         |_, _| quote!(self.0.subbed.clone()),
@@ -1531,7 +1531,7 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
     let replaced = DocArgROIvar::new_ivar_ro(
         "replaced",
         PyList::new1(
-            PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+            PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_ne_truncated_str()),
         ),
         "Standard keys which had values that were replaced.",
         |_, _| quote!(self.0.replaced.clone()),
@@ -1539,28 +1539,38 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
 
     let renamed_std = DocArgROIvar::new_ivar_ro(
         "renamed_std",
-        PyList::new1(PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_std_keyword())),
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_dollar_std_keyword()),
+        ),
         "Standard keys which were renamed. The first element of the pair is the original name.",
         |_, _| quote!(self.0.renamed_std.clone()),
     );
 
     let renamed_pseudo_std = DocArgROIvar::new_ivar_ro(
         "renamed_pseudo_std",
-        PyList::new1(PyTuple::new1(PyAlias::new_pstd_keyword()).add(PyAlias::new_std_keyword())),
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_dollar_pstd_keyword())
+                .add(PyAlias::new_dollar_std_keyword()),
+        ),
         "Standard keys which were renamed. The first element of the pair is the original name.",
         |_, _| quote!(self.0.renamed_pseudo_std.clone()),
     );
 
     let renamed_std_non_unique = DocArgROIvar::new_ivar_ro(
         "renamed_std_non_unique",
-        PyList::new1(PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_std_keyword())),
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_dollar_std_keyword()),
+        ),
         "Standard keys which were renamed. The first element of the pair is the original name.",
         |_, _| quote!(self.0.renamed_std_non_unique.clone()),
     );
 
     let renamed_pseudo_std_non_unique = DocArgROIvar::new_ivar_ro(
         "renamed_pseudo_std_non_unique",
-        PyList::new1(PyTuple::new1(PyAlias::new_pstd_keyword()).add(PyAlias::new_std_keyword())),
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_dollar_pstd_keyword())
+                .add(PyAlias::new_dollar_std_keyword()),
+        ),
         "Standard keys which were renamed. The first element of the pair is the original name.",
         |_, _| quote!(self.0.renamed_pseudo_std_non_unique.clone()),
     );
@@ -1568,7 +1578,7 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
     let ignored = DocArgROIvar::new_ivar_ro(
         "ignored",
         PyList::new1(
-            PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+            PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_ne_truncated_str()),
         ),
         "Standard keys which were ignored.",
         |_, _| quote!(self.0.ignored.clone()),
@@ -1577,7 +1587,7 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
     let removed = DocArgROIvar::new_ivar_ro(
         "removed",
         PyList::new1(
-            PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+            PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_ne_truncated_str()),
         ),
         "Standard keys which were removed.",
         |_, _| quote!(self.0.removed.clone()),
@@ -1586,7 +1596,7 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
     let promoted_non_unique = DocArgROIvar::new_ivar_ro(
         "promoted_non_unique",
         PyList::new1(
-            PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+            PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_ne_truncated_str()),
         ),
         "Non-standard keys which collided with a standard key when promoted.",
         |_, _| quote!(self.0.promoted_non_unique.clone()),
@@ -1616,7 +1626,7 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
     let appended_non_unique = DocArgROIvar::new_ivar_ro(
         "appended_non_unique",
         PyList::new1(
-            PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+            PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_ne_truncated_str()),
         ),
         "Appended keys which collided with an existing standard key.",
         |_, _| quote!(self.0.appended_non_unique.clone()),
@@ -2247,14 +2257,14 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 
     let trimmed = DocArgROIvar::new_ivar_ro(
         "trimmed",
-        PyList::new1(PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_str())),
+        PyList::new1(PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_ne_str())),
         "Keywords which had whitespace between commas trimmed.",
         |_, _| quote!(self.0.trimmed.clone()),
     );
 
     let tmp_opt_pairs = DocArgROIvar::new_ivar_ro(
         "temporal_optical_pairs",
-        PyList::new1(PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_str())),
+        PyList::new1(PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_ne_str())),
         "Optical keys that were found in the temporal measurement.",
         |_, _| quote!(self.0.temporal_optical_pairs.clone()),
     );
@@ -2946,7 +2956,7 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
     let non_unique_std = DocArgROIvar::new_ivar_ro(
         "non_unique_std_keywords",
         PyList::new1(
-            PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+            PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_ne_truncated_str()),
         ),
         format!("Standard keys which already appeared in {TEXT} previously."),
         |_, _| quote!(self.0.non_unique_std_keywords.clone()),
@@ -2955,7 +2965,7 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
     let non_unique_pseudo = DocArgROIvar::new_ivar_ro(
         "non_unique_pstd_keywords",
         PyList::new1(
-            PyTuple::new1(PyAlias::new_pstd_keyword()).add(PyAlias::new_ne_truncated_str()),
+            PyTuple::new1(PyAlias::new_dollar_pstd_keyword()).add(PyAlias::new_ne_truncated_str()),
         ),
         format!("Pseudostandard keys which already appeared in {TEXT} previously."),
         |_, _| quote!(self.0.non_unique_pstd_keywords.clone()),
@@ -8979,7 +8989,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_dropped_std_keywords() -> Self {
-        let keypath: Path = parse_quote!(fireflow_types::std_key::StdKey);
+        let keypath: Path = parse_quote!(fireflow_types::std_key::DollarStdKey);
         let valpath: Path = parse_quote!(fireflow_types::nonempty::NEString);
         // TODO the :: here is awkward
         Self::new_py(["typing"], "DroppedStdKeywords")
@@ -8992,9 +9002,19 @@ impl<E: From<PyException>> PyAlias<E> {
         Self::new_py(["typing"], "StdKey").rstype(path)
     }
 
+    fn new_dollar_std_keyword() -> Self {
+        let path = parse_quote!(fireflow_types::std_key::DollarStdKey);
+        Self::new_py(["typing"], "DollarStdKey").rstype(path)
+    }
+
     fn new_pstd_keyword() -> Self {
         let path = parse_quote!(fireflow_types::std_key::PseudoStdKey);
         Self::new_py(["typing"], "PseudoStdKey").rstype(path)
+    }
+
+    fn new_dollar_pstd_keyword() -> Self {
+        let path = parse_quote!(fireflow_types::std_key::DollarPseudoStdKey);
+        Self::new_py(["typing"], "DollarPseudoStdKey").rstype(path)
     }
 
     fn new_nonstd_keyword() -> Self {
@@ -9156,8 +9176,8 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_key_or_bytes() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::KeyOrBytes);
-        Self::new_py(["typing"], "KeyOrBytes").rstype(path)
+        let path = parse_quote!(fireflow_core::validated::keys::DollarKeyOrBytes);
+        Self::new_py(["typing"], "DollarKeyOrBytes").rstype(path)
     }
 
     fn new_version() -> Self {

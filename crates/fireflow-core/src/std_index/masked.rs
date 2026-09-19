@@ -5,7 +5,7 @@ use derive_new::new;
 use fireflow_types::nonempty::NEStr;
 use fireflow_types::{
     nonempty::NEString,
-    std_key::{AnyIndex, StdKey},
+    std_key::{EnumIndex, StdKey},
 };
 
 use std::{
@@ -31,13 +31,13 @@ pub(crate) struct MaskedString<'a, I, S, K, C, A, M> {
 }
 
 #[derive(new, Clone, Default)]
-pub struct LookupStatus {
-    override_: LookupOverride,
-    status: LookupStatus_,
+pub struct LookupMask {
+    repair: RepairMask,
+    status: LookupStatus,
 }
 
 #[derive(Clone, Default)]
-pub(crate) enum LookupOverride {
+pub(crate) enum RepairMask {
     #[default]
     Stored,
     Delete,
@@ -45,7 +45,7 @@ pub(crate) enum LookupOverride {
 }
 
 #[derive(Clone, Copy, Default)]
-pub(crate) enum LookupStatus_ {
+pub(crate) enum LookupStatus {
     #[default]
     Unseen,
     Seen(LookupAction),
@@ -125,26 +125,26 @@ where
     }
 }
 
-impl<'a, const LEN: usize, K> MaskedEnumString<'a, LEN, K, LookupOverride> {
-    pub(crate) fn into_lookup_array(self) -> MaskedEnumString<'a, LEN, K, LookupStatus> {
+impl<'a, const LEN: usize, K> MaskedEnumString<'a, LEN, K, RepairMask> {
+    pub(crate) fn into_lookup_array(self) -> MaskedEnumString<'a, LEN, K, LookupMask> {
         let mask = self
             .mask
-            .map(|s| LookupStatus::new(s, LookupStatus_::default()));
+            .map(|s| LookupMask::new(s, LookupStatus::default()));
         MaskedString::new(self.inner, mask, ())
     }
 }
 
-impl<'a, K, S> MaskedVariableString<'a, K, S, LookupOverride> {
-    pub(crate) fn into_lookup_var(self) -> MaskedVariableString<'a, K, S, LookupStatus> {
+impl<'a, K, S> MaskedVariableString<'a, K, S, RepairMask> {
+    pub(crate) fn into_lookup_var(self) -> MaskedVariableString<'a, K, S, LookupMask> {
         let mask = self
             .mask
             .into_iter()
-            .map(|s| LookupStatus::new(s, LookupStatus_::default()))
+            .map(|s| LookupMask::new(s, LookupStatus::default()))
             .collect();
         let appended = self
             .appended
             .into_iter()
-            .map(|(k, m, v)| (k, LookupStatus::new(m, LookupStatus_::default()), v))
+            .map(|(k, m, v)| (k, LookupMask::new(m, LookupStatus::default()), v))
             .collect();
         MaskedString::new(self.inner, mask, appended)
     }
@@ -171,18 +171,18 @@ impl<'a, K, S, M: Default> MaskedVariableString<'a, K, S, M> {
     }
 }
 
-impl<I, S, K, C, A> MaskedString<'_, I, S, K, C, A, LookupOverride> {
+impl<I, S, K, C, A> MaskedString<'_, I, S, K, C, A, RepairMask> {
     pub(crate) fn delete(&mut self, k: &K) -> Option<&NEStr>
     where
         I: HasLen + Index<usize, Output = usize>,
-        C: IndexMut<usize, Output = LookupOverride>,
-        K: AnyIndex<SubDimension = S>,
-        A: AppendableContainer<K, LookupOverride>,
+        C: IndexMut<usize, Output = RepairMask>,
+        K: EnumIndex<SubDimension = S>,
+        A: AppendableContainer<K, RepairMask>,
     {
         if let Some((v, m)) = self.get_value_and_mask_mut(k)
             && let Some(ne) = NEStr::try_new(v)
         {
-            *m = LookupOverride::Delete;
+            *m = RepairMask::Delete;
             Some(ne)
         } else {
             None
@@ -192,14 +192,14 @@ impl<I, S, K, C, A> MaskedString<'_, I, S, K, C, A, LookupOverride> {
     pub(crate) fn insert(&mut self, k: &K, v: NEString) -> Option<NEString>
     where
         I: HasLen + Index<usize, Output = usize>,
-        C: IndexMut<usize, Output = LookupOverride>,
-        K: AnyIndex<SubDimension = S>,
-        A: AppendableContainer<K, LookupOverride>,
+        C: IndexMut<usize, Output = RepairMask>,
+        K: EnumIndex<SubDimension = S>,
+        A: AppendableContainer<K, RepairMask>,
     {
         if self.key_has_value(k) {
             Some(v)
         } else if let Some(m) = self.get_mask_mut(k) {
-            *m = LookupOverride::Insert(v);
+            *m = RepairMask::Insert(v);
             None
         } else {
             self.appended.insert(k, v)
@@ -209,15 +209,15 @@ impl<I, S, K, C, A> MaskedString<'_, I, S, K, C, A, LookupOverride> {
     pub(crate) fn key_has_value(&self, k: &K) -> bool
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
-        C: Index<usize, Output = LookupOverride>,
-        A: AppendableContainer<K, LookupOverride>,
+        K: EnumIndex<SubDimension = S>,
+        C: Index<usize, Output = RepairMask>,
+        A: AppendableContainer<K, RepairMask>,
     {
         if let Some(m) = self.get_mask(k) {
             match m {
-                LookupOverride::Stored => self.occupied(k) == Some(true),
-                LookupOverride::Insert(_) => true,
-                LookupOverride::Delete => false,
+                RepairMask::Stored => self.occupied(k) == Some(true),
+                RepairMask::Insert(_) => true,
+                RepairMask::Delete => false,
             }
         } else {
             false
@@ -237,11 +237,11 @@ impl<I, S, K, C, A> MaskedString<'_, I, S, K, C, A, LookupOverride> {
 
     pub(crate) fn iter_ne_masked_mut<'b>(
         &'b mut self,
-    ) -> impl Iterator<Item = (StdKey, &'b NEStr, &'b mut LookupOverride)>
+    ) -> impl Iterator<Item = (StdKey, &'b NEStr, &'b mut RepairMask)>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S> + Into<StdKey>,
-        &'b mut C: IntoIterator<Item = &'b mut LookupOverride>,
+        K: EnumIndex<SubDimension = S> + Into<StdKey>,
+        &'b mut C: IntoIterator<Item = &'b mut RepairMask>,
     {
         self.iter_masked_mut()
             .filter_map(|(k, v, m)| NEStr::try_new(v).map(|ne| (k, ne, m)))
@@ -249,11 +249,11 @@ impl<I, S, K, C, A> MaskedString<'_, I, S, K, C, A, LookupOverride> {
 
     pub(crate) fn iter_masked_mut<'b>(
         &'b mut self,
-    ) -> impl Iterator<Item = (StdKey, &'b str, &'b mut LookupOverride)>
+    ) -> impl Iterator<Item = (StdKey, &'b str, &'b mut RepairMask)>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S> + Into<StdKey>,
-        &'b mut C: IntoIterator<Item = &'b mut LookupOverride>,
+        K: EnumIndex<SubDimension = S> + Into<StdKey>,
+        &'b mut C: IntoIterator<Item = &'b mut RepairMask>,
     {
         self.inner
             .iter()
@@ -262,20 +262,20 @@ impl<I, S, K, C, A> MaskedString<'_, I, S, K, C, A, LookupOverride> {
     }
 }
 
-impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupStatus> {
+impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupMask> {
     pub(crate) fn parse_unseen<F, X>(&mut self, k: &K, f: F) -> Option<X>
     where
         F: FnOnce(&NEStr) -> (Option<LookupAction>, X),
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
-        C: IndexMut<usize, Output = LookupStatus>,
-        A: AppendableContainer<K, LookupStatus>,
+        K: EnumIndex<SubDimension = S>,
+        C: IndexMut<usize, Output = LookupMask>,
+        A: AppendableContainer<K, LookupMask>,
     {
         let (v, m) = self.get_lookup_value_and_status_mut(k)?;
         if let Some(ne) = v {
             let (action, ret) = f(m.with_unseen(ne));
             let new_action = action.unwrap_or(LookupAction::None);
-            *m = LookupStatus_::Seen(new_action);
+            *m = LookupStatus::Seen(new_action);
             Some(ret)
         } else {
             m.assert_empty_unseen();
@@ -286,14 +286,14 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupStatus> {
     pub(crate) fn remove_unseen(&mut self, k: &K) -> Option<&NEStr>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
-        C: IndexMut<usize, Output = LookupStatus>,
-        A: AppendableContainer<K, LookupStatus>,
+        K: EnumIndex<SubDimension = S>,
+        C: IndexMut<usize, Output = LookupMask>,
+        A: AppendableContainer<K, LookupMask>,
     {
         let (v, m) = self.get_lookup_value_and_status_mut(k)?;
         if let Some(ne) = v {
             let ret = m.with_unseen(ne);
-            *m = LookupStatus_::Seen(LookupAction::None);
+            *m = LookupStatus::Seen(LookupAction::None);
             Some(ret)
         } else {
             m.assert_empty_unseen();
@@ -304,9 +304,9 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupStatus> {
     pub(crate) fn get_unseen(&self, k: &K) -> Option<&NEStr>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
-        C: Index<usize, Output = LookupStatus>,
-        A: AppendableContainer<K, LookupStatus>,
+        K: EnumIndex<SubDimension = S>,
+        C: Index<usize, Output = LookupMask>,
+        A: AppendableContainer<K, LookupMask>,
     {
         let m = self.get_lookup_status(k)?;
         if let Some(ne) = self.get_lookup_value(k) {
@@ -320,18 +320,18 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupStatus> {
     pub(crate) fn set_lookup_action_seen(&mut self, k: &K, a: LookupAction)
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
-        C: IndexMut<usize, Output = LookupStatus>,
-        A: AppendableContainer<K, LookupStatus>,
+        K: EnumIndex<SubDimension = S>,
+        C: IndexMut<usize, Output = LookupMask>,
+        A: AppendableContainer<K, LookupMask>,
     {
         if self.get_lookup_value(k).is_none() {
             panic!("attempted to set lookup action on empty value")
         } else {
             match self.get_lookup_status_mut(k) {
-                Some(LookupStatus_::Unseen) => {
+                Some(LookupStatus::Unseen) => {
                     panic!("attempted to set lookup action on unseen value")
                 }
-                Some(LookupStatus_::Seen(s)) => *s = a,
+                Some(LookupStatus::Seen(s)) => *s = a,
                 None => panic!("index out of bounds"),
             }
         }
@@ -339,47 +339,47 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupStatus> {
 
     pub(crate) fn iter_masked<'b>(
         &'b self,
-    ) -> impl Iterator<Item = (K, &'a NEStr, &'b LookupStatus_)>
+    ) -> impl Iterator<Item = (K, &'a NEStr, &'b LookupStatus)>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
-        &'b C: IntoIterator<Item = &'b LookupStatus> + 'a,
+        K: EnumIndex<SubDimension = S>,
+        &'b C: IntoIterator<Item = &'b LookupMask> + 'a,
     {
         self.iter()
             .zip(&self.mask)
-            .filter_map(|((k, v), m)| m.override_.value(v).map(|ne| (k, ne, &m.status)))
+            .filter_map(|((k, v), m)| m.repair.value(v).map(|ne| (k, ne, &m.status)))
     }
 
     fn get_lookup_value_and_status_mut(
         &mut self,
         k: &K,
-    ) -> Option<(Option<&NEStr>, &mut LookupStatus_)>
+    ) -> Option<(Option<&NEStr>, &mut LookupStatus)>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
-        C: IndexMut<usize, Output = LookupStatus>,
-        A: AppendableContainer<K, LookupStatus>,
+        K: EnumIndex<SubDimension = S>,
+        C: IndexMut<usize, Output = LookupMask>,
+        A: AppendableContainer<K, LookupMask>,
     {
         let (v, m) = self.get_value_and_mask_mut(k)?;
-        Some((m.override_.value(v), &mut m.status))
+        Some((m.repair.value(v), &mut m.status))
     }
 
-    fn get_lookup_status(&self, k: &K) -> Option<&LookupStatus_>
+    fn get_lookup_status(&self, k: &K) -> Option<&LookupStatus>
     where
         I: HasLen,
-        K: AnyIndex<SubDimension = S>,
-        C: Index<usize, Output = LookupStatus>,
-        A: AppendableContainer<K, LookupStatus>,
+        K: EnumIndex<SubDimension = S>,
+        C: Index<usize, Output = LookupMask>,
+        A: AppendableContainer<K, LookupMask>,
     {
         Some(&self.get_mask(k)?.status)
     }
 
-    fn get_lookup_status_mut(&mut self, k: &K) -> Option<&mut LookupStatus_>
+    fn get_lookup_status_mut(&mut self, k: &K) -> Option<&mut LookupStatus>
     where
         I: HasLen,
-        K: AnyIndex<SubDimension = S>,
-        C: IndexMut<usize, Output = LookupStatus>,
-        A: AppendableContainer<K, LookupStatus>,
+        K: EnumIndex<SubDimension = S>,
+        C: IndexMut<usize, Output = LookupMask>,
+        A: AppendableContainer<K, LookupMask>,
     {
         Some(&mut self.get_mask_mut(k)?.status)
     }
@@ -387,13 +387,13 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupStatus> {
     fn get_lookup_value(&self, k: &K) -> Option<&NEStr>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
-        C: Index<usize, Output = LookupStatus>,
-        A: AppendableContainer<K, LookupStatus>,
+        K: EnumIndex<SubDimension = S>,
+        C: Index<usize, Output = LookupMask>,
+        A: AppendableContainer<K, LookupMask>,
     {
         let m = self.get_mask(k)?;
         let v = self.get_value(k)?;
-        m.override_.value(v)
+        m.repair.value(v)
     }
 }
 
@@ -401,7 +401,7 @@ impl<I, S, K, C, A, M> MaskedString<'_, I, S, K, C, A, M> {
     fn get_value(&self, k: &K) -> Option<&str>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
+        K: EnumIndex<SubDimension = S>,
         A: AppendableContainer<K, M>,
     {
         if let Some(v) = self.inner.get(k) {
@@ -415,7 +415,7 @@ impl<I, S, K, C, A, M> MaskedString<'_, I, S, K, C, A, M> {
     where
         I: HasLen,
         C: Index<usize, Output = M>,
-        K: AnyIndex<SubDimension = S>,
+        K: EnumIndex<SubDimension = S>,
         A: AppendableContainer<K, M>,
     {
         let i = k.offset(self.inner.sub_dimension());
@@ -431,7 +431,7 @@ impl<I, S, K, C, A, M> MaskedString<'_, I, S, K, C, A, M> {
     where
         I: HasLen + Index<usize, Output = usize>,
         C: IndexMut<usize, Output = M>,
-        K: AnyIndex<SubDimension = S>,
+        K: EnumIndex<SubDimension = S>,
         A: AppendableContainer<K, M>,
     {
         let i = k.offset(self.inner.sub_dimension());
@@ -449,7 +449,7 @@ impl<I, S, K, C, A, M> MaskedString<'_, I, S, K, C, A, M> {
     where
         I: HasLen,
         C: IndexMut<usize, Output = M>,
-        K: AnyIndex<SubDimension = S>,
+        K: EnumIndex<SubDimension = S>,
         A: AppendableContainer<K, M>,
     {
         let i = k.offset(self.inner.sub_dimension());
@@ -472,7 +472,7 @@ impl<I, S, K, C, A, M> MaskedString<'_, I, S, K, C, A, M> {
     pub(crate) fn iter(&self) -> Iter<'_, I, K>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
+        K: EnumIndex<SubDimension = S>,
     {
         self.inner.iter()
     }
@@ -480,13 +480,13 @@ impl<I, S, K, C, A, M> MaskedString<'_, I, S, K, C, A, M> {
     pub(crate) fn occupied(&self, k: &K) -> Option<bool>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
+        K: EnumIndex<SubDimension = S>,
     {
         self.inner.occupied(k)
     }
 }
 
-impl LookupOverride {
+impl RepairMask {
     fn value<'a, 'b: 'a>(&'b self, stored: &'a str) -> Option<&'a NEStr> {
         match self {
             Self::Stored => NEStr::try_new(stored),
@@ -496,7 +496,7 @@ impl LookupOverride {
     }
 }
 
-impl LookupStatus_ {
+impl LookupStatus {
     fn with_unseen(self, v: &NEStr) -> &NEStr {
         match self {
             Self::Unseen => v,

@@ -45,7 +45,7 @@ use crate::validated::header_offsets::{
     SuppToHeaderOffsetsValidationError, TextToHeaderOrSuppOffsetsValidationError,
 };
 use crate::validated::keys::{
-    AnyKey, KeyOrBytes, NEDelimBytes, NEStringOrBytes, NonStdKey, ParsedKeyword,
+    AnyKey, DollarKeyOrBytes, NEDelimBytes, NEStringOrBytes, NonStdKey, ParsedKeyword,
     ParsedKeywordCounts, ParsedKeywordsDiagnostic, ParsedNonStdKeywords, PseudoStdKeywords,
     StringOrBytes, TruncatedNEBytes, TruncatedNEString, ValidKeywords, ValueToStdKey,
 };
@@ -65,7 +65,7 @@ use fireflow_types::nonempty::{
     IntoIteratorExt as _, NESlice, NEStr, NEVec, NonEmptyIterator as _,
 };
 use fireflow_types::segment::{OffsetsFromTEXT, SupplementalTextSegmentId};
-use fireflow_types::std_key::{PseudoStdKey, RootKey, StdKey, ToStd as _};
+use fireflow_types::std_key::{DollarPseudoStdKey, DollarStdKey, RootKey, ToStd as _};
 
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
 
@@ -690,21 +690,21 @@ pub struct SplitTEXTDiagnostics {
     pub byte_pairs: Vec<(TruncatedNEBytes, TruncatedNEBytes)>,
 
     /// Standard keys which appear more than once with their values.
-    pub non_unique_std_keywords: Vec<(StdKey, TruncatedNEString)>,
+    pub non_unique_std_keywords: Vec<(DollarStdKey, TruncatedNEString)>,
 
     /// Standard keys which appear more than once with their values.
-    pub non_unique_pstd_keywords: Vec<(PseudoStdKey, TruncatedNEString)>,
+    pub non_unique_pstd_keywords: Vec<(DollarPseudoStdKey, TruncatedNEString)>,
 
     /// Nonstandard keys which appear more than once with their values.
     pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedNEString)>,
 
     /// Keys with empty values as a result of trimming whitespace.
-    pub keys_with_empty_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
+    pub keys_with_empty_trimmed_values: Vec<(DollarKeyOrBytes, TruncatedNEString)>,
 
     /// Keys with values that are not empty after whitespace was trimmed off.
     ///
     /// Values included here are the original values before trimming.
-    pub keys_with_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
+    pub keys_with_trimmed_values: Vec<(DollarKeyOrBytes, TruncatedNEString)>,
 
     /// Keys that have blank values.
     ///
@@ -1060,7 +1060,7 @@ pub enum ParseKeywordsIssue {
 #[error("skipping key {0} with blank value")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct BlankValueError(pub KeyOrBytes);
+pub struct BlankValueError(pub DollarKeyOrBytes);
 
 /// Error when key has blank value
 #[derive(new, Debug, PartialEq, Error, Clone)]
@@ -1069,7 +1069,7 @@ pub struct BlankValueError(pub KeyOrBytes);
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct TrimmedBlankValueError {
     kind: TEXTKind,
-    key: KeyOrBytes,
+    key: DollarKeyOrBytes,
     value: TruncatedNEString,
 }
 
@@ -1171,8 +1171,8 @@ pub struct KeyPresent<T> {
     value: TruncatedNEString,
 }
 
-pub type StdPresent = KeyPresent<StdKey>;
-pub type PseudoStdPresent = KeyPresent<PseudoStdKey>;
+pub type StdPresent = KeyPresent<DollarStdKey>;
+pub type PseudoStdPresent = KeyPresent<DollarPseudoStdKey>;
 pub type NonStdPresent = KeyPresent<NonStdKey>;
 
 /// Error when key or value with invalid UTF-8 characters is encountered
@@ -2064,28 +2064,27 @@ impl FlatTEXTOutput {
                         .final_offsets
                         .try_truncate_non_primary_text(&txt_st)
                         .nowarn_into_warn()
-                        .map_errors(ParseFlatTEXTError::from);
+                        .map_errors(ParseFlatTEXTError::from)
+                        .group()
+                        .map_error(IOErrorGroup::Pure);
 
                     let vkws = ValidKeywords::new(index, nonstd.pstd, nonstd.nonstd);
                     let header_supp =
                         HeaderAndSuppOffsets::new(header, supp_text_offsets, nextdata);
 
-                    hdr_trunc_res
-                        .map_ok_value(|header_overflows| {
-                            let text_read_end = Instant::now();
-                            let read_text_ns = text_read_end.duration_since1(start_time).as_nanos();
-                            let diag = FlatTEXTDiagnostics {
-                                header_supp,
-                                primary_text_overflow: ptext_overflow,
-                                header_overflows,
-                                read_text_ns,
-                                primary_split: prim_out,
-                                supp_split: supp_out,
-                            };
-                            FlatTEXTOutputInner::new(Self::new(vkws, diag), text_read_end, txt_st)
-                        })
-                        .group()
-                        .map_error(IOErrorGroup::Pure)
+                    hdr_trunc_res.map_ok_value(|header_overflows| {
+                        let text_read_end = Instant::now();
+                        let read_text_ns = text_read_end.duration_since1(start_time).as_nanos();
+                        let diag = FlatTEXTDiagnostics {
+                            header_supp,
+                            primary_text_overflow: ptext_overflow,
+                            header_overflows,
+                            read_text_ns,
+                            primary_split: prim_out,
+                            supp_split: supp_out,
+                        };
+                        FlatTEXTOutputInner::new(Self::new(vkws, diag), text_read_end, txt_st)
+                    })
                 },
             )
     }
@@ -2157,30 +2156,24 @@ impl FlatTEXTOutput {
             read_text_end,
             st,
         )
-        .map_ok_value(|(core, out, repair, pstd, scores)| {
-            let dx = StdDatasetOutput::new(out, self.flat_diagnostics, scores, repair, pstd);
-            (core, dx)
+        .map_ok_value(|out| {
+            let dx = StdDatasetOutput::new(
+                out.data,
+                self.flat_diagnostics,
+                out.scores,
+                out.repair,
+                out.pseudo,
+            );
+            (out.inner, dx)
         })
     }
 }
 
 impl SplitTEXTDiagnostics {
-    fn build(
-        delimiter: u8,
-        escaped: bool,
-        skipped_pairs: usize,
-        keys_with_blank_values: Vec<NEStringOrBytes>,
-        values_with_blank_keys: Vec<NEStringOrBytes>,
-        tokens_with_boundary_delims: Vec<NEStringOrBytes>,
-        last_odd_token: StringOrBytes,
-        has_even_delims: bool,
-        extra_leading_delims: usize,
-        multibyte_encoded: bool,
-        parsed: ParsedKeywordsDiagnostic,
-    ) -> Self {
+    fn build(inner: SplitTEXTDiagnosticsInner, parsed: ParsedKeywordsDiagnostic) -> Self {
         Self {
-            delimiter,
-            escaped,
+            delimiter: inner.delimiter,
+            escaped: inner.escaped,
             keys_with_non_utf8_values: parsed.keys_with_non_utf8_values,
             values_with_non_ascii_keys: parsed.values_with_non_ascii_keys,
             byte_pairs: parsed.byte_pairs,
@@ -2189,14 +2182,14 @@ impl SplitTEXTDiagnostics {
             non_unique_nonstd_keywords: parsed.non_unique_nonstd_keywords,
             keys_with_empty_trimmed_values: parsed.keys_with_empty_trimmed_values,
             keys_with_trimmed_values: parsed.keys_with_trimmed_values,
-            keys_with_blank_values,
-            values_with_blank_keys,
-            skipped_pairs,
-            tokens_with_boundary_delims,
-            last_odd_token,
-            has_even_delims,
-            extra_leading_delims,
-            multibyte_encoded,
+            keys_with_blank_values: inner.keys_with_blank_values,
+            values_with_blank_keys: inner.values_with_blank_keys,
+            skipped_pairs: inner.skipped_pairs,
+            tokens_with_boundary_delims: inner.tokens_with_boundary_delims,
+            last_odd_token: inner.last_odd_token,
+            has_even_delims: inner.has_even_delims,
+            extra_leading_delims: inner.extra_leading_delims,
+            multibyte_encoded: inner.multibyte_encoded,
         }
     }
 
@@ -2350,17 +2343,6 @@ impl SplitTEXTDiagnostics {
         let mut errors = Vec::with_capacity(n_errors);
         let mut warnings = Vec::with_capacity(n_warnings);
 
-        macro_rules! extend_if {
-            ($flag:expr, $vals:expr) => {
-                let it = $vals.into_iter().map(ParseKeywordsIssue::from);
-                match $flag {
-                    Some(true) => errors.extend(it),
-                    Some(false) => warnings.extend(it),
-                    None => (),
-                }
-            };
-        }
-
         let empty_keys_errors = self
             .values_with_blank_keys
             .iter()
@@ -2398,6 +2380,17 @@ impl SplitTEXTDiagnostics {
             .iter()
             .map(|(k, v)| TrimmedBlankValueError::new(tk, k.clone(), v.clone()));
 
+        macro_rules! extend_if {
+            ($flag:expr, $vals:expr) => {
+                let it = $vals.into_iter().map(ParseKeywordsIssue::from);
+                match $flag {
+                    Some(true) => errors.extend(it),
+                    Some(false) => warnings.extend(it),
+                    None => (),
+                }
+            };
+        }
+
         extend_if!(empty_key_flag, empty_keys_errors);
         extend_if!(empty_key_flag, blank_pairs_error);
         extend_if!(delim_bound_flag, delim_bound_errors);
@@ -2432,19 +2425,15 @@ impl SplitTEXTDiagnostics {
 
         let go =
             |delim_bound_tokens, last_odd_token, has_even_delims, extra_leading_delims_, diag_| {
-                Self::build(
+                let inner = SplitTEXTDiagnosticsInner::new_escaped(
                     delim,
-                    true,
-                    0,
-                    vec![],
-                    vec![],
                     delim_bound_tokens,
                     last_odd_token,
                     has_even_delims,
                     extra_leading_delims_,
                     enc.is_multi(),
-                    diag_,
-                )
+                );
+                Self::build(inner, diag_)
             };
 
         // Estimate necessary capacity for destination vector based on length of
@@ -2690,21 +2679,17 @@ impl SplitTEXTDiagnostics {
 
         diag.non_unique_std_keywords = non_unique_std;
 
-        let text_diag = Self::build(
+        let inner = SplitTEXTDiagnosticsInner::new_unescaped(
             delim,
-            false,
             n_empty_pairs,
             keys_with_blank_values,
             values_with_blank_keys,
-            vec![],
             last_odd_token,
             has_even_delims,
-            0,
             enc.is_multi(),
-            diag,
         );
 
-        (index, text_diag)
+        (index, Self::build(inner, diag))
     }
 
     /// Maybe trim end off slice of tokens so that the length is even.
@@ -2758,6 +2743,71 @@ impl SplitTEXTDiagnostics {
             "number of tokens should be even"
         );
         (even_tokens, extra_token, has_even_tokens)
+    }
+}
+
+struct SplitTEXTDiagnosticsInner {
+    delimiter: u8,
+    escaped: bool,
+    skipped_pairs: usize,
+    keys_with_blank_values: Vec<NEStringOrBytes>,
+    values_with_blank_keys: Vec<NEStringOrBytes>,
+    tokens_with_boundary_delims: Vec<NEStringOrBytes>,
+    last_odd_token: StringOrBytes,
+    has_even_delims: bool,
+    extra_leading_delims: usize,
+    multibyte_encoded: bool,
+}
+
+impl SplitTEXTDiagnosticsInner {
+    fn new_escaped(
+        delimiter: u8,
+        tokens_with_boundary_delims: Vec<NEStringOrBytes>,
+        last_odd_token: StringOrBytes,
+        has_even_delims: bool,
+        extra_leading_delims: usize,
+        multibyte_encoded: bool,
+    ) -> Self {
+        Self {
+            delimiter,
+            escaped: true,
+            // these are only possible if blanks are allowed; they aren't in
+            // escaped mode
+            skipped_pairs: 0,
+            keys_with_blank_values: vec![],
+            values_with_blank_keys: vec![],
+            tokens_with_boundary_delims,
+            last_odd_token,
+            has_even_delims,
+            extra_leading_delims,
+            multibyte_encoded,
+        }
+    }
+
+    fn new_unescaped(
+        delimiter: u8,
+        skipped_pairs: usize,
+        keys_with_blank_values: Vec<NEStringOrBytes>,
+        values_with_blank_keys: Vec<NEStringOrBytes>,
+        last_odd_token: StringOrBytes,
+        has_even_delims: bool,
+        multibyte_encoded: bool,
+    ) -> Self {
+        Self {
+            delimiter,
+            escaped: false,
+            skipped_pairs,
+            keys_with_blank_values,
+            values_with_blank_keys,
+            // this is only possible in unescaped since consecutive delims will
+            // be interpreted as blanks
+            tokens_with_boundary_delims: vec![],
+            last_odd_token,
+            has_even_delims,
+            // ditto for leading delimiters, these will be read as blanks
+            extra_leading_delims: 0,
+            multibyte_encoded,
+        }
     }
 }
 

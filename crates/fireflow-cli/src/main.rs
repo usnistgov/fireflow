@@ -694,7 +694,7 @@ fn run() -> AppResult<()> {
         disallow_localtime,
     ];
 
-    // read dataset args
+    // repair args
 
     let ignore_std_key = make_key_str_args(
         ta::IGNORE_STD_KEYS,
@@ -769,6 +769,19 @@ fn run() -> AppResult<()> {
          Non-unique keywords will not be kept in the final FCS file since each \
          list of standard and non-standard keywords must be unique.",
     );
+
+    let all_repair_args = [
+        ignore_std_key,
+        promote_to_std,
+        demote_from_std,
+        rename_standard_keys,
+        replace_std_key_vals,
+        append_std_key_vals,
+        sub_key_vals,
+        allow_repair_non_unique,
+    ];
+
+    // read dataset args
 
     let text_data_correction = correction_arg(ta::TEXT_DATA_CORR, false, &data_seg);
     let text_analysis_correction = correction_arg(ta::TEXT_ANALYSIS_CORR, false, &analysis_seg);
@@ -848,14 +861,6 @@ fn run() -> AppResult<()> {
     );
 
     let all_read_dataset_kws_args = [
-        ignore_std_key,
-        promote_to_std,
-        demote_from_std,
-        rename_standard_keys,
-        replace_std_key_vals,
-        append_std_key_vals,
-        sub_key_vals,
-        allow_repair_non_unique,
         text_data_correction,
         text_analysis_correction,
         ignore_text_data_offsets,
@@ -1093,6 +1098,7 @@ fn run() -> AppResult<()> {
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
         .args(&all_read_std_args)
+        .args(&all_repair_args)
         .args(&all_read_dataset_kws_args)
         .args(&all_read_shared_args)
         .after_long_help(&std_long_help);
@@ -1108,6 +1114,7 @@ fn run() -> AppResult<()> {
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
         .args(&all_read_std_args)
+        .args(&all_repair_args)
         .args(&all_read_dataset_kws_args)
         .args(&all_read_shared_args)
         .after_long_help(&std_long_help);
@@ -1123,6 +1130,7 @@ fn run() -> AppResult<()> {
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
         .args(&all_read_std_args)
+        .args(&all_repair_args)
         .args(&all_read_dataset_kws_args)
         .args(&all_read_shared_args)
         .after_long_help(&std_long_help);
@@ -1138,6 +1146,7 @@ fn run() -> AppResult<()> {
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
         .args(&all_read_std_args)
+        .args(&all_repair_args)
         .args(&all_read_dataset_kws_args)
         .args(&all_read_dataset_args)
         .args(&all_read_shared_args)
@@ -1153,6 +1162,7 @@ fn run() -> AppResult<()> {
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
         .args(&all_read_std_args)
+        .args(&all_repair_args)
         .args(&all_read_dataset_kws_args)
         .args(&all_read_dataset_args)
         .args(&all_read_shared_args)
@@ -1173,6 +1183,7 @@ fn run() -> AppResult<()> {
         .args(&all_read_header_args)
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
+        .args(&all_repair_args)
         .args(&all_read_dataset_kws_args)
         .args(&all_read_dataset_args)
         .args(&all_read_shared_args)
@@ -1907,10 +1918,9 @@ fn parse_key_string_pattern_list(s: &str) -> StrResult<Vec<KeyStringOrPattern>> 
 }
 
 fn parse_two_keystring_pair(s: &str) -> StrResult<Vec<BiKeyPair>> {
-    unimplemented!()
-    // let go_k = |x: &str| x.parse::<RealOrPseudoStdKey>().map_err(|e| e.to_string());
-    // let go_v = |x: &str| x.parse::<StdKey>().map_err(|e| e.to_string());
-    // parse_pairs(s, go_k, go_v)
+    let go_k = |x: &str| x.parse::<RealOrPseudoStdKey>().map_err(|e| e.to_string());
+    let go_v = |x: &str| x.parse::<StdKey>().map_err(|e| e.to_string());
+    parse_pairs(s, go_k, go_v)
 }
 
 fn parse_keystring_string_pair(s: &str) -> StrResult<Vec<KeystringStringPair>> {

@@ -4,7 +4,7 @@ use fireflow_types::nonempty::NEStr;
 
 use derive_new::new;
 use derive_where::derive_where;
-use fireflow_types::std_key::{AnyIndex, EnumIndex, StdKey};
+use fireflow_types::std_key::{EnumIndex, NumericEnum, StdKey};
 
 use std::iter;
 use std::marker::PhantomData;
@@ -28,7 +28,7 @@ pub struct NestedStringSize {
     pub n_strings: usize,
 }
 
-pub(crate) struct Iter<'a, I, K: AnyIndex> {
+pub(crate) struct Iter<'a, I, K: EnumIndex> {
     keys: K::Generator,
     inner: &'a NestedString<I, K::SubDimension, K>,
     index: usize,
@@ -49,7 +49,7 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
 
     pub(crate) unsafe fn set_keys<V>(&mut self, pairs: impl IntoIterator<Item = (K, V)>)
     where
-        K: EnumIndex<LEN>,
+        K: NumericEnum<LEN>,
         V: AsRef<NEStr>,
     {
         for (k, v) in pairs {
@@ -109,7 +109,7 @@ impl<I, S, K> NestedString<I, S, K> {
     pub(crate) fn get(&self, k: &K) -> Option<&str>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
+        K: EnumIndex<SubDimension = S>,
     {
         self.get_index(k.offset(&self.sub_dimension))
     }
@@ -117,7 +117,7 @@ impl<I, S, K> NestedString<I, S, K> {
     pub(crate) fn occupied(&self, k: &K) -> Option<bool>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
+        K: EnumIndex<SubDimension = S>,
     {
         self.get(k).map(|v| !v.is_empty())
     }
@@ -125,7 +125,7 @@ impl<I, S, K> NestedString<I, S, K> {
     pub(crate) fn get_unchecked(&self, k: &K) -> &str
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
+        K: EnumIndex<SubDimension = S>,
     {
         self.get_index_unchecked(k.offset(&self.sub_dimension))
     }
@@ -161,7 +161,7 @@ impl<I, S, K> NestedString<I, S, K> {
     pub(crate) fn iter_std(&self) -> IterStd<'_, I, K>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S> + Into<StdKey>,
+        K: EnumIndex<SubDimension = S> + Into<StdKey>,
     {
         self.iter()
             .filter_map(|(k, v)| NEStr::try_new(v).map(|ne| (k.into(), ne)))
@@ -170,7 +170,7 @@ impl<I, S, K> NestedString<I, S, K> {
     pub(crate) fn iter(&self) -> Iter<'_, I, K>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
+        K: EnumIndex<SubDimension = S>,
     {
         Iter {
             keys: K::generate(&self.sub_dimension),
@@ -182,7 +182,7 @@ impl<I, S, K> NestedString<I, S, K> {
 
 impl<'a, I, K> Iterator for Iter<'a, I, K>
 where
-    K: AnyIndex,
+    K: EnumIndex,
     I: HasLen + Index<usize, Output = usize>,
 {
     type Item = (K, &'a str);

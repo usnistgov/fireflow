@@ -8,6 +8,7 @@ use super::lookup::{Diagnosed, FromStrWith, FromStrWithResult};
 use super::named_vec::{NameMapping, NamedSet};
 use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
+use fireflow_types::std_key::DollarWrap;
 use fireflow_types::{
     config::{ConfigFlag as _, SpilloverMeasurementMode, TrimIntraValueWhitespace},
     index::MeasIndex,
@@ -248,7 +249,7 @@ impl FromStrWith for Spillover {
     ) -> FromStrWithResult<Self> {
         let trim_flag = conf.trim_intra_value_whitespace;
         let (m, was_trimmed) = GenericSpillover::from_str(s.as_str(), trim_flag)?;
-        let trimmed = was_trimmed.then(|| (Self::std(&()), s.to_owned()));
+        let trimmed = was_trimmed.then(|| (DollarWrap(Self::std0()), s.to_owned()));
         let use_indices = match conf.spillover_measurement_mode {
             SpilloverMeasurementMode::Guess => m.measurements.iter().all(|x| {
                 if let Ok(i) = x.parse::<MeasIndex>() {

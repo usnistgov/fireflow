@@ -208,7 +208,7 @@ pub fn fcs_read_std_dataset(
 pub fn fcs_read_flat_dataset_with_keywords(
     path: &PathBuf,
     mut hns: HeaderAndSuppOffsets,
-    std: StdKeywords,
+    std: &StdKeywords,
     dataset_offset: DatasetOffset,
     dataset_len: Option<DatasetLen>,
     conf: &ReadFlatDatasetFromKeywordsConfig,

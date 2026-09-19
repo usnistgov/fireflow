@@ -161,8 +161,8 @@ pub struct ReadFlatDatasetFromKeywordsConfig {
 /// Instructions for building a new [`crate::core::CoreTEXT`] from keywords.
 #[derive(Default, Clone, AsRef)]
 pub struct NewCoreTEXTConfig {
-    #[as_ref(ReadStdKeywordsConfig)]
-    pub standard: ReadStdKeywordsConfig,
+    #[as_ref(EvaledReadStdKeywordsConfig)]
+    pub standard: EvaledReadStdKeywordsConfig,
 
     #[as_ref(ReadDataKeywordsConfig)]
     pub layout: ReadDataKeywordsConfig,
@@ -177,8 +177,8 @@ pub struct NewCoreDatasetConfig {
     #[as_ref(ReadOffsetConfig)]
     pub offset: ReadOffsetConfig,
 
-    #[as_ref(ReadStdKeywordsConfig)]
-    pub standard: ReadStdKeywordsConfig,
+    #[as_ref(EvaledReadStdKeywordsConfig)]
+    pub standard: EvaledReadStdKeywordsConfig,
 
     #[as_ref(ReadDataKeywordsConfig)]
     pub layout: ReadDataKeywordsConfig,

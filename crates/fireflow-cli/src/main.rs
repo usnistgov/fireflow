@@ -1601,9 +1601,9 @@ fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
     c
 }
 
-fn get_data_kws_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadDataKeywordsConfig {
+fn get_repair_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadRepairKeywordsConfig {
     let strat = get_strategy(s);
-    let mut c = cfg::ReadDataKeywordsConfig::new_with_strategy(strat);
+    let mut c = cfg::ReadRepairKeywordsConfig::new_with_strategy(strat);
 
     get_many::<KeyStringOrPattern, _, _>(s, ta::IGNORE_STD_KEYS, |xs| {
         c.ignore_standard_keys = AppendableSelector::root(xs);
@@ -1642,6 +1642,13 @@ fn get_data_kws_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadDataKeywordsCo
     get_opt(s, ta::ALLOW_REPAIR_NON_UNIQUE, |x| {
         c.allow_repair_non_unique = x;
     });
+
+    c
+}
+
+fn get_data_kws_config(s: &ArgMatches) -> tc::ReadDataKeywordsConfig {
+    let strat = get_strategy(s);
+    let mut c = tc::ReadDataKeywordsConfig::new_with_strategy(strat);
 
     get_correction(s, ta::TEXT_DATA_CORR, |x| c.text_data_correction = x);
     get_correction(s, ta::TEXT_ANALYSIS_CORR, |x| {
@@ -1714,7 +1721,8 @@ fn get_read_std_text_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadStdTE
         flat: get_header_and_text_config(sargs),
         offset: get_offsets_config(sargs),
         standard: get_std_kws_config(sargs),
-        layout: get_data_kws_config(cmd, sargs),
+        repair: get_repair_config(cmd, sargs),
+        layout: get_data_kws_config(sargs),
         shared: get_read_shared_config(sargs),
     }
 }
@@ -1724,7 +1732,8 @@ fn get_read_flat_dataset_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadF
         header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(sargs),
         offset: get_offsets_config(sargs),
-        layout: get_data_kws_config(cmd, sargs),
+        repair: get_repair_config(cmd, sargs),
+        layout: get_data_kws_config(sargs),
         data: get_dataset_config(sargs),
         shared: get_read_shared_config(sargs),
     }
@@ -1736,7 +1745,8 @@ fn get_read_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadSt
         flat: get_header_and_text_config(sargs),
         offset: get_offsets_config(sargs),
         standard: get_std_kws_config(sargs),
-        layout: get_data_kws_config(cmd, sargs),
+        repair: get_repair_config(cmd, sargs),
+        layout: get_data_kws_config(sargs),
         data: get_dataset_config(sargs),
         shared: get_read_shared_config(sargs),
     }
@@ -1897,9 +1907,10 @@ fn parse_key_string_pattern_list(s: &str) -> StrResult<Vec<KeyStringOrPattern>> 
 }
 
 fn parse_two_keystring_pair(s: &str) -> StrResult<Vec<BiKeyPair>> {
-    let go_k = |x: &str| x.parse::<RealOrPseudoStdKey>().map_err(|e| e.to_string());
-    let go_v = |x: &str| x.parse::<StdKey>().map_err(|e| e.to_string());
-    parse_pairs(s, go_k, go_v)
+    unimplemented!()
+    // let go_k = |x: &str| x.parse::<RealOrPseudoStdKey>().map_err(|e| e.to_string());
+    // let go_v = |x: &str| x.parse::<StdKey>().map_err(|e| e.to_string());
+    // parse_pairs(s, go_k, go_v)
 }
 
 fn parse_keystring_string_pair(s: &str) -> StrResult<Vec<KeystringStringPair>> {

@@ -226,7 +226,8 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
     let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
-    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None);
+    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None, false);
+    let (repair_conf, repair_args, repair_recs) = DocArgParam::new_read_repair_config_params();
     let (layout_conf, layout_args, layout_recs) =
         DocArgParam::new_read_data_schema_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
@@ -237,6 +238,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
         .chain(offset_args)
         .chain(flat_args)
         .chain(std_args)
+        .chain(repair_args)
         .chain(layout_args)
         .chain(shared_args);
 
@@ -288,9 +290,10 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
         let offset = #offset_conf { #(#offset_recs),* };
         let flat = #flat_conf {  #(#flat_recs),* };
         let standard = #std_conf { #(#std_recs),* };
+        let repair = #repair_conf { #(#repair_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { header, flat, offset, standard, layout, shared };
+        let conf = #conf_path { header, flat, offset, standard, repair, layout, shared };
     };
 
     quote! {
@@ -329,6 +332,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
     let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
     let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
+    let (repair_conf, repair_args, repair_recs) = DocArgParam::new_read_repair_config_params();
     let (layout_conf, layout_args, layout_recs) =
         DocArgParam::new_read_data_schema_config_params(None);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_dataset_config_params(None);
@@ -347,6 +351,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         .into_iter()
         .chain(offset_args)
         .chain(flat_args)
+        .chain(repair_args)
         .chain(layout_args)
         .chain(data_args)
         .chain(shared_args);
@@ -400,10 +405,11 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         let header = #header_conf { #(#header_recs),* };
         let offset = #offset_conf { #(#offset_recs),* };
         let flat = #flat_conf { #(#flat_recs),* };
+        let repair = #repair_conf { #(#repair_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let data = #data_conf { #(#data_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { header, flat, offset, layout, data, shared };
+        let conf = #conf_path { header, flat, offset, repair, layout, data, shared };
     };
 
     quote! {
@@ -448,7 +454,8 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
     let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
-    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None);
+    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None, false);
+    let (repair_conf, repair_args, repair_recs) = DocArgParam::new_read_repair_config_params();
     let (layout_conf, layout_args, layout_recs) =
         DocArgParam::new_read_data_schema_config_params(None);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_dataset_config_params(None);
@@ -460,6 +467,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         .chain(offset_args)
         .chain(flat_args)
         .chain(std_args)
+        .chain(repair_args)
         .chain(layout_args)
         .chain(data_args)
         .chain(shared_args);
@@ -512,10 +520,11 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         let offset = #offset_conf { #(#offset_recs),* };
         let flat = #flat_conf { #(#flat_recs),* };
         let standard = #std_conf { #(#std_recs),* };
+        let repair = #repair_conf { #(#repair_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let data = #data_conf { #(#data_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { header, flat, offset, standard, layout, data, shared };
+        let conf = #conf_path { header, flat, offset, standard, repair, layout, data, shared };
     };
 
     quote! {
@@ -548,7 +557,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
 
     let path_arg = DocArg::new_path_param(true);
     let header_arg = DocArg::new_header_and_supp_param();
-    let kws_arg = DocArg::new_valid_keywords_param("kws");
+    let std_arg = DocArg::new_std_keywords_param();
     let dataset_offset_arg = DocArg::new_dataset_offset_param(true);
     let dataset_len_arg = DocArg::new_dataset_len_param();
 
@@ -573,7 +582,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
     let doc = DocString::new_fun("Read dataset from FCS file from keywords in flat mode.")
         .arg(path_arg)
         .arg(header_arg)
-        .arg(kws_arg)
+        .arg(std_arg)
         .args(offset_args)
         .args(layout_args)
         .args(data_args)
@@ -595,11 +604,10 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
             let data = #data_conf { #(#data_recs),* };
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { offset, layout, data, shared };
-            let mut rkws = kws.0;
             let ret = #fun_path(
                 &path,
                 header.into(),
-                rkws,
+                &std,
                 dataset_offset,
                 dataset_len,
                 &conf
@@ -1036,7 +1044,10 @@ pub fn impl_py_flat_dataset_output(input: TokenStream) -> TokenStream {
 
     let scores = DocArg::new_version_scores_param();
 
-    let args = [kws, flat_diagnostics, dataset, scores];
+    let repair = DocArg::new_repair_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.repair_diagnostics.clone().into()));
+
+    let args = [kws, flat_diagnostics, dataset, scores, repair];
 
     let doc = DocString::new_class("Dataset from FCS file parsed with flat mode.").args(args);
 
@@ -1047,7 +1058,8 @@ pub fn impl_py_flat_dataset_output(input: TokenStream) -> TokenStream {
                     keywords.into(),
                     flat_diagnostics.into(),
                     dataset.into(),
-                    version_scores.map(|(a, b, c, d)| (a.into(), b.into(), c.into(), d.into()))
+                    version_scores.map(|(a, b, c, d)| (a.into(), b.into(), c.into(), d.into())),
+                    repair_diagnostics.into(),
                 ).into()
             }
 
@@ -1081,22 +1093,12 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let others = DocArg::new_others_param(false).into_ro(|_, _| quote!(self.0.others.clone()));
     let dataset_offsets = DocArg::new_dataset_offsets_param()
         .into_ro(|_, _| quote!(self.0.dataset_offsets.clone().into()));
-    let repair = DocArg::new_repair_diagnostics_param()
-        .into_ro(|_, _| quote!(self.0.repair_diagnostics.clone().into()));
     let schema = DocArg::new_data_schema_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.schema_diagnostics.clone().into()));
     let dataset = DocArg::new_dataset_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.dataset_diagnostics.clone().into()));
 
-    let args = [
-        data,
-        analysis,
-        others,
-        dataset_offsets,
-        repair,
-        schema,
-        dataset,
-    ];
+    let args = [data, analysis, others, dataset_offsets, schema, dataset];
     let doc = DocString::new_class(format!("Dataset from parsing flat {TEXT}.")).args(args);
 
     let new = |fun_args| {
@@ -1107,7 +1109,6 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                     analysis,
                     others,
                     dataset_offsets.into(),
-                    repair_diagnostics.into(),
                     schema_diagnostics.into(),
                     dataset_diagnostics.into(),
                 ).into()
@@ -2188,21 +2189,14 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 
     let optional = DocArgROIvar::new_ivar_ro(
         "optional",
-        PyAlias::new_std_keywords(),
+        PyAlias::new_dropped_std_keywords(),
         "Optional standard keywords which failed parsing and were dropped.",
         |_, _| quote!(self.0.optional.clone()),
     );
 
-    let pseudostandard = DocArgROIvar::new_ivar_ro(
-        "pseudostandard",
-        PyAlias::new_std_keywords(),
-        format!("Keywords which start with {DOLLAR_STR} but are not part of the standard."),
-        |_, _| quote!(self.0.pseudostandard.clone()),
-    );
-
     let hyper_par = DocArgROIvar::new_ivar_ro(
         "hyper_par",
-        PyAlias::new_std_keywords(),
+        PyAlias::new_dropped_std_keywords(),
         format!(
             "Measurement keywords which are part of the standard but have an index outside {PAR}."
         ),
@@ -2211,14 +2205,14 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 
     let hyper_gate = DocArgROIvar::new_ivar_ro(
         "hyper_gate",
-        PyAlias::new_std_keywords(),
+        PyAlias::new_dropped_std_keywords(),
         format!("Gating keywords which are part of the standard but have an index outside {GATE}."),
         |_, _| quote!(self.0.hyper_gate.clone()),
     );
 
     let other_version = DocArgROIvar::new_ivar_ro(
         "other_version",
-        PyAlias::new_std_keywords(),
+        PyAlias::new_dropped_std_keywords(),
         "Keywords which are from a different FCS version.",
         |_, _| quote!(self.0.other_version.clone()),
     );
@@ -2354,7 +2348,6 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
     let doc =
         DocString::new_class(format!("Diagnostic output from {TEXT} standardization.")).args([
             optional,
-            pseudostandard,
             hyper_par,
             hyper_gate,
             other_version,
@@ -2575,7 +2568,10 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
 
     let scores = DocArg::new_version_scores_param();
 
-    let args = [tot, dataset_offsets, repair, std, flat, scores];
+    let pseudo = DocArg::new_pstd_keywords_param()
+        .into_ro(|_, _| quote!(self.0.pseudostandard.clone().into()));
+
+    let args = [tot, dataset_offsets, repair, std, flat, scores, pseudo];
     let doc =
         DocString::new_class(format!("Miscellaneous data when standardizing {TEXT}.")).args(args);
 
@@ -2585,10 +2581,11 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
                 #path::new(
                     tot,
                     dataset_offsets.into(),
-                    repair_diagnostics.into(),
                     std_diagnostics.into(),
                     flat_diagnostics.into(),
-                    version_scores.map(|(a, b, c, d)| (a.into(), b.into(), c.into(), d.into()))
+                    repair_diagnostics.into(),
+                    version_scores.map(|(a, b, c, d)| (a.into(), b.into(), c.into(), d.into())),
+                    pstd,
                 ).into()
             }
 
@@ -2625,7 +2622,13 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
 
     let scores = DocArg::new_version_scores_param();
 
-    let args = [dataset, flat, scores];
+    let repair = DocArg::new_repair_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.repair_diagnostics.clone().into()));
+
+    let pseudo = DocArg::new_pstd_keywords_param()
+        .into_ro(|_, _| quote!(self.0.pseudostandard.clone().into()));
+
+    let args = [dataset, flat, scores, repair, pseudo];
 
     let doc =
         DocString::new_class(format!("Miscellaneous data when standardizing {TEXT}.")).args(args);
@@ -2636,7 +2639,9 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
                 #path::new(
                     dataset.into(),
                     flat_diagnostics.into(),
-                    version_scores.map(|(a, b, c, d)| (a.into(), b.into(), c.into(), d.into()))
+                    version_scores.map(|(a, b, c, d)| (a.into(), b.into(), c.into(), d.into())),
+                    repair_diagnostics.into(),
+                    pstd
                 ).into()
             }
 
@@ -2666,8 +2671,6 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
 
     let dataset_offsets = DocArg::new_dataset_offsets_param()
         .into_ro(|_, _| quote!(self.0.dataset_offsets.clone().into()));
-    let repair = DocArg::new_repair_diagnostics_param()
-        .into_ro(|_, _| quote!(self.0.repair_diagnostics.clone().into()));
     let std = DocArg::new_std_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.std_diagnostics.clone().into()));
     let dataset = DocArg::new_dataset_diagnostics_param()
@@ -2676,14 +2679,13 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let doc = DocString::new_class(format!(
         "Miscellaneous data when standardizing {TEXT} from keywords."
     ))
-    .args([dataset_offsets, repair, std, dataset]);
+    .args([dataset_offsets, std, dataset]);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
                 #path::new(
                     dataset_offsets.into(),
-                    repair_diagnostics.into(),
                     std_diagnostics.into(),
                     dataset_diagnostics.into(),
                 ).into()
@@ -2895,6 +2897,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+#[allow(clippy::too_many_lines)]
 pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
@@ -4775,7 +4778,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
     let core_conf = config_path("NewCoreTEXTConfig");
 
     let v = Some(version);
-    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(v);
+    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(v, true);
     let (layout_conf, layout_args, layout_recs) =
         DocArgParam::new_read_data_schema_config_params(v);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
@@ -4873,7 +4876,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
 
     let v = Some(version);
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(v);
-    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(v);
+    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(v, true);
     let (layout_conf, layout_args, layout_recs) =
         DocArgParam::new_read_data_schema_config_params(v);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_dataset_config_params(v);
@@ -4938,7 +4941,6 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
             #[allow(clippy::too_many_arguments)]
             #doc
             fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> #ret_path {
-                let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
                 #[allow(clippy::needless_update)]
                 let offset = #offset_conf {
                     #(#offset_recs,)*
@@ -4968,7 +4970,8 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                 let (core, uncore) = #path::new_from_keywords(
                     &path,
                     header.into(),
-                    kws,
+                    std,
+                    nonstd,
                     dataset_offset,
                     dataset_len,
                     &conf
@@ -8305,7 +8308,7 @@ impl<E> PyList<E> {
 
 impl<E: From<PyException>> PyList<E> {
     fn new_non_empty(inner: impl Into<PyType<E>>, inner_path: Option<&Path>) -> Self {
-        let nonempty = quote!(fireflow_core::nonempty::FcsNEVec);
+        let nonempty = quote!(fireflow_types::nonempty::NEVec);
         let d = format!("if {ARG_TOKEN} is empty");
         let e = PyException::new_invalid_keyword().desc(d);
         let path: Option<Path> = inner_path.map(|p| parse_quote!(#nonempty<#p>));
@@ -8973,6 +8976,15 @@ impl<E: From<PyException>> PyAlias<E> {
         Self::new_py(["typing"], "NonStdKeywords")
             .rstype(parse_quote!(hashbrown::HashMap::<#keypath, #valpath>))
             .set_default(PyDict::new_dummy())
+    }
+
+    fn new_dropped_std_keywords() -> Self {
+        let keypath: Path = parse_quote!(fireflow_types::std_key::StdKey);
+        let valpath: Path = parse_quote!(fireflow_types::nonempty::NEString);
+        // TODO the :: here is awkward
+        Self::new_py(["typing"], "DroppedStdKeywords")
+            .rstype(parse_quote!(Vec::<(#keypath, #valpath)>))
+            .set_default(PyList::new_dummy())
     }
 
     fn new_std_keyword() -> Self {
@@ -10330,6 +10342,7 @@ impl DocArgParam {
 
     fn new_read_std_config_params(
         version: Option<Version>,
+        evaled: bool,
     ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let parse_indexed_spillover = Self::new_spillover_meas_mode_param();
         let disallow_localtime = Self::new_disallow_localtime_param();
@@ -10338,15 +10351,15 @@ impl DocArgParam {
         let std_common_args = [
             Self::new_dedup_meas_names_param(),
             Self::new_trim_intra_value_whitespace_param(),
-            Self::new_time_meas_pattern_param(),
+            Self::new_time_meas_pattern_param(evaled),
             Self::new_allow_missing_time_param(),
             Self::new_force_linear_scale_param(),
             Self::new_ignore_time_optical_keys_param(),
             Self::new_process_time_optical_keys_param(),
-            Self::new_date_pattern_param(),
-            Self::new_time_pattern_param(version),
-            Self::new_datetime_pattern_param(),
-            Self::new_last_modified_pattern_param(),
+            Self::new_date_pattern_param(evaled),
+            Self::new_time_pattern_param(version, evaled),
+            Self::new_datetime_pattern_param(evaled),
+            Self::new_last_modified_pattern_param(evaled),
             Self::new_allow_other_feature_param(),
             Self::new_process_pseudostandard_param(),
             Self::new_process_hyper_par_param(),
@@ -10371,15 +10384,18 @@ impl DocArgParam {
                 .collect(),
         };
 
-        let conf = config_path("ReadStdKeywordsConfig");
+        let conf = if evaled {
+            config_path("EvaledReadStdKeywordsConfig")
+        } else {
+            config_path("ReadStdKeywordsConfig")
+        };
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
 
-    fn new_read_data_schema_config_params(
-        version: Option<Version>,
-    ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let common_ps = vec![
+    fn new_read_repair_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+        let conf = config_path("ReadRepairKeywordsConfig");
+        let ps = vec![
             Self::new_ignore_standard_keys(),
             Self::new_promote_to_standard(),
             Self::new_demote_from_standard(),
@@ -10389,6 +10405,13 @@ impl DocArgParam {
             Self::new_substitute_standard_key_values(),
             Self::new_allow_repair_non_unique_param(),
         ];
+        let js = ps.iter().map(IsDocArg::record_into).collect();
+        (conf, ps, js)
+    }
+
+    fn new_read_data_schema_config_params(
+        version: Option<Version>,
+    ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let offset_ps: Vec<_> = match version {
             // none of these apply to 2.0 since there are no offsets in TEXT
             Some(Version::FCS2_0) => vec![],
@@ -10423,12 +10446,8 @@ impl DocArgParam {
             .collect(),
         };
 
-        let conf = config_path("ReadDataKeywordsConfig");
-        let ps: Vec<_> = common_ps
-            .into_iter()
-            .chain(offset_ps)
-            .chain(data_schema_ps)
-            .collect();
+        let conf = types_config_path("ReadDataKeywordsConfig");
+        let ps: Vec<_> = offset_ps.into_iter().chain(data_schema_ps).collect();
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
@@ -10503,14 +10522,18 @@ impl DocArgParam {
         Self::new_bool_param(ta::TRIM_INTRA_VALUE_WHITESPACE, d)
     }
 
-    fn new_time_meas_pattern_param() -> Self {
+    fn new_time_meas_pattern_param(evaled: bool) -> Self {
         let path = types_config_path("TimeMeasNamePattern");
         let inner_pytype = PyStr::new_regexp().rstype(path);
         let d = format!(
             "A pattern to match the {PNN} of the time measurement. \
              A blank string will be interpreted as 'no pattern'."
         );
-        let pytype = PyAlias::new_selector(inner_pytype);
+        let pytype = if evaled {
+            PyType::from(inner_pytype)
+        } else {
+            PyAlias::new_selector(inner_pytype).into()
+        };
         Self::new_param(ta::TIME_MEAS_PATTERN, pytype, d)
             .def(DocDefault::Str(tc::TIME_MEAS_NAME_PATTERN_DEFAULT.into()))
     }
@@ -10586,7 +10609,7 @@ impl DocArgParam {
             .def_str(tc::SpilloverMeasurementMode::first_str())
     }
 
-    fn new_date_pattern_param() -> Self {
+    fn new_date_pattern_param(evaled: bool) -> Self {
         let d = format!(
             "If supplied, will be used as an alternative pattern when parsing \
              {DATE}. If not supplied, {DATE} will be parsed according to \
@@ -10594,22 +10617,32 @@ impl DocArgParam {
             pat = code_str(tc::DEFAULT_DATE_FORMAT),
         );
 
-        let pt = PyAlias::new_selector(PyOpt::new1(PyStr::new_date_pattern()));
+        let inner = PyOpt::new1(PyStr::new_date_pattern());
+        let pt = if evaled {
+            PyType::from(inner)
+        } else {
+            PyAlias::new_selector(inner).into()
+        };
         Self::new_param(ta::DATE_PATTERN, pt, d).def_auto()
     }
 
-    fn new_datetime_pattern_param() -> Self {
+    fn new_datetime_pattern_param(evaled: bool) -> Self {
         let d = format!(
             "If supplied, will be used as an alternative pattern when parsing \
              {BEGINDATETIME} and {ENDDATETIME}. The pattern must follow the \
              format outlined in {CHRONO_REF}. If not supplied, these will \
              be parsed as ISO timestamps with optional timezone."
         );
-        let pt = PyAlias::new_selector(PyOpt::new1(PyStr::default()));
+        let inner = PyOpt::new1(PyStr::default());
+        let pt = if evaled {
+            PyType::from(inner)
+        } else {
+            PyAlias::new_selector(inner).into()
+        };
         Self::new_param(ta::DATETIME_PATTERN, pt, d).def_auto()
     }
 
-    fn new_last_modified_pattern_param() -> Self {
+    fn new_last_modified_pattern_param(evaled: bool) -> Self {
         let d = format!(
             "If supplied, will be used as an alternative pattern when parsing \
              {last_mod}. The pattern must follow the format outlined in \
@@ -10618,7 +10651,12 @@ impl DocArgParam {
             pat = code_str(tc::DEFAULT_LAST_MODIFIED_FORMAT),
             last_mod = fcs_kw(sk::LAST_MODIFIED),
         );
-        let pt = PyAlias::new_selector(PyOpt::new1(PyStr::default()));
+        let inner = PyOpt::new1(PyStr::default());
+        let pt = if evaled {
+            PyType::from(inner)
+        } else {
+            PyAlias::new_selector(inner).into()
+        };
         Self::new_param(ta::LAST_MODIFIED_PATTERN, pt, d).def_auto()
     }
 
@@ -10630,7 +10668,7 @@ impl DocArgParam {
         Self::new_bool_param(ta::ALLOW_OTHER_FEATURE, d)
     }
 
-    fn new_time_pattern_param(version: Option<Version>) -> Self {
+    fn new_time_pattern_param(version: Option<Version>, evaled: bool) -> Self {
         let fmt2_0 = code_str(tc::DEFAULT_TIME_FORMAT_2_0);
         let fmt3_0 = code_str(tc::DEFAULT_TIME_FORMAT_3_0);
         let fmt3_1 = code_str(tc::DEFAULT_TIME_FORMAT_3_1);
@@ -10658,7 +10696,12 @@ impl DocArgParam {
         );
         let arg_desc = [line1, line2, line3].into_iter().join(" ");
 
-        let pt = PyAlias::new_selector(PyOpt::new1(PyStr::new_time_pattern()));
+        let inner = PyOpt::new1(PyStr::new_time_pattern());
+        let pt = if evaled {
+            PyType::from(inner)
+        } else {
+            PyAlias::new_selector(inner).into()
+        };
         Self::new_param(ta::TIME_PATTERN, pt, arg_desc).def_auto()
     }
 

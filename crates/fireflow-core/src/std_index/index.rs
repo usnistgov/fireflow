@@ -730,6 +730,8 @@ impl<'a> StdRepairTx<'a> {
 
         let mut appended_non_unique = vec![];
 
+        // TODO this is easy to optimize since we know the length of the inputs
+        // and there are no pesky regex expressions
         for (k, v) in &conf.append_standard_keywords {
             if let Some(vf) = self.insert(k, v.to_owned()) {
                 appended_non_unique.push((*k, TruncatedNEString(vf)));

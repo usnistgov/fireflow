@@ -57,7 +57,7 @@ use fireflow_types::keywords::{
 };
 use fireflow_types::nonempty::{DisplayableNE as _, NEString};
 use fireflow_types::ranged_float::PositiveFloat;
-use fireflow_types::std_key::{DollarStdKey, MeasKeyId,  ToStd as _};
+use fireflow_types::std_key::{DollarStdKey, MeasKeyId, ToStd as _};
 
 use type_families::{ApplyOnce as _, BifunctorOnce as _};
 

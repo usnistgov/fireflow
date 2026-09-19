@@ -80,7 +80,7 @@ impl<'a> ToDisplayNE<'a> for WritableKey {
     }
 }
 
-/// [`ParsedKeywords`] without the bad stuff
+/// All valid Keywords from TEXT.
 #[derive(Clone, Default, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(
@@ -258,8 +258,7 @@ impl From<TruncatedNEString> for TruncatedString {
 /// is very fast and memory-efficient. If we stored the value itself, it would
 /// be a [`String`] internally and allocated on the heap. We can get away with
 /// this because the value of each [`StdKey`] is entirely encoded by the
-/// [`Key`], [`IndexedKey`], and [`BiIndexedKey`] traits (with an index in the
-/// latter two cases).
+/// [`ValueToStdKey`] trait.
 #[derive(new)]
 #[derive_where(Clone, Copy, Default, PartialEq, Eq, Debug; I)]
 pub struct SpecificKey_<T, I> {

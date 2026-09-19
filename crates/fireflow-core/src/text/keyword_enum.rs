@@ -8,7 +8,9 @@ use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::keywords as kws;
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::FCSDate;
-use crate::validated::keys::{DollarKey, DollarKey_, NonStdKey, SpecificKey_, WritableKey};
+use crate::validated::keys::{
+    DollarKey, DollarKey_, NonStdKey, SpecificKey_, ValueToStdKey, WritableKey,
+};
 use crate::validated::shortname::Shortname;
 
 #[cfg(feature = "serde")]
@@ -30,9 +32,6 @@ use thiserror::Error;
 
 use std::fmt::{self, Write as _};
 use std::num::NonZeroU32;
-
-#[cfg(feature = "serde")]
-use crate::validated::keys::ValueToStdKey;
 
 #[cfg(feature = "python")]
 use {
@@ -513,8 +512,6 @@ pub enum PeakLossError {
 pub struct KeyLossError_<K>(pub K);
 
 pub type KeyLossError<T> = KeyLossError_<DollarKey<T>>;
-// pub type KeyLossError<T> = KeyLossError<SpecificMeasKey<T>>;
-// pub type Key2LossError<T> = KeyLossError<DKey2<T>>;
 
 pub(crate) trait Keyword0FromValue<'a> {
     fn from_value<T>(x: T) -> Self

@@ -55,6 +55,7 @@ use itertools::Itertools as _;
 use thiserror::Error;
 
 use std::collections::HashSet;
+use std::fmt;
 use std::marker::PhantomData;
 use std::mem::take;
 
@@ -135,7 +136,7 @@ pub type ExistingNamedLinkError<T> = ExistingNamedLinkError_<T, <T as ValueToStd
     "{key} refers to existing indices which are about to be dropped: {xs}",
     xs = self.indices.iter().join(", ")
 )]
-#[display(bound(J: Display))]
+#[display(bound(J: fmt::Display))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 #[cfg_attr(feature = "python", bound(DollarKey_<T, I>: Display))]

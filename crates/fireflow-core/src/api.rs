@@ -46,8 +46,8 @@ use crate::validated::header_offsets::{
 };
 use crate::validated::keys::{
     AnyKey, KeyOrBytes, NEDelimBytes, NEStringOrBytes, NonStdKey, ParsedKeyword,
-    ParsedKeywordCounts, ParsedKeywordsDiagnostic, ParsedNonStdKeywords, StringOrBytes,
-    TruncatedNEBytes, TruncatedNEString, ValidKeywords, ValueToStdKey,
+    ParsedKeywordCounts, ParsedKeywordsDiagnostic, ParsedNonStdKeywords, PseudoStdKeywords,
+    StringOrBytes, TruncatedNEBytes, TruncatedNEString, ValidKeywords, ValueToStdKey,
 };
 use crate::validated::read_state::{
     CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError, FileLen,
@@ -492,17 +492,20 @@ pub struct StdTEXTOutput {
     /// Offsets for DATA and ANALYSIS
     pub dataset_offsets: DatasetOffsets,
 
-    /// Diagnostic output from repairing the keyword list
-    pub repair_diagnostics: RepairDiagnostics,
-
     /// Diagnostic output from TEXT standardization
     pub std_diagnostics: StdTEXTDiagnostics,
 
     /// Diagnostic output from flat TEXT parsing
     pub flat_diagnostics: FlatTEXTDiagnostics,
 
+    /// Diagnostic output from repairing the keyword list
+    pub repair_diagnostics: RepairDiagnostics,
+
     /// Scores generated if version was guessed.
     pub version_scores: Option<KeywordVersionScores>,
+
+    /// Keywords which start with a '$' but are not part of any standard.
+    pub pseudostandard: PseudoStdKeywords,
 }
 
 /// Output of parsing one flat dataset (TEXT+DATA) from an FCS file.
@@ -539,6 +542,9 @@ pub struct StdDatasetOutput {
 
     /// Diagnostic output from repairing the keyword list
     pub repair_diagnostics: RepairDiagnostics,
+
+    /// Keywords which start with a '$' but are not part of any standard.
+    pub pseudostandard: PseudoStdKeywords,
 }
 
 /// Output of using keywords to crate new flat TEXT+DATA
@@ -2110,10 +2116,11 @@ impl FlatTEXTOutput {
                 let std_out = StdTEXTOutput::new(
                     out.offsets.tot,
                     out.offsets.offsets,
-                    out.repair_diag,
                     out.std_diag,
                     self.flat_diagnostics,
+                    out.repair_diag,
                     out.scores,
+                    out.pseudostandard,
                 );
                 (out.inner, std_out)
             },
@@ -2151,8 +2158,8 @@ impl FlatTEXTOutput {
             read_text_end,
             st,
         )
-        .map_ok_value(|(core, out, repair, scores)| {
-            let dx = StdDatasetOutput::new(out, self.flat_diagnostics, scores, repair);
+        .map_ok_value(|(core, out, repair, pstd, scores)| {
+            let dx = StdDatasetOutput::new(out, self.flat_diagnostics, scores, repair, pstd);
             (core, dx)
         })
     }

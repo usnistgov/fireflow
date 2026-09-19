@@ -113,7 +113,7 @@ use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
-    DollarKey, NonStdKeywords, StringOrBytes, ValidKeywords, ValueToStdKey as _,
+    DollarKey, NonStdKeywords, PseudoStdKeywords, StringOrBytes, ValidKeywords, ValueToStdKey as _,
 };
 use crate::validated::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
@@ -3691,6 +3691,7 @@ pub(crate) struct LookupCoreWithOffsetOutput<T, O> {
     pub(crate) core: LookupCoreOutput<T>,
     pub(crate) offsets: O,
     pub(crate) repair_diag: RepairDiagnostics,
+    pub(crate) pseudostandard: PseudoStdKeywords,
 }
 
 #[derive(new)]
@@ -5797,7 +5798,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             .map_errors(StdTEXTFromKeywordsWithOffsetsError::from)
             .zip_commutative(repair_res)
             .map_ok_value(|((core, core_offsets), repair_diag)| {
-                LookupCoreWithOffsetOutput::new(core, core_offsets, repair_diag)
+                LookupCoreWithOffsetOutput::new(core, core_offsets, repair_diag, kws.pstd)
             })
     }
 
@@ -6351,7 +6352,12 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         start_time: Instant,
         st: &TEXTReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        (Self, StdDatasetFromKwsOutput, RepairDiagnostics),
+        (
+            Self,
+            StdDatasetFromKwsOutput,
+            RepairDiagnostics,
+            PseudoStdKeywords,
+        ),
         StdDatasetFromKeywordsWarningInner,
         StdDatasetFromKeywordsErrorInner,
         (),
@@ -6379,7 +6385,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             .map_commutative_warnings(StdDatasetFromKeywordsWarningInner::from)
             .map_pure_errors(StdDatasetFromKeywordsErrorInner::from)
             .zip_io_group_commutative(repair_res)
-            .map_ok_value(|((new, out), repair)| (new, out, repair))
+            .map_ok_value(|((new, out), repair)| (new, out, repair, kws.pstd))
     }
 
     pub(crate) fn new_from_transaction<C, R>(
@@ -6903,6 +6909,7 @@ pub(crate) struct AnyCoreOutput<T> {
     pub(crate) offsets: TEXTOffsets<Option<Tot>>,
     pub(crate) repair_diag: RepairDiagnostics,
     pub(crate) scores: Option<KeywordVersionScores>,
+    pub(crate) pseudostandard: PseudoStdKeywords,
 }
 
 macro_rules! match_anycore {
@@ -7021,6 +7028,7 @@ impl AnyCoreTEXT {
                             std_out.offsets.into_common(),
                             std_out.repair_diag,
                             $s,
+                            std_out.pseudostandard,
                         )
                     })
                     .map_errors(AnyStdTEXTFromKeywordsError::from)
@@ -7091,6 +7099,7 @@ impl AnyCoreDataset {
             Self,
             StdDatasetFromKwsOutput,
             RepairDiagnostics,
+            PseudoStdKeywords,
             Option<KeywordVersionScores>,
         ),
         StdDatasetFromKeywordsWarningInner,
@@ -7124,7 +7133,7 @@ impl AnyCoreDataset {
         macro_rules! go {
             ($t:ident, $s:expr, $st:expr) => {
                 $t::new_from_keywords_inner(h, kws, hns, scan_next_dataset, start_time, $st)
-                    .map_ok_value(|(x, y, z)| (x.into(), y, z, $s))
+                    .map_ok_value(|(a, b, c, d)| (a.into(), b, c, d, $s))
                     .map_pure_errors(AnyStdDatasetFromKeywordsError::from)
             };
         }

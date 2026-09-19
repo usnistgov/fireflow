@@ -697,15 +697,15 @@ impl<'a> StdRepairTx<'a> {
 
         // rename
 
-        let (std_rename, pstd_rename) = conf.rename_standard_keys.clone().split();
+        let (std_rename, pstd_rename) = conf.rename_standard_keys.split();
 
         let mut renamed_pseudo_std_non_unique = vec![];
         let mut renamed_std_non_unique = vec![];
         let mut renamed_pseudo_std = vec![];
         let mut renamed_std = vec![];
 
-        for (k0, k1) in HashMap::from(pstd_rename) {
-            if let Entry::Occupied(e) = pstd.entry(k0) {
+        for (k0, k1) in Vec::from(pstd_rename) {
+            if let Entry::Occupied(e) = pstd.entry(k0.clone()) {
                 let k0_ = e.key().to_owned();
                 if self.insert(&k1, e.remove()).is_some() {
                     renamed_pseudo_std_non_unique.push((k0_, k1));
@@ -715,7 +715,7 @@ impl<'a> StdRepairTx<'a> {
             }
         }
 
-        for (k0, k1) in HashMap::from(std_rename) {
+        for (k0, k1) in Vec::from(std_rename) {
             if self.key_has_value(&k1) {
                 renamed_std_non_unique.push((k0, k1));
             } else if let Some(v) = self.delete(&k0) {

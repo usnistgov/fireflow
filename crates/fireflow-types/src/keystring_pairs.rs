@@ -30,13 +30,13 @@ pub struct KeyStringPairs(HashMap<RealOrPseudoStdKey, StdKey>);
 ///
 /// Keys are validated not to collide with each other.
 #[derive(Clone, Debug, Default, AsRef, PartialEq, Into)]
-pub struct StdKeyStringPairs(HashMap<StdKey, StdKey>);
+pub struct StdKeyStringPairs(Vec<(StdKey, StdKey)>);
 
 /// A map of pseudo(std) to std  key pairs.
 ///
 /// Keys are validated not to collide with each other.
 #[derive(Clone, Debug, Default, AsRef, PartialEq, Into)]
-pub struct PseudoStdKeyStringPairs(HashMap<PseudoStdKey, StdKey>);
+pub struct PseudoStdKeyStringPairs<'a>(Vec<(&'a PseudoStdKey, StdKey)>);
 
 impl IntoIterator for KeyStringPairs {
     type Item = (RealOrPseudoStdKey, StdKey);
@@ -73,14 +73,14 @@ impl TryFrom<HashMap<RealOrPseudoStdKey, StdKey>> for KeyStringPairs {
 impl KeyStringPairs {
     // TODO this doesn't need to take ownership, I could use references downstream
     #[must_use]
-    pub fn split(self) -> (StdKeyStringPairs, PseudoStdKeyStringPairs) {
-        let mut std = HashMap::new();
-        let mut pstd = HashMap::new();
-        for (k0, k1) in self {
-            let _ = match k0 {
-                RealOrPseudoStdKey::Real(k) => std.insert(k, k1),
-                RealOrPseudoStdKey::Pseudo(k) => pstd.insert(k, k1),
-            };
+    pub fn split(&self) -> (StdKeyStringPairs, PseudoStdKeyStringPairs<'_>) {
+        let mut std = vec![];
+        let mut pstd = vec![];
+        for (k0, k1) in self.as_ref() {
+            match k0 {
+                RealOrPseudoStdKey::Real(k) => std.push((*k, *k1)),
+                RealOrPseudoStdKey::Pseudo(k) => pstd.push((k, *k1)),
+            }
         }
         (StdKeyStringPairs(std), PseudoStdKeyStringPairs(pstd))
     }

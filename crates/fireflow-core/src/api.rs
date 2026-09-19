@@ -2343,46 +2343,9 @@ impl SplitTEXTDiagnostics {
         let mut errors = Vec::with_capacity(n_errors);
         let mut warnings = Vec::with_capacity(n_warnings);
 
-        let empty_keys_errors = self
-            .values_with_blank_keys
-            .iter()
-            .map(|k| BlankKeyError::new(tk, k.to_owned()));
-        let delim_bound_errors = self
-            .tokens_with_boundary_delims
-            .iter()
-            .map(|k| DelimBoundError::new(tk, k.to_owned()));
-        let non_unique_std_errors = self
-            .non_unique_std_keywords
-            .iter()
-            .map(|(k, v)| KeyPresent::new(tk, *k, v.clone()));
-        let non_unique_pseudo_errors = self
-            .non_unique_pstd_keywords
-            .iter()
-            .map(|(k, v)| KeyPresent::new(tk, k.clone(), v.clone()));
-        let non_unique_nonstd_error = self
-            .non_unique_nonstd_keywords
-            .iter()
-            .map(|(k, v)| KeyPresent::new(tk, k.clone(), v.clone()));
-        let bad_key_errors = self
-            .values_with_non_ascii_keys
-            .iter()
-            .map(|(k, v)| NonAsciiKeyError::new(tk, k.clone(), v.clone()));
-        let bad_val_errors = self
-            .keys_with_non_utf8_values
-            .iter()
-            .map(|(k, v)| NonUtf8ValueError::new(tk, k.clone(), v.clone()));
-        let bad_key_or_val_errors = self
-            .byte_pairs
-            .iter()
-            .map(|(k, v)| NonAsciiOrUtf8KeywordError::new(tk, k.clone(), v.clone()));
-        let trimmed_errors = self
-            .keys_with_empty_trimmed_values
-            .iter()
-            .map(|(k, v)| TrimmedBlankValueError::new(tk, k.clone(), v.clone()));
-
-        macro_rules! extend_if {
+        macro_rules! extend_if_ {
             ($flag:expr, $vals:expr) => {
-                let it = $vals.into_iter().map(ParseKeywordsIssue::from);
+                let it = $vals.map(ParseKeywordsIssue::from);
                 match $flag {
                     Some(true) => errors.extend(it),
                     Some(false) => warnings.extend(it),
@@ -2391,19 +2354,48 @@ impl SplitTEXTDiagnostics {
             };
         }
 
-        extend_if!(empty_key_flag, empty_keys_errors);
-        extend_if!(empty_key_flag, blank_pairs_error);
-        extend_if!(delim_bound_flag, delim_bound_errors);
-        extend_if!(non_unique_flag, non_unique_std_errors);
-        extend_if!(non_unique_flag, non_unique_pseudo_errors);
-        extend_if!(non_unique_flag, non_unique_nonstd_error);
-        extend_if!(bad_key_flag, bad_key_errors);
-        extend_if!(bad_val_flag, bad_val_errors);
-        extend_if!(bad_key_or_val_flag, bad_key_or_val_errors);
-        extend_if!(trimmed_flag, trimmed_errors);
-        extend_if!(last_odd_flag, last_odd_error);
-        extend_if!(even_delim_flag, even_delim_error);
-        extend_if!(extra_delim_flag, extra_delim_error);
+        macro_rules! extend_if {
+            ($flag:expr, $field:ident, $fun:expr) => {
+                let it = self.$field.iter().map($fun).map(ParseKeywordsIssue::from);
+                match $flag {
+                    Some(true) => errors.extend(it),
+                    Some(false) => warnings.extend(it),
+                    None => (),
+                }
+            };
+        }
+
+        extend_if!(empty_key_flag, values_with_blank_keys, |k| {
+            BlankKeyError::new(tk, k.to_owned())
+        });
+        extend_if_!(empty_key_flag, blank_pairs_error);
+        extend_if!(delim_bound_flag, tokens_with_boundary_delims, |k| {
+            DelimBoundError::new(tk, k.to_owned())
+        });
+        extend_if!(non_unique_flag, non_unique_std_keywords, |(k, v)| {
+            KeyPresent::new(tk, *k, v.clone())
+        });
+        extend_if!(non_unique_flag, non_unique_pstd_keywords, |(k, v)| {
+            KeyPresent::new(tk, k.clone(), v.clone())
+        });
+        extend_if!(non_unique_flag, non_unique_nonstd_keywords, |(k, v)| {
+            KeyPresent::new(tk, k.clone(), v.clone())
+        });
+        extend_if!(bad_key_flag, values_with_non_ascii_keys, |(k, v)| {
+            NonAsciiKeyError::new(tk, k.clone(), v.clone())
+        });
+        extend_if!(bad_val_flag, keys_with_non_utf8_values, |(k, v)| {
+            NonUtf8ValueError::new(tk, k.clone(), v.clone())
+        });
+        extend_if!(bad_key_or_val_flag, byte_pairs, |(k, v)| {
+            NonAsciiOrUtf8KeywordError::new(tk, k.clone(), v.clone())
+        });
+        extend_if!(trimmed_flag, keys_with_empty_trimmed_values, |(k, v)| {
+            TrimmedBlankValueError::new(tk, k.clone(), v.clone())
+        });
+        extend_if_!(last_odd_flag, last_odd_error);
+        extend_if_!(even_delim_flag, even_delim_error);
+        extend_if_!(extra_delim_flag, extra_delim_error);
 
         if let Some(ne) = NEVec::try_from_vec(errors) {
             LogResult::new_from_ne_err_iter(ne, ()).set_commutative_warnings(warnings)
@@ -2412,6 +2404,7 @@ impl SplitTEXTDiagnostics {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn parse_escaped(
         nonstd: &mut ParsedNonStdKeywords,
         delim: u8,

@@ -2262,41 +2262,6 @@ pub trait LayoutDatatype: Sized {
 
     fn datatypes(&self) -> Vec<AlphaNumType>;
 
-    // /// Check that unnamed measurement metadata matches this data schema (no length)
-    // fn check_unmamed_meas_xforms<V: VersionLayoutSet>(
-    //     &self,
-    //     meas: &[VTemporalOrOptical<V>],
-    // ) -> Result<(), ScaleDatatypeMismatchErrors> {
-    //     unimplemented!()
-    //     // let xforms = meas
-    //     //     .iter()
-    //     //     .map(|m| m.as_ref().both(|_| V::Xform::default(), |o| *o.xform()));
-    //     // self.check_transforms(xforms)
-    // }
-
-    // /// Check that unnamed measurement metadata matches this data schema.
-    // ///
-    // /// Check the following:
-    // ///
-    // /// 1. length must match the data schema
-    // /// 2. transforms in metadata must match data schema
-    // fn check_unmamed_meas_xforms_and_len<V: VersionLayoutSet>(
-    //     &self,
-    //     meas: &[VTemporalOrOptical<V>],
-    // ) -> Result<(), MeasLayoutMismatchError>
-    // where
-    //     Self: HasWidth,
-    //     // V::Optical: AsScaleOrTransform,
-    //     // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-    // {
-    //     unimplemented!()
-    //     // let xforms = meas.iter().map(|m| {
-    //     //     m.as_ref()
-    //     //         .both(|_| V::Xform::default(), Optical::as_scale_or_transform)
-    //     // });
-    //     // self.check_transforms_and_len(xforms)
-    // }
-
     /// Check that meas metadata is compatible with this data schema.
     ///
     /// Check the following:

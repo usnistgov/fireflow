@@ -1,6 +1,4 @@
-use crate::std_index::nested_string::{
-    Iter, IterStd, NestedEnumString, NestedString, NestedVariableString,
-};
+use crate::std_index::nested_string::{Iter, NestedEnumString, NestedString, NestedVariableString};
 use crate::validated::dataframe::HasLen;
 
 use derive_new::new;
@@ -31,20 +29,22 @@ pub(crate) struct MaskedString<'a, I, S, K, C, M> {
 }
 
 #[derive(new, Clone, Default)]
-pub(crate) struct LookupStatus {
+pub struct LookupStatus {
     override_: LookupOverride,
     status: LookupStatus_,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub(crate) enum LookupOverride {
+    #[default]
     Stored,
     Delete,
     Insert(NEString),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub(crate) enum LookupStatus_ {
+    #[default]
     Unseen,
     Seen(LookupAction),
 }
@@ -89,7 +89,7 @@ impl<'a, K, S, M: Default> MaskedVariableString<'a, K, S, M> {
     }
 }
 
-impl<'a, I, S, K, C> MaskedString<'a, I, S, K, C, LookupOverride> {
+impl<I, S, K, C> MaskedString<'_, I, S, K, C, LookupOverride> {
     pub(crate) fn delete(&mut self, k: &K) -> Option<&NEStr>
     where
         I: HasLen + Index<usize, Output = usize>,
@@ -140,33 +140,20 @@ impl<'a, I, S, K, C> MaskedString<'a, I, S, K, C, LookupOverride> {
         }
     }
 
-    // fn get_repair_value_and_status_mut(
-    //     &mut self,
-    //     k: &K,
-    // ) -> Option<(Option<&NEStr>, &mut LookupOverride)>
+    // fn get_repair_value(&self, k: &K) -> Option<&NEStr>
     // where
     //     I: HasLen + Index<usize, Output = usize>,
     //     K: AnyIndex<SubDimension = S>,
-    //     C: IndexMut<usize, Output = LookupOverride>,
+    //     C: Index<usize, Output = LookupOverride>,
     // {
-    //     let (v, m) = self.get_value_and_mask_mut(k)?;
-    //     Some((m.value(v), m))
+    //     let m = self.get_mask(k)?;
+    //     let v = self.get_value(k)?;
+    //     m.value(v)
     // }
-
-    fn get_repair_value(&self, k: &K) -> Option<&NEStr>
-    where
-        I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S>,
-        C: Index<usize, Output = LookupOverride>,
-    {
-        let m = self.get_mask(k)?;
-        let v = self.get_value(k)?;
-        m.value(v)
-    }
 
     pub(crate) fn iter_ne_masked_mut<'b>(
         &'b mut self,
-    ) -> impl Iterator<Item = (StdKey, &NEStr, &mut LookupOverride)>
+    ) -> impl Iterator<Item = (StdKey, &'b NEStr, &'b mut LookupOverride)>
     where
         I: HasLen + Index<usize, Output = usize>,
         K: AnyIndex<SubDimension = S> + Into<StdKey>,
@@ -178,7 +165,7 @@ impl<'a, I, S, K, C> MaskedString<'a, I, S, K, C, LookupOverride> {
 
     pub(crate) fn iter_masked_mut<'b>(
         &'b mut self,
-    ) -> impl Iterator<Item = (StdKey, &str, &mut LookupOverride)>
+    ) -> impl Iterator<Item = (StdKey, &'b str, &'b mut LookupOverride)>
     where
         I: HasLen + Index<usize, Output = usize>,
         K: AnyIndex<SubDimension = S> + Into<StdKey>,
@@ -186,7 +173,7 @@ impl<'a, I, S, K, C> MaskedString<'a, I, S, K, C, LookupOverride> {
     {
         self.inner
             .iter()
-            .zip(self.mask.into_iter())
+            .zip(&mut self.mask)
             .map(|((k, v), m)| (k.into(), v, m))
     }
 }
@@ -271,7 +258,7 @@ impl<'a, I, S, K, C> MaskedString<'a, I, S, K, C, LookupStatus> {
         &'b C: IntoIterator<Item = &'b LookupStatus> + 'a,
     {
         self.iter()
-            .zip(self.mask.into_iter())
+            .zip(&self.mask)
             .filter_map(|((k, v), m)| m.override_.value(v).map(|ne| (k, ne, &m.status)))
     }
 
@@ -318,7 +305,7 @@ impl<'a, I, S, K, C> MaskedString<'a, I, S, K, C, LookupStatus> {
     }
 }
 
-impl<'a, I, S, K, C, M> MaskedString<'a, I, S, K, C, M> {
+impl<I, S, K, C, M> MaskedString<'_, I, S, K, C, M> {
     fn get_value(&self, k: &K) -> Option<&str>
     where
         I: HasLen + Index<usize, Output = usize>,
@@ -361,15 +348,15 @@ impl<'a, I, S, K, C, M> MaskedString<'a, I, S, K, C, M> {
         (i < n).then_some(&mut self.mask[i])
     }
 
-    pub(crate) fn iter_std<'b>(&'b self) -> IterStd<'b, I, K>
-    where
-        I: HasLen + Index<usize, Output = usize>,
-        K: AnyIndex<SubDimension = S> + Into<StdKey>,
-    {
-        self.inner.iter_std()
-    }
+    // pub(crate) fn iter_std<'b>(&'b self) -> IterStd<'b, I, K>
+    // where
+    //     I: HasLen + Index<usize, Output = usize>,
+    //     K: AnyIndex<SubDimension = S> + Into<StdKey>,
+    // {
+    //     self.inner.iter_std()
+    // }
 
-    pub(crate) fn iter<'b>(&'b self) -> Iter<'b, I, K>
+    pub(crate) fn iter(&self) -> Iter<'_, I, K>
     where
         I: HasLen + Index<usize, Output = usize>,
         K: AnyIndex<SubDimension = S>,
@@ -386,12 +373,6 @@ impl<'a, I, S, K, C, M> MaskedString<'a, I, S, K, C, M> {
     }
 }
 
-impl Default for LookupOverride {
-    fn default() -> Self {
-        Self::Stored
-    }
-}
-
 impl LookupOverride {
     fn value<'a, 'b: 'a>(&'b self, stored: &'a str) -> Option<&'a NEStr> {
         match self {
@@ -402,18 +383,8 @@ impl LookupOverride {
     }
 }
 
-impl LookupStatus {
-    fn new_insert(ne: NEString) -> Self {
-        Self::new(LookupOverride::Insert(ne), LookupStatus_::default())
-    }
-
-    fn new_delete() -> Self {
-        Self::new(LookupOverride::Delete, LookupStatus_::default())
-    }
-}
-
 impl LookupStatus_ {
-    fn with_unseen<'a, 'b>(&'b self, v: &'a NEStr) -> &'a NEStr {
+    fn with_unseen(self, v: &NEStr) -> &NEStr {
         match self {
             Self::Unseen => v,
             Self::Seen(_) => {
@@ -422,32 +393,10 @@ impl LookupStatus_ {
         }
     }
 
-    fn assert_empty_unseen(&self) {
+    fn assert_empty_unseen(self) {
         assert!(
             matches!(self, Self::Unseen),
             "empty value found with lookup status"
-        )
-    }
-
-    pub(crate) fn dispatch<F0, F1, F2>(&self, mut f_unseen: F0, mut f_demote: F1, mut f_drop: F2)
-    where
-        F0: FnMut(),
-        F1: FnMut(),
-        F2: FnMut(),
-    {
-        match self {
-            Self::Unseen => f_unseen(),
-            Self::Seen(a) => match a {
-                LookupAction::None => (),
-                LookupAction::Demote => f_demote(),
-                LookupAction::Drop => f_drop(),
-            },
-        }
-    }
-}
-
-impl Default for LookupStatus_ {
-    fn default() -> Self {
-        Self::Unseen
+        );
     }
 }

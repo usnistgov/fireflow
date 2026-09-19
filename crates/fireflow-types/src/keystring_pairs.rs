@@ -1,5 +1,4 @@
-use crate::keystring::KeyString;
-use crate::nonempty::{IntoIteratorExt, NEVec, NonEmptyIterator};
+use crate::nonempty::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 use crate::std_key::{PseudoStdKey, RealOrPseudoStdKey, StdKey};
 
 use derive_more::{AsRef, Display, From, Into};
@@ -73,6 +72,7 @@ impl TryFrom<HashMap<RealOrPseudoStdKey, StdKey>> for KeyStringPairs {
 
 impl KeyStringPairs {
     // TODO this doesn't need to take ownership, I could use references downstream
+    #[must_use]
     pub fn split(self) -> (StdKeyStringPairs, PseudoStdKeyStringPairs) {
         let mut std = HashMap::new();
         let mut pstd = HashMap::new();

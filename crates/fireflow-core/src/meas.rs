@@ -44,20 +44,20 @@ use crate::text::named_vec::{
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::dataframe::PrimitiveDataFrame;
-use crate::validated::keys::{DollarKey, ValidKeywords};
+use crate::validated::keys::DollarKey;
 use crate::validated::shortname::Shortname;
 
-use fireflow_types::{
-    config::{
-        AllowLoss, OpticalOnlyKey, OverBitmaskAction, OverRangeAction, ReadDataKeywordsConfig,
-        ReadDatasetConfig, TemporalHasOpticalKeyError,
-    },
-    index::MeasIndex,
-    keywords::{HasVersion, OpticalFeature, Version2_0, Version3_0, Version3_1, Version3_2},
-    nonempty::{DisplayableNE as _, NEString},
-    ranged_float::PositiveFloat,
-    std_key::{MeasKeyId, StdKey, ToStd as _},
+use fireflow_types::config::{
+    AllowLoss, OpticalOnlyKey, OverBitmaskAction, OverRangeAction, ReadDataKeywordsConfig,
+    ReadDatasetConfig, TemporalHasOpticalKeyError,
 };
+use fireflow_types::index::MeasIndex;
+use fireflow_types::keywords::{
+    HasVersion, OpticalFeature, Version2_0, Version3_0, Version3_1, Version3_2,
+};
+use fireflow_types::nonempty::{DisplayableNE as _, NEString};
+use fireflow_types::ranged_float::PositiveFloat;
+use fireflow_types::std_key::{MeasKeyId, StdKey, ToStd as _};
 
 use type_families::{ApplyOnce as _, BifunctorOnce as _};
 

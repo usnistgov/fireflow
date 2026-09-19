@@ -1,5 +1,6 @@
 use super::{
-    FromNonEmptyIterator, HasNELen, IntoNonEmptyIterator, NESlice, NEStr, NEVec, NonEmptyIterator,
+    FromNonEmptyIterator, HasNELen, IntoNonEmptyIterator, NESlice, NEStr, NEVec,
+    NonEmptyIterator as _,
 };
 
 use derive_more::{AsRef, Display, Into};

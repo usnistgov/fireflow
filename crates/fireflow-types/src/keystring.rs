@@ -1,7 +1,6 @@
 use crate::case_ins_regex::{LiteralOrPattern, LiteralOrPatternError};
 use crate::nonempty::{
-    FromNonEmptyIterator, IntoNonEmptyIterator, NESlice, NEStr, NEString, NEVec, NonEmptyIterator,
-    ToDisplayNE,
+    IntoNonEmptyIterator as _, NESlice, NEStr, NEString, NEVec, NonEmptyIterator as _, ToDisplayNE,
 };
 
 use derive_more::{AsRef, Display};
@@ -125,7 +124,7 @@ impl FromStr for KeyString {
     }
 }
 
-impl<'a> TryFrom<NEString> for CowKeyString<'a> {
+impl TryFrom<NEString> for CowKeyString<'_> {
     type Error = AsciiStringError;
     fn try_from(value: NEString) -> Result<Self, Self::Error> {
         if is_printable_ascii(value.as_str().as_bytes()) {
@@ -192,7 +191,7 @@ impl KeyString {
     }
 }
 
-impl<'a> CowKeyString<'a> {
+impl CowKeyString<'_> {
     #[must_use]
     pub fn into_keystring(self) -> KeyString {
         KeyString::new_unchecked(self.0.into_inner().into_owned())

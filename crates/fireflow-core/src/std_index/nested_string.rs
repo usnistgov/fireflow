@@ -47,7 +47,7 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
         }
     }
 
-    pub(crate) unsafe fn set_keys<'a, V>(&mut self, pairs: impl IntoIterator<Item = (K, V)>)
+    pub(crate) unsafe fn set_keys<V>(&mut self, pairs: impl IntoIterator<Item = (K, V)>)
     where
         K: EnumIndex<LEN>,
         V: AsRef<NEStr>,
@@ -57,15 +57,6 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
             self.inner.extend(v.as_ref().as_str().as_bytes());
         }
     }
-
-    // pub(crate) unsafe fn set_key(&mut self, key: K, val: &NEStr)
-    // where
-    //     K: EnumIndex<LEN>,
-    // {
-    //     let start = self.inner.len();
-    //     self.inner.extend(val.as_str().as_bytes());
-    //     self.offsets[key.index()] = start;
-    // }
 }
 
 impl<K, S> NestedVariableString<K, S> {
@@ -82,7 +73,7 @@ impl<K, S> NestedVariableString<K, S> {
     ///
     /// - The index of each pair must be in order.
     /// - This must only be called once on a freshly init-ed object.
-    pub(crate) unsafe fn extend_pairs<'a, V>(&mut self, pairs: impl IntoIterator<Item = (usize, V)>)
+    pub(crate) unsafe fn extend_pairs<V>(&mut self, pairs: impl IntoIterator<Item = (usize, V)>)
     where
         V: AsRef<NEStr>,
     {
@@ -97,28 +88,12 @@ impl<K, S> NestedVariableString<K, S> {
             self.inner.extend(v.as_ref().as_str().as_bytes());
         }
     }
-
-    // pub(crate) fn extend<'a>(&mut self, ss: impl IntoIterator<Item = &'a str>) {
-    //     let mut prev_index = self.offsets.last().copied().unwrap_or(0);
-    //     for s in ss {
-    //         let bs = s.as_bytes();
-    //         self.inner.extend(bs);
-    //         self.offsets.push(prev_index);
-    //         prev_index += bs.len();
-    //     }
-    // }
-
-    // pub(crate) fn push(&mut self, s: &str) {
-    //     let prev_index = self.offsets.last().copied().unwrap_or(0);
-    //     self.inner.extend(s.as_bytes());
-    //     self.offsets.push(prev_index);
-    // }
 }
 
 impl<I, S, K> NestedString<I, S, K> {
-    pub(crate) fn n_bytes(&self) -> usize {
-        self.inner.len()
-    }
+    // pub(crate) fn n_bytes(&self) -> usize {
+    //     self.inner.len()
+    // }
 
     pub(crate) fn n_strings(&self) -> usize
     where
@@ -183,7 +158,7 @@ impl<I, S, K> NestedString<I, S, K> {
         unsafe { str::from_utf8_unchecked(&self.inner[start..end]) }
     }
 
-    pub(crate) fn iter_std<'a>(&'a self) -> IterStd<'a, I, K>
+    pub(crate) fn iter_std(&self) -> IterStd<'_, I, K>
     where
         I: HasLen + Index<usize, Output = usize>,
         K: AnyIndex<SubDimension = S> + Into<StdKey>,
@@ -192,14 +167,14 @@ impl<I, S, K> NestedString<I, S, K> {
             .filter_map(|(k, v)| NEStr::try_new(v).map(|ne| (k.into(), ne)))
     }
 
-    pub(crate) fn iter<'a>(&'a self) -> Iter<'a, I, K>
+    pub(crate) fn iter(&self) -> Iter<'_, I, K>
     where
         I: HasLen + Index<usize, Output = usize>,
         K: AnyIndex<SubDimension = S>,
     {
         Iter {
             keys: K::generate(&self.sub_dimension),
-            inner: &self,
+            inner: self,
             index: 0,
         }
     }

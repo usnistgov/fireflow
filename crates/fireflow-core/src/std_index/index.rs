@@ -1,36 +1,30 @@
-use super::{
-    masked::{
-        LookupOverride, LookupStatus, LookupStatus_, MaskedEnumString, MaskedString,
-        MaskedVariableString,
-    },
-    nested_string::{NestedEnumString, NestedStringSize, NestedVariableString},
+use crate::config::{EvaledReadRepairKeywordsConfig, EvaledReadStdKeywordsConfig};
+use crate::logging::{DeferredWarningsAndErrors, LogResult, WarningsAndErrorsResult};
+use crate::std_index::masked::{
+    LookupOverride, LookupStatus, LookupStatus_, MaskedEnumString, MaskedString,
+    MaskedVariableString,
 };
-use crate::{
-    config::{EvaledReadRepairKeywordsConfig, EvaledReadStdKeywordsConfig},
-    logging::{DeferredWarningsAndErrors, LogResult, WarningsAndErrorsResult},
-    text::keywords::{Gate, Par},
-    validated::keys::{
-        NonStdKey, NonStdKeywords, NonStdKeywordsExt, PseudoStdKeywords, TruncatedNEString,
-        ValueToStdKey,
-    },
+use crate::std_index::nested_string::{NestedEnumString, NestedStringSize, NestedVariableString};
+use crate::text::keywords::{Gate, Par};
+use crate::validated::keys::{
+    NonStdKey, NonStdKeywords, NonStdKeywordsExt as _, PseudoStdKeywords, TruncatedNEString,
+    ValueToStdKey,
 };
 
-use fireflow_types::{
-    case_ins_regex::CaseInsRegex,
-    config::{
-        KeywordFailureFlag, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,
-        ReadDataKeywordsConfig, TemporalHasOpticalKeyError, TriErrorFlag as _,
-    },
-    index::MeasIndex,
-    keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns},
-    keywords::Version,
-    nonempty::{NEStr, NEString, NEVec},
-    std_key::{
-        AnyIndex as _, CsvFlagKey, DfcKey, GateKey, GateKeyId, MeasKey, MeasKeyId, N_ROOT,
-        PseudoStdKey, RealOrPseudoStdKey, RegionKey, RootKey, StdKey, ToStd,
-    },
-    sub_pattern::SubPattern,
+use fireflow_types::case_ins_regex::CaseInsRegex;
+use fireflow_types::config::{
+    KeywordFailureFlag, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,
+    TemporalHasOpticalKeyError, TriErrorFlag as _,
 };
+use fireflow_types::index::MeasIndex;
+use fireflow_types::keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns};
+use fireflow_types::keywords::Version;
+use fireflow_types::nonempty::{NEStr, NEString, NEVec};
+use fireflow_types::std_key::{
+    AnyIndex as _, CsvFlagKey, DfcKey, GateKey, GateKeyId, MeasKey, MeasKeyId, N_ROOT,
+    PseudoStdKey, RegionKey, RootKey, StdKey, ToStd as _,
+};
+use fireflow_types::sub_pattern::SubPattern;
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -42,7 +36,7 @@ use thiserror::Error;
 use std::mem;
 
 #[cfg(feature = "serde")]
-use serde::{Serialize, Serializer, ser::SerializeMap};
+use serde::{Serialize, Serializer, ser::SerializeMap as _};
 
 #[cfg(feature = "python")]
 use {
@@ -59,7 +53,6 @@ type OpticalOnlyResult = WarningsAndErrorsResult<
 >;
 
 pub(crate) type DroppedStdKeywords = Vec<(StdKey, NEString)>;
-pub(crate) type DroppedPseudoStdKeywords = Vec<(PseudoStdKey, NEString)>;
 
 /// Leftover standard keyword after parsing
 #[derive(Clone, new, PartialEq)]
@@ -290,7 +283,7 @@ pub struct StdKeywords {
     dfc: NestedVariableString<DfcKey, usize>,
 }
 
-pub(crate) struct StdTransaction<'a, M> {
+pub struct StdTransaction<'a, M> {
     root: MaskedEnumString<'a, N_ROOT, RootKey, M>,
     meas: MaskedVariableString<'a, MeasKey, (), M>,
     gate: MaskedVariableString<'a, GateKey, (), M>,
@@ -300,7 +293,7 @@ pub(crate) struct StdTransaction<'a, M> {
 }
 
 pub(crate) type StdRepairTx<'a> = StdTransaction<'a, LookupOverride>;
-pub(crate) type StdLookupTx<'a> = StdTransaction<'a, LookupStatus>;
+pub type StdLookupTx<'a> = StdTransaction<'a, LookupStatus>;
 
 type NestedRoot = NestedEnumString<N_ROOT, RootKey>;
 
@@ -387,6 +380,34 @@ impl<'a> AllKeyMatchers<'a> {
 }
 
 impl StdKeywords {
+    pub fn iter_keywords(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {
+        self.root
+            .iter_std()
+            .chain(self.meas.iter_std())
+            .chain(self.gate.iter_std())
+            .chain(self.region.iter_std())
+            .chain(self.csv_flag.iter_std())
+            .chain(self.dfc.iter_std())
+    }
+
+    #[must_use]
+    pub fn from_vec<V>(mut pairs: Vec<(StdKey, V)>) -> (Self, Vec<(StdKey, TruncatedNEString)>)
+    where
+        V: AsRef<NEStr>,
+    {
+        pairs.sort_by_key(|(k, _)| *k);
+        let dedup_split = partition_dedup_by_key(&mut pairs, |(k, _)| *k);
+        let (std_final, non_unique_std_) = pairs.split_at(dedup_split);
+        let non_unique_std = non_unique_std_
+            .iter()
+            .map(|(k, v)| (*k, TruncatedNEString(v.as_ref().to_owned())))
+            .collect();
+
+        // SAFETY: we sorted and deduplicated above
+        let index = unsafe { Self::from_slice(std_final) };
+        (index, non_unique_std)
+    }
+
     #[must_use]
     pub fn get(&self, k: &StdKey) -> &str {
         match k {
@@ -399,11 +420,11 @@ impl StdKeywords {
         }
     }
 
-    pub fn contains_key(&self, k: &StdKey) -> bool {
+    pub(crate) fn contains_key(&self, k: &StdKey) -> bool {
         !self.get(k).is_empty()
     }
 
-    pub fn n_strings(&self) -> usize {
+    pub(crate) fn n_strings(&self) -> usize {
         self.root.n_strings()
             + self.meas.n_strings()
             + self.gate.n_strings()
@@ -412,7 +433,7 @@ impl StdKeywords {
             + self.dfc.n_strings()
     }
 
-    pub fn concat(self, other: Self) -> (Self, Vec<(StdKey, TruncatedNEString)>) {
+    pub(crate) fn concat(self, other: Self) -> (Self, Vec<(StdKey, TruncatedNEString)>) {
         if self.n_strings() == 0 {
             (other, vec![])
         } else if other.n_strings() == 0 {
@@ -426,7 +447,7 @@ impl StdKeywords {
         }
     }
 
-    pub(crate) fn into_transaction<'a, M: Default>(&'a self) -> StdTransaction<'a, M> {
+    pub(crate) fn as_transaction<M: Default>(&self) -> StdTransaction<'_, M> {
         StdTransaction {
             root: MaskedString::init_array(&self.root),
             meas: MaskedString::init_var(&self.meas),
@@ -435,33 +456,6 @@ impl StdKeywords {
             csv_flag: MaskedString::init_var(&self.csv_flag),
             dfc: MaskedString::init_var(&self.dfc),
         }
-    }
-
-    pub fn iter_keywords<'a>(&'a self) -> impl Iterator<Item = (StdKey, &NEStr)> {
-        self.root
-            .iter_std()
-            .chain(self.meas.iter_std())
-            .chain(self.gate.iter_std())
-            .chain(self.region.iter_std())
-            .chain(self.csv_flag.iter_std())
-            .chain(self.dfc.iter_std())
-    }
-
-    pub fn from_vec<V>(mut pairs: Vec<(StdKey, V)>) -> (Self, Vec<(StdKey, TruncatedNEString)>)
-    where
-        V: AsRef<NEStr>,
-    {
-        pairs.sort_by_key(|(k, _)| *k);
-        let dedup_split = partition_dedup_by_key(&mut pairs, |(k, _)| *k);
-        let (std_final, _non_unique_std) = pairs.split_at(dedup_split);
-        let non_unique_std = _non_unique_std
-            .into_iter()
-            .map(|(k, v)| (*k, TruncatedNEString(v.as_ref().to_owned())))
-            .collect();
-
-        // SAFETY: we sorted and deduplicated above
-        let index = unsafe { StdKeywords::from_slice(std_final) };
-        (index, non_unique_std)
     }
 
     /// Make a new standard key index from a vector of pairs.
@@ -524,7 +518,7 @@ impl StdKeywords {
         let mut csv_flag = NestedVariableString::init_var(&csv_flag_size, ());
         let mut dfc = NestedVariableString::init_var(&dfc_size, dfc_matrix_size);
 
-        let mut it = pairs.into_iter();
+        let mut it = pairs.iter();
         let root_it = it
             .by_ref()
             .take(root_n_strings)
@@ -621,16 +615,12 @@ impl<'a> StdRepairTx<'a> {
 
         let mut demoted = vec![];
         let mut ignored = vec![];
-        let mut demote_ignore = vec![];
 
         for (k, v, m) in self.iter_ne_masked_mut() {
             let ks = k.as_keystring();
             let demote_match = matchers.demote.is_match(&ks);
             let ignore_match = matchers.ignore.is_match(&ks);
             if demote_match {
-                if ignore_match {
-                    demote_ignore.push(k);
-                }
                 *m = LookupOverride::Delete;
                 demoted.push(k);
             } else if ignore_match {
@@ -660,23 +650,21 @@ impl<'a> StdRepairTx<'a> {
                     // mistake, so do nothing and warn user.
                     promote_ignored_noop.push(k.to_owned());
                     true
-                } else {
-                    if let Ok(sk) = ks.as_str().parse::<StdKey>() {
-                        // Key is promoted and std. Try to insert and take out
-                        // of nonstd list if successful.
-                        if self.insert(&sk, v.to_owned()).is_some() {
-                            promote_non_unique.push((sk, TruncatedNEString(v.to_owned())));
-                            true
-                        } else {
-                            promoted.push(k.to_owned());
-                            false
-                        }
-                    } else {
-                        // Key is promoted but is pseudostandard. This is likely
-                        // a mistake so do nothing and warn user.
-                        promote_pseudo_std.push(k.to_owned());
+                } else if let Ok(sk) = ks.as_str().parse::<StdKey>() {
+                    // Key is promoted and std. Try to insert and take out
+                    // of nonstd list if successful.
+                    if self.insert(&sk, v.to_owned()).is_some() {
+                        promote_non_unique.push((sk, TruncatedNEString(v.to_owned())));
                         true
+                    } else {
+                        promoted.push(k.to_owned());
+                        false
                     }
+                } else {
+                    // Key is promoted but is pseudostandard. This is likely
+                    // a mistake so do nothing and warn user.
+                    promote_pseudo_std.push(k.to_owned());
+                    true
                 }
             } else {
                 // Key is not promoted, do nothing.
@@ -713,22 +701,16 @@ impl<'a> StdRepairTx<'a> {
 
         let mut renamed_pseudo_std_non_unique = vec![];
         let mut renamed_std_non_unique = vec![];
-        let mut not_renamed = vec![];
         let mut renamed_pseudo_std = vec![];
         let mut renamed_std = vec![];
 
         for (k0, k1) in HashMap::from(pstd_rename) {
-            match pstd.entry(k0) {
-                Entry::Occupied(e) => {
-                    let k0_ = e.key().to_owned();
-                    if self.insert(&k1, e.remove()).is_some() {
-                        renamed_pseudo_std_non_unique.push((k0_, k1));
-                    } else {
-                        renamed_pseudo_std.push((k0_, k1));
-                    }
-                }
-                Entry::Vacant(e) => {
-                    not_renamed.push((RealOrPseudoStdKey::Pseudo(e.key().to_owned()), k1))
+            if let Entry::Occupied(e) = pstd.entry(k0) {
+                let k0_ = e.key().to_owned();
+                if self.insert(&k1, e.remove()).is_some() {
+                    renamed_pseudo_std_non_unique.push((k0_, k1));
+                } else {
+                    renamed_pseudo_std.push((k0_, k1));
                 }
             }
         }
@@ -741,8 +723,6 @@ impl<'a> StdRepairTx<'a> {
                 let vf = v.to_owned();
                 // we checked above so this shouldn't return anything
                 let _ = self.insert(&k1, vf);
-            } else {
-                not_renamed.push((RealOrPseudoStdKey::Real(k0), k1));
             }
         }
 
@@ -750,9 +730,9 @@ impl<'a> StdRepairTx<'a> {
 
         let mut appended_non_unique = vec![];
 
-        for (k, v) in conf.append_standard_keywords.iter() {
-            if let Some(v) = self.insert(&k, v.to_owned()) {
-                appended_non_unique.push((*k, TruncatedNEString(v)));
+        for (k, v) in &conf.append_standard_keywords {
+            if let Some(vf) = self.insert(k, v.to_owned()) {
+                appended_non_unique.push((*k, TruncatedNEString(vf)));
             }
         }
 
@@ -842,8 +822,8 @@ impl<'a> StdRepairTx<'a> {
         }
     }
 
-    fn iter_ne_masked_mut<'b>(
-        &'b mut self,
+    fn iter_ne_masked_mut(
+        &mut self,
     ) -> impl Iterator<Item = (StdKey, &NEStr, &mut LookupOverride)> {
         self.root
             .iter_ne_masked_mut()
@@ -853,21 +833,9 @@ impl<'a> StdRepairTx<'a> {
             .chain(self.csv_flag.iter_ne_masked_mut())
             .chain(self.dfc.iter_ne_masked_mut())
     }
-
-    fn iter_masked_mut<'b>(
-        &'b mut self,
-    ) -> impl Iterator<Item = (StdKey, &str, &mut LookupOverride)> {
-        self.root
-            .iter_masked_mut()
-            .chain(self.meas.iter_masked_mut())
-            .chain(self.gate.iter_masked_mut())
-            .chain(self.region.iter_masked_mut())
-            .chain(self.csv_flag.iter_masked_mut())
-            .chain(self.dfc.iter_masked_mut())
-    }
 }
 
-impl<'a> StdLookupTx<'a> {
+impl StdLookupTx<'_> {
     pub(crate) fn finalize(
         &self,
         par: Par,
@@ -1054,51 +1022,44 @@ impl<'a> StdLookupTx<'a> {
         i: MeasIndex,
         flag: ProcessOpticalOnlyKeys,
     ) -> OpticalOnlyResult {
-        unimplemented!()
-        // let mut es = vec![];
-        // let mut ws = vec![];
-        // let mut pairs = vec![];
-        // let (demote, warn) = match flag {
-        //     ProcessOpticalOnlyKeys::DemoteWarn => (true, true),
-        //     ProcessOpticalOnlyKeys::DemoteSilent => (true, false),
-        //     ProcessOpticalOnlyKeys::DropWarn => (false, true),
-        //     ProcessOpticalOnlyKeys::DropSilent => (false, false),
-        // };
-        // let action = if demote {
-        //     KeywordAction::Demote
-        // } else {
-        //     KeywordAction::Drop
-        // };
-        // // TODO it should not be necessary to push and return vectors here.
-        // // If we simply not which index is the temporal index, we can recover
-        // // all this information when we finalize the index. Keys that were
-        // // Seen were present and removed. Keys that were Dropped/Demoted should
-        // // be dealt with accordingly. In all cases were can make a list of all
-        // // pairs that are present.
-        // //
-        // // This is in contrast to looking up all other values since in those
-        // // cases we need to parse the keywords and therefore record and error if
-        // // this fails. This is easier to do at the call site rather than storing
-        // // it lazily in the index. Here we only care about the pair and if
-        // // it has a non-empty value.
-        // for t in targets {
-        //     let k = StdKey::from_optical_only_key(*t, i);
-        //     if let Some(v) = self.remove(&k) {
-        //         let err = || TemporalHasOpticalKeyError::new(i, *t);
-        //         if keys.0.contains(t) {
-        //             self.set_action_at_key(&k, action);
-        //             if warn {
-        //                 ws.push(err());
-        //             }
-        //             pairs.push((k, v));
-        //         } else {
-        //             es.push(err());
-        //         }
-        //     }
-        // }
-        // let mut res = LogResult::new_from_err_iter(es, pairs, ());
-        // res.extend_commutative_warnings(ws);
-        // res
+        let mut es = vec![];
+        let mut ws = vec![];
+        let mut pairs = vec![];
+        let (demote, warn) = match flag {
+            ProcessOpticalOnlyKeys::DemoteWarn => (true, true),
+            ProcessOpticalOnlyKeys::DemoteSilent => (true, false),
+            ProcessOpticalOnlyKeys::DropWarn => (false, true),
+            ProcessOpticalOnlyKeys::DropSilent => (false, false),
+        };
+        let action = if demote {
+            LookupAction::Demote
+        } else {
+            LookupAction::Drop
+        };
+        // This is in contrast to looking up all other values since in those
+        // cases we need to parse the keywords and therefore record and error if
+        // this fails. This is easier to do at the call site rather than storing
+        // it lazily in the index. Here we only care about the pair and if
+        // it has a non-empty value.
+        for t in targets {
+            let k = StdKey::from_optical_only_key(*t, i);
+            if let Some(v) = self.remove_unseen(&k) {
+                let err = || TemporalHasOpticalKeyError::new(i, *t);
+                if keys.0.contains(t) {
+                    let vf = v.to_owned();
+                    self.set_lookup_action_seen(&k, action);
+                    if warn {
+                        ws.push(err());
+                    }
+                    pairs.push((k, vf));
+                } else {
+                    es.push(err());
+                }
+            }
+        }
+        let mut ret = LogResult::new_from_err_iter(es, pairs, ());
+        ret.extend_commutative_warnings(ws);
+        ret
     }
 
     pub(crate) fn read<K: ValueToStdKey>(&self, i: &K::Index) -> Option<&NEStr> {
@@ -1171,18 +1132,6 @@ impl<'a> StdLookupTx<'a> {
             StdKey::CsvFlag(ck) => self.csv_flag.parse_unseen(ck, f),
             StdKey::Dfc(dk) => self.dfc.parse_unseen(dk, f),
         }
-    }
-}
-
-impl<'a, M> StdTransaction<'a, M> {
-    pub fn iter_keywords(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {
-        self.root
-            .iter_std()
-            .chain(self.meas.iter_std())
-            .chain(self.gate.iter_std())
-            .chain(self.region.iter_std())
-            .chain(self.csv_flag.iter_std())
-            .chain(self.dfc.iter_std())
     }
 }
 
@@ -1277,6 +1226,8 @@ where
     // is required for `&mut *ptr_read`, `&mut *prev_ptr_write` to be safe.
     // The explanation is simply that `next_read >= next_write` is always true,
     // thus `next_read > next_write - 1` is too.
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
+    #[allow(clippy::swap_ptr_to_ref)]
     unsafe {
         // Avoid bounds checks by using raw pointers.
         while next_read < len {

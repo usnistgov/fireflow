@@ -1,7 +1,7 @@
 use super::iter::{FromNonEmptyIterator, HasNELen};
 use super::{IntoNonEmptyIterator, NEChunks, NESlice, NonEmptyIterator, Singleton};
 
-use derive_more::{AsRef, Into};
+use derive_more::Into;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 use thiserror::Error;

@@ -925,7 +925,7 @@ impl OptRootKeyword<'_> {
                 Version::FCS2_0
             };
             (target_version == match_target)
-                .then_some(RegionLossError::new(is_2_0, is_index, i.into()).into())
+                .then_some(RegionLossError::new(is_2_0, is_index, i).into())
         };
         let ret = match self {
             Self::GateMeas(kw) => match kw {
@@ -1074,14 +1074,14 @@ impl OptScaledOpticalKeyword<'_> {
                 //
                 // $PnE must always be linear for temporal measurement
                 OptScaleKeyword::Scale(kw) => {
-                    let i = kw.key.index().into();
+                    let i = kw.key.index();
                     (!matches!(kw.value, kws::Scale::Linear))
                         .then_some(NonLinearScaleError(i).into())
                 }
                 // $PnG must be 1.0 if it exists since temporal measurement does
                 // not have gain
                 OptScaleKeyword::Gain(kw) => {
-                    let i = kw.key.index().into();
+                    let i = kw.key.index();
                     (!kw.value.0.is_one()).then_some(NonUnitGainError(i).into())
                 }
             },

@@ -1740,10 +1740,12 @@ impl TrimValueWhitespace {
         f.map(Into::into)
     }
 
+    #[must_use]
     pub fn is_error(&self) -> Option<bool> {
         self.into_flag()?.is_error()
     }
 
+    #[must_use]
     pub fn is_trim(&self) -> bool {
         !matches!(self, Self::Notrim)
     }

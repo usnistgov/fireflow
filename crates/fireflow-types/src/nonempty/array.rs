@@ -1,6 +1,7 @@
 use super::vec::Iter;
 use super::{HasNELen, IntoNonEmptyIterator, NESlice, NEVec, NonEmptyIterator};
 
+use core::array;
 use std::fmt;
 use std::num::NonZeroUsize;
 
@@ -72,13 +73,13 @@ pub trait NonEmptyArrayExt<T> {
 /// ```
 #[derive(Clone)]
 pub struct ArrayNonEmptyIterator<T, const C: usize> {
-    iter: core::array::IntoIter<T, C>,
+    iter: array::IntoIter<T, C>,
 }
 
 impl<T, const C: usize> IntoIterator for ArrayNonEmptyIterator<T, C> {
     type Item = T;
 
-    type IntoIter = core::array::IntoIter<T, C>;
+    type IntoIter = array::IntoIter<T, C>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter
@@ -128,7 +129,7 @@ macro_rules! impl_nonempty_iter_for_arrays {
                 }
 
                 fn nonzero_len(&self) -> NonZeroUsize {
-                    // This should be fine because $i is always > 0.
+                    // SAFETY: This should be fine because $i is always > 0.
                     unsafe { NonZeroUsize::new_unchecked($i) }
                 }
 

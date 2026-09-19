@@ -451,7 +451,7 @@ impl FromStr for StdKey {
                 Err(StdKeyError::Prefix((*b0).into()))
             } else if let Some(ne) = NESlice::try_from_slice(bs) {
                 // SAFETY: we checked that bytes are ASCII above
-                let k = unsafe { RealOrPseudoStdKey::from_ascii_bytes(&ne) };
+                let k = unsafe { RealOrPseudoStdKey::from_ascii_bytes(ne) };
                 match k {
                     RealOrPseudoStdKey::Pseudo(x) => Err(StdKeyError::Pseudo(x)),
                     RealOrPseudoStdKey::Real(x) => Ok(x),
@@ -504,10 +504,10 @@ impl StdKey {
         match self {
             Self::Root(k) => k.membership(),
             Self::Meas(k) => k.id.membership(),
-            Self::Gate(k) => k.id.membership(),
-            Self::Region(k) => k.id.membership(),
-            Self::Dfc(k) => k.membership(),
-            Self::CsvFlag(k) => k.membership(),
+            Self::Gate(_) => GateKeyId::membership(),
+            Self::Region(_) => RegionKeyId::membership(),
+            Self::Dfc(_) => DfcKey::membership(),
+            Self::CsvFlag(_) => CsvFlagKey::membership(),
         }
     }
 }
@@ -658,8 +658,8 @@ impl RealOrPseudoStdKey {
                         unsafe { Self::from_ascii_bytes_nonparam(bytes) }
                     }
                 } else if let Some((i, rest)) = split_index_and_suffix(bs)
-                    && let Some(mid) = NESlice::try_from_slice(rest)
-                        .and_then(|suffix| MeasKeyId::from_suffix(&suffix))
+                    && let Some(mid) =
+                        NESlice::try_from_slice(rest).and_then(MeasKeyId::from_suffix)
                 {
                     // $Pn*
                     let k = MeasKey::new(i.into(), mid);
@@ -1074,7 +1074,7 @@ impl GateKeyId {
         }
     }
 
-    const fn membership(self) -> VersionMembership {
+    const fn membership() -> VersionMembership {
         VersionMembership::Three([Version::FCS2_0, Version::FCS3_0, Version::FCS3_1])
     }
 
@@ -1117,7 +1117,7 @@ impl RegionKeyId {
         )
     }
 
-    const fn membership(self) -> VersionMembership {
+    const fn membership() -> VersionMembership {
         VersionMembership::All
     }
 }
@@ -1142,7 +1142,7 @@ impl DfcKey {
         }
     }
 
-    const fn membership(self) -> VersionMembership {
+    const fn membership() -> VersionMembership {
         VersionMembership::One(Version::FCS2_0)
     }
 }
@@ -1162,7 +1162,7 @@ impl CsvFlagKey {
         }
     }
 
-    const fn membership(self) -> VersionMembership {
+    const fn membership() -> VersionMembership {
         VersionMembership::Two([Version::FCS3_0, Version::FCS3_1])
     }
 }

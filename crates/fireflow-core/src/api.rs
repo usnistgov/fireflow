@@ -10,8 +10,8 @@ use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, AnyStdDatasetFromKeywordsError,
     AnyStdTEXTFromKeywordsError, CRCOutput, DatasetDiagnostics, DatasetOffsets,
     LookupAndReadDataAnalysisError, LookupAndReadDataAnalysisWarning, Others, PrivVersionSet as _,
-    StdDatasetFromFlatTEXTWarning, StdDatasetFromKeywordsWarningInner, StdDatasetFromKwsOutput,
-    StdTEXTDiagnostics, StdTEXTFromKeywordsWithOffsetsWarning, StdWriterError, WriteDatasetSummary,
+    StdDatasetFromKeywordsWarningInner, StdDatasetFromKwsOutput, StdTEXTDiagnostics,
+    StdTEXTFromKeywordsWithOffsetsWarning, StdWriterError, WriteDatasetSummary,
 };
 use crate::data::{DataSchemaDiagnostics, EventOverRangeError};
 use crate::fixed_vec::OneOrTwo;
@@ -54,18 +54,18 @@ use crate::validated::read_state::{
     HeaderReadState, TEXTReadState,
 };
 
-use fireflow_types::{
-    config::{
-        AppendFlag, AppendableFlag, ConfigFlag as _, DelimEscapeMode, Encoding,
-        OverlapCorrectionLimit, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
-        ReadHeaderInnerConfig, ReadOffsetConfig, ReadSharedConfig, TriErrorFlag, VersionOverride,
-        WriteDatasetInnerConfig, WriteMultiConfig,
-    },
-    keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2},
-    nonempty::{IntoIteratorExt as _, NESlice, NEStr, NEVec, NonEmptyIterator as _},
-    segment::{OffsetsFromTEXT, SupplementalTextSegmentId},
-    std_key::{PseudoStdKey, RootKey, StdKey, ToStd as _},
+use fireflow_types::config::{
+    AppendFlag, AppendableFlag, ConfigFlag as _, DelimEscapeMode, Encoding, OverlapCorrectionLimit,
+    ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadHeaderInnerConfig,
+    ReadOffsetConfig, ReadSharedConfig, TriErrorFlag as _, VersionOverride,
+    WriteDatasetInnerConfig, WriteMultiConfig,
 };
+use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
+use fireflow_types::nonempty::{
+    IntoIteratorExt as _, NESlice, NEStr, NEVec, NonEmptyIterator as _,
+};
+use fireflow_types::segment::{OffsetsFromTEXT, SupplementalTextSegmentId};
+use fireflow_types::std_key::{PseudoStdKey, RootKey, StdKey, ToStd as _};
 
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
 
@@ -74,15 +74,14 @@ use derive_new::new;
 use itertools::Itertools as _;
 use thiserror::Error;
 
-use std::{
-    fmt,
-    fs::{self, File},
-    io::{self, BufReader, Read, Seek},
-    iter, mem,
-    num::{NonZeroUsize, ParseIntError},
-    path::PathBuf,
-    time::Instant,
-};
+use std::fmt;
+use std::fs::{self, File};
+use std::io::{self, BufReader, Read, Seek};
+use std::iter;
+use std::mem;
+use std::num::{NonZeroUsize, ParseIntError};
+use std::path::PathBuf;
+use std::time::Instant;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -232,13 +231,13 @@ pub fn fcs_read_flat_dataset_with_keywords(
         .and_then_commutative(|(txt_st, mut fr)| {
             let br = &mut fr.buf_read;
             let v = hns.header.version;
-            let tx = std.into_transaction();
+            let tx = std.as_transaction();
             let st = txt_st.start_time();
             FlatDatasetFromKwsOutput::h_read(br, v, &tx, &mut hns, false, st, &txt_st)
                 .map_pure_errors(ReadFlatDatasetWithKwsError::from)
         })
         .map_ok_value(|dataset| NewFlatDatasetFromKwsOutput::new(dataset, hns.header.final_offsets))
-        .warnings_to_pure_errors(&conf.shared, ReadFlatDatasetWithKwsError::from)
+        .warnings_to_pure_errors(conf.shared, ReadFlatDatasetWithKwsError::from)
         .deanonymize()
 }
 
@@ -1167,9 +1166,9 @@ impl fmt::Display for LeadingDelimError {
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 #[cfg_attr(feature = "python", bound(T: fmt::Display))]
 pub struct KeyPresent<T> {
-    pub kind: TEXTKind,
-    pub key: T,
-    pub value: TruncatedNEString,
+    kind: TEXTKind,
+    key: T,
+    value: TruncatedNEString,
 }
 
 pub type StdPresent = KeyPresent<StdKey>;
@@ -1330,7 +1329,7 @@ impl FCSFileReader {
     > {
         self.read_flat_text_inner(dataset_offset, start_time, conf)
             .map_ok_value(|out| out.this)
-            .warnings_to_pure_errors(&conf.shared, HeaderOrFlatTextError::from)
+            .warnings_to_pure_errors(conf.shared, HeaderOrFlatTextError::from)
             .deanonymize()
     }
 
@@ -1356,7 +1355,7 @@ impl FCSFileReader {
                     .group()
                     .map_errors(IOErrorGroup::Pure)
             })
-            .warnings_to_pure_errors(&conf.shared, StdTEXTError::from)
+            .warnings_to_pure_errors(conf.shared, StdTEXTError::from)
             .deanonymize()
     }
 
@@ -1400,12 +1399,12 @@ impl FCSFileReader {
                 let st = &out.state;
                 eval_repair_conf(st.conf().as_ref(), &out.this.keywords)
                     .map_ok_value(|repair| {
-                        st.as_ref().first_once(|conf| LookupConfig {
+                        st.as_ref().first_once(|conf_| LookupConfig {
                             repair,
                             // TODO useless clone
-                            data_kws: AsRef::<ReadDataKeywordsConfig>::as_ref(&conf).clone(),
-                            dataset: *AsRef::<ReadDatasetConfig>::as_ref(&conf),
-                            offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf),
+                            data_kws: AsRef::<ReadDataKeywordsConfig>::as_ref(&conf_).clone(),
+                            dataset: *AsRef::<ReadDatasetConfig>::as_ref(&conf_),
+                            offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf_),
                         })
                     })
                     .map_errors(ReadFlatDatasetError::from)
@@ -1414,7 +1413,7 @@ impl FCSFileReader {
                     .map_error(IOErrorGroup::Pure)
                     .and_then_commutative(|lst| {
                         let mut flat = out.this;
-                        let mut rtx = flat.keywords.std.into_transaction();
+                        let mut rtx = flat.keywords.std.as_transaction();
                         let repair_res = rtx
                             .repair(
                                 &mut flat.keywords.pstd,
@@ -1448,7 +1447,7 @@ impl FCSFileReader {
                         })
                     })
             })
-            .warnings_to_pure_errors(&conf.shared, ReadFlatDatasetError::from)
+            .warnings_to_pure_errors(conf.shared, ReadFlatDatasetError::from)
             .deanonymize()
     }
 
@@ -1478,7 +1477,7 @@ impl FCSFileReader {
                     .map_commutative_warnings(StdDatasetWarning::from)
                     .map_pure_errors(StdDatasetError::from)
             })
-            .warnings_to_pure_errors(&conf.shared, StdDatasetError::from)
+            .warnings_to_pure_errors(conf.shared, StdDatasetError::from)
             .deanonymize()
     }
 
@@ -1994,7 +1993,7 @@ impl FlatTEXTOutput {
         let penc = conf.use_encoding.choose(ptext_bytes.as_ref());
 
         let ptext_ne_slice = ptext_bytes.as_nonempty_slice();
-        let delim_res = split_first_delim(&ptext_ne_slice, conf)
+        let delim_res = split_first_delim(ptext_ne_slice, conf)
             .map_errors(ParseFlatTEXTError::from)
             .map_commutative_warnings(ParseFlatTEXTWarning::from)
             .into_semigroup();
@@ -2238,7 +2237,7 @@ impl SplitTEXTDiagnostics {
         let raw_slice = raw_tokens.as_nonempty_slice();
         let mut nonstd = ParsedNonStdKeywords::default();
         let tk = TEXTKind::Primary;
-        Self::from_bytes_inner(&mut nonstd, tk, delim, &raw_slice, enc, conf)
+        Self::from_bytes_inner(&mut nonstd, tk, delim, raw_slice, enc, conf)
             .map_ok_value(|(index, diag)| (index, nonstd, diag))
     }
 
@@ -2259,7 +2258,7 @@ impl SplitTEXTDiagnostics {
         let raw_tokens = Self::split_bytes(*b, bs);
         let raw_slice = raw_tokens.as_nonempty_slice();
         let flag = conf.allow_supp_text_own_delim;
-        Self::from_bytes_inner(kws, TEXTKind::Supplemental, *b, &raw_slice, enc, conf)
+        Self::from_bytes_inner(kws, TEXTKind::Supplemental, *b, raw_slice, enc, conf)
             .map_warnings_and_errors(ParseSupplementalTEXTError::from)
             .eval_warning_or_error3(
                 flag,
@@ -2432,8 +2431,8 @@ impl SplitTEXTDiagnostics {
         let mut tokens_with_boundary_delims = vec![];
 
         let go =
-            |delim_bound_tokens, last_odd_token, has_even_delims, extra_leading_delims, diag| {
-                SplitTEXTDiagnostics::build(
+            |delim_bound_tokens, last_odd_token, has_even_delims, extra_leading_delims_, diag_| {
+                Self::build(
                     delim,
                     true,
                     0,
@@ -2442,9 +2441,9 @@ impl SplitTEXTDiagnostics {
                     delim_bound_tokens,
                     last_odd_token,
                     has_even_delims,
-                    extra_leading_delims,
+                    extra_leading_delims_,
                     enc.is_multi(),
-                    diag,
+                    diag_,
                 )
             };
 
@@ -2526,7 +2525,7 @@ impl SplitTEXTDiagnostics {
                     let n_delim = b.div_ceil(NonZeroUsize::new(2).unwrap());
                     let ds = iter::repeat_n(delim, n_delim.get());
                     if let Some(v) = valbuf.as_mut() {
-                        v.append(ne_token, n_delim)
+                        v.append(ne_token, n_delim);
                     } else {
                         keybuf.extend(ds.chain(ne_token.iter().copied()));
                     }
@@ -2548,7 +2547,7 @@ impl SplitTEXTDiagnostics {
         // can be pushed. If we only have a key, keep this as last odd token.
         let last_odd_token = if let Some(ne_val) = mem::take(&mut valbuf) {
             if has_escaped_delim_end {
-                let seg = ne_val.into_owned();
+                let seg = ne_val.as_owned();
                 tokens_with_boundary_delims.push(NEStringOrBytes::from(seg));
             }
             // Both key and value are present, this is the last pair in TEXT so
@@ -2569,21 +2568,21 @@ impl SplitTEXTDiagnostics {
         let mut counts = ParsedKeywordCounts::default();
 
         for p in &parsed {
-            p.count(&mut counts)
+            p.count(&mut counts);
         }
 
         diag.reserve(&counts);
 
         nonstd.reserve(&counts);
 
-        let (index, non_unique_std) = if counts.n_std_owned_kws == 0 {
-            let mut std = Vec::with_capacity(counts.n_std_slice_kws);
+        let (index, non_unique_std) = if counts.std_owned_kws == 0 {
+            let mut std = Vec::with_capacity(counts.std_slice_kws);
             for p in parsed {
                 p.dispatch_slice_only(&mut std, nonstd, &mut diag);
             }
             StdKeywords::from_vec(std)
         } else {
-            let mut std = Vec::with_capacity(counts.n_std_slice_kws + counts.n_std_owned_kws);
+            let mut std = Vec::with_capacity(counts.std_slice_kws + counts.std_owned_kws);
             for p in parsed {
                 p.dispatch_slice_or_owned(&mut std, nonstd, &mut diag);
             }
@@ -2610,6 +2609,13 @@ impl SplitTEXTDiagnostics {
         trim: bool,
         enc: Encoding,
     ) -> (StdKeywords, Self) {
+        enum Unescaped<'a> {
+            Keyword(ParsedKeyword<'a>),
+            EmptyKey(NEVec<u8>),
+            EmptyValue(NEVec<u8>),
+            EmptyPair,
+        }
+
         let (pairs, extra_token, has_even_tokens) = Self::trim_tokens_end(segs);
 
         let has_even_delims = !has_even_tokens;
@@ -2618,13 +2624,6 @@ impl SplitTEXTDiagnostics {
             .as_ref()
             .map(|s| s.as_ref().to_vec().into())
             .unwrap_or_default();
-
-        enum Unescaped<'a> {
-            Keyword(ParsedKeyword<'a>),
-            EmptyKey(NEVec<u8>),
-            EmptyValue(NEVec<u8>),
-            EmptyPair,
-        }
 
         let parsed: Vec<_> = pairs
             .iter()
@@ -2665,8 +2664,8 @@ impl SplitTEXTDiagnostics {
         let mut values_with_blank_keys = Vec::with_capacity(n_empty_keys);
         let mut keys_with_blank_values = Vec::with_capacity(n_empty_values);
 
-        let (index, non_unique_std) = if counts.n_std_owned_kws == 0 {
-            let mut std = Vec::with_capacity(counts.n_std_slice_kws);
+        let (index, non_unique_std) = if counts.std_owned_kws == 0 {
+            let mut std = Vec::with_capacity(counts.std_slice_kws);
             for p in parsed {
                 match p {
                     Unescaped::Keyword(k) => k.dispatch_slice_only(&mut std, nonstd, &mut diag),
@@ -2677,7 +2676,7 @@ impl SplitTEXTDiagnostics {
             }
             StdKeywords::from_vec(std)
         } else {
-            let mut std = Vec::with_capacity(counts.n_std_slice_kws + counts.n_std_owned_kws);
+            let mut std = Vec::with_capacity(counts.std_slice_kws + counts.std_owned_kws);
             for p in parsed {
                 match p {
                     Unescaped::Keyword(k) => k.dispatch_slice_or_owned(&mut std, nonstd, &mut diag),
@@ -2691,7 +2690,7 @@ impl SplitTEXTDiagnostics {
 
         diag.non_unique_std_keywords = non_unique_std;
 
-        let text_diag = SplitTEXTDiagnostics::build(
+        let text_diag = Self::build(
             delim,
             false,
             n_empty_pairs,
@@ -2951,8 +2950,8 @@ impl SuppTEXTOffsetsOutput {
         let res = match ver {
             Version::FCS2_0 => LogResult::new_ok(OffsetResult::Empty),
             Version::FCS3_0 | Version::FCS3_1 => {
-                let x0 = get_req::<Beginstext>(&index).map_err(ReqSegmentKeyError::Begin);
-                let x1 = get_req::<Endstext>(&index).map_err(ReqSegmentKeyError::End);
+                let x0 = get_req::<Beginstext>(index).map_err(ReqSegmentKeyError::Begin);
+                let x1 = get_req::<Endstext>(index).map_err(ReqSegmentKeyError::End);
                 let pair = OneOrTwo::from_results(x0, x1);
                 let res = match SupplementalTextSegmentId::with_req_pair(pair, config_corr, st) {
                     PairResult::Valid(final_, orig) => Ok(OffsetResult::Valid(final_, orig)),
@@ -2980,8 +2979,8 @@ impl SuppTEXTOffsetsOutput {
                 }
             }
             Version::FCS3_2 => {
-                let x0 = get_opt::<Beginstext>(&index).map_err(OptSegmentKeyError::Begin);
-                let x1 = get_opt::<Endstext>(&index).map_err(OptSegmentKeyError::End);
+                let x0 = get_opt::<Beginstext>(index).map_err(OptSegmentKeyError::Begin);
+                let x1 = get_opt::<Endstext>(index).map_err(OptSegmentKeyError::End);
                 let pair = OneOrTwo::from_results(x0, x1).map(|(x, y)| x.zip(y));
                 let res = match SupplementalTextSegmentId::with_opt_pair(pair, config_corr, st) {
                     None => Ok(OffsetResult::Empty),

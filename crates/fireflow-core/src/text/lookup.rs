@@ -2,13 +2,11 @@ use crate::logging::{DeferredSwitchableError, ResultExt as _};
 use crate::std_index::index::{LookupAction, StdLookupTx};
 use crate::validated::keys::{DollarKey, DollarKey_, TruncatedNEString, ValueToStdKey};
 
-use fireflow_types::{
-    config::{
-        ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, TrimIntraValueWhitespace,
-    },
-    nonempty::{NEStr, NEString},
-    std_key::StdKey,
+use fireflow_types::config::{
+    ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, TrimIntraValueWhitespace,
 };
+use fireflow_types::nonempty::{NEStr, NEString};
+use fireflow_types::std_key::StdKey;
 
 use type_families::{BifunctorOnce, Sibling2, impl_kind2};
 
@@ -107,11 +105,11 @@ pub struct Diagnosed<T, D> {
     pub diagnostic: D,
 }
 
-impl<T> Diagnosed<T, ()> {
-    pub(crate) fn new1(t: T) -> Self {
-        Self::new(t, ())
-    }
-}
+// impl<T> Diagnosed<T, ()> {
+//     pub(crate) fn new1(t: T) -> Self {
+//         Self::new(t, ())
+//     }
+// }
 
 impl<T> Diagnosed<T, Trimmed> {
     pub(crate) fn into_root_pair(self) -> (T, Option<(StdKey, NEString)>)
@@ -246,22 +244,22 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
             .map_err(ReqKeyErrorInner::from)
     }
 
-    #[allow(clippy::type_complexity)]
-    fn get_req_with(
-        kws: &StdLookupTx,
-        i: Self::Index,
-        data: Self::Payload<'_>,
-        conf: &Self::Config,
-    ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self>>
-    where
-        Self: FromStrWith,
-        Self::Index: Copy,
-    {
-        let v = Self::get_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
-        Self::from_str_with(v, data, conf)
-            .map_err(|e| ParseKeyError::new1(e, i, v.to_owned()))
-            .map_err(ReqKeyErrorInner::from)
-    }
+    // #[allow(clippy::type_complexity)]
+    // fn get_req_with(
+    //     kws: &StdLookupTx,
+    //     i: Self::Index,
+    //     data: Self::Payload<'_>,
+    //     conf: &Self::Config,
+    // ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self>>
+    // where
+    //     Self: FromStrWith,
+    //     Self::Index: Copy,
+    // {
+    //     let v = Self::get_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
+    //     Self::from_str_with(v, data, conf)
+    //         .map_err(|e| ParseKeyError::new1(e, i, v.to_owned()))
+    //         .map_err(ReqKeyErrorInner::from)
+    // }
 
     fn remove_req(
         kws: &mut StdLookupTx,

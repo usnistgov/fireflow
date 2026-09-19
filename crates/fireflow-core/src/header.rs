@@ -16,7 +16,7 @@ use crate::segment::write::{
     PrimaryTextOffsetsToWrite, SupplementalTextOffsetsToWrite, TEXTAnalysisOffsetsToWrite,
     TEXTDataOffsetsToWrite,
 };
-use crate::std_index::index::{StdLookupTx, StdKeywords};
+use crate::std_index::index::StdKeywords;
 use crate::text::keyword_enum::{
     AnyKeyword, Escaped, Keyword0FromValue as _, NEStringKeyword, OffsetKeyword, OptKeyword,
     OptRootKeyword, ReqKeyword, StdOrNonStdOptRootKeyword,
@@ -25,7 +25,6 @@ use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
     KeywordVersionScore, Nextdata, Par,
 };
-use crate::text::lookup::ReqValue as _;
 use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};
 use crate::validated::header_offsets::{
     FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
@@ -33,16 +32,14 @@ use crate::validated::header_offsets::{
 use crate::validated::keys::{DollarKey, ValueToStdKey as _};
 use crate::validated::read_state::{DatasetOffset, HeaderReadState, WriteFCSDigest};
 
-use fireflow_types::std_key::{RootKey, ToStd};
-use fireflow_types::{
-    config::{
-        AppendableFlag, ConfigFlag as _, EnumStrIter as _, ReadHeaderInnerConfig, ReadOffsetConfig,
-        SelectVersionStrategy, VersionOverride,
-    },
-    keywords::{Version, VersionFormatError},
-    nonempty::{IntoIteratorExt as _, NEString, NEVec, NonEmptyIterator as _},
-    textdelim::{DelimCollisionError, HasDelim as _},
+use fireflow_types::config::{
+    AppendableFlag, ConfigFlag as _, EnumStrIter as _, ReadHeaderInnerConfig, ReadOffsetConfig,
+    SelectVersionStrategy, VersionOverride,
 };
+use fireflow_types::keywords::{Version, VersionFormatError};
+use fireflow_types::nonempty::{IntoIteratorExt as _, NEString, NEVec, NonEmptyIterator as _};
+use fireflow_types::std_key::{RootKey, ToStd as _};
+use fireflow_types::textdelim::{DelimCollisionError, HasDelim as _};
 
 use derive_more::{Display, From};
 use derive_new::new;

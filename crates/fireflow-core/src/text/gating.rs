@@ -6,31 +6,27 @@ use crate::logging::{
     DeferredIter as _, DeferredSwitchableErrors, DeferredWarningsAndErrors, LogResult,
     ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
 };
-use crate::std_index::index::{LookupAction, StdLookupTx};
+use crate::std_index::index::StdLookupTx;
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, GateMeasKeyword, Keyword0FromValue as _, Keyword1FromValue as _,
-    OptRootKeyword, RegionKeyword, SplitKeyword,
+    OptRootKeyword, RegionKeyword, SplitKeyword, SplitKeyword_,
 };
 use crate::text::keywords::{
     Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
     GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
     PrefixedMeasIndex, RegionGateIndex, RegionWindow, RegionWindowRef, ScaleFix, UniGate, Vertex,
 };
-use crate::text::lookup::{OptKeyError, OptStKeyError};
+use crate::text::lookup::{Diagnosed, OptKeyError, OptStKeyError, OptValue};
 use crate::text::relational::{
     BrokenRegionLinkError, DependentKeyError, ExistingIndexedLinkError, IndicesToRemove,
     KeyToIndexLinkError, RemovedGateLink, RemovedLink,
 };
 use crate::validated::keys::{DollarKey, ValueToStdKey};
 
-use fireflow_types::config::{ProcessOpticalOnlyKeys, ProcessOptionalFailure};
-use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeyId};
-use fireflow_types::{
-    config::{AllowLoss, ReadDataKeywordsConfig},
-    index::{GateIndex, MeasIndex, RegionIndex},
-    nonempty::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _},
-    std_key::StdKey,
-};
+use fireflow_types::config::{AllowLoss, ProcessOptionalFailure, ReadDataKeywordsConfig};
+use fireflow_types::index::{GateIndex, MeasIndex, RegionIndex};
+use fireflow_types::nonempty::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
+use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeyId, StdKey};
 
 use type_families::{
     ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, impl_functor,
@@ -48,9 +44,6 @@ use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
-
-use super::keyword_enum::SplitKeyword_;
-use super::lookup::{Diagnosed, OptValue};
 
 #[cfg(feature = "python")]
 use {
@@ -364,9 +357,9 @@ impl<I> AppliedGatesPre3_2<I> {
                     .map(|x| Diagnosed::new(x, diag))
             })
             .map_err_value(|ret| {
-                let flag = rconf.process_optional_failure;
-                ret.inner.scheme.set_failure_flag(kws, flag);
-                ret.inner.gated_measurements.set_failure_flag(kws, flag);
+                let opt_flag = rconf.process_optional_failure;
+                ret.inner.scheme.set_failure_flag(kws, opt_flag);
+                ret.inner.gated_measurements.set_failure_flag(kws, opt_flag);
             })
     }
 
@@ -515,7 +508,7 @@ impl AppliedGates3_2 {
             .map_ok_value(|out| out.bimap_once(Self, |d| AppliedGatesDiagnostics::new(d, vec![])))
             .map_err_value(|ret| {
                 let flag = rconf.process_optional_failure;
-                ret.inner.set_failure_flag(kws, flag)
+                ret.inner.set_failure_flag(kws, flag);
             })
     }
 
@@ -662,8 +655,8 @@ impl<I> GatingScheme<I> {
         self.meas_indices()
             .filter(|(_, mi)| indices.as_ref().contains(mi))
             .map(|(ri, mi)| {
-                let js = NEVec::new(mi.into());
-                ExistingIndexedLinkError::new(DollarKey::new(ri.into()), js)
+                let js = NEVec::new(mi);
+                ExistingIndexedLinkError::new(DollarKey::new(ri), js)
             })
     }
 
@@ -678,7 +671,7 @@ impl<I> GatingScheme<I> {
             .filter(|(_, mi)| usize::from(*mi) >= par.0)
             .map(|(ri, mi)| {
                 let js = NEVec::new(mi);
-                KeyToIndexLinkError::new(js, DollarKey::new(ri.into()))
+                KeyToIndexLinkError::new(js, DollarKey::new(ri))
             })
     }
 
@@ -794,7 +787,7 @@ impl<I> GatingScheme<I> {
         for (ri, r) in self.regions {
             r.set_failure_flag(ri, kws, flag);
         }
-        if let Some(g) = self.gating.as_ref().map(|v| v.std0_()) {
+        if let Some(g) = self.gating.as_ref().map(ValueToStdKey::std0_) {
             kws.set_failure_flag(&g, flag);
         }
     }
@@ -854,11 +847,8 @@ impl<I> Region<I> {
             (RegionGateIndex::Univariate(index), RegionWindow::Univariate(gate)) => {
                 Ok(Self::Univariate(UnivariateRegion { gate, index }))
             }
-            (RegionGateIndex::Bivariate(index), RegionWindow::Bivariate(vs)) => {
-                Ok(Self::Bivariate(BivariateRegion {
-                    index,
-                    vertices: vs.into(),
-                }))
+            (RegionGateIndex::Bivariate(index), RegionWindow::Bivariate(vertices)) => {
+                Ok(Self::Bivariate(BivariateRegion { vertices, index }))
             }
             (r, w) => Err((r, w)),
         }
@@ -899,8 +889,8 @@ impl<I> Region<I> {
                 // they are both the same type (uni/bi-variate). If anything
                 // fails, return none, log an error (or warning if we allow
                 // dropping), and demote the keywords if applicable.
-                let (gi_val, gi_trimmed) = gi_out.into_opt_indexed_pair(&ri.into());
-                let (w_val, w_trimmed) = w_out.into_opt_indexed_pair(&ri.into());
+                let (gi_val, gi_trimmed) = gi_out.into_opt_indexed_pair(&ri);
+                let (w_val, w_trimmed) = w_out.into_opt_indexed_pair(&ri);
                 let trimmed = gi_trimmed.into_iter().chain(w_trimmed).collect();
                 let res = match (gi_val, w_val) {
                     (Some(gi), Some(w)) => match Self::try_new(gi, w) {
@@ -942,21 +932,21 @@ impl<I> Region<I> {
         }
     }
 
-    pub(crate) fn set_lookup_action_seen<'a>(
-        &'a self,
-        i: RegionIndex,
-        kws: &mut StdLookupTx,
-        a: LookupAction,
-    ) where
-        I: Copy,
-        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
-        RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
-    {
-        for r in self.opt_keywords(i) {
-            let k = r.as_std_key();
-            kws.set_lookup_action_seen(&k, a);
-        }
-    }
+    // pub(crate) fn set_lookup_action_seen<'a>(
+    //     &'a self,
+    //     i: RegionIndex,
+    //     kws: &mut StdLookupTx,
+    //     a: LookupAction,
+    // ) where
+    //     I: Copy,
+    //     RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
+    //     RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
+    // {
+    //     for r in self.opt_keywords(i) {
+    //         let k = r.as_std_key();
+    //         kws.set_lookup_action_seen(&k, a);
+    //     }
+    // }
 
     pub(crate) fn opt_keywords<'a>(&'a self, i: RegionIndex) -> [RegionKeyword<'a>; 2]
     where
@@ -1214,7 +1204,7 @@ impl<I> ConvertIndexForRegionError<I> {
         let region_key = StdKey::from(IndexedKey::new(self.0.index, RegionKeyId::I));
         let keys = |i: &I, is_plural: bool, is_gate: bool| {
             let prefix = if is_gate { "G" } else { "P" };
-            let key = format!("{prefix}{}*", i);
+            let key = format!("{prefix}{i}*");
             if is_plural {
                 format!("{key} keywords")
             } else {

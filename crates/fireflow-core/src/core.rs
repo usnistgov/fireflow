@@ -126,7 +126,7 @@ use fireflow_types::{
         AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, IncludeReqOrOpt,
         IncludeRootOrMeas, OverBitmaskAction, OverRangeAction, OverlapCorrectionLimit,
         ProcessOptionalFailure, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
-        ReadOffsetConfig, ReadSharedConfig, TriErrorFlag, WriteDatasetInnerConfig,
+        ReadOffsetConfig, ReadSharedConfig, TriErrorFlag as _, WriteDatasetInnerConfig,
         WriteMultiConfig, WriteTEXTInnerConfig,
     },
     datepattern::DatePattern,
@@ -2212,7 +2212,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
         // timing, since now offset lookup is considered part of data
         // schema lookup, but if this were flipped with the next
         // expression it would be counted as part of DATA read
-        let offset_res = Self::Offsets::lookup_ro(tx, hns, &st)
+        let offset_res = Self::Offsets::lookup_ro(tx, hns, st)
             .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
             .map_errors(LookupAndReadDataAnalysisError::from);
 
@@ -5786,7 +5786,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadOffsetConfig>,
     {
-        let mut rtx = kws.std.into_transaction();
+        let mut rtx = kws.std.as_transaction();
         let repair_res = rtx
             .repair(&mut kws.pstd, &mut kws.nonstd, st.conf().as_ref())
             .map_commutative_warnings(StdTEXTFromKeywordsWithOffsetsWarning::from)
@@ -5848,7 +5848,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     /// This will not process $TOT or $(BEGIN|END)(TEXT|DATA). If present these
     /// will trigger pseudostandard warnings.
     pub fn new_from_keywords<C>(
-        std: StdKeywords,
+        std: &StdKeywords,
         nonstd: NonStdKeywords,
         conf: &C,
     ) -> WarningsAndGroupResult<
@@ -5868,12 +5868,12 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             + AsRef<ReadSharedConfig>,
     {
         let start_time = Instant::now();
-        let tx = std.into_transaction();
+        let tx = std.as_transaction();
         Self::lookup_inner(tx, nonstd, start_time, conf)
             .map_errors(StdTEXTFromKeywordsError::from)
             .map_ok_value(|out| (out.this, out.std_diag))
             .group()
-            .warnings_to_errors(conf.as_ref(), StdTEXTFromKeywordsError::from)
+            .warnings_to_errors(*conf.as_ref(), StdTEXTFromKeywordsError::from)
             .deanonymize()
     }
 
@@ -6283,7 +6283,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     pub fn new_from_keywords<C>(
         p: &PathBuf,
         mut hns: HeaderAndSuppOffsets,
-        std: StdKeywords,
+        std: &StdKeywords,
         nonstd: NonStdKeywords,
         dataset_offset: DatasetOffset,
         dataset_len: Option<DatasetLen>,
@@ -6323,7 +6323,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             .map_err(IOErrorGroup::from)
             .into_log()
             .and_then_commutative(|(mut fr, txt_st)| {
-                let tx = std.into_transaction();
+                let tx = std.as_transaction();
                 Self::new_from_transaction(
                     &mut fr.buf_read,
                     tx,
@@ -6340,7 +6340,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                 let out = NewStdDatasetFromKwsOutput::new(dataset, hns.header.final_offsets);
                 (ret, out)
             })
-            .warnings_to_pure_errors(conf.as_ref(), NewStdDatasetFromKeywordsError::from)
+            .warnings_to_pure_errors(*conf.as_ref(), NewStdDatasetFromKeywordsError::from)
             .deanonymize()
     }
 
@@ -6375,7 +6375,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadDatasetConfig>,
     {
-        let mut rtx = kws.std.into_transaction();
+        let mut rtx = kws.std.as_transaction();
         let repair_res = rtx
             .repair(&mut kws.pstd, &mut kws.nonstd, st.conf().as_ref())
             .map_commutative_warnings(StdDatasetFromKeywordsWarningInner::from)
@@ -7544,7 +7544,7 @@ impl DarkBytes {
                 character: *x,
                 n: usize::from(ne.len()),
             }
-        } else if let Ok(s) = NEStr::from_utf8(&ne) {
+        } else if let Ok(s) = NEStr::from_utf8(ne) {
             Self::Utf8(s.to_owned())
         } else {
             Self::Bytes(ne.to_ne_vec())

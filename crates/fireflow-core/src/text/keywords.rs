@@ -155,8 +155,8 @@ impl Nextdata {
             match Self::parse(s, conf) {
                 Ok(x) => Ok(Some(x)),
                 Err(e) => {
-                    let e = ParseKeyError::new1(e, (), s.to_owned());
-                    Err(ReadNextdataError::Parse(e))
+                    let pe = ParseKeyError::new1(e, (), s.to_owned());
+                    Err(ReadNextdataError::Parse(pe))
                 }
             }
         } else {
@@ -1467,8 +1467,8 @@ impl Compensation2_0 {
                             let ncols = m.ncols();
                             let row = i / ncols;
                             let col = i % ncols;
-                            let i = BiMeasIndex::new(col.into(), row.into());
-                            Some(StdKey::from(DfcKey::new(i)))
+                            let bi = BiMeasIndex::new(col.into(), row.into());
+                            Some(StdKey::from(DfcKey::new(bi)))
                         }
                     });
                     for k in failed_kws {

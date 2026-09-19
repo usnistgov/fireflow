@@ -1,7 +1,8 @@
 //! Non-empty [`Iterator`]s.
 
-use super::vec::{IntoIter, NEVec};
+use super::vec::NEVec;
 use crate::nev;
+
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -9,10 +10,10 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fmt;
 use std::hash::BuildHasher;
 use std::hash::Hash;
-use std::iter::Product;
-use std::iter::Sum;
+use std::iter;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
@@ -35,7 +36,7 @@ use std::result::Result;
 
 /// Creates an iterator that yields an element exactly once.
 ///
-/// See also [`std::iter::once`].
+/// See also [`iter::once`].
 pub fn once<T>(value: T) -> Once<T> {
     Once::new(value)
 }
@@ -276,6 +277,7 @@ pub trait NonEmptyIterator: IntoIterator {
     where
         Self: Sized,
     {
+        // SAFETY: length is always non-zero
         unsafe { NonZeroUsize::new_unchecked(self.into_iter().count()) }
     }
 
@@ -318,7 +320,7 @@ pub trait NonEmptyIterator: IntoIterator {
     ///     .collect();
     /// assert_eq!(vec![6, 12], v);
     /// ```
-    fn filter<P>(self, predicate: P) -> std::iter::Filter<<Self as IntoIterator>::IntoIter, P>
+    fn filter<P>(self, predicate: P) -> iter::Filter<<Self as IntoIterator>::IntoIter, P>
     where
         Self: Sized,
         P: FnMut(&<Self as IntoIterator>::Item) -> bool,
@@ -344,7 +346,7 @@ pub trait NonEmptyIterator: IntoIterator {
     ///     .collect();
     /// assert_eq!(vec!['F', 'S', 'P', 'M'], firsts);
     /// ```
-    fn filter_map<B, F>(self, f: F) -> std::iter::FilterMap<<Self as IntoIterator>::IntoIter, F>
+    fn filter_map<B, F>(self, f: F) -> iter::FilterMap<<Self as IntoIterator>::IntoIter, F>
     where
         Self: Sized,
         F: FnMut(<Self as IntoIterator>::Item) -> Option<B>,
@@ -680,7 +682,7 @@ pub trait NonEmptyIterator: IntoIterator {
     /// let v = nev![1, 2, 3];
     /// assert_eq!(Some(&3), v.nonempty_iter().skip(2).next());
     /// ```
-    fn skip(self, n: usize) -> std::iter::Skip<<Self as IntoIterator>::IntoIter>
+    fn skip(self, n: usize) -> iter::Skip<<Self as IntoIterator>::IntoIter>
     where
         Self: Sized,
     {
@@ -701,7 +703,7 @@ pub trait NonEmptyIterator: IntoIterator {
     /// let r: Vec<_> = v.into_nonempty_iter().skip_while(|n| n % 2 == 0).collect();
     /// assert_eq!(vec![7, 8], r);
     /// ```
-    fn skip_while<P>(self, pred: P) -> std::iter::SkipWhile<<Self as IntoIterator>::IntoIter, P>
+    fn skip_while<P>(self, pred: P) -> iter::SkipWhile<<Self as IntoIterator>::IntoIter, P>
     where
         Self: Sized,
         P: FnMut(&<Self as IntoIterator>::Item) -> bool,
@@ -722,10 +724,10 @@ pub trait NonEmptyIterator: IntoIterator {
     #[must_use]
     fn sum<S>(self) -> S
     where
-        Self: Sized + IntoIterator,
-        S: Sum<<Self as IntoIterator>::Item>,
+        Self: Sized,
+        S: iter::Sum<<Self as IntoIterator>::Item>,
     {
-        Sum::sum(self.into_iter())
+        iter::Sum::sum(self.into_iter())
     }
 
     /// Iterates over the first `n` elements, or fewer if the underlying
@@ -774,7 +776,7 @@ pub trait NonEmptyIterator: IntoIterator {
     /// let r: Vec<_> = v.into_nonempty_iter().take_while(|n| n % 2 == 0).collect();
     /// assert_eq!(vec![2, 4, 6], r);
     /// ```
-    fn take_while<P>(self, pred: P) -> std::iter::TakeWhile<<Self as IntoIterator>::IntoIter, P>
+    fn take_while<P>(self, pred: P) -> iter::TakeWhile<<Self as IntoIterator>::IntoIter, P>
     where
         Self: Sized,
         P: FnMut(&<Self as IntoIterator>::Item) -> bool,
@@ -796,10 +798,10 @@ pub trait NonEmptyIterator: IntoIterator {
     #[must_use]
     fn product<P>(self) -> P
     where
-        Self: Sized + IntoIterator,
-        P: Product<<Self as IntoIterator>::Item>,
+        Self: Sized,
+        P: iter::Product<<Self as IntoIterator>::Item>,
     {
-        Product::product(self.into_iter())
+        iter::Product::product(self.into_iter())
     }
 
     /// "Zips up" two non-empty iterators into a single one, while preserving
@@ -913,14 +915,14 @@ impl FromNonEmptyIterator<()> for () {
         // NOTE: 2025-11-11 Can't just be a short-circuited `()` due to the
         // potential for side-effects to be occuring within the original
         // iterator.
-        iter.into_nonempty_iter().into_iter().collect()
+        let _: () = iter.into_nonempty_iter().into_iter().collect();
     }
 }
 
-impl FromNonEmptyIterator<String> for String {
+impl FromNonEmptyIterator<Self> for String {
     fn from_nonempty_iter<I>(iter: I) -> Self
     where
-        I: IntoNonEmptyIterator<Item = String>,
+        I: IntoNonEmptyIterator<Item = Self>,
     {
         iter.into_nonempty_iter().into_iter().collect()
     }
@@ -1037,18 +1039,18 @@ impl<A, E, V> FromNonEmptyIterator<Result<A, E>> for Result<V, E>
 where
     V: FromNonEmptyIterator<A>,
 {
-    fn from_nonempty_iter<I>(iter: I) -> Result<V, E>
+    fn from_nonempty_iter<I>(iter: I) -> Self
     where
         I: IntoNonEmptyIterator<Item = Result<A, E>>,
     {
         let (head, rest) = iter.into_nonempty_iter().next();
-        let head: A = head?;
+        let head_: A = head?;
 
-        let mut buf = NEVec::new(head);
+        let mut buf = NEVec::new(head_);
 
         for item in rest {
-            let item: A = item?;
-            buf.push(item);
+            let item_: A = item?;
+            buf.push(item_);
         }
         let new_iter = buf.into_nonempty_iter();
         let output: V = FromNonEmptyIterator::from_nonempty_iter(new_iter);
@@ -1073,11 +1075,11 @@ impl<I: NonEmptyIterator> IntoNonEmptyIterator for I {
     }
 }
 
-/// Similar to [`std::iter::Map`], but with additional non-emptiness guarantees.
+/// Similar to [`iter::Map`], but with additional non-emptiness guarantees.
 #[derive(Clone)]
 #[must_use = "non-empty iterators are lazy and do nothing unless consumed"]
 pub struct Map<I: NonEmptyIterator, F> {
-    iter: std::iter::Map<I::IntoIter, F>,
+    iter: iter::Map<I::IntoIter, F>,
 }
 
 impl<U, I, F> NonEmptyIterator for Map<I, F>
@@ -1099,62 +1101,62 @@ where
 {
     type Item = U;
 
-    type IntoIter = std::iter::Map<I::IntoIter, F>;
+    type IntoIter = iter::Map<I::IntoIter, F>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter
     }
 }
 
-impl<I, F> std::fmt::Debug for Map<I, F>
+impl<I, F> fmt::Debug for Map<I, F>
 where
     I: NonEmptyIterator,
-    I::IntoIter: std::fmt::Debug,
+    I::IntoIter: fmt::Debug,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.iter.fmt(f)
     }
 }
 
 /// An iterator that clones the elements of an underlying iterator.
 ///
-/// See also [`std::iter::Cloned`].
+/// See also [`iter::Cloned`].
 #[derive(Clone)]
 #[must_use = "non-empty iterators are lazy and do nothing unless consumed"]
 pub struct Cloned<I> {
     iter: I,
 }
 
-impl<'a, I, T: 'a> NonEmptyIterator for Cloned<I>
+impl<'a, I, T> NonEmptyIterator for Cloned<I>
 where
     I: NonEmptyIterator<Item = &'a T>,
-    T: Clone,
+    T: Clone + 'a,
 {
 }
 
-impl<'a, I, T: 'a> IntoIterator for Cloned<I>
+impl<'a, I, T> IntoIterator for Cloned<I>
 where
     I: IntoIterator<Item = &'a T>,
-    T: Clone,
+    T: Clone + 'a,
 {
     type Item = T;
 
-    type IntoIter = std::iter::Cloned<I::IntoIter>;
+    type IntoIter = iter::Cloned<I::IntoIter>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter.into_iter().cloned()
     }
 }
 
-impl<I: std::fmt::Debug> std::fmt::Debug for Cloned<I> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<I: fmt::Debug> fmt::Debug for Cloned<I> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.iter.fmt(f)
     }
 }
 
 /// An iterator that yields the current count and the element during iteration.
 ///
-/// See also [`std::iter::Enumerate`].
+/// See also [`iter::Enumerate`].
 #[derive(Clone)]
 #[must_use = "non-empty iterators are lazy and do nothing unless consumed"]
 pub struct Enumerate<I> {
@@ -1169,15 +1171,15 @@ where
 {
     type Item = (usize, I::Item);
 
-    type IntoIter = std::iter::Enumerate<I::IntoIter>;
+    type IntoIter = iter::Enumerate<I::IntoIter>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter.into_iter().enumerate()
     }
 }
 
-impl<I: std::fmt::Debug> std::fmt::Debug for Enumerate<I> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<I: fmt::Debug> fmt::Debug for Enumerate<I> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.iter.fmt(f)
     }
 }
@@ -1188,7 +1190,7 @@ impl<I: std::fmt::Debug> std::fmt::Debug for Enumerate<I> {
 #[derive(Clone)]
 #[must_use = "non-empty iterators are lazy and do nothing unless consumed"]
 pub struct Take<I: NonEmptyIterator> {
-    iter: std::iter::Take<I::IntoIter>,
+    iter: iter::Take<I::IntoIter>,
 }
 
 impl<I> NonEmptyIterator for Take<I> where I: NonEmptyIterator {}
@@ -1212,19 +1214,19 @@ where
 {
     type Item = I::Item;
 
-    type IntoIter = std::iter::Take<I::IntoIter>;
+    type IntoIter = iter::Take<I::IntoIter>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter
     }
 }
 
-impl<I> std::fmt::Debug for Take<I>
+impl<I> fmt::Debug for Take<I>
 where
     I: NonEmptyIterator,
-    I::IntoIter: std::fmt::Debug,
+    I::IntoIter: fmt::Debug,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.iter.fmt(f)
     }
 }
@@ -1233,7 +1235,7 @@ where
 #[derive(Clone)]
 #[must_use = "non-empty iterators are lazy and do nothing unless consumed"]
 pub struct Chain<A, B> {
-    inner: std::iter::Chain<A, B>,
+    inner: iter::Chain<A, B>,
 }
 
 impl<A, B> NonEmptyIterator for Chain<A, B>
@@ -1250,19 +1252,19 @@ where
 {
     type Item = A::Item;
 
-    type IntoIter = std::iter::Chain<A, B>;
+    type IntoIter = iter::Chain<A, B>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.inner
     }
 }
 
-impl<A, B> std::fmt::Debug for Chain<A, B>
+impl<A, B> fmt::Debug for Chain<A, B>
 where
-    A: std::fmt::Debug,
-    B: std::fmt::Debug,
+    A: fmt::Debug,
+    B: fmt::Debug,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner.fmt(f)
     }
 }
@@ -1271,13 +1273,13 @@ where
 #[derive(Clone)]
 #[must_use = "non-empty iterators are lazy and do nothing unless consumed"]
 pub struct Once<T> {
-    inner: std::iter::Once<T>,
+    inner: iter::Once<T>,
 }
 
 impl<T> Once<T> {
-    pub(crate) fn new(value: T) -> Once<T> {
-        Once {
-            inner: std::iter::once(value),
+    pub(crate) fn new(value: T) -> Self {
+        Self {
+            inner: iter::once(value),
         }
     }
 }
@@ -1287,15 +1289,15 @@ impl<T> NonEmptyIterator for Once<T> {}
 impl<T> IntoIterator for Once<T> {
     type Item = T;
 
-    type IntoIter = std::iter::Once<T>;
+    type IntoIter = iter::Once<T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.inner
     }
 }
 
-impl<T: std::fmt::Debug> std::fmt::Debug for Once<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T: fmt::Debug> fmt::Debug for Once<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner.fmt(f)
     }
 }
@@ -1303,50 +1305,50 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Once<T> {
 /// A non-empty iterator that copies the elements of an underlying non-empty
 /// iterator.
 ///
-/// See also [`std::iter::Copied`].
+/// See also [`iter::Copied`].
 #[derive(Clone)]
 #[must_use = "non-empty iterators are lazy and do nothing unless consumed"]
 pub struct Copied<I> {
-    iter: std::iter::Copied<I>,
+    iter: iter::Copied<I>,
 }
 
-impl<'a, I, T: 'a> NonEmptyIterator for Copied<I>
+impl<'a, I, T> NonEmptyIterator for Copied<I>
 where
     I: Iterator<Item = &'a T>,
-    T: Copy,
+    T: Copy + 'a,
 {
 }
 
-impl<'a, I, T: 'a> IntoIterator for Copied<I>
+impl<'a, I, T> IntoIterator for Copied<I>
 where
     I: Iterator<Item = &'a T>,
-    T: Copy,
+    T: Copy + 'a,
 {
     type Item = T;
 
-    type IntoIter = std::iter::Copied<I>;
+    type IntoIter = iter::Copied<I>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter
     }
 }
 
-impl<'a, I, T: 'a> std::fmt::Debug for Copied<I>
+impl<'a, I, T: 'a> fmt::Debug for Copied<I>
 where
-    I: Iterator<Item = &'a T> + std::fmt::Debug,
+    I: Iterator<Item = &'a T> + fmt::Debug,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.iter.fmt(f)
     }
 }
 
 /// A non-empty iterator that "zips up" its sources.
 ///
-/// See also [`std::iter::Zip`].
+/// See also [`iter::Zip`].
 #[derive(Clone)]
 #[must_use = "non-empty iterators are lazy and do nothing unless consumed"]
 pub struct Zip<A, B> {
-    inner: std::iter::Zip<A, B>,
+    inner: iter::Zip<A, B>,
 }
 
 impl<A, B> NonEmptyIterator for Zip<A, B>
@@ -1363,19 +1365,19 @@ where
 {
     type Item = (A::Item, B::Item);
 
-    type IntoIter = std::iter::Zip<A, B>;
+    type IntoIter = iter::Zip<A, B>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.inner
     }
 }
 
-impl<A, B> std::fmt::Debug for Zip<A, B>
+impl<A, B> fmt::Debug for Zip<A, B>
 where
-    A: std::fmt::Debug,
-    B: std::fmt::Debug,
+    A: fmt::Debug,
+    B: fmt::Debug,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner.fmt(f)
     }
 }
@@ -1470,10 +1472,10 @@ where
 
 /// Flatten nested, non-empty structures.
 ///
-/// See also [`std::iter::FlatMap`].
+/// See also [`iter::FlatMap`].
 #[must_use = "non-empty iterators are lazy and do nothing unless consumed"]
 pub struct FlatMap<I, U: IntoIterator, F> {
-    inner: std::iter::FlatMap<I, U, F>,
+    inner: iter::FlatMap<I, U, F>,
 }
 
 impl<I: Iterator, U: IntoIterator, F: FnMut(I::Item) -> U> NonEmptyIterator for FlatMap<I, U, F> {}
@@ -1492,19 +1494,19 @@ impl<I: Iterator, U: IntoIterator, F: FnMut(I::Item) -> U> NonEmptyIterator for 
 impl<I: Iterator, U: IntoIterator, F: FnMut(I::Item) -> U> IntoIterator for FlatMap<I, U, F> {
     type Item = U::Item;
 
-    type IntoIter = std::iter::FlatMap<I, U, F>;
+    type IntoIter = iter::FlatMap<I, U, F>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.inner
     }
 }
 
-impl<I: std::fmt::Debug, U, F> std::fmt::Debug for FlatMap<I, U, F>
+impl<I: fmt::Debug, U, F> fmt::Debug for FlatMap<I, U, F>
 where
     U: IntoIterator,
-    U::IntoIter: std::fmt::Debug,
+    U::IntoIter: fmt::Debug,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner.fmt(f)
     }
 }
@@ -1515,7 +1517,7 @@ where
     U::IntoIter: Clone,
 {
     fn clone(&self) -> Self {
-        FlatMap {
+        Self {
             inner: self.inner.clone(),
         }
     }
@@ -1543,8 +1545,8 @@ where
     }
 }
 
-impl<I: std::fmt::Debug> std::fmt::Debug for NonEmptyIterAdapter<I> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<I: fmt::Debug> fmt::Debug for NonEmptyIterAdapter<I> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner.fmt(f)
     }
 }
@@ -1589,7 +1591,7 @@ where
 {
     type Item = T::Item;
 
-    type IntoIter = NonEmptyIterAdapter<std::iter::Peekable<T::IntoIter>>;
+    type IntoIter = NonEmptyIterAdapter<iter::Peekable<T::IntoIter>>;
 
     /// Converts `self` into a non-empty iterator or returns `None` if
     /// the iterator is empty.
@@ -1634,10 +1636,10 @@ impl<I: Iterator> NonEmptyIterator for Peekable<I> {}
 impl<I: Iterator> IntoIterator for Peekable<I> {
     type Item = I::Item;
 
-    type IntoIter = std::iter::Chain<std::iter::Once<I::Item>, I>;
+    type IntoIter = iter::Chain<iter::Once<I::Item>, I>;
 
     fn into_iter(self) -> Self::IntoIter {
-        std::iter::once(self.first).chain(self.rest)
+        iter::once(self.first).chain(self.rest)
     }
 }
 
@@ -1669,7 +1671,7 @@ where
         let mut iter = self.iter.into_iter();
 
         let raw = RawIntersperse {
-            item: self.item.clone(),
+            item: self.item,
             next: iter.next(),
             iter,
         };

@@ -10,7 +10,7 @@ use fireflow_types::{
     keystring_pairs::KeyStringPairs,
     ne_str, nev,
     nonempty::{NEStr, NEString, NEVec, NonEmptyIterator as _},
-    std_key::{PseudoStdKey, RealOrPseudoStdKey, RootKey, StdKey, ToStd},
+    std_key::{PseudoStdKey, RealOrPseudoStdKey, RootKey, StdKey, ToStd as _},
     timepattern::TimePattern,
 };
 use hashbrown::HashMap;

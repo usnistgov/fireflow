@@ -30,7 +30,7 @@
 use crate::text::optional::Nothing;
 
 use fireflow_types::{
-    config::{ErrorFlag, ReadSharedConfig, TriErrorFlag, TriFlag},
+    config::{ReadSharedConfig, TriErrorFlag, TriFlag},
     nev,
     nonempty::{FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator as _},
 };
@@ -637,28 +637,28 @@ pub(crate) trait ResultExt: Sized {
         )
     }
 
-    fn into_deferred_switchable<X, EC>(
-        self,
-        flag: X,
-    ) -> DeferredSwitchable<Self::Ok, X, Self::Error, EC>
-    where
-        Self::Ok: Default,
-        EC: SwitchableErrorContainer<Inner = Self::Error> + Default,
-        EC::Warn: Default,
-        X: ErrorFlag,
-    {
-        match self.into_result() {
-            Ok(s) => Succ(Success::new_flagged(s, flag)),
-            Err(e) => {
-                if flag.is_error() {
-                    Fail(Failure::new_from_one(e, Self::Ok::default()))
-                } else {
-                    let ws = EC::error_to_warning(e);
-                    Succ(Success::new(Self::Ok::default(), flag, ws))
-                }
-            }
-        }
-    }
+    // fn into_deferred_switchable<X, EC>(
+    //     self,
+    //     flag: X,
+    // ) -> DeferredSwitchable<Self::Ok, X, Self::Error, EC>
+    // where
+    //     Self::Ok: Default,
+    //     EC: SwitchableErrorContainer<Inner = Self::Error> + Default,
+    //     EC::Warn: Default,
+    //     X: ErrorFlag,
+    // {
+    //     match self.into_result() {
+    //         Ok(s) => Succ(Success::new_flagged(s, flag)),
+    //         Err(e) => {
+    //             if flag.is_error() {
+    //                 Fail(Failure::new_from_one(e, Self::Ok::default()))
+    //             } else {
+    //                 let ws = EC::error_to_warning(e);
+    //                 Succ(Success::new(Self::Ok::default(), flag, ws))
+    //             }
+    //         }
+    //     }
+    // }
 
     fn into_deferred_switchable3<X, EC>(
         self,
@@ -2208,24 +2208,24 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
         }
     }
 
-    /// Push errors to a deferred Result.
-    ///
-    /// If Result is Ok, the result will be converted to an error.
-    ///
-    /// This must be deferred because the value type will be the same
-    /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn extend_deferred_errors(self, errors: impl IntoIterator<Item = E>) -> Self
-    where
-        EC: Extend<E> + Default,
-    {
-        match self {
-            Succ(succ) => succ.with_errors(errors),
-            Fail(mut err) => {
-                err.extend_errors(errors);
-                Fail(err)
-            }
-        }
-    }
+    // /// Push errors to a deferred Result.
+    // ///
+    // /// If Result is Ok, the result will be converted to an error.
+    // ///
+    // /// This must be deferred because the value type will be the same
+    // /// if the Result needs to flip from Ok to Error.
+    // pub(crate) fn extend_deferred_errors(self, errors: impl IntoIterator<Item = E>) -> Self
+    // where
+    //     EC: Extend<E> + Default,
+    // {
+    //     match self {
+    //         Succ(succ) => succ.with_errors(errors),
+    //         Fail(mut err) => {
+    //             err.extend_errors(errors);
+    //             Fail(err)
+    //         }
+    //     }
+    // }
 
     // /// Push switchable error to a deferred Result based on its value.
     // ///
@@ -2309,26 +2309,26 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
     //     }
     // }
 
-    pub(crate) fn and_then_deferred_switchable_result<F, X, Vf>(
-        self,
-        flag: X,
-        f: F,
-    ) -> Deferred<Vf, WC, E, EC>
-    where
-        X: ErrorFlag,
-        Vf: Default,
-        F: FnOnce(V) -> Result<Vf, E>,
-        WC: Semigroup + Default,
-        EC: Extend<E>
-            + IntoIterator<Item = E>
-            + SwitchableErrorContainer<Inner = E, Warn = WC>
-            + Default,
-    {
-        self.and_then_deferred(|v| {
-            f(v).into_deferred_switchable(flag)
-                .switchable_into_commutative()
-        })
-    }
+    // pub(crate) fn and_then_deferred_switchable_result<F, X, Vf>(
+    //     self,
+    //     flag: X,
+    //     f: F,
+    // ) -> Deferred<Vf, WC, E, EC>
+    // where
+    //     X: ErrorFlag,
+    //     Vf: Default,
+    //     F: FnOnce(V) -> Result<Vf, E>,
+    //     WC: Semigroup + Default,
+    //     EC: Extend<E>
+    //         + IntoIterator<Item = E>
+    //         + SwitchableErrorContainer<Inner = E, Warn = WC>
+    //         + Default,
+    // {
+    //     self.and_then_deferred(|v| {
+    //         f(v).into_deferred_switchable(flag)
+    //             .switchable_into_commutative()
+    //     })
+    // }
 
     pub(crate) fn and_then_deferred_switchable_result3<F, X, Vf>(
         self,
@@ -2355,19 +2355,19 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
 //
 // Deferred/Commutative LogResult with same warning and error type
 //
-impl<V, E, EC> Deferred<V, EC, E, EC> {
-    pub(crate) fn extend_deferred_warnings_or_errors3<X>(
-        self,
-        errors: impl IntoIterator<Item = E>,
-        flag: X,
-    ) -> Self
-    where
-        EC: Extend<E> + Default,
-        X: TriErrorFlag + Into<TriFlag> + Copy,
-    {
-        self.extend_warnings_or_errors3(errors, |v| v, |w| w, |e| e, flag)
-    }
-}
+// impl<V, E, EC> Deferred<V, EC, E, EC> {
+//     pub(crate) fn extend_deferred_warnings_or_errors3<X>(
+//         self,
+//         errors: impl IntoIterator<Item = E>,
+//         flag: X,
+//     ) -> Self
+//     where
+//         EC: Extend<E> + Default,
+//         X: TriErrorFlag + Into<TriFlag> + Copy,
+//     {
+//         self.extend_warnings_or_errors3(errors, |v| v, |w| w, |e| e, flag)
+//     }
+// }
 
 //
 // Nowarn LogResult
@@ -2462,24 +2462,24 @@ impl<V, P, E, EC> NowarnResult<V, P, E, EC> {
 // Nowarn/Deferred
 //
 impl<V, E, EC> NowarnResult<V, V, E, EC> {
-    pub(crate) fn nowarn_into_switchable<X>(self, flag: X) -> SwitchableResult<V, V, X, E, EC>
-    where
-        X: ErrorFlag,
-        EC: SwitchableErrorContainer<Inner = E> + Default,
-        EC::Warn: Default,
-    {
-        match self {
-            Succ(x) => SwitchableResult::new_switchable_ok(x.value, flag),
-            Fail(x) => {
-                if flag.is_error() {
-                    Fail(Failure::new_from_many(x.errors, x.value))
-                } else {
-                    let ws = EC::errors_to_warnings(x.errors);
-                    Succ(Success::new(x.value, flag, ws))
-                }
-            }
-        }
-    }
+    // pub(crate) fn nowarn_into_switchable<X>(self, flag: X) -> SwitchableResult<V, V, X, E, EC>
+    // where
+    //     X: ErrorFlag,
+    //     EC: SwitchableErrorContainer<Inner = E> + Default,
+    //     EC::Warn: Default,
+    // {
+    //     match self {
+    //         Succ(x) => SwitchableResult::new_switchable_ok(x.value, flag),
+    //         Fail(x) => {
+    //             if flag.is_error() {
+    //                 Fail(Failure::new_from_many(x.errors, x.value))
+    //             } else {
+    //                 let ws = EC::errors_to_warnings(x.errors);
+    //                 Succ(Success::new(x.value, flag, ws))
+    //             }
+    //         }
+    //     }
+    // }
 
     pub(crate) fn nowarn_into_switchable3<X>(self, flag: X) -> SwitchableResult<V, V, X, E, EC>
     where
@@ -2778,18 +2778,18 @@ impl<V, P, X, WC, E, EC> LogResult<V, P, WC, Nothing<()>, X, E, EC> {
 // Switchable/deferred LogResult
 //
 impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
-    pub(crate) fn new_deferred_switchable(value: T, error: E, flag: X) -> Self
-    where
-        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
-        EC::Warn: Default,
-        X: ErrorFlag,
-    {
-        if flag.is_error() {
-            Fail(Failure::new_from_one(error, value))
-        } else {
-            Succ(Success::new(value, flag, EC::error_to_warning(error)))
-        }
-    }
+    // pub(crate) fn new_deferred_switchable(value: T, error: E, flag: X) -> Self
+    // where
+    //     EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
+    //     EC::Warn: Default,
+    //     X: ErrorFlag,
+    // {
+    //     if flag.is_error() {
+    //         Fail(Failure::new_from_one(error, value))
+    //     } else {
+    //         Succ(Success::new(value, flag, EC::error_to_warning(error)))
+    //     }
+    // }
 
     pub(crate) fn new_deferred_switchable3(value: T, error: E, flag: X) -> Self
     where
@@ -2841,24 +2841,24 @@ impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
     //     }
     // }
 
-    pub(crate) fn new_deferred_switchable_iter<I>(value: T, errors: I, flag: X) -> Self
-    where
-        I: IntoIterator<Item = E>,
-        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default + Extend<E>,
-        EC::Warn: Default,
-        X: ErrorFlag,
-    {
-        match GenNonEmpty::collect(errors) {
-            Some(es) => {
-                if flag.is_error() {
-                    Fail(Failure::new_from_many(es, value))
-                } else {
-                    Succ(Success::new(value, flag, EC::errors_to_warnings(es)))
-                }
-            }
-            None => Self::new_switchable_ok(value, flag),
-        }
-    }
+    // pub(crate) fn new_deferred_switchable_iter<I>(value: T, errors: I, flag: X) -> Self
+    // where
+    //     I: IntoIterator<Item = E>,
+    //     EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default + Extend<E>,
+    //     EC::Warn: Default,
+    //     X: ErrorFlag,
+    // {
+    //     match GenNonEmpty::collect(errors) {
+    //         Some(es) => {
+    //             if flag.is_error() {
+    //                 Fail(Failure::new_from_many(es, value))
+    //             } else {
+    //                 Succ(Success::new(value, flag, EC::errors_to_warnings(es)))
+    //             }
+    //         }
+    //         None => Self::new_switchable_ok(value, flag),
+    //     }
+    // }
 
     pub(crate) fn new_deferred_switchable_iter3<I>(value: T, errors: I, flag: X) -> Self
     where
@@ -2883,32 +2883,32 @@ impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
         }
     }
 
-    /// Push switchable errors to a deferred Result.
-    ///
-    /// If Result is Ok, the result will be converted to an error.
-    ///
-    /// This must be deferred because the value type will be the same
-    /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn extend_deferred_switchable_errors(
-        self,
-        errors: impl IntoIterator<Item = E>,
-    ) -> Self
-    where
-        EC: Extend<E> + Default + SwitchableErrorContainer<Warn = WC, Inner = E>,
-        EC::Warn: Extend<E> + IntoIterator<Item = E> + Default,
-        X: ErrorFlag,
-    {
-        match self {
-            Succ(succ) => {
-                let ws = succ.warnings.into_iter().chain(errors);
-                Self::new_deferred_switchable_iter(succ.value, ws, succ.flag)
-            }
-            Fail(mut fail) => {
-                fail.extend_errors(errors);
-                Fail(fail)
-            }
-        }
-    }
+    // /// Push switchable errors to a deferred Result.
+    // ///
+    // /// If Result is Ok, the result will be converted to an error.
+    // ///
+    // /// This must be deferred because the value type will be the same
+    // /// if the Result needs to flip from Ok to Error.
+    // pub(crate) fn extend_deferred_switchable_errors(
+    //     self,
+    //     errors: impl IntoIterator<Item = E>,
+    // ) -> Self
+    // where
+    //     EC: Extend<E> + Default + SwitchableErrorContainer<Warn = WC, Inner = E>,
+    //     EC::Warn: Extend<E> + IntoIterator<Item = E> + Default,
+    //     X: ErrorFlag,
+    // {
+    //     match self {
+    //         Succ(succ) => {
+    //             let ws = succ.warnings.into_iter().chain(errors);
+    //             Self::new_deferred_switchable_iter(succ.value, ws, succ.flag)
+    //         }
+    //         Fail(mut fail) => {
+    //             fail.extend_errors(errors);
+    //             Fail(fail)
+    //         }
+    //     }
+    // }
 
     /// Push switchable errors to a deferred Result (tri flag version)
     ///
@@ -3123,7 +3123,7 @@ impl<V, P, LWC, RWC, X, E> IOGroupLogResult<V, P, LWC, RWC, X, E, ()> {
 impl<V, P, WC, E> GroupLogResult<V, P, WC, WC, (), E, ()> {
     pub(crate) fn warnings_to_errors<F, W>(
         self,
-        conf: &ReadSharedConfig,
+        conf: ReadSharedConfig,
         f: F,
     ) -> GroupLogResult<V, (), WC, WC, (), E, ()>
     where
@@ -3152,7 +3152,7 @@ impl<V, P, WC, E> GroupLogResult<V, P, WC, WC, (), E, ()> {
 impl<V, WC, P, E> IOGroupLogResult<V, P, WC, WC, (), E, ()> {
     pub(crate) fn warnings_to_pure_errors<F, W>(
         self,
-        conf: &ReadSharedConfig,
+        conf: ReadSharedConfig,
         f: F,
     ) -> IOGroupLogResult<V, (), WC, WC, (), E, ()>
     where
@@ -3188,7 +3188,7 @@ impl<V, WC, P, E> IOGroupLogResult<V, P, WC, WC, (), E, ()> {
             (Succ(ax), Fail(bx)) => {
                 let e = IOErrorGroup::Pure(ErrorGroup::new((), bx.errors.repack()));
                 let new_fail = Failure::new(bx.warnings, GenNonEmpty::new1(e), ());
-                Fail(ax.with_failure(new_fail, |_, _| ()))
+                Fail(ax.with_failure(new_fail, |_, ()| ()))
             }
             (Fail(ax), Succ(bx)) => Fail(ax.with_success(bx, |_, _| ())),
             (Fail(ax), Fail(bx)) => {
@@ -3409,12 +3409,12 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
         }
     }
 
-    pub(crate) fn as_ref(&self) -> Option<&V> {
-        match self {
-            Succ(s) => Some(&s.value),
-            Fail(_) => None,
-        }
-    }
+    // pub(crate) fn as_ref(&self) -> Option<&V> {
+    //     match self {
+    //         Succ(s) => Some(&s.value),
+    //         Fail(_) => None,
+    //     }
+    // }
 }
 
 // /// Split the IO error away from an impure result.

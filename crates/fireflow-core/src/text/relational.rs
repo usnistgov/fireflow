@@ -351,7 +351,7 @@ impl RemovedLink {
         where
             T: ValueToStdKey<Index = ()>,
         {
-            kws.set_failure_flag(&T::std0(), flag)
+            kws.set_failure_flag(&T::std0(), flag);
         }
 
         match self {

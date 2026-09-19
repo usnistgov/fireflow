@@ -1,4 +1,4 @@
-use super::{NESlice, NEStr, NEString, NEVec, NonEmptyArrayExt, NonEmptyIterator};
+use super::{NESlice, NEStr, NEString, NEVec, NonEmptyArrayExt, NonEmptyIterator as _};
 
 use ambassador::delegatable_trait;
 use bigdecimal::BigDecimal;

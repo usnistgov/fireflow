@@ -2089,7 +2089,7 @@ impl OtherOffsets20 {
         // Guess offset width if desired.
         let guess_maybe = DummyTriFlag::from_guess_other_width(hconf.guess_other_width);
         let width_res = if let Some(guess) = guess_maybe {
-            match Self::guess_other_width(&valid_buf, max_other) {
+            match Self::guess_other_width(valid_buf, max_other) {
                 Ok(w) => WarningsAndErrorsResult::new_ok(w),
                 Err(e) => {
                     let w = hconf.other_width;
@@ -2128,7 +2128,7 @@ impl OtherOffsets20 {
                         let seg_conf = NewOffsetsConfig::from_read_config(corr, st);
                         let all_are = |c| buf0.iter().chain(buf1.iter()).all(|&x| x == c);
                         (!(all_are(0) || all_are(32) || all_are(48))).then(|| {
-                            Self::parse_other(&buf0, &buf1, &seg_conf)
+                            Self::parse_other(buf0, buf1, &seg_conf)
                                 .map_ok_value(|(s, d)| (IndexedOtherOffsets::new(i, s), d))
                         })
                     })

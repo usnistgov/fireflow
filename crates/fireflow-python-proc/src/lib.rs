@@ -4856,7 +4856,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
                 let shared = #shared_conf { #(#shared_recs),* };
                 let conf = #core_conf { standard, layout, shared };
                 let (core, uncore) =
-                    #path::new_from_keywords(std, nonstd, &conf).py_resolve_commutative()?;
+                    #path::new_from_keywords(&std, nonstd, &conf).py_resolve_commutative()?;
                 Ok((core.into(), uncore.into()))
             }
         }
@@ -4970,7 +4970,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                 let (core, uncore) = #path::new_from_keywords(
                     &path,
                     header.into(),
-                    std,
+                    &std,
                     nonstd,
                     dataset_offset,
                     dataset_len,

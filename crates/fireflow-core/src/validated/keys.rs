@@ -4,14 +4,13 @@ use crate::std_index::index::StdKeywords;
 use fireflow_types::config::Encoding;
 use fireflow_types::index::{BiMeasIndex, MeasIndex};
 use fireflow_types::keystring::{KeyString, NEAsciiStringError};
-use fireflow_types::nev;
-use fireflow_types::nonempty::{
-    HasNELen as _, NEAlt, NESlice, NEStr, NEString, NEVec, ToDisplayNE, ToNE,
-    ambassador_impl_ToDisplayNE,
-};
 use fireflow_types::std_key::{
     DollarPseudoStdKey, DollarRealOrPseudoStdKey, DollarStdKey, DollarWrap, PseudoStdKey,
     RealOrPseudoStdKey, STD_PREFIX, StdKey, ToStd,
+};
+use nonempty::{
+    HasNELen as _, NEAlt, NESlice, NEStr, NEString, NEVec, ToDisplayNE, ToNE,
+    ambassador_impl_ToDisplayNE, nev,
 };
 
 use ambassador::Delegate;
@@ -954,7 +953,7 @@ const TRUNCATED_STR_LIMIT: usize = 20;
 
 #[cfg(feature = "serde")]
 mod serialize {
-    use fireflow_types::nonempty::NEString;
+    use nonempty::NEString;
 
     use hashbrown::HashMap;
     use serde::Serialize;

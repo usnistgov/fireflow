@@ -1,12 +1,10 @@
-use super::{HasNELen, slice::NESlice, string::NEString};
+use crate::{HasNELen, slice::NESlice, string::NEString};
 
 use derive_more::{AsRef, Display};
 
-use std::{
-    num::NonZeroUsize,
-    ptr::from_ref,
-    str::{FromStr, Utf8Error},
-};
+use std::num::NonZeroUsize;
+use std::ptr::from_ref;
+use std::str::{FromStr, Utf8Error};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -22,7 +20,7 @@ pub struct NEStr(str);
 macro_rules! ne_str {
     ($s:expr) => {{
         const _: () = assert!(!$s.is_empty(), "string cannot be empty");
-        $crate::nonempty::NEStr::try_new($s).unwrap()
+        $crate::NEStr::try_new($s).unwrap()
     }};
 }
 

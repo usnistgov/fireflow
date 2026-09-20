@@ -12,15 +12,12 @@ use crate::segment::read::{
 };
 use crate::validated::read_state::{DatasetOffset, FileLen, HeaderReadState, TEXTReadState};
 
-use fireflow_types::{
-    config::{OverlapCorrectionLimit, ReadOffsetConfig},
-    nonempty::{NESlice, NEVec},
-    other_width::OtherWidth,
-    segment::{
-        AnalysisSegmentId, DataSegmentId, OffsetsFromHeader, OtherSegmentId, PrimaryTextSegmentId,
-    },
+use fireflow_types::config::{OverlapCorrectionLimit, ReadOffsetConfig};
+use fireflow_types::other_width::OtherWidth;
+use fireflow_types::segment::{
+    AnalysisSegmentId, DataSegmentId, OffsetsFromHeader, OtherSegmentId, PrimaryTextSegmentId,
 };
-
+use nonempty::{NESlice, NEVec};
 use type_families::BifunctorOnce as _;
 
 use derive_more::{AsRef, Display, From};
@@ -37,8 +34,8 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
-    fireflow_types::nonempty::{IntoNonEmptyIterator as _, NonEmptyIterator as _},
     fireflow_types::python as py,
+    nonempty::{IntoNonEmptyIterator as _, NonEmptyIterator as _},
     std::fmt,
 };
 

@@ -3,11 +3,9 @@ extern crate proc_macro;
 use fireflow_types::{
     args::underscore as ta,
     config::{self as tc, EnumStrIter as _},
-    keywords as tk,
-    nonempty::NEStr,
-    nonempty::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _},
-    python as tp, std_key as sk,
+    keywords as tk, python as tp, std_key as sk,
 };
+use nonempty::{IntoNonEmptyIterator as _, NEStr, NEVec, NonEmptyIterator as _};
 
 use const_format::formatcp;
 use derive_more::{AsRef, Display, From};
@@ -8318,7 +8316,7 @@ impl<E> PyList<E> {
 
 impl<E: From<PyException>> PyList<E> {
     fn new_non_empty(inner: impl Into<PyType<E>>, inner_path: Option<&Path>) -> Self {
-        let nonempty = quote!(fireflow_types::nonempty::NEVec);
+        let nonempty = quote!(nonempty::NEVec);
         let d = format!("if {ARG_TOKEN} is empty");
         let e = PyException::new_invalid_keyword().desc(d);
         let path: Option<Path> = inner_path.map(|p| parse_quote!(#nonempty<#p>));
@@ -8972,7 +8970,7 @@ impl<E: From<PyException>> PyAlias<E> {
 
     fn new_pstd_keywords() -> Self {
         let keypath: Path = parse_quote!(fireflow_types::std_key::PseudoStdKey);
-        let valpath: Path = parse_quote!(fireflow_types::nonempty::NEString);
+        let valpath: Path = parse_quote!(nonempty::NEString);
         // TODO the :: here is awkward
         Self::new_py(["typing"], "PseudoStdKeywords")
             .rstype(parse_quote!(hashbrown::HashMap::<#keypath, #valpath>))
@@ -8981,7 +8979,7 @@ impl<E: From<PyException>> PyAlias<E> {
 
     fn new_nonstd_keywords() -> Self {
         let keypath: Path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
-        let valpath: Path = parse_quote!(fireflow_types::nonempty::NEString);
+        let valpath: Path = parse_quote!(nonempty::NEString);
         // TODO the :: here is awkward
         Self::new_py(["typing"], "NonStdKeywords")
             .rstype(parse_quote!(hashbrown::HashMap::<#keypath, #valpath>))
@@ -8990,7 +8988,7 @@ impl<E: From<PyException>> PyAlias<E> {
 
     fn new_dropped_std_keywords() -> Self {
         let keypath: Path = parse_quote!(fireflow_types::std_key::DollarStdKey);
-        let valpath: Path = parse_quote!(fireflow_types::nonempty::NEString);
+        let valpath: Path = parse_quote!(nonempty::NEString);
         // TODO the :: here is awkward
         Self::new_py(["typing"], "DroppedStdKeywords")
             .rstype(parse_quote!(Vec::<(#keypath, #valpath)>))
@@ -9156,7 +9154,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_ne_str() -> Self {
-        let path: Path = parse_quote!(fireflow_types::nonempty::NEString);
+        let path: Path = parse_quote!(nonempty::NEString);
         Self::new_py(["typing"], "NEStr").rstype(path)
     }
 

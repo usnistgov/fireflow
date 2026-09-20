@@ -24,23 +24,21 @@ use crate::validated::read_state::{
     DatasetOffset, HeaderReadState, ReadDatasetState, TEXTReadState,
 };
 
-use fireflow_types::{
-    config::{
-        AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets,
-        IgnoreTEXTDataOffsets, ProcessKeywordFailure, ProcessOptionalFailure,
-        ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig,
-    },
-    keywords::Version,
-    nonempty::{
-        IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec, NonEmptyArrayExt as _,
-        NonEmptyIterator as _, once,
-    },
-    other_width::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth},
-    segment::{
-        AnalysisSegmentId, DataSegmentId, HeaderCorrection, OffsetsCorrection, OffsetsFromHeader,
-        OffsetsFromTEXT, OtherSegmentId, PrimaryTextSegmentId, SupplementalTextSegmentId,
-        TEXTCorrection,
-    },
+use fireflow_types::config::{
+    AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
+    ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderInnerConfig,
+    ReadOffsetConfig,
+};
+use fireflow_types::keywords::Version;
+use fireflow_types::other_width::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth};
+use fireflow_types::segment::{
+    AnalysisSegmentId, DataSegmentId, HeaderCorrection, OffsetsCorrection, OffsetsFromHeader,
+    OffsetsFromTEXT, OtherSegmentId, PrimaryTextSegmentId, SupplementalTextSegmentId,
+    TEXTCorrection,
+};
+use nonempty::{
+    IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec, NonEmptyArrayExt as _,
+    NonEmptyIterator as _, once,
 };
 
 use type_families::{
@@ -2447,7 +2445,7 @@ mod tests {
     fn other_width_2x8() {
         let s = NESlice::try_from_slice(b"       0       0").unwrap();
         assert_eq!(
-            OtherOffsets20::guess_other_width(&s, None).map(u8::from),
+            OtherOffsets20::guess_other_width(s, None).map(u8::from),
             Ok(8)
         );
     }
@@ -2456,7 +2454,7 @@ mod tests {
     fn other_width_2x8_minus() {
         let s = NESlice::try_from_slice(b"       0      -1").unwrap();
         assert_eq!(
-            OtherOffsets20::guess_other_width(&s, None).map(u8::from),
+            OtherOffsets20::guess_other_width(s, None).map(u8::from),
             Ok(8)
         );
     }
@@ -2465,7 +2463,7 @@ mod tests {
     fn other_width_2x8_big_minus() {
         let s = NESlice::try_from_slice(b"       0-1000000").unwrap();
         assert_eq!(
-            OtherOffsets20::guess_other_width(&s, None).map(u8::from),
+            OtherOffsets20::guess_other_width(s, None).map(u8::from),
             Ok(8)
         );
     }
@@ -2474,7 +2472,7 @@ mod tests {
     fn other_width_2x8_first_minus() {
         let s = NESlice::try_from_slice(b"-1000000       0").unwrap();
         assert_eq!(
-            OtherOffsets20::guess_other_width(&s, None).map(u8::from),
+            OtherOffsets20::guess_other_width(s, None).map(u8::from),
             Ok(8)
         );
     }
@@ -2483,7 +2481,7 @@ mod tests {
     fn other_width_4x8() {
         let s = NESlice::try_from_slice(b"       0       0    2112   90125").unwrap();
         assert_eq!(
-            OtherOffsets20::guess_other_width(&s, None).map(u8::from),
+            OtherOffsets20::guess_other_width(s, None).map(u8::from),
             Ok(8)
         );
     }
@@ -2492,7 +2490,7 @@ mod tests {
     fn other_width_4x8_minus() {
         let s = NESlice::try_from_slice(b"       0       0    2112  -90125").unwrap();
         assert_eq!(
-            OtherOffsets20::guess_other_width(&s, None).map(u8::from),
+            OtherOffsets20::guess_other_width(s, None).map(u8::from),
             Ok(8)
         );
     }
@@ -2501,7 +2499,7 @@ mod tests {
     fn other_width_4x8_hidden() {
         let s = NESlice::try_from_slice(b"       010000000       1       2").unwrap();
         assert_eq!(
-            OtherOffsets20::guess_other_width(&s, None).map(u8::from),
+            OtherOffsets20::guess_other_width(s, None).map(u8::from),
             Ok(8)
         );
     }
@@ -2511,7 +2509,7 @@ mod tests {
         // random space after than should be ignored
         let s = NESlice::try_from_slice(b"       0       0       0   12345              ").unwrap();
         assert_eq!(
-            OtherOffsets20::guess_other_width(&s, None).map(u8::from),
+            OtherOffsets20::guess_other_width(s, None).map(u8::from),
             Ok(8)
         );
     }
@@ -2520,14 +2518,14 @@ mod tests {
     fn other_width_uneven() {
         // 8 then 9
         let s = NESlice::try_from_slice(b"       0        0").unwrap();
-        assert!(OtherOffsets20::guess_other_width(&s, None).is_err());
+        assert!(OtherOffsets20::guess_other_width(s, None).is_err());
     }
 
     #[test]
     fn other_width_nobound() {
         // this can either be 8 or 16
         let s = NESlice::try_from_slice(b"00000000000000000000000000000000").unwrap();
-        assert!(OtherOffsets20::guess_other_width(&s, None).is_err());
+        assert!(OtherOffsets20::guess_other_width(s, None).is_err());
     }
 }
 

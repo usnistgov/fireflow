@@ -12,6 +12,7 @@ quote = { workspace = true }
 proc-macro2 = { workspace = true }
 const_format = { workspace = true }
 fireflow-types = { path = "../fireflow-types", features = ["python"] }
+nonempty = { path = "../nonempty", features = ["serde", "python"] }
 
 [lib]
 proc-macro = true

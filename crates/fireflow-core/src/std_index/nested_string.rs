@@ -1,10 +1,10 @@
 use crate::validated::dataframe::HasLen;
 
-use fireflow_types::nonempty::NEStr;
+use fireflow_types::std_key::{EnumIndex, NumericEnum, StdKey};
+use nonempty::NEStr;
 
 use derive_new::new;
 use derive_where::derive_where;
-use fireflow_types::std_key::{EnumIndex, NumericEnum, StdKey};
 
 use std::iter;
 use std::marker::PhantomData;

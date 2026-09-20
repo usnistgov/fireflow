@@ -1,5 +1,6 @@
-use crate::nonempty::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 use crate::std_key::{PseudoStdKey, RealOrPseudoStdKey, StdKey};
+
+use nonempty::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 
 use derive_more::{AsRef, Display, From, Into};
 use hashbrown::{HashMap, hash_map::IntoIter};

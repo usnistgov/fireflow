@@ -29,11 +29,8 @@
 
 use crate::text::optional::Nothing;
 
-use fireflow_types::{
-    config::{ReadSharedConfig, TriErrorFlag, TriFlag},
-    nev,
-    nonempty::{FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator as _},
-};
+use fireflow_types::config::{ReadSharedConfig, TriErrorFlag, TriFlag};
+use nonempty::{FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator as _, nev};
 
 use type_families::{
     ApplyOnce, Functor, FunctorOnce, IsKind1, IsKind2, Kind1, Kind2, Monoid, Pointed, Semigroup,

@@ -18,12 +18,12 @@ use fireflow_types::config::{
 use fireflow_types::index::MeasIndex;
 use fireflow_types::keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns};
 use fireflow_types::keywords::Version;
-use fireflow_types::nonempty::{NEStr, NEString, NEVec};
 use fireflow_types::std_key::{
     CsvFlagKey, DfcKey, DollarPseudoStdKey, DollarStdKey, DollarWrap, EnumIndex as _, GateKey,
     GateKeyId, MeasKey, MeasKeyId, N_ROOT, RegionKey, RootKey, StdKey, ToStd as _,
 };
 use fireflow_types::sub_pattern::SubPattern;
+use nonempty::{NEStr, NEString, NEVec};
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -1279,8 +1279,8 @@ impl Serialize for StdKeywords {
 mod python {
     use super::StdKeywords;
 
-    use fireflow_types::nonempty::NEString;
     use fireflow_types::std_key::DollarStdKey;
+    use nonempty::NEString;
 
     use pyo3::{prelude::*, types::PyDict};
 

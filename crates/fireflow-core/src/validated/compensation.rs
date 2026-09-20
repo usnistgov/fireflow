@@ -1,4 +1,5 @@
-use fireflow_types::{index::MeasIndex, nonempty::NEVec};
+use fireflow_types::index::MeasIndex;
+use nonempty::NEVec;
 
 use derive_more::AsRef;
 use ndarray::{Array2, s};

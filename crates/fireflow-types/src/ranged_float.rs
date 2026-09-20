@@ -1,4 +1,4 @@
-use crate::nonempty::{ToDisplayNE, ambassador_impl_ToDisplayNE};
+use nonempty::{ToDisplayNE, ambassador_impl_ToDisplayNE};
 
 use ambassador::Delegate;
 use derive_more::{Add, Into, Mul};
@@ -124,6 +124,7 @@ mod tests {
     use super::*;
 
     use proptest::num::f32;
+    use proptest::{prop_assume, proptest};
 
     proptest! {
         #[test]

@@ -1,5 +1,6 @@
 use crate::case_ins_regex::{LiteralOrPattern, LiteralOrPatternError};
-use crate::nonempty::{
+
+use nonempty::{
     IntoNonEmptyIterator as _, NESlice, NEStr, NEString, NEVec, NonEmptyIterator as _, ToDisplayNE,
 };
 

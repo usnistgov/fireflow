@@ -1,5 +1,6 @@
-use super::vec::Iter;
-use super::{HasNELen, IntoNonEmptyIterator, NESlice, NEVec, NonEmptyIterator};
+#![allow(clippy::default_numeric_fallback)]
+use crate::vec::Iter;
+use crate::{HasNELen, IntoNonEmptyIterator, NESlice, NEVec, NonEmptyIterator};
 
 use core::array;
 use std::fmt;
@@ -12,7 +13,7 @@ use std::num::NonZeroUsize;
 /// Create a non-empty slice of an array:
 ///
 /// ```
-/// # use nonempty_collections::*;
+/// # use nonempty::*;
 /// assert_eq!(
 ///     NESlice::try_from_slice(&[1, 2]),
 ///     Some([1, 2].as_nonempty_slice())
@@ -22,7 +23,7 @@ use std::num::NonZeroUsize;
 /// Get the length of an array as a [`NonZeroUsize`]:
 ///
 /// ```
-/// # use nonempty_collections::NonEmptyArrayExt;
+/// # use nonempty::NonEmptyArrayExt;
 /// # use std::num::NonZeroUsize;
 /// assert_eq!(NonZeroUsize::MIN, [1].nonzero_len());
 /// ```
@@ -30,7 +31,7 @@ use std::num::NonZeroUsize;
 /// Convert array into a non-empty vec:
 ///
 /// ```
-/// # use nonempty_collections::*;
+/// # use nonempty::*;
 /// assert_eq!(nev![4], [4].into_nonempty_vec());
 /// ```
 pub trait NonEmptyArrayExt<T> {
@@ -53,7 +54,7 @@ pub trait NonEmptyArrayExt<T> {
 /// ```
 /// use std::num::NonZeroUsize;
 ///
-/// use nonempty_collections::*;
+/// use nonempty::*;
 ///
 /// fn is_one<T>(iter: impl IntoNonEmptyIterator<Item = T>) {
 ///     assert_eq!(NonZeroUsize::MIN, iter.into_nonempty_iter().count());
@@ -65,7 +66,7 @@ pub trait NonEmptyArrayExt<T> {
 /// Only compiles for non-empty arrays:
 ///
 /// ```compile_fail
-/// use nonempty_collections::*;
+/// use nonempty::*;
 ///
 /// fn is_one(iter: impl IntoNonEmptyIterator<Item = usize>) {}
 ///
@@ -151,35 +152,35 @@ impl_nonempty_iter_for_arrays!(
 
 #[cfg(test)]
 mod test {
-    use crate::IntoNonEmptyIterator;
-    use crate::NonEmptyIterator;
+    use crate::IntoNonEmptyIterator as _;
+    use crate::NonEmptyIterator as _;
 
     #[test]
-    fn test_iter() {
-        let iter = [1, 2, 3, 4].into_nonempty_iter();
-        let (first, rest) = iter.next();
-        assert_eq!(1, first);
-        assert_eq!(vec![2, 3, 4], rest.into_iter().collect::<Vec<_>>());
+    fn iter() {
+        let iter0 = [1, 2, 3, 4].into_nonempty_iter();
+        let (first0, rest0) = iter0.next();
+        assert_eq!(1, first0);
+        assert_eq!(vec![2, 3, 4], rest0.into_iter().collect::<Vec<_>>());
 
-        let iter = [1].into_nonempty_iter();
-        let (first, rest) = iter.next();
-        assert_eq!(1, first);
-        assert_eq!(0, rest.into_iter().count());
+        let iter1 = [1].into_nonempty_iter();
+        let (first1, rest1) = iter1.next();
+        assert_eq!(1, first1);
+        assert_eq!(0, rest1.into_iter().count());
 
         assert_eq!(33, [1, -2, 33, 4].into_nonempty_iter().max());
     }
 
     #[test]
-    fn test_iter_ref() {
-        let iter = (&[1, 2, 3, 4]).into_nonempty_iter();
-        let (first, rest) = iter.next();
-        assert_eq!(&1, first);
-        assert_eq!(vec![&2, &3, &4], rest.into_iter().collect::<Vec<_>>());
+    fn iter_ref() {
+        let iter0 = (&[1, 2, 3, 4]).into_nonempty_iter();
+        let (first0, rest0) = iter0.next();
+        assert_eq!(&1, first0);
+        assert_eq!(vec![&2, &3, &4], rest0.into_iter().collect::<Vec<_>>());
 
-        let iter = (&[1]).into_nonempty_iter();
-        let (first, rest) = iter.next();
-        assert_eq!(&1, first);
-        assert_eq!(0, rest.into_iter().count());
+        let iter1 = (&[1]).into_nonempty_iter();
+        let (first1, rest1) = iter1.next();
+        assert_eq!(&1, first1);
+        assert_eq!(0, rest1.into_iter().count());
 
         assert_eq!(&33, (&[1, -2, 33, 4]).into_nonempty_iter().max());
     }

@@ -7,30 +7,28 @@ use fireflow_core::{
     validated::read_state::DatasetOffset,
 };
 
-use fireflow_types::{
-    args::dash as ta,
-    byteord::ConfigByteOrd,
-    case_ins_regex::PATTERN_DELIMITER,
-    config::{self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, NumericByteWidth},
-    datepattern::DatePattern,
-    keystring::KeyStringOrPattern,
-    keywords as tk,
-    nonempty::{NEStr, NEString},
-    other_width::OtherWidth,
-    segment::OffsetsCorrection,
-    std_key::{self as sk, RealOrPseudoStdKey, StdKey},
-    sub_pattern::SubPattern,
-    textdelim::TEXTDelim,
-    timepattern::TimePattern,
+use fireflow_types::args::dash as ta;
+use fireflow_types::byteord::ConfigByteOrd;
+use fireflow_types::case_ins_regex::PATTERN_DELIMITER;
+use fireflow_types::config::{
+    self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, NumericByteWidth,
 };
+use fireflow_types::datepattern::DatePattern;
+use fireflow_types::keystring::KeyStringOrPattern;
+use fireflow_types::keywords as tk;
+use fireflow_types::other_width::OtherWidth;
+use fireflow_types::segment::OffsetsCorrection;
+use fireflow_types::std_key::{self as sk, RealOrPseudoStdKey, StdKey};
+use fireflow_types::sub_pattern::SubPattern;
+use fireflow_types::textdelim::TEXTDelim;
+use fireflow_types::timepattern::TimePattern;
+use nonempty::{NEStr, NEString};
 
 use ansi_term::{ANSIString, Style};
-use clap::{
-    Arg, ArgAction, ArgMatches, Command,
-    builder::{IntoResettable, StyledStr, ValueParser},
-    error::ErrorKind,
-    value_parser,
-};
+use clap::builder::{IntoResettable, StyledStr, ValueParser};
+use clap::error::ErrorKind;
+use clap::value_parser;
+use clap::{Arg, ArgAction, ArgMatches, Command};
 use hashbrown::HashMap;
 use itertools::Itertools as _;
 use itoa::Buffer as IBuf;
@@ -39,16 +37,14 @@ use serde::Serialize;
 use serde_json::{json, to_writer};
 use zmij::Buffer as FBuf;
 
-use std::{
-    collections::HashSet,
-    error::Error,
-    fmt::Display,
-    io::{self, Write},
-    iter::once,
-    path::PathBuf,
-    process::ExitCode,
-    str::FromStr,
-};
+use std::collections::HashSet;
+use std::error::Error;
+use std::fmt::Display;
+use std::io::{self, Write};
+use std::iter::once;
+use std::path::PathBuf;
+use std::process::ExitCode;
+use std::str::FromStr;
 
 fn main() -> ExitCode {
     match run() {

@@ -5,13 +5,11 @@ use crate::text::keyword_enum::{Keyword0FromValue as _, OptRootKeyword};
 use crate::text::lookup::{Diagnosed, FromStrWith, OptStKeyError, OptValue as _};
 use crate::validated::keys::ValueToStdKey as _;
 
-use fireflow_types::{
-    config::{ConfigFlag as _, ReadDataKeywordsConfig},
-    keywords::{
-        ISO_DATETIME_NO_TZ, ISO_DATETIME_TZ_HH, ISO_DATETIME_TZ_HH_MAYBE_MM, ISO_DATETIME_TZ_HH_MM,
-    },
-    nonempty::{NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE},
+use fireflow_types::config::{ConfigFlag as _, ReadDataKeywordsConfig};
+use fireflow_types::keywords::{
+    ISO_DATETIME_NO_TZ, ISO_DATETIME_TZ_HH, ISO_DATETIME_TZ_HH_MAYBE_MM, ISO_DATETIME_TZ_HH_MM,
 };
+use nonempty::{NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE};
 
 use type_families::BifunctorOnce as _;
 
@@ -200,7 +198,7 @@ macro_rules! impl_from_str_with {
             type Config = EvaledReadStdKeywordsConfig;
 
             fn from_str_with(
-                s: &fireflow_types::nonempty::NEStr,
+                s: &nonempty::NEStr,
                 (): (),
                 conf: &Self::Config,
             ) -> Result<Diagnosed<Self, Self::Diagnostic>, Self::Err> {

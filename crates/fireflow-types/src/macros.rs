@@ -27,7 +27,7 @@ macro_rules! impl_str_enum_base {
         impl $crate::config::EnumStrIter<{ $crate::impl_str_enum!(@count $($var),*) }> for $flag_name {
             const ITEMS: [Self; { $crate::impl_str_enum!(@count $($var),*) }] = [$(Self::$var),*];
 
-            fn as_ne_str(&self) -> &'static $crate::nonempty::NEStr {
+            fn as_ne_str(&self) -> &'static nonempty::NEStr {
                 match self {
                     $(Self::$var => $strlit,)*
                 }
@@ -88,7 +88,7 @@ macro_rules! impl_str_enum {
                 // TODO what if this string is really really long?
                 let original = &self.0;
                 let all: Vec<_> = <$flag_name as $crate::config::EnumStrIter<_>>::iter_str().collect();
-                let ne = $crate::nonempty::NESlice::try_from_slice(&all[..])
+                let ne = nonempty::NESlice::try_from_slice(&all[..])
                     .expect("macro should require at least one flag so this should never fail");
                 let (last, rest) = ne.split_last();
                 if rest.is_empty() {
@@ -122,8 +122,8 @@ macro_rules! impl_str_enum_kw {
             $($(#[$var_meta])* $var => $strlit),*
         );
 
-        impl $crate::nonempty::ToDisplayNE<'_> for $flag_name {
-            type NE = &'static $crate::nonempty::NEStr;
+        impl nonempty::ToDisplayNE<'_> for $flag_name {
+            type NE = &'static nonempty::NEStr;
             fn to_ne(&self) -> Self::NE {
                 $crate::config::EnumStrIter::as_ne_str(self)
             }

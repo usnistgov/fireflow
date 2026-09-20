@@ -8,7 +8,6 @@ pub mod keystring;
 pub mod keystring_pairs;
 pub mod keywords;
 pub mod macros;
-pub mod nonempty;
 pub mod other_width;
 #[cfg(feature = "python")]
 pub mod python;

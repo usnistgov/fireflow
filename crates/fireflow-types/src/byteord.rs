@@ -1,4 +1,4 @@
-use crate::nonempty::NEVec;
+use nonempty::NEVec;
 
 use derive_more::{AsRef, Display};
 use thiserror::Error;

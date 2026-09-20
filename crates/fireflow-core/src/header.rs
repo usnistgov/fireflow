@@ -37,9 +37,9 @@ use fireflow_types::config::{
     SelectVersionStrategy, VersionOverride,
 };
 use fireflow_types::keywords::{Version, VersionFormatError};
-use fireflow_types::nonempty::{IntoIteratorExt as _, NEString, NEVec, NonEmptyIterator as _};
 use fireflow_types::std_key::{RootKey, ToStd as _};
 use fireflow_types::textdelim::{DelimCollisionError, HasDelim as _};
+use nonempty::{IntoIteratorExt as _, NEString, NEVec, NonEmptyIterator as _};
 
 use derive_more::{Display, From};
 use derive_new::new;

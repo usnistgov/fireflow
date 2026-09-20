@@ -8,7 +8,7 @@ Simple types and constants used throughout other fireflow crates.
 
 [dependencies]
 chrono = { workspace = true }
-derive_more = { workspace = true, features = ["from", "into", "display", "from_str", "try_into"] }
+derive_more = { workspace = true, features = ["from", "into", "display", "from_str", "try_into", "add", "mul"] }
 thiserror = { workspace = true }
 const_format = { workspace = true }
 pyo3 = { workspace = true, optional = true, features = ["macros", "hashbrown"] }
@@ -28,13 +28,18 @@ itertools = { workspace = true }
 hashbrown = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
-bytemuck = { workspace = true, features = [ "must_cast", "derive" ] }
+bytemuck = { workspace = true, features = ["must_cast", "derive"] }
 type_families = { path = "../type_families" }
+nonempty = { path = "../nonempty", features = ["serde", "python"] }
+
+[dev-dependencies]
+proptest = { workspace = true }
+proptest-derive = { workspace = true }
 
 [features]
 python = ["dep:pyo3", "dep:fireflow-core-proc"]
 serde = ["dep:serde"]
-testutil = ["dep:proptest", "dep:proptest-derive"]
+testutil = ["dep:proptest", "dep:proptest-derive", "nonempty/proptest"]
 dash_args = []
 underscore_args = []
 

@@ -1,0 +1,27 @@
+[package]
+name = "nonempty"
+version = { workspace = true }
+edition = { workspace = true }
+description = """
+Collections which are guaranteed to be non-empty.
+"""
+
+[dependencies]
+derive_more = { workspace = true, features = ["from", "into", "display", "as_ref"] }
+thiserror = { workspace = true }
+pyo3 = { workspace = true, optional = true, features = ["macros"] }
+bigdecimal = { workspace = true }
+ambassador = { workspace = true }
+derive-new = { workspace = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+proptest = { workspace = true, optional = true }
+hashbrown = { workspace = true }
+type_families = { path = "../type_families" }
+
+[features]
+python = ["dep:pyo3"]
+serde = ["dep:serde"]
+proptest = ["dep:proptest"]
+
+[lints]
+workspace = true

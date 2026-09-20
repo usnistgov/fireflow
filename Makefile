@@ -31,6 +31,8 @@ rs-fmt:
 
 .PHONY: rs-test
 rs-test:
+	cargo test -p nonempty
+	cargo test -p fireflow-types
 	cargo test -p fireflow-core
 
 .PHONY: rs-docs

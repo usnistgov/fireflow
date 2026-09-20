@@ -61,11 +61,9 @@ use fireflow_types::config::{
     WriteDatasetInnerConfig, WriteMultiConfig,
 };
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
-use fireflow_types::nonempty::{
-    IntoIteratorExt as _, NESlice, NEStr, NEVec, NonEmptyIterator as _,
-};
 use fireflow_types::segment::{OffsetsFromTEXT, SupplementalTextSegmentId};
 use fireflow_types::std_key::{DollarPseudoStdKey, DollarStdKey, RootKey, ToStd as _};
+use nonempty::{IntoIteratorExt as _, NESlice, NEStr, NEVec, NonEmptyIterator as _};
 
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
 
@@ -3310,7 +3308,7 @@ mod tests {
             .unwrap()
             .collect();
         let slice = segs.as_nonempty_slice();
-        assert_eq!(GuessedEscapeMode::test_both_modes(&slice), comp);
+        assert_eq!(GuessedEscapeMode::test_both_modes(slice), comp);
     }
 
     // #[test]

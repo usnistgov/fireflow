@@ -1,4 +1,4 @@
-use super::{
+use crate::{
     FromNonEmptyIterator, HasNELen, IntoNonEmptyIterator, NESlice, NEStr, NEVec,
     NonEmptyIterator as _,
 };
@@ -17,16 +17,12 @@ use std::{
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use {
-    crate::python as py,
-    fireflow_core_proc::{DisplayAsPyErr, FromPyString},
-    pyo3::prelude::*,
-};
+use pyo3::prelude::*;
 
 /// A string which can never be empty.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Display, Into, Debug, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[as_ref(str)]
 pub struct NEString(String);
 
@@ -40,8 +36,6 @@ pub struct FromNEUtf8Error {
 /// Error when parsing [`NonEmptyString`] from empty [`String`]
 #[derive(Error, Debug, PartialEq, Clone)]
 #[error("string cannot be empty")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub struct NonEmptyStringError;
 
 impl PartialEq<&NEStr> for NEString {
@@ -190,7 +184,7 @@ impl NEString {
     }
 }
 
-#[cfg(feature = "testutil")]
+#[cfg(feature = "proptest")]
 mod testutil {
     use super::NEString;
     use proptest::prelude::*;
@@ -200,6 +194,26 @@ mod testutil {
         type Strategy = BoxedStrategy<Self>;
         fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
             "\\PC+".prop_map(|s| s.parse().unwrap()).boxed()
+        }
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{NEString, NonEmptyStringError};
+
+    use pyo3::{exceptions::PyValueError, prelude::*};
+
+    impl<'py> FromPyObject<'_, 'py> for NEString {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            Ok(Self::try_from(obj.extract::<String>()?)?)
+        }
+    }
+
+    impl From<NonEmptyStringError> for PyErr {
+        fn from(value: NonEmptyStringError) -> Self {
+            PyValueError::new_err(value.to_string())
         }
     }
 }

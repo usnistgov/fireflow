@@ -4,10 +4,9 @@ use fireflow_types::config::{KeyPatterns, TimeMeasNamePattern};
 use fireflow_types::datepattern::DatePattern;
 use fireflow_types::keystring::{KeyStringOrPattern, KeyStringsOrPatterns};
 use fireflow_types::keystring_pairs::KeyStringPairs;
-use fireflow_types::nonempty::{NEStr, NEString, NEVec, NonEmptyIterator as _};
 use fireflow_types::std_key::{DollarWrap, RealOrPseudoStdKey, RootKey, ToStd as _};
 use fireflow_types::timepattern::TimePattern;
-use fireflow_types::{ne_str, nev};
+use nonempty::{NEStr, NEString, NEVec, NonEmptyIterator as _, ne_str, nev};
 
 use derive_more::Display;
 use derive_new::new;
@@ -409,8 +408,8 @@ mod python {
 
     use crate::validated::keys::AnyKey;
 
-    use fireflow_types::nonempty::{NEStr, NEString, NEVec};
     use fireflow_types::python as fp;
+    use nonempty::{NEStr, NEString, NEVec};
 
     use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyTuple};
 

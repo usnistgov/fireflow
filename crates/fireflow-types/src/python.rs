@@ -1,10 +1,7 @@
-use crate::{
-    config::EnumStrIter as _,
-    nonempty::NEStr,
-    {impl_str_enum, ne_str},
-};
+use crate::{config::EnumStrIter as _, impl_str_enum};
 
 use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
+use nonempty::{NEStr, ne_str};
 
 use derive_more::Display;
 use pyo3::{

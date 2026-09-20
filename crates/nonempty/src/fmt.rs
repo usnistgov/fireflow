@@ -1,17 +1,15 @@
-use super::{NESlice, NEStr, NEString, NEVec, NonEmptyArrayExt, NonEmptyIterator as _};
+use crate::{NESlice, NEStr, NEString, NEVec, NonEmptyArrayExt, NonEmptyIterator as _};
 
 use ambassador::delegatable_trait;
 use bigdecimal::BigDecimal;
 use derive_more::From;
 use derive_new::new;
 
-use std::{
-    fmt,
-    num::NonZeroUsize,
-    num::{NonZeroU8, NonZeroU32},
-    ptr::from_ref,
-    slice,
-};
+use std::fmt;
+use std::num::NonZeroUsize;
+use std::num::{NonZeroU8, NonZeroU32};
+use std::ptr::from_ref;
+use std::slice;
 
 use sealed::DisplayNEInner;
 

@@ -1,20 +1,18 @@
-use crate::{
-    byteord::ConfigByteOrd,
-    index::MeasIndex,
-    keystring::KeyStringsOrPatterns,
-    keywords::Version,
-    macros::{impl_config_flag, impl_str_enum},
-    ne_str,
-    nonempty::NEStr,
-    other_width::OtherWidth,
-    ranged_float::PositiveFloat,
-    segment::{
-        AnalysisSegmentId, DataSegmentId, HeaderCorrection, OtherSegmentId, PrimaryTextSegmentId,
-        SupplementalTextSegmentId, TEXTCorrection,
-    },
-    sub_pattern::SubPattern,
-    textdelim::TEXTDelim,
+use crate::byteord::ConfigByteOrd;
+use crate::index::MeasIndex;
+use crate::keystring::KeyStringsOrPatterns;
+use crate::keywords::Version;
+use crate::macros::{impl_config_flag, impl_str_enum};
+use crate::other_width::OtherWidth;
+use crate::ranged_float::PositiveFloat;
+use crate::segment::{
+    AnalysisSegmentId, DataSegmentId, HeaderCorrection, OtherSegmentId, PrimaryTextSegmentId,
+    SupplementalTextSegmentId, TEXTCorrection,
 };
+use crate::sub_pattern::SubPattern;
+use crate::textdelim::TEXTDelim;
+
+use nonempty::{NEStr, ne_str};
 
 use const_format::formatcp;
 use derive_more::{AsRef, Display, From, FromStr, FromStrError, Into};
@@ -2379,16 +2377,14 @@ mod python {
         OpticalOnlyKeys, SubPatterns,
     };
 
-    use crate::{
-        byteord::ConfigByteOrd,
-        case_ins_regex::{LiteralOrPattern, LiteralOrPatternError},
-        keystring::KeyStringOrPattern,
-        nonempty::NEStr,
-        python::ConfigError,
-        sub_pattern::SubPattern,
-    };
+    use crate::byteord::ConfigByteOrd;
+    use crate::case_ins_regex::{LiteralOrPattern, LiteralOrPatternError};
+    use crate::keystring::KeyStringOrPattern;
+    use crate::python::ConfigError;
+    use crate::sub_pattern::SubPattern;
 
     use hashbrown::HashMap;
+    use nonempty::NEStr;
     use pyo3::{
         IntoPyObjectExt as _,
         prelude::*,

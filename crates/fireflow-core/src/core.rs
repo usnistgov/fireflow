@@ -133,13 +133,11 @@ use fireflow_types::index::MeasIndex;
 use fireflow_types::keywords::{
     HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
-use fireflow_types::nonempty::{
-    IntoIteratorExt as _, NESlice, NEStr, NEString, NEVec, NonEmptyIterator as _,
-};
 use fireflow_types::segment::{AnalysisSegmentId, DataSegmentId};
 use fireflow_types::std_key::DollarStdKey;
 use fireflow_types::textdelim::TEXTDelim;
 use fireflow_types::timepattern::TimePattern;
+use nonempty::{IntoIteratorExt as _, NESlice, NEStr, NEString, NEVec, NonEmptyIterator as _};
 
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
@@ -168,11 +166,9 @@ use {
         RefKeyword,
     },
     crate::text::keywords as kws,
-    fireflow_types::{
-        ne_str,
-        std_key::{BlankKeyword as _, MeasKeyId},
-    },
+    fireflow_types::std_key::{BlankKeyword as _, MeasKeyId},
     ndarray::Array2,
+    nonempty::ne_str,
     serde::Serialize,
     std::string::ToString as _,
 };

@@ -4,10 +4,9 @@ use crate::text::lookup::ReqValue;
 use crate::validated::ascii_range::{Chars, CharsError};
 
 use fireflow_types::config::NumericByteWidth;
-use fireflow_types::ne_str;
-use fireflow_types::nonempty::{
+use nonempty::{
     FromNonEmptyIterator, IntoNonEmptyIterator, NEDelim, NEStr, NEVec, NonEmptyIterator as _,
-    ToDisplayNE,
+    ToDisplayNE, ne_str,
 };
 
 use derive_more::{AsRef, Display, From, Into};
@@ -650,8 +649,8 @@ mod python {
     use super::{ArgBytes, Endian, NewArgBytesError};
 
     use fireflow_types::keywords::{BYTEORD_BIG, BYTEORD_LITTLE};
-    use fireflow_types::nonempty::NEStr;
     use fireflow_types::python::InvalidKeywordValueError;
+    use nonempty::NEStr;
 
     use pyo3::types::PyInt;
     use pyo3::{prelude::*, types::PyString};

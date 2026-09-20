@@ -44,6 +44,7 @@ pyo3 = { workspace = true, optional = true }
 numpy = { workspace = true, optional = true }
 strum = { workspace = true }
 derive-where = { workspace = true }
+nonempty = { path = "../nonempty", features = ["python", "serde", "proptest"] }
 
 [dev-dependencies]
 proptest = { workspace = true }

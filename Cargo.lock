@@ -842,6 +842,7 @@ dependencies = [
  "hashbrown 0.16.1",
  "itertools 0.14.0",
  "itoa",
+ "nonempty",
  "regex",
  "serde",
  "serde_json",
@@ -867,6 +868,7 @@ dependencies = [
  "hashbrown 0.16.1",
  "itertools 0.14.0",
  "ndarray",
+ "nonempty",
  "num-derive",
  "num-traits",
  "num_enum",
@@ -887,6 +889,7 @@ dependencies = [
 name = "fireflow-core-proc"
 version = "0.1.1"
 dependencies = [
+ "nonempty",
  "quote",
  "syn",
 ]
@@ -909,6 +912,7 @@ dependencies = [
  "fireflow-python-proc",
  "fireflow-types",
  "hashbrown 0.16.1",
+ "nonempty",
  "polars",
  "polars-arrow",
  "pyo3",
@@ -925,6 +929,7 @@ dependencies = [
  "derive_more",
  "fireflow-types",
  "itertools 0.14.0",
+ "nonempty",
  "proc-macro2",
  "quote",
  "syn",
@@ -944,6 +949,7 @@ dependencies = [
  "fireflow-core-proc",
  "hashbrown 0.16.1",
  "itertools 0.14.0",
+ "nonempty",
  "num-derive",
  "num-traits",
  "num_enum",
@@ -1768,6 +1774,22 @@ dependencies = [
  "portable-atomic-util",
  "rawpointer",
  "serde",
+]
+
+[[package]]
+name = "nonempty"
+version = "0.1.1"
+dependencies = [
+ "ambassador",
+ "bigdecimal",
+ "derive-new",
+ "derive_more",
+ "hashbrown 0.16.1",
+ "proptest",
+ "pyo3",
+ "serde",
+ "thiserror 2.0.18",
+ "type_families",
 ]
 
 [[package]]

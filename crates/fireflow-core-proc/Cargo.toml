@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 syn = { workspace = true, features = ["derive", "parsing"] }
 quote = { workspace = true }
+nonempty = { path = "../nonempty", features = ["python"] }
 
 [lib]
 proc-macro = true

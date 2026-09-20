@@ -30,29 +30,28 @@ use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
-use fireflow_types::std_key::DfcKey;
-use fireflow_types::{
-    byteord::ConfigByteOrd,
-    config::{
-        ConfigFlag as _, ForceLinearScale, NumericByteWidth, OpticalOnlyKey,
-        ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig,
-        TrimIntraValueWhitespace,
-    },
-    index::{BiMeasIndex, GateIndex, IndexFromOne, MeasIndex, RegionIndex, SubsetIndex},
-    keywords::{MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version},
-    nonempty::{
-        DisplayableNE as _, IntoIteratorExt as _, IntoNonEmptyIterator as _, NEAlt, NEConcat,
-        NEConcat3, NEConcat5, NEDelim, NEMap, NESlice, NEStr, NEString, NEVec,
-        NonEmptyArrayExt as _, NonEmptyIterator as _, ToDisplayNE, ToNE,
-        ambassador_impl_ToDisplayNE, once,
-    },
-    ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError},
-    std_key::{
-        CsvFlagKeyMarker, DfcKeyMarker, MeasKeyId, RegionKeyId, RootKey, StdKey, ToStd as _,
-    },
-    textdelim::{DelimCollisionError, HasDelim, TEXTDelim},
+use fireflow_types::byteord::ConfigByteOrd;
+use fireflow_types::config::{
+    ConfigFlag as _, ForceLinearScale, NumericByteWidth, OpticalOnlyKey, ProcessOptionalFailure,
+    ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, TrimIntraValueWhitespace,
 };
-use fireflow_types::{impl_str_enum_kw, ne_str};
+use fireflow_types::impl_str_enum_kw;
+use fireflow_types::index::{
+    BiMeasIndex, GateIndex, IndexFromOne, MeasIndex, RegionIndex, SubsetIndex,
+};
+use fireflow_types::keywords::{
+    MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version,
+};
+use fireflow_types::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
+use fireflow_types::std_key::{
+    CsvFlagKeyMarker, DfcKey, DfcKeyMarker, MeasKeyId, RegionKeyId, RootKey, StdKey, ToStd as _,
+};
+use fireflow_types::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
+use nonempty::{
+    DisplayableNE as _, IntoIteratorExt as _, IntoNonEmptyIterator as _, NEAlt, NEConcat,
+    NEConcat3, NEConcat5, NEDelim, NEMap, NESlice, NEStr, NEString, NEVec, NonEmptyArrayExt as _,
+    NonEmptyIterator as _, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE, ne_str, once,
+};
 
 use type_families::{BifunctorOnce, impl_functor, impl_kind1};
 
@@ -3926,7 +3925,7 @@ mod tests {
         keyword_enum::{self as kr, AsStdKeywordPair as _, Keyword1FromValue as _},
     };
 
-    use fireflow_types::nonempty::DisplayNE as _;
+    use nonempty::DisplayNE as _;
 
     use assert_matches::assert_matches;
     use proptest::prelude::*;
@@ -4745,15 +4744,13 @@ mod python {
         TemporalScaleFix, Trigger, UniGate, Unicode, Vertex,
     };
 
-    use fireflow_types::{
-        keywords::{
-            SCALE_DIAGNOSTIC_FORCED, SCALE_DIAGNOSTIC_LOG, SCALE_DIAGNOSTIC_TRIMMED,
-            SCALE_DIAGNOSTIC_TRIMMED_LOG, TEMPORAL_SCALE_DIAGNOSTIC_FORCED,
-            TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED,
-        },
-        nonempty::{NEStr, NEString},
-        ranged_float::PositiveFloat,
+    use fireflow_types::keywords::{
+        SCALE_DIAGNOSTIC_FORCED, SCALE_DIAGNOSTIC_LOG, SCALE_DIAGNOSTIC_TRIMMED,
+        SCALE_DIAGNOSTIC_TRIMMED_LOG, TEMPORAL_SCALE_DIAGNOSTIC_FORCED,
+        TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED,
     };
+    use fireflow_types::ranged_float::PositiveFloat;
+    use nonempty::{NEStr, NEString};
 
     use pyo3::conversion::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;

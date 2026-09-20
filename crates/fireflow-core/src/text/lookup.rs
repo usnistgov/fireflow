@@ -5,8 +5,8 @@ use crate::validated::keys::{DollarKey, DollarKey_, TruncatedNEString, ValueToSt
 use fireflow_types::config::{
     ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, TrimIntraValueWhitespace,
 };
-use fireflow_types::nonempty::{NEStr, NEString};
 use fireflow_types::std_key::{DollarStdKey, DollarWrap};
+use nonempty::{NEStr, NEString};
 
 use type_families::{BifunctorOnce, Sibling2, impl_kind2};
 
@@ -215,17 +215,15 @@ macro_rules! impl_from_str_with_delim {
         impl crate::text::lookup::FromStrWith for $t {
             type Err = $e;
             type Payload<'a> = ();
-            type Diagnostic = Option<fireflow_types::nonempty::NEString>;
+            type Diagnostic = Option<nonempty::NEString>;
             type Config = crate::config::EvaledReadStdKeywordsConfig;
 
             fn from_str_with(
-                s: &fireflow_types::nonempty::NEStr,
+                s: &nonempty::NEStr,
                 (): (),
                 conf: &crate::config::EvaledReadStdKeywordsConfig,
-            ) -> Result<
-                crate::text::lookup::Diagnosed<Self, Option<fireflow_types::nonempty::NEString>>,
-                Self::Err,
-            > {
+            ) -> Result<crate::text::lookup::Diagnosed<Self, Option<nonempty::NEString>>, Self::Err>
+            {
                 let (res, trimmed) = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
                 res.map(|x| Diagnosed::new(x, trimmed))
             }

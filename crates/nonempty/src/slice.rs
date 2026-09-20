@@ -1,9 +1,7 @@
-use super::{
-    HasNELen,
-    iter::{IntoNonEmptyIterator, NonEmptyIterator as _},
-    string::NEString,
-    vec::{Iter, NEVec},
-};
+#![allow(clippy::default_numeric_fallback)]
+
+use crate::vec::Iter;
+use crate::{HasNELen, IntoNonEmptyIterator, NEString, NEVec, NonEmptyIterator};
 
 use derive_more::{AsRef, Display};
 
@@ -127,6 +125,8 @@ impl<T> NESlice<T> {
         NEChunks(self.0.chunks(chunk_size.get()))
     }
 }
+
+impl<T> NonEmptyIterator for NEChunks<'_, T> {}
 
 impl<'a, T> IntoIterator for NEChunks<'a, T> {
     type Item = &'a NESlice<T>;

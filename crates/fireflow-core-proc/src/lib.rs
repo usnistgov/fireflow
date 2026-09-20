@@ -310,7 +310,7 @@ pub fn derive_to_py_via_ne_display(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as DeriveInput);
     let name = &parsed.ident;
 
-    let to_string = parse_quote!(fireflow_types::nonempty::DisplayableNE::as_string);
+    let to_string = parse_quote!(nonempty::DisplayableNE::as_string);
     into_str_pyobject(name, &to_string)
 }
 

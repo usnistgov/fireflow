@@ -1,22 +1,19 @@
 use crate::config::EvaledReadStdKeywordsConfig;
 use crate::core::TrimmedKeyword;
+use crate::text::lookup::{Diagnosed, FromStrWith, FromStrWithResult};
+use crate::text::named_vec::{NameMapping, NamedSet};
+use crate::text::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
 use crate::validated::keys::{DollarKey, ValueToStdKey as _};
 use crate::validated::shortname::Shortname;
 
-use super::lookup::{Diagnosed, FromStrWith, FromStrWithResult};
-use super::named_vec::{NameMapping, NamedSet};
-use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
-
+use fireflow_types::config::{ConfigFlag as _, SpilloverMeasurementMode, TrimIntraValueWhitespace};
+use fireflow_types::index::MeasIndex;
 use fireflow_types::std_key::DollarWrap;
-use fireflow_types::{
-    config::{ConfigFlag as _, SpilloverMeasurementMode, TrimIntraValueWhitespace},
-    index::MeasIndex,
-    nonempty::{
-        IntoIteratorExt as _, NEConcat, NEConcat5, NEDelim, NESlice, NEStr, NEVec,
-        NonEmptyIterator as _, ToDisplayNE, ToNE,
-    },
-    textdelim::{DelimCollisionError, HasDelim, TEXTDelim},
+use fireflow_types::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
+use nonempty::{
+    IntoIteratorExt as _, NEConcat, NEConcat5, NEDelim, NESlice, NEStr, NEVec,
+    NonEmptyIterator as _, ToDisplayNE, ToNE,
 };
 
 use derive_more::{AsRef, Display, From};
@@ -331,7 +328,7 @@ mod tests {
     use super::*;
     use crate::test::*;
 
-    use fireflow_types::{ne_str, nonempty::DisplayableNE as _};
+    use nonempty::{DisplayableNE as _, ne_str};
 
     use assert_matches::assert_matches;
 

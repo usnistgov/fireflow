@@ -871,7 +871,8 @@ pub fn impl_py_valid_keywords(input: TokenStream) -> TokenStream {
     let name = path.segments.last().unwrap().ident.clone();
 
     let std = DocArg::new_std_keywords_param().into_ro(|_, _| quote!(self.0.std.clone().into()));
-    let pstd = DocArg::new_pstd_keywords_param().into_ro(|_, _| quote!(self.0.pstd.clone().into()));
+    let pstd =
+        DocArg::new_pstd_keywords_param("pstd").into_ro(|_, _| quote!(self.0.pstd.clone().into()));
     let nonstd =
         DocArg::new_nonstd_keywords_param().into_ro(|_, _| quote!(self.0.nonstd.clone().into()));
 
@@ -2576,7 +2577,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
 
     let scores = DocArg::new_version_scores_param();
 
-    let pseudo = DocArg::new_pstd_keywords_param()
+    let pseudo = DocArg::new_pstd_keywords_param("pseudostandard")
         .into_ro(|_, _| quote!(self.0.pseudostandard.clone().into()));
 
     let args = [tot, dataset_offsets, repair, std, flat, scores, pseudo];
@@ -2593,7 +2594,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
                     flat_diagnostics.into(),
                     repair_diagnostics.into(),
                     version_scores.map(|(a, b, c, d)| (a.into(), b.into(), c.into(), d.into())),
-                    pstd,
+                    pseudostandard,
                 ).into()
             }
 
@@ -2633,7 +2634,7 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
     let repair = DocArg::new_repair_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.repair_diagnostics.clone().into()));
 
-    let pseudo = DocArg::new_pstd_keywords_param()
+    let pseudo = DocArg::new_pstd_keywords_param("pseudostandard")
         .into_ro(|_, _| quote!(self.0.pseudostandard.clone().into()));
 
     let args = [dataset, flat, scores, repair, pseudo];
@@ -2649,7 +2650,7 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
                     flat_diagnostics.into(),
                     version_scores.map(|(a, b, c, d)| (a.into(), b.into(), c.into(), d.into())),
                     repair_diagnostics.into(),
-                    pstd
+                    pseudostandard
                 ).into()
             }
 
@@ -10024,9 +10025,9 @@ impl DocArgParam {
         Self::new_param("std", PyAlias::new_std_keywords(), "Standard keywords.")
     }
 
-    fn new_pstd_keywords_param() -> Self {
+    fn new_pstd_keywords_param(name: &'static str) -> Self {
         Self::new_param(
-            "pstd",
+            name,
             PyAlias::new_pstd_keywords(),
             "Pseudostandard keywords.",
         )

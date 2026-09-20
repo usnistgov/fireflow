@@ -411,10 +411,16 @@ type RootOrMeas = Literal["root_only", "meas_only", "both"]
 type NEStr = str
 """A string which cannot be empty."""
 
+type NEBytes = bytes
+"""A bytestring which cannot be empty."""
+
 type NEStrOrBytes = str | bytes
 """A string or bytestring which cannot be empty."""
 
-type KeyOrBytes = StdKey | NonStdKey | bytes
+type AnyKey = StdKey | PseudoStdKey | NonStdKey | bytes
+"""A valid key from *TEXT*."""
+
+type KeyOrBytes = AnyKey | bytes
 """A valid key from *TEXT* or a bytestring."""
 
 type KeyString = NEStr
@@ -427,14 +433,21 @@ Only printable ASCII characters are allowed.
 """
 
 type StdKey = NEStr
-"""The value of a standard key (ie starts with ``"$"``).
+"""A standard key (starts with ``"$"``).
+
+Only printable ASCII characters are allowed.
+
+"""
+
+type PseudoStdKey = NEStr
+"""A key that starts with a ``"$"`` but is not really standard.
 
 Only printable ASCII characters are allowed.
 
 """
 
 type NonStdKey = NEStr
-"""The value of a non-standard key (ie does not start with ``"$"``).
+"""A non-standard key (does not start with ``"$"``).
 
 Only printable ASCII characters are allowed.
 
@@ -442,6 +455,9 @@ Only printable ASCII characters are allowed.
 
 type StdKeywords = dict[StdKey, NEStr]
 """All standard keywords and their serialized values."""
+
+type PseudoStdKeywords = dict[PseudoStdKey, NEStr]
+"""All keys that start with '$' but are not really standard keywords."""
 
 type NonStdKeywords = dict[NonStdKey, NEStr]
 """All non-standard keywords and their serialized values."""

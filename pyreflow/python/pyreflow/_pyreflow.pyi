@@ -1157,14 +1157,6 @@ class CoreTEXT2_0(
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
         # layout args
-        ignore_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-        replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-        append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
-        substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
-        allow_repair_non_unique: pft.TriFlag = "false",
         process_optional_failure: pft.ProcessKeywordFailure = "error",
         int_width_override: pft.IntWidthOverride = "never",
         byteord_override: pft.ByteordOverride = "none",
@@ -1260,14 +1252,6 @@ class CoreTEXT3_0(
         fix_log_scale_offsets: bool = False,
         add_missing_timestep: float | None = None,
         # layout args
-        ignore_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-        replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-        append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
-        substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
-        allow_repair_non_unique: pft.TriFlag = "false",
         text_data_correction: pft.OffsetCorrection = (0, 0),
         text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
@@ -1384,14 +1368,6 @@ class CoreTEXT3_1(
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         # layout args
-        ignore_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-        replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-        append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
-        substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
-        allow_repair_non_unique: pft.TriFlag = "false",
         text_data_correction: pft.OffsetCorrection = (0, 0),
         text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
@@ -1508,14 +1484,6 @@ class CoreTEXT3_2(
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
         # layout args
-        ignore_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-        replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-        append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
-        substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
-        allow_repair_non_unique: pft.TriFlag = "false",
         text_data_correction: pft.OffsetCorrection = (0, 0),
         text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
@@ -1611,14 +1579,6 @@ class CoreDataset2_0(
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
         # layout args
-        ignore_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-        replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-        append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
-        substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
-        allow_repair_non_unique: pft.TriFlag = "false",
         process_optional_failure: pft.ProcessKeywordFailure = "error",
         int_width_override: pft.IntWidthOverride = "never",
         byteord_override: pft.ByteordOverride = "none",
@@ -1736,14 +1696,6 @@ class CoreDataset3_0(
         fix_log_scale_offsets: bool = False,
         add_missing_timestep: float | None = None,
         # layout args
-        ignore_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-        replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-        append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
-        substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
-        allow_repair_non_unique: pft.TriFlag = "false",
         text_data_correction: pft.OffsetCorrection = (0, 0),
         text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
@@ -1887,14 +1839,6 @@ class CoreDataset3_1(
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         # layout args
-        ignore_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-        replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-        append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
-        substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
-        allow_repair_non_unique: pft.TriFlag = "false",
         text_data_correction: pft.OffsetCorrection = (0, 0),
         text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
@@ -2038,14 +1982,6 @@ class CoreDataset3_2(
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
         # layout args
-        ignore_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-        rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-        replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-        append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
-        substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
-        allow_repair_non_unique: pft.TriFlag = "false",
         text_data_correction: pft.OffsetCorrection = (0, 0),
         text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
@@ -2155,10 +2091,17 @@ class Header:
 
 @final
 class ValidKeywords:
-    def __new__(cls, std: pft.StdKeywords, nonstd: pft.NonStdKeywords) -> Self: ...
+    def __new__(
+        cls,
+        std: pft.StdKeywords,
+        pstd: pft.PseudoStdKeywords,
+        nonstd: pft.NonStdKeywords,
+    ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def std(self) -> pft.StdKeywords: ...
+    @property
+    def pstd(self) -> pft.PseudoStdKeywords: ...
     @property
     def nonstd(self) -> pft.NonStdKeywords: ...
 
@@ -2166,35 +2109,55 @@ class ValidKeywords:
 class RepairDiagnostics:
     def __new__(
         cls,
-        non_unique_std: list[tuple[pft.StdKey, str]],
-        non_unique_nonstd: list[tuple[pft.NonStdKey, str]],
         demoted: list[pft.StdKey],
         promoted: list[pft.NonStdKey],
-        subbed: list[tuple[pft.StdKey, str]],
-        replaced: list[tuple[pft.StdKey, str]],
-        renamed: list[tuple[pft.StdKey, pft.StdKey]],
-        ignored: list[tuple[pft.StdKey, str]],
-        removed: list[tuple[pft.StdKey, str]],
+        subbed: list[tuple[pft.StdKey, pft.NEStr]],
+        replaced: list[tuple[pft.StdKey, pft.NEStr]],
+        renamed_std: list[tuple[pft.StdKey, pft.StdKey]],
+        renamed_pseudo_std: list[tuple[pft.PseudoStdKey, pft.StdKey]],
+        renamed_std_non_unique: list[tuple[pft.StdKey, pft.StdKey]],
+        renamed_pseudo_std_non_unique: list[tuple[pft.PseudoStdKey, pft.StdKey]],
+        ignored: list[tuple[pft.StdKey, pft.NEStr]],
+        removed: list[tuple[pft.StdKey, pft.NEStr]],
+        promoted_non_unique: list[tuple[pft.StdKey, pft.NEStr]],
+        promoted_demoted_noop: list[pft.NonStdKey],
+        promoted_ignored_noop: list[pft.NonStdKey],
+        promoted_pseudo_std: list[pft.NonStdKey],
+        appended_non_unique: list[tuple[pft.StdKey, pft.NEStr]],
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
-    @property
-    def non_unique_std(self) -> list[tuple[pft.StdKey, str]]: ...
-    @property
-    def non_unique_nonstd(self) -> list[tuple[pft.NonStdKey, str]]: ...
     @property
     def demoted(self) -> list[pft.StdKey]: ...
     @property
     def promoted(self) -> list[pft.NonStdKey]: ...
     @property
-    def subbed(self) -> list[tuple[pft.StdKey, str]]: ...
+    def subbed(self) -> list[tuple[pft.StdKey, pft.NEStr]]: ...
     @property
-    def replaced(self) -> list[tuple[pft.StdKey, str]]: ...
+    def replaced(self) -> list[tuple[pft.StdKey, pft.NEStr]]: ...
     @property
-    def renamed(self) -> list[tuple[pft.StdKey, pft.StdKey]]: ...
+    def renamed_std(self) -> list[tuple[pft.StdKey, pft.StdKey]]: ...
     @property
-    def ignored(self) -> list[tuple[pft.StdKey, str]]: ...
+    def renamed_pseudo_std(self) -> list[tuple[pft.PseudoStdKey, pft.StdKey]]: ...
     @property
-    def removed(self) -> list[tuple[pft.StdKey, str]]: ...
+    def renamed_std_non_unique(self) -> list[tuple[pft.StdKey, pft.StdKey]]: ...
+    @property
+    def renamed_pseudo_std_non_unique(
+        self,
+    ) -> list[tuple[pft.PseudoStdKey, pft.StdKey]]: ...
+    @property
+    def ignored(self) -> list[tuple[pft.StdKey, pft.NEStr]]: ...
+    @property
+    def removed(self) -> list[tuple[pft.StdKey, pft.NEStr]]: ...
+    @property
+    def promoted_non_unique(self) -> list[tuple[pft.StdKey, pft.NEStr]]: ...
+    @property
+    def promoted_demoted_noop(self) -> list[pft.NonStdKey]: ...
+    @property
+    def promoted_ignored_noop(self) -> list[pft.NonStdKey]: ...
+    @property
+    def promoted_pseudo_std(self) -> list[pft.NonStdKey]: ...
+    @property
+    def appended_non_unique(self) -> list[tuple[pft.StdKey, pft.NEStr]]: ...
 
 @final
 class DataSchemaDiagnostics:
@@ -2220,7 +2183,6 @@ class StdTEXTDiagnostics:
     def __new__(
         cls,
         optional: pft.StdKeywords,
-        pseudostandard: pft.StdKeywords,
         hyper_par: pft.StdKeywords,
         hyper_gate: pft.StdKeywords,
         other_version: pft.StdKeywords,
@@ -2246,8 +2208,6 @@ class StdTEXTDiagnostics:
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def optional(self) -> pft.StdKeywords: ...
-    @property
-    def pseudostandard(self) -> pft.StdKeywords: ...
     @property
     def hyper_par(self) -> pft.StdKeywords: ...
     @property
@@ -2319,10 +2279,18 @@ class SplitTEXTDiagnostics:
         cls,
         delimiter: int,
         escaped: bool,
-        keys_with_blank_values: list[bytes | str],
-        values_with_blank_keys: list[bytes | str],
+        keys_with_non_utf8_values: list[tuple[pft.AnyKey, pft.NEBytes]],
+        values_with_non_ascii_keys: list[tuple[pft.NEBytes, pft.NEStr]],
+        byte_pairs: list[tuple[pft.NEBytes, pft.NEBytes]],
+        non_unique_std_keywords: list[tuple[pft.StdKey, pft.NEStr]],
+        non_unique_pstd_keywords: list[tuple[pft.PseudoStdKey, pft.NEStr]],
+        non_unique_nonstd_keywords: list[tuple[pft.NonStdKey, pft.NEStr]],
+        keys_with_empty_trimmed_values: list[tuple[pft.KeyOrBytes, pft.NEStr]],
+        keys_with_trimmed_values: list[tuple[pft.KeyOrBytes, pft.NEStr]],
+        keys_with_blank_values: list[pft.NEStrOrBytes],
+        values_with_blank_keys: list[pft.NEStrOrBytes],
         skipped_pairs: int,
-        tokens_with_boundary_delims: list[bytes | str],
+        tokens_with_boundary_delims: list[bytes | pft.NEStr],
         last_odd_token: bytes | str,
         has_even_delims: bool,
         extra_leading_delims: int,
@@ -2334,13 +2302,31 @@ class SplitTEXTDiagnostics:
     @property
     def escaped(self) -> bool: ...
     @property
-    def keys_with_blank_values(self) -> list[bytes | str]: ...
+    def keys_with_non_utf8_values(self) -> list[tuple[pft.AnyKey, pft.NEBytes]]: ...
     @property
-    def values_with_blank_keys(self) -> list[bytes | str]: ...
+    def values_with_non_ascii_keys(self) -> list[tuple[pft.NEBytes, pft.NEStr]]: ...
+    @property
+    def byte_pairs(self) -> list[tuple[pft.NEBytes, pft.NEBytes]]: ...
+    @property
+    def non_unique_std_keywords(self) -> list[tuple[pft.StdKey, pft.NEStr]]: ...
+    @property
+    def non_unique_pstd_keywords(self) -> list[tuple[pft.PseudoStdKey, pft.NEStr]]: ...
+    @property
+    def non_unique_nonstd_keywords(self) -> list[tuple[pft.NonStdKey, pft.NEStr]]: ...
+    @property
+    def keys_with_empty_trimmed_values(
+        self,
+    ) -> list[tuple[pft.KeyOrBytes, pft.NEStr]]: ...
+    @property
+    def keys_with_trimmed_values(self) -> list[tuple[pft.KeyOrBytes, pft.NEStr]]: ...
+    @property
+    def keys_with_blank_values(self) -> list[pft.NEStrOrBytes]: ...
+    @property
+    def values_with_blank_keys(self) -> list[pft.NEStrOrBytes]: ...
     @property
     def skipped_pairs(self) -> int: ...
     @property
-    def tokens_with_boundary_delims(self) -> list[bytes | str]: ...
+    def tokens_with_boundary_delims(self) -> list[bytes | pft.NEStr]: ...
     @property
     def last_odd_token(self) -> bytes | str: ...
     @property
@@ -2486,11 +2472,6 @@ class FlatTEXTDiagnostics:
         header_supp: HeaderAndSuppOffsets,
         primary_text_overflow: int,
         header_overflows: list[HeaderOffsetsOverflow],
-        byte_pairs: list[tuple[bytes | str, bytes | str]],
-        non_unique_std_keywords: list[tuple[str, str]],
-        non_unique_nonstd_keywords: list[tuple[str, str]],
-        keys_with_empty_trimmed_values: list[bytes | str],
-        keys_with_trimmed_values: list[tuple[bytes | str, str]],
         read_text_ns: int,
         primary_split: SplitTEXTDiagnostics,
         supp_split: SplitTEXTDiagnostics | None,
@@ -2503,17 +2484,7 @@ class FlatTEXTDiagnostics:
     @property
     def header_overflows(self) -> list[HeaderOffsetsOverflow]: ...
     @property
-    def byte_pairs(self) -> list[tuple[bytes | str, bytes | str]]: ...
-    @property
-    def non_unique_std_keywords(self) -> list[tuple[str, str]]: ...
-    @property
-    def non_unique_nonstd_keywords(self) -> list[tuple[str, str]]: ...
-    @property
-    def keys_with_empty_trimmed_values(self) -> list[bytes | str]: ...
-    @property
     def read_text_ns(self) -> int: ...
-    @property
-    def keys_with_trimmed_values(self) -> list[tuple[bytes | str, str]]: ...
     @property
     def primary_split(self) -> SplitTEXTDiagnostics: ...
     @property
@@ -2626,7 +2597,6 @@ class FlatDatasetFromKwsOutput:
         analysis: bytes,
         others: list[bytes],
         dataset_offsets: DatasetOffsets,
-        repair_diagnostics: RepairDiagnostics,
         schema_diagnostics: DataSchemaDiagnostics,
         dataset_diagnostics: DatasetDiagnostics,
     ) -> Self: ...
@@ -2639,8 +2609,6 @@ class FlatDatasetFromKwsOutput:
     def others(self) -> list[bytes]: ...
     @property
     def dataset_offsets(self) -> DatasetOffsets: ...
-    @property
-    def repair_diagnostics(self) -> RepairDiagnostics: ...
     @property
     def schema_diagnostics(self) -> DataSchemaDiagnostics: ...
     @property
@@ -2667,6 +2635,7 @@ class FlatDatasetOutput:
         flat_diagnostics: FlatTEXTDiagnostics,
         dataset: FlatDatasetFromKwsOutput,
         version_scores: pft.KeywordVersionScores | None,
+        repair_diagnostics: RepairDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2677,6 +2646,8 @@ class FlatDatasetOutput:
     def dataset(self) -> FlatDatasetFromKwsOutput: ...
     @property
     def version_scores(self) -> pft.KeywordVersionScores | None: ...
+    @property
+    def repair_diagnostics(self) -> RepairDiagnostics: ...
 
 @final
 class StdTEXTOutput:
@@ -2688,6 +2659,7 @@ class StdTEXTOutput:
         std_diagnostics: StdTEXTDiagnostics,
         flat_diagnostics: FlatTEXTDiagnostics,
         version_scores: pft.KeywordVersionScores | None,
+        pseudostandard: pft.PseudoStdKeywords,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2702,6 +2674,8 @@ class StdTEXTOutput:
     def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
     @property
     def version_scores(self) -> pft.KeywordVersionScores | None: ...
+    @property
+    def pseudostandard(self) -> pft.PseudoStdKeywords: ...
 
 @final
 class IntraSegmentDarkBytes:
@@ -2730,15 +2704,12 @@ class StdDatasetFromKwsOutput:
     def __new__(
         cls,
         dataset_offsets: DatasetOffsets,
-        repair_diagnostics: RepairDiagnostics,
         std_diagnostics: StdTEXTDiagnostics,
         dataset_diagnostics: DatasetDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset_offsets(self) -> DatasetOffsets: ...
-    @property
-    def repair_diagnostics(self) -> RepairDiagnostics: ...
     @property
     def std_diagnostics(self) -> StdTEXTDiagnostics: ...
     @property
@@ -2764,6 +2735,8 @@ class StdDatasetOutput:
         dataset: StdDatasetFromKwsOutput,
         flat_diagnostics: FlatTEXTDiagnostics,
         version_scores: pft.KeywordVersionScores | None,
+        repair_diagnostics: RepairDiagnostics,
+        pseudostandard: pft.PseudoStdKeywords,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2772,6 +2745,10 @@ class StdDatasetOutput:
     def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
     @property
     def version_scores(self) -> pft.KeywordVersionScores | None: ...
+    @property
+    def repair_diagnostics(self) -> RepairDiagnostics: ...
+    @property
+    def pseudostandard(self) -> pft.PseudoStdKeywords: ...
 
 @final
 class DatasetSummary:
@@ -3518,20 +3495,12 @@ def fcs_read_std_datasets(
 def fcs_read_flat_dataset_with_keywords(
     path: Path,
     header: Header,
-    kws: ValidKeywords,
+    std: pft.StdKeywords,
     # offset args
     allow_pseudoempty: bool = False,
     dataset_overflow_limit: int = 0,
     overlap_correction_limit: int = 0,
     # layout args
-    ignore_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-    promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-    demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
-    rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-    replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-    append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
-    substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
-    allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),
     text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,

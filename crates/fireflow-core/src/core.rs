@@ -113,7 +113,8 @@ use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
-    DollarKey, NonStdKeywords, PseudoStdKeywords, StringOrBytes, ValidKeywords, ValueToStdKey as _,
+    DollarKey, NonStdKeywords, PseudoStdKeywords, StringOrBytes, TruncatedNEString, ValidKeywords,
+    ValueToStdKey as _,
 };
 use crate::validated::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
@@ -1127,7 +1128,7 @@ pub struct StdTEXTDiagnostics {
     pub trimmed: TrimmedKeywords,
 
     /// Optical keys that were found in the temporal measurement.
-    pub temporal_optical_pairs: Vec<(DollarStdKey, NEString)>,
+    pub temporal_optical_pairs: Vec<(DollarStdKey, TruncatedNEString)>,
 
     /// $TIMESTEP was missing and was added via config
     pub timestep_added: TimestepAdded,
@@ -1166,7 +1167,7 @@ pub struct StdTEXTDiagnostics {
     pub schema_diagnostics: DataSchemaDiagnostics,
 }
 
-pub(crate) type TrimmedKeyword = (DollarStdKey, NEString);
+pub(crate) type TrimmedKeyword = (DollarStdKey, TruncatedNEString);
 pub(crate) type TrimmedKeywords = Vec<TrimmedKeyword>;
 
 impl StdTEXTDiagnostics {
@@ -1228,7 +1229,7 @@ type DiagnosedUnstainedData<U> = Diagnosed<U, Option<TrimmedKeyword>>;
 pub struct MeasurementDiagnostics {
     scale: Vec<AnyMeasScaleFix>,
     trimmed: TrimmedKeywords,
-    tmp_opt_pairs: Vec<(DollarStdKey, NEString)>,
+    tmp_opt_pairs: Vec<(DollarStdKey, TruncatedNEString)>,
     timestep_added: TimestepAdded,
 }
 
@@ -6205,7 +6206,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                     .map_commutative_warnings(NewCoreWarning::Link)
                     .and_then_commutative(|()| {
                         let gate = metaroot.specific.gate().unwrap_or(Gate(0));
-                        std.finalize(par, gate, version, &mut nonstd, conf.as_ref())
+                        std.finalize(par, gate, version, &mut nonstd, conf)
                             .map_errors(LookupCoreError::Extra)
                             .map_commutative_warnings(NewCoreWarning::Extra)
                     })

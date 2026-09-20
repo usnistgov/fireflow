@@ -63,7 +63,7 @@ use fireflow_types::config::{
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
 use fireflow_types::segment::{OffsetsFromTEXT, SupplementalTextSegmentId};
 use fireflow_types::std_key::{DollarPseudoStdKey, DollarStdKey, RootKey, ToStd as _};
-use nonempty::{IntoIteratorExt as _, NESlice, NEStr, NEVec, NonEmptyIterator as _};
+use nonempty::{IntoIteratorExt as _, NESlice, NEVec, NonEmptyIterator as _};
 
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
 
@@ -1847,8 +1847,7 @@ impl FlatDatasetOutput {
             .keywords
             .std
             .get(&RootKey::Datatype.to_std0())
-            .parse()
-            .ok();
+            .and_then(|s| s.as_str().parse().ok());
         DatasetSummary {
             version: hdr.version,
             text_len: txt.nbytes(),
@@ -2589,6 +2588,7 @@ impl SplitTEXTDiagnostics {
         trim: bool,
         enc: Encoding,
     ) -> (StdKeywords, Self) {
+        #[derive(Debug)]
         enum Unescaped<'a> {
             Keyword(ParsedKeyword<'a>),
             EmptyKey(NEVec<u8>),
@@ -2905,7 +2905,7 @@ impl SuppTEXTOffsetsOutput {
         where
             T: ValueToStdKey<Index = ()>,
         {
-            match NEStr::try_new(index.get(&T::std0())) {
+            match index.get(&T::std0()) {
                 Some(v) => v
                     .as_str()
                     .parse::<i128>()
@@ -2919,7 +2919,8 @@ impl SuppTEXTOffsetsOutput {
         where
             T: ValueToStdKey<Index = ()>,
         {
-            NEStr::try_new(index.get(&T::std0()))
+            index
+                .get(&T::std0())
                 .map(|v| {
                     v.parse::<i128>()
                         .map_err(|e| ParseKeyError::new1(e, (), v.to_owned()))

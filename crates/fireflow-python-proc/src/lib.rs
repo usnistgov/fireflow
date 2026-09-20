@@ -2256,14 +2256,18 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 
     let trimmed = DocArgROIvar::new_ivar_ro(
         "trimmed",
-        PyList::new1(PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_ne_str())),
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+        ),
         "Keywords which had whitespace between commas trimmed.",
         |_, _| quote!(self.0.trimmed.clone()),
     );
 
     let tmp_opt_pairs = DocArgROIvar::new_ivar_ro(
         "temporal_optical_pairs",
-        PyList::new1(PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_ne_str())),
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+        ),
         "Optical keys that were found in the temporal measurement.",
         |_, _| quote!(self.0.temporal_optical_pairs.clone()),
     );

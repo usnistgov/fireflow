@@ -150,7 +150,7 @@ impl Nextdata {
         index: &StdKeywords,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningAndErrorResult<Option<Self>, (), ReadNextdataError, ReadNextdataError> {
-        let res = if let Some(s) = NEStr::try_new(index.get(&RootKey::Nextdata.into())) {
+        let res = if let Some(s) = index.get(&RootKey::Nextdata.into()) {
             match Self::parse(s, conf) {
                 Ok(x) => Ok(Some(x)),
                 Err(e) => {
@@ -3201,10 +3201,10 @@ kw_opt_meas!(OpticalType, T, Self);
 kw_opt_meas!(Shortname, N, Option<Self>); // optional for 2.0/3.0
 req!(Shortname); // required for 3.1+
 
-kw_opt_meas!(Scale, S, Option<Self>); // optional for 2.0
+kw_opt_meas!(Scale, E, Option<Self>); // optional for 2.0
 req!(Scale); // required for 3.0+
 
-meas_opt_zst!(TemporalScale2_0, S, TemporalScaleInner); // optional for 2.0
+meas_opt_zst!(TemporalScale2_0, E, TemporalScaleInner); // optional for 2.0
 
 impl FromStrWith for TemporalScale2_0 {
     type Err = TemporalScaleError;
@@ -3234,7 +3234,7 @@ impl FromStrWith for TemporalScale2_0 {
 }
 
 // required for 3.0+
-kw_req_meas!(TemporalScale3_0, S);
+kw_req_meas!(TemporalScale3_0, E);
 
 // scaler in 2.0/3.0
 kw_opt_meas!(Wavelength, L, Option<Self>);

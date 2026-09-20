@@ -52,9 +52,26 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
         K: NumericEnum<LEN>,
         V: AsRef<NEStr>,
     {
+        let mut prev_i = 0;
         for (k, v) in pairs {
-            self.offsets[k.index()] = self.inner.len();
+            let i = k.index();
+            // Pad the index vector with previous length up until the index
+            // to be added. These are blank strings that we skipped by not
+            // explicitly passing a pair for it.
+            for j in (prev_i + 1)..i {
+                self.offsets[j] = self.inner.len();
+            }
+            self.offsets[i] = self.inner.len();
             self.inner.extend(v.as_ref().as_str().as_bytes());
+            prev_i = i;
+        }
+        // Extend the unfilled right tail of the offsets so that the last value
+        // added will end at the length of the inner buffer, and everything
+        // after will be empty.
+        if prev_i < self.offsets.len() && !self.inner.is_empty() {
+            for j in (prev_i + 1)..self.offsets.len() {
+                self.offsets[j] = self.inner.len();
+            }
         }
     }
 }
@@ -122,13 +139,13 @@ impl<I, S, K> NestedString<I, S, K> {
         self.get(k).map(|v| !v.is_empty())
     }
 
-    pub(crate) fn get_unchecked(&self, k: &K) -> &str
-    where
-        I: HasLen + Index<usize, Output = usize>,
-        K: EnumIndex<SubDimension = S>,
-    {
-        self.get_index_unchecked(k.offset(&self.sub_dimension))
-    }
+    // pub(crate) fn get_unchecked(&self, k: &K) -> &str
+    // where
+    //     I: HasLen + Index<usize, Output = usize>,
+    //     K: EnumIndex<SubDimension = S>,
+    // {
+    //     self.get_index_unchecked(k.offset(&self.sub_dimension))
+    // }
 
     pub(crate) fn get_index(&self, i: usize) -> Option<&str>
     where

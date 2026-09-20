@@ -13,14 +13,14 @@ use crate::validated::keys::{
 use fireflow_types::case_ins_regex::CaseInsRegex;
 use fireflow_types::config::{
     KeywordFailureFlag, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,
-    TemporalHasOpticalKeyError, TriErrorFlag as _,
+    ReadDataKeywordsConfig, TemporalHasOpticalKeyError, TriErrorFlag as _,
 };
 use fireflow_types::index::MeasIndex;
 use fireflow_types::keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns};
 use fireflow_types::keywords::Version;
 use fireflow_types::std_key::{
     CsvFlagKey, DfcKey, DollarPseudoStdKey, DollarStdKey, DollarWrap, EnumIndex as _, GateKey,
-    GateKeyId, MeasKey, MeasKeyId, N_ROOT, RegionKey, RootKey, StdKey, ToStd as _,
+    MeasKey, N_ROOT, RegionKey, RootKey, StdKey, ToStd as _,
 };
 use fireflow_types::sub_pattern::SubPattern;
 use nonempty::{NEStr, NEString, NEVec};
@@ -29,7 +29,6 @@ use derive_more::{Display, From};
 use derive_new::new;
 use hashbrown::{HashMap, hash_map::Entry};
 use itertools::Itertools as _;
-use strum::EnumCount as _;
 use thiserror::Error;
 
 use std::mem;
@@ -45,7 +44,7 @@ use {
 };
 
 type OpticalOnlyResult = WarningsAndErrorsResult<
-    Vec<(DollarStdKey, NEString)>,
+    Vec<(DollarStdKey, TruncatedNEString)>,
     (),
     TemporalHasOpticalKeyError,
     TemporalHasOpticalKeyError,
@@ -114,7 +113,7 @@ pub struct KeywordOtherVersionError {
 #[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct TimestepFoundError;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum LookupAction {
     None,
     Demote,
@@ -125,7 +124,7 @@ impl LookupAction {
     pub(crate) fn from_flag<F: KeywordFailureFlag>(flag: F) -> Option<Self> {
         flag.is_demote_or_drop().map(
             |is_demote| {
-                if is_demote { Self::Drop } else { Self::Demote }
+                if is_demote { Self::Demote } else { Self::Drop }
             },
         )
     }
@@ -409,19 +408,20 @@ impl StdKeywords {
     }
 
     #[must_use]
-    pub fn get(&self, k: &StdKey) -> &str {
-        match k {
-            StdKey::Root(rk) => self.root.get_unchecked(rk),
-            StdKey::Meas(mk) => self.meas.get_unchecked(mk),
-            StdKey::Gate(gk) => self.gate.get_unchecked(gk),
-            StdKey::Region(rk) => self.region.get_unchecked(rk),
-            StdKey::CsvFlag(ck) => self.csv_flag.get_unchecked(ck),
-            StdKey::Dfc(dk) => self.dfc.get_unchecked(dk),
-        }
+    pub fn get(&self, k: &StdKey) -> Option<&NEStr> {
+        let s = match k {
+            StdKey::Root(rk) => self.root.get(rk),
+            StdKey::Meas(mk) => self.meas.get(mk),
+            StdKey::Gate(gk) => self.gate.get(gk),
+            StdKey::Region(rk) => self.region.get(rk),
+            StdKey::CsvFlag(ck) => self.csv_flag.get(ck),
+            StdKey::Dfc(dk) => self.dfc.get(dk),
+        }?;
+        NEStr::try_new(s)
     }
 
     pub(crate) fn contains_key(&self, k: &StdKey) -> bool {
-        !self.get(k).is_empty()
+        self.get(k).is_some()
     }
 
     pub(crate) fn n_strings(&self) -> usize {
@@ -843,96 +843,100 @@ impl<'a> StdRepairTx<'a> {
 
 impl StdLookupTx<'_> {
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn finalize(
+    pub(crate) fn finalize<C>(
         &self,
         par: Par,
         gate: Gate,
         version: Version,
         nonstd: &mut NonStdKeywords,
-        conf: &EvaledReadStdKeywordsConfig,
+        conf: &C,
     ) -> WarningsAndErrorsResult<ExtraStdKeywords, (), ExtraStdKeywordError, ExtraStdKeywordError>
+    where
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let n_meas = MeasKeyId::COUNT * usize::from(par);
-        let n_gate = GateKeyId::COUNT * usize::from(gate);
-        let mut optional = vec![];
-        let mut hyper_par = vec![];
-        let mut hyper_gate = vec![];
-        let mut other_version = vec![];
-        let mut timestep = None;
+        let dconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
+        let mut demoted_or_dropped = vec![];
+        let mut hyper_par_ = vec![];
+        let mut hyper_gate_ = vec![];
+        let mut other_version_ = vec![];
+        let mut timestep_ = None;
+
+        let mut go = |k, v: &NEStr, f| demoted_or_dropped.push((k, v.to_owned(), f));
 
         for (k, v, m) in self.root.iter_masked() {
             match m {
                 LookupStatus::Unseen => {
                     let vo = v.to_owned();
-                    if matches!(k, RootKey::Timestep) && version > Version::FCS2_0 {
-                        if conf.process_extra_timestep.is_demote() {
-                            nonstd.insert_demoted(RootKey::Timestep.to_std0(), vo);
-                        } else {
-                            timestep = Some(vo);
+                    match k {
+                        RootKey::Timestep if version > Version::FCS2_0 => {
+                            timestep_ = Some(vo);
                         }
-                    } else {
-                        other_version.push((DollarWrap(k.into()), vo));
+                        // BEGIN/ENDSTEXT (FCS3.0+) and NEXTDATA will still be
+                        // unseen since these are only used when parsing the
+                        // header and not standardization. Therefore simply
+                        // ignore them when considering if the key belongs to
+                        // another version or not.
+                        RootKey::Nextdata => (),
+                        RootKey::Beginstext | RootKey::Endstext if version > Version::FCS2_0 => (),
+                        _ => other_version_.push((DollarWrap(k.into()), vo)),
                     }
                 }
                 LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
-                    LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
-                    LookupAction::Drop => optional.push((DollarWrap(k.into()), v.to_owned())),
+                    LookupAction::Demote => go(k.into(), v, true),
+                    LookupAction::Drop => go(k.into(), v, false),
                 },
             }
         }
 
         let mut meas_it = self.meas.iter_masked();
 
-        for (k, v, m) in meas_it.by_ref().take(n_meas) {
+        for (k, v, m) in meas_it.by_ref() {
+            if usize::from(k.index) >= usize::from(par) {
+                hyper_par_.push((DollarWrap(k.into()), v.to_owned()));
+                break;
+            }
             match m {
-                LookupStatus::Unseen => other_version.push((DollarWrap(k.into()), v.to_owned())),
+                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
                 LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
-                    LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
-                    LookupAction::Drop => optional.push((DollarWrap(k.into()), v.to_owned())),
+                    LookupAction::Demote => go(k.into(), v, true),
+                    LookupAction::Drop => go(k.into(), v, false),
                 },
             }
         }
 
-        if conf.process_hyper_par.is_demote() {
-            for (k, v, _) in meas_it {
-                nonstd.insert_demoted(k.into(), v.to_owned());
-            }
-        } else {
-            hyper_par.extend(meas_it.map(|(k, v, _)| (DollarWrap(k.into()), v.to_owned())));
-        }
+        hyper_par_.extend(meas_it.map(|(k, v, _)| (DollarWrap(k.into()), v.to_owned())));
 
         let mut gate_it = self.gate.iter_masked();
 
-        for (k, v, m) in gate_it.by_ref().take(n_gate) {
+        for (k, v, m) in gate_it.by_ref() {
+            if usize::from(k.index) >= usize::from(gate) {
+                hyper_gate_.push((DollarWrap(k.into()), v.to_owned()));
+                break;
+            }
             match m {
-                LookupStatus::Unseen => other_version.push((DollarWrap(k.into()), v.to_owned())),
+                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
                 LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
-                    LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
-                    LookupAction::Drop => optional.push((DollarWrap(k.into()), v.to_owned())),
+                    LookupAction::Demote => go(k.into(), v, true),
+                    LookupAction::Drop => go(k.into(), v, false),
                 },
             }
         }
 
-        if conf.process_hyper_par.is_demote() {
-            for (k, v, _) in gate_it {
-                nonstd.insert_demoted(k.into(), v.to_owned());
-            }
-        } else {
-            hyper_gate.extend(gate_it.map(|(k, v, _)| (DollarWrap(k.into()), v.to_owned())));
-        }
+        hyper_gate_.extend(gate_it.map(|(k, v, _)| (DollarWrap(k.into()), v.to_owned())));
 
         // TODO we could also do something like hyper_par/gate with these but
         // they are hardly used anyways and doing so would be complex
         for (k, v, m) in self.region.iter_masked() {
             match m {
-                LookupStatus::Unseen => other_version.push((DollarWrap(k.into()), v.to_owned())),
+                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
                 LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
-                    LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
-                    LookupAction::Drop => optional.push((DollarWrap(k.into()), v.to_owned())),
+                    LookupAction::Demote => go(k.into(), v, true),
+                    LookupAction::Drop => go(k.into(), v, false),
                 },
             }
         }
@@ -940,11 +944,11 @@ impl StdLookupTx<'_> {
         // TODO ditto $CSMODE
         for (k, v, m) in self.csv_flag.iter_masked() {
             match m {
-                LookupStatus::Unseen => other_version.push((DollarWrap(k.into()), v.to_owned())),
+                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
                 LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
-                    LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
-                    LookupAction::Drop => optional.push((DollarWrap(k.into()), v.to_owned())),
+                    LookupAction::Demote => go(k.into(), v, true),
+                    LookupAction::Drop => go(k.into(), v, false),
                 },
             }
         }
@@ -955,19 +959,15 @@ impl StdLookupTx<'_> {
             match m {
                 LookupStatus::Unseen => {
                     if is_hyper_par {
-                        if conf.process_hyper_par.is_demote() {
-                            nonstd.insert_demoted(k.into(), v.to_owned());
-                        } else {
-                            hyper_par.push((DollarWrap(k.into()), v.to_owned()));
-                        }
+                        hyper_par_.push((DollarWrap(k.into()), v.to_owned()));
                     } else {
-                        other_version.push((DollarWrap(k.into()), v.to_owned()));
+                        other_version_.push((DollarWrap(k.into()), v.to_owned()));
                     }
                 }
                 LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
-                    LookupAction::Demote => nonstd.insert_demoted(k.into(), v.to_owned()),
-                    LookupAction::Drop => optional.push((DollarWrap(k.into()), v.to_owned())),
+                    LookupAction::Demote => go(k.into(), v, true),
+                    LookupAction::Drop => go(k.into(), v, false),
                 },
             }
         }
@@ -975,37 +975,66 @@ impl StdLookupTx<'_> {
         let mut errors = vec![];
         let mut warnings = vec![];
 
-        if timestep.is_some() {
-            match conf.process_extra_timestep.is_error() {
+        macro_rules! extend_errors {
+            ($flag:ident, $errors:expr, $fun:expr) => {{
+                let it = $errors.iter().map($fun).map(ExtraStdKeywordError::from);
+                match sconf.$flag.is_error() {
+                    Some(true) => errors.extend(it),
+                    Some(false) => warnings.extend(it),
+                    None => (),
+                }
+                if sconf.$flag.is_demote() {
+                    for (k, v) in $errors {
+                        nonstd.insert_demoted(k.0, v);
+                    }
+                    Default::default()
+                } else {
+                    $errors
+                }
+            }};
+        }
+
+        let hyper_par = extend_errors!(process_hyper_par, hyper_par_, |(k, _)| {
+            HyperParError::new(par, *k)
+        });
+        let hyper_gate = extend_errors!(process_hyper_par, hyper_gate_, |(k, _)| {
+            HyperGateError::new(gate, *k)
+        });
+        let other_version = extend_errors!(process_other_version, other_version_, |(k, _)| {
+            KeywordOtherVersionError::new(*k, version)
+        });
+
+        if timestep_.is_some() {
+            match sconf.process_extra_timestep.is_error() {
                 Some(true) => errors.push(TimestepFoundError.into()),
                 Some(false) => warnings.push(TimestepFoundError.into()),
                 None => (),
             }
         }
 
-        let hyper_par_errors = hyper_par
-            .iter()
-            .map(|(k, _)| HyperParError::new(par, *k).into())
-            .chain(
-                hyper_gate
-                    .iter()
-                    .map(|(k, _)| HyperGateError::new(gate, *k).into()),
-            );
+        let timestep = timestep_.and_then(|ts| {
+            if sconf.process_extra_timestep.is_demote() {
+                nonstd.insert_demoted(RootKey::Timestep.to_std0(), ts);
+                None
+            } else {
+                Some(ts)
+            }
+        });
 
-        match conf.process_hyper_par.is_error() {
-            Some(true) => errors.extend(hyper_par_errors),
-            Some(false) => warnings.extend(hyper_par_errors),
-            None => (),
-        }
+        let mut optional = vec![];
 
-        let other_version_errors = hyper_par
-            .iter()
-            .map(|(k, _)| KeywordOtherVersionError::new(*k, version).into());
-
-        match conf.process_other_version.is_error() {
-            Some(true) => errors.extend(other_version_errors),
-            Some(false) => warnings.extend(other_version_errors),
-            None => (),
+        for (k, v, was_demoted) in demoted_or_dropped {
+            if was_demoted {
+                nonstd.insert_demoted(k, v);
+            } else {
+                optional.push((DollarWrap(k), v));
+            }
+            let e = KeywordOtherVersionError::new(DollarWrap(k), version).into();
+            match dconf.process_optional_failure.is_error() {
+                Some(true) => errors.push(e),
+                Some(false) => warnings.push(e),
+                None => (),
+            }
         }
 
         if let Some(ne) = NEVec::try_from_vec(errors) {
@@ -1058,7 +1087,7 @@ impl StdLookupTx<'_> {
                     if warn {
                         ws.push(err());
                     }
-                    pairs.push((DollarWrap(k), vf));
+                    pairs.push((DollarWrap(k), vf.into()));
                 } else {
                     es.push(err());
                 }

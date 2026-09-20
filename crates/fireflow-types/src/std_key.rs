@@ -7,10 +7,11 @@ use crate::keywords::{Version, VersionMembership};
 
 use nonempty::{
     DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESlice, NEStr, ToDisplayNE, ToNE,
-    ne_str,
+    ambassador_impl_ToDisplayNE, ne_str,
 };
 use type_families::FunctorOnce as _;
 
+use ambassador::Delegate;
 use bytemuck::{NoUninit, TransparentWrapper, must_cast_ref};
 use derive_more::{AsRef, Display, From, TryInto};
 use derive_new::new;
@@ -49,10 +50,11 @@ pub enum RealOrPseudoStdKey {
 /// A key which starts with a '$' but is not defined in any FCS standard.
 ///
 /// The leading '$' is not included internally or when displayed.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, AsRef)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, AsRef, Delegate)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(KeyString)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct PseudoStdKey(KeyString);
 
 /// Wrap a type so its display string is prefixed with '$'.
@@ -70,7 +72,8 @@ pub struct PseudoStdKey(KeyString);
     Default,
     TransparentWrapper,
 )]
-#[display("${_0}")]
+#[display("{}", self.as_displayable())]
+#[display(bound(for<'a> T: ToDisplayNE<'a>))]
 #[repr(transparent)]
 pub struct DollarWrap<T>(pub T);
 
@@ -671,6 +674,16 @@ impl<'a, T: ToDisplayNE<'a>> ToDisplayNE<'a> for DollarWrap<T> {
     }
 }
 
+impl<'a> ToDisplayNE<'a> for RealOrPseudoStdKey {
+    type NE = NEAlt<ToNE<StdKey>, ToNE<&'a PseudoStdKey>>;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Real(x) => NEAlt::Left(ToNE(*x)),
+            Self::Pseudo(x) => NEAlt::Right(ToNE(x)),
+        }
+    }
+}
+
 type NEStdKey = NEAlt<
     NEAlt<ToNE<RootKey>, NEAlt<ToNE<MeasKey>, ToNE<GateKey>>>,
     NEAlt<ToNE<RegionKey>, NEAlt<ToNE<CsvFlagKey>, ToNE<DfcKey>>>,
@@ -932,60 +945,60 @@ impl RootKey {
     #[must_use]
     pub const fn as_ne_str(&self) -> &'static NEStr {
         match self {
-            Self::Byteord => BYTEORD,
-            Self::Datatype => DATATYPE,
-            Self::Mode => MODE,
-            Self::Par => PAR,
-            Self::Tot => TOT,
-            Self::Cyt => CYT,
-            Self::Abrt => ABRT,
-            Self::Cells => CELLS,
-            Self::Com => COM,
-            Self::Exp => EXP,
-            Self::Fil => FIL,
-            Self::Inst => INST,
-            Self::Lost => LOST,
-            Self::Op => OP,
-            Self::Proj => PROJ,
-            Self::Smno => SMNO,
-            Self::Src => SRC,
-            Self::Sys => SYS,
-            Self::Tr => TR,
-            Self::Cytsn => CYTSN,
-            Self::Timestep => TIMESTEP,
-            Self::Vol => VOL,
-            Self::Unicode => UNICODE,
-            Self::Flowrate => FLOWRATE,
-            Self::Begindata => BEGINDATA,
-            Self::Beginanalysis => BEGINANALYSIS,
-            Self::Beginstext => BEGINSTEXT,
-            Self::Enddata => ENDDATA,
-            Self::Endanalysis => ENDANALYSIS,
-            Self::Endstext => ENDSTEXT,
-            Self::Nextdata => NEXTDATA,
-            Self::Btim => BTIM,
-            Self::Etim => ETIM,
-            Self::Date => DATE,
-            Self::Begindatetime => BEGINDATETIME,
-            Self::Enddatetime => ENDDATETIME,
-            Self::Comp => COMP,
-            Self::Spillover => SPILLOVER,
-            Self::LastModified => LAST_MODIFIED,
-            Self::LastModifier => LAST_MODIFIER,
-            Self::Originality => ORIGINALITY,
-            Self::Plateid => PLATEID,
-            Self::Platename => PLATENAME,
-            Self::Wellid => WELLID,
-            Self::UnstainedCenters => UNSTAINEDCENTERS,
-            Self::UnstainedInfo => UNSTAINEDINFO,
-            Self::CarrierId => CARRIERID,
-            Self::CarrierType => CARRIERTYPE,
-            Self::LocationId => LOCATIONID,
-            Self::Csmode => CSMODE,
-            Self::Csvbits => CSVBITS,
-            Self::Cstot => CSTOT,
-            Self::Gating => GATING,
-            Self::Gate => GATE,
+            Self::Byteord => BYTEORD_KW,
+            Self::Datatype => DATATYPE_KW,
+            Self::Mode => MODE_KW,
+            Self::Par => PAR_KW,
+            Self::Tot => TOT_KW,
+            Self::Cyt => CYT_KW,
+            Self::Abrt => ABRT_KW,
+            Self::Cells => CELLS_KW,
+            Self::Com => COM_KW,
+            Self::Exp => EXP_KW,
+            Self::Fil => FIL_KW,
+            Self::Inst => INST_KW,
+            Self::Lost => LOST_KW,
+            Self::Op => OP_KW,
+            Self::Proj => PROJ_KW,
+            Self::Smno => SMNO_KW,
+            Self::Src => SRC_KW,
+            Self::Sys => SYS_KW,
+            Self::Tr => TR_KW,
+            Self::Cytsn => CYTSN_KW,
+            Self::Timestep => TIMESTEP_KW,
+            Self::Vol => VOL_KW,
+            Self::Unicode => UNICODE_KW,
+            Self::Flowrate => FLOWRATE_KW,
+            Self::Begindata => BEGINDATA_KW,
+            Self::Beginanalysis => BEGINANALYSIS_KW,
+            Self::Beginstext => BEGINSTEXT_KW,
+            Self::Enddata => ENDDATA_KW,
+            Self::Endanalysis => ENDANALYSIS_KW,
+            Self::Endstext => ENDSTEXT_KW,
+            Self::Nextdata => NEXTDATA_KW,
+            Self::Btim => BTIM_KW,
+            Self::Etim => ETIM_KW,
+            Self::Date => DATE_KW,
+            Self::Begindatetime => BEGINDATETIME_KW,
+            Self::Enddatetime => ENDDATETIME_KW,
+            Self::Comp => COMP_KW,
+            Self::Spillover => SPILLOVER_KW,
+            Self::LastModified => LAST_MODIFIED_KW,
+            Self::LastModifier => LAST_MODIFIER_KW,
+            Self::Originality => ORIGINALITY_KW,
+            Self::Plateid => PLATEID_KW,
+            Self::Platename => PLATENAME_KW,
+            Self::Wellid => WELLID_KW,
+            Self::UnstainedCenters => UNSTAINEDCENTERS_KW,
+            Self::UnstainedInfo => UNSTAINEDINFO_KW,
+            Self::CarrierId => CARRIERID_KW,
+            Self::CarrierType => CARRIERTYPE_KW,
+            Self::LocationId => LOCATIONID_KW,
+            Self::Csmode => CSMODE_KW,
+            Self::Csvbits => CSVBITS_KW,
+            Self::Cstot => CSTOT_KW,
+            Self::Gating => GATING_KW,
+            Self::Gate => GATE_KW,
         }
     }
 
@@ -993,91 +1006,91 @@ impl RootKey {
         match bytes.len() {
             2 => match_bytes!(
                 bytes,
-                OP => Self::Op,
-                TR => Self::Tr
+                OP_KW => Self::Op,
+                TR_KW => Self::Tr
             ),
             3 => match_bytes!(
                 bytes,
-                COM => Self::Com,
-                CYT => Self::Cyt,
-                EXP => Self::Exp,
-                FIL => Self::Fil,
-                PAR => Self::Par,
-                TOT => Self::Tot,
-                SRC => Self::Src,
-                SYS => Self::Sys,
-                VOL => Self::Vol
+                COM_KW => Self::Com,
+                CYT_KW => Self::Cyt,
+                EXP_KW => Self::Exp,
+                FIL_KW => Self::Fil,
+                PAR_KW => Self::Par,
+                TOT_KW => Self::Tot,
+                SRC_KW => Self::Src,
+                SYS_KW => Self::Sys,
+                VOL_KW => Self::Vol
             ),
             4 => match_bytes!(
                 bytes,
-                ABRT => Self::Abrt,
-                BTIM => Self::Btim,
-                COMP => Self::Comp,
-                DATE => Self::Date,
-                ETIM => Self::Etim,
-                GATE => Self::Gate,
-                INST => Self::Inst,
-                LOST => Self::Lost,
-                MODE => Self::Mode,
-                PROJ => Self::Proj,
-                SMNO => Self::Smno
+                ABRT_KW => Self::Abrt,
+                BTIM_KW => Self::Btim,
+                COMP_KW => Self::Comp,
+                DATE_KW => Self::Date,
+                ETIM_KW => Self::Etim,
+                GATE_KW => Self::Gate,
+                INST_KW => Self::Inst,
+                LOST_KW => Self::Lost,
+                MODE_KW => Self::Mode,
+                PROJ_KW => Self::Proj,
+                SMNO_KW => Self::Smno
             ),
             5 => match_bytes!(
                 bytes,
-                CELLS => Self::Cells,
-                CYTSN => Self::Cytsn,
-                CSTOT => Self::Cstot
+                CELLS_KW => Self::Cells,
+                CYTSN_KW => Self::Cytsn,
+                CSTOT_KW => Self::Cstot
             ),
             6 => match_bytes!(
                 bytes,
-                CSMODE => Self::Csmode,
-                GATING => Self::Gating,
-                WELLID => Self::Wellid
+                CSMODE_KW => Self::Csmode,
+                GATING_KW => Self::Gating,
+                WELLID_KW => Self::Wellid
             ),
             7 => match_bytes!(
                 bytes,
-                BYTEORD => Self::Byteord,
-                CSVBITS => Self::Csvbits,
-                ENDDATA => Self::Enddata,
-                PLATEID => Self::Plateid,
-                UNICODE => Self::Unicode
+                BYTEORD_KW => Self::Byteord,
+                CSVBITS_KW => Self::Csvbits,
+                ENDDATA_KW => Self::Enddata,
+                PLATEID_KW => Self::Plateid,
+                UNICODE_KW => Self::Unicode
             ),
             8 => match_bytes!(
                 bytes,
-                DATATYPE => Self::Datatype,
-                ENDSTEXT => Self::Endstext,
-                FLOWRATE => Self::Flowrate,
-                NEXTDATA => Self::Nextdata,
-                TIMESTEP => Self::Timestep
+                DATATYPE_KW => Self::Datatype,
+                ENDSTEXT_KW => Self::Endstext,
+                FLOWRATE_KW => Self::Flowrate,
+                NEXTDATA_KW => Self::Nextdata,
+                TIMESTEP_KW => Self::Timestep
             ),
             9 => match_bytes!(
                 bytes,
-                BEGINDATA => Self::Begindata,
-                CARRIERID => Self::CarrierId,
-                PLATENAME => Self::Platename,
-                SPILLOVER => Self::Spillover
+                BEGINDATA_KW => Self::Begindata,
+                CARRIERID_KW => Self::CarrierId,
+                PLATENAME_KW => Self::Platename,
+                SPILLOVER_KW => Self::Spillover
             ),
             10 => match_bytes!(
                 bytes,
-                BEGINSTEXT => Self::Beginstext,
-                LOCATIONID => Self::LocationId
+                BEGINSTEXT_KW => Self::Beginstext,
+                LOCATIONID_KW => Self::LocationId
             ),
             11 => match_bytes!(
                 bytes,
-                CARRIERTYPE => Self::CarrierType,
-                ENDANALYSIS => Self::Endanalysis,
-                ENDDATETIME => Self::Enddatetime,
-                ORIGINALITY => Self::Originality
+                CARRIERTYPE_KW => Self::CarrierType,
+                ENDANALYSIS_KW => Self::Endanalysis,
+                ENDDATETIME_KW => Self::Enddatetime,
+                ORIGINALITY_KW => Self::Originality
             ),
             13 => match_bytes!(
                 bytes,
-                BEGINANALYSIS => Self::Beginanalysis,
-                BEGINDATETIME => Self::Begindatetime,
-                LAST_MODIFIED => Self::LastModified,
-                LAST_MODIFIER => Self::LastModifier,
-                UNSTAINEDINFO => Self::UnstainedInfo
+                BEGINANALYSIS_KW => Self::Beginanalysis,
+                BEGINDATETIME_KW => Self::Begindatetime,
+                LAST_MODIFIED_KW => Self::LastModified,
+                LAST_MODIFIER_KW => Self::LastModifier,
+                UNSTAINEDINFO_KW => Self::UnstainedInfo
             ),
-            _ => match_bytes!(bytes, UNSTAINEDCENTERS => Self::UnstainedCenters),
+            _ => match_bytes!(bytes, UNSTAINEDCENTERS_KW => Self::UnstainedCenters),
         }
     }
 

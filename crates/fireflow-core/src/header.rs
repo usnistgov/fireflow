@@ -336,8 +336,8 @@ pub(crate) fn autodetect_version(
                 };
             let par = kws
                 .get(&RootKey::Par.to_std0())
-                .parse::<Par>()
-                .map_err(|_| GuessVersionError::NoPar)?;
+                .and_then(|s| s.as_str().parse::<Par>().ok())
+                .ok_or(GuessVersionError::NoPar)?;
             let mut opt = KeywordOptimizer::default();
             for (k, v) in kws.iter_keywords() {
                 opt.classify_keyword(&k, v, par);

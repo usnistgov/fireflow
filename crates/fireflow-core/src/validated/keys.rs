@@ -306,7 +306,6 @@ impl<T> SpecificKey_<T, BiMeasIndex> {
 
 /// A [`SpecificKey`] which is prefixed with '$' when displayed.
 #[derive(Display, From)]
-#[display("${_0}")]
 #[derive_where(Clone, Copy, Default, PartialEq, Eq, Debug; I)]
 pub struct DollarKey_<T, I>(pub DollarWrap<SpecificKey_<T, I>>);
 
@@ -464,6 +463,7 @@ impl FromStr for NonStdKey {
 
 // Implement methods for misc types
 
+#[derive(Debug)]
 pub(crate) enum ParsedKeyword<'a> {
     // Valid std key value as a slice
     StdSlice(NonEmptyValue<StdKey, &'a NEStr>),
@@ -484,14 +484,14 @@ pub(crate) enum ParsedKeyword<'a> {
     BothInvalid(NEVec<u8>, NEVec<u8>),
 }
 
-#[derive(new)]
+#[derive(new, Debug)]
 pub(crate) struct NonEmptyValue<K, V> {
     pub(crate) key: K,
     pub(crate) value: V,
     pub(crate) original: Option<NEString>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) enum ParsedKey {
     Std(StdKey),
     Pseudo(PseudoStdKey),
@@ -867,7 +867,7 @@ impl ValidKeywords {
     }
 
     pub(crate) fn get_std(&self, k: &StdKey) -> Option<&NEStr> {
-        NEStr::try_new(self.std.get(k))
+        self.std.get(k)
     }
 
     pub(crate) fn get_pstd(&self, k: &PseudoStdKey) -> Option<&NEStr> {

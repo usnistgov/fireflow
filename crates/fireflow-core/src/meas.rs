@@ -44,7 +44,7 @@ use crate::text::named_vec::{
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::dataframe::PrimitiveDataFrame;
-use crate::validated::keys::DollarKey;
+use crate::validated::keys::{DollarKey, TruncatedNEString};
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::config::{
@@ -57,7 +57,7 @@ use fireflow_types::keywords::{
 };
 use fireflow_types::ranged_float::PositiveFloat;
 use fireflow_types::std_key::{DollarStdKey, MeasKeyId, ToStd as _};
-use nonempty::{DisplayableNE as _, NEString};
+use nonempty::DisplayableNE as _;
 
 use type_families::{ApplyOnce as _, BifunctorOnce as _};
 
@@ -539,7 +539,7 @@ pub struct DiagnosedTemporal<M> {
     pub(crate) this: M,
     pub(crate) scale: TemporalScaleFix,
     pub(crate) trimmed: TrimmedKeywords,
-    pub(crate) tmp_opt_pairs: Vec<(DollarStdKey, NEString)>,
+    pub(crate) tmp_opt_pairs: Vec<(DollarStdKey, TruncatedNEString)>,
     pub(crate) timestep_added: TimestepAdded,
 }
 

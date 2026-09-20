@@ -6,11 +6,10 @@ use nonempty::{NEStr, NEString};
 
 use derive_new::new;
 
-use std::{
-    array::from_fn,
-    marker::PhantomData,
-    ops::{Index, IndexMut},
-};
+use std::array::from_fn;
+use std::fmt;
+use std::marker::PhantomData;
+use std::ops::{Index, IndexMut};
 
 use super::index::LookupAction;
 
@@ -28,13 +27,13 @@ pub(crate) struct MaskedString<'a, I, S, K, C, A, M> {
     _mask_element: PhantomData<M>,
 }
 
-#[derive(new, Clone, Default)]
+#[derive(new, Clone, Default, Debug)]
 pub struct LookupMask {
     repair: RepairMask,
     status: LookupStatus,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub(crate) enum RepairMask {
     #[default]
     Stored,
@@ -42,7 +41,7 @@ pub(crate) enum RepairMask {
     Insert(NEString),
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub(crate) enum LookupStatus {
     #[default]
     Unseen,
@@ -265,13 +264,13 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupMask> {
     where
         F: FnOnce(&NEStr) -> (Option<LookupAction>, X),
         I: HasLen + Index<usize, Output = usize>,
-        K: EnumIndex<SubDimension = S>,
+        K: EnumIndex<SubDimension = S> + fmt::Debug,
         C: IndexMut<usize, Output = LookupMask>,
         A: AppendableContainer<K, LookupMask>,
     {
         let (v, m) = self.get_lookup_value_and_status_mut(k)?;
         if let Some(ne) = v {
-            let (action, ret) = f(m.with_unseen(ne));
+            let (action, ret) = f(m.with_unseen(k, ne));
             let new_action = action.unwrap_or(LookupAction::None);
             *m = LookupStatus::Seen(new_action);
             Some(ret)
@@ -284,13 +283,13 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupMask> {
     pub(crate) fn remove_unseen(&mut self, k: &K) -> Option<&NEStr>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: EnumIndex<SubDimension = S>,
+        K: EnumIndex<SubDimension = S> + fmt::Debug,
         C: IndexMut<usize, Output = LookupMask>,
         A: AppendableContainer<K, LookupMask>,
     {
         let (v, m) = self.get_lookup_value_and_status_mut(k)?;
         if let Some(ne) = v {
-            let ret = m.with_unseen(ne);
+            let ret = m.with_unseen(k, ne);
             *m = LookupStatus::Seen(LookupAction::None);
             Some(ret)
         } else {
@@ -302,13 +301,13 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupMask> {
     pub(crate) fn get_unseen(&self, k: &K) -> Option<&NEStr>
     where
         I: HasLen + Index<usize, Output = usize>,
-        K: EnumIndex<SubDimension = S>,
+        K: EnumIndex<SubDimension = S> + fmt::Debug,
         C: Index<usize, Output = LookupMask>,
         A: AppendableContainer<K, LookupMask>,
     {
         let m = self.get_lookup_status(k)?;
         if let Some(ne) = self.get_lookup_value(k) {
-            Some(m.with_unseen(ne))
+            Some(m.with_unseen(k, ne))
         } else {
             m.assert_empty_unseen();
             None
@@ -435,7 +434,7 @@ impl<I, S, K, C, A, M> MaskedString<'_, I, S, K, C, A, M> {
         let i = k.offset(self.inner.sub_dimension());
         let n = self.inner.n_strings();
         if i < n {
-            Some((self.inner.get_unchecked(k), &mut self.mask[i]))
+            Some((self.inner.get_index_unchecked(i), &mut self.mask[i]))
         } else {
             self.appended
                 .find_value_and_mask_mut(k)
@@ -495,11 +494,11 @@ impl RepairMask {
 }
 
 impl LookupStatus {
-    fn with_unseen(self, v: &NEStr) -> &NEStr {
+    fn with_unseen<'a, K: fmt::Debug>(self, k: &K, v: &'a NEStr) -> &'a NEStr {
         match self {
             Self::Unseen => v,
             Self::Seen(_) => {
-                panic!("tried to look up value '{v}' which was already seen")
+                panic!("tried to look up key {k:?} with value '{v}' which was already seen")
             }
         }
     }

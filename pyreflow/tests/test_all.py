@@ -5664,7 +5664,9 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
 
-        def go(f: pt.ProcessKeywordFailure) -> tuple[dict[str, str], dict[str, str]]:
+        def go(
+            f: pt.ProcessKeywordFailure,
+        ) -> tuple[pt.NonStdKeywords, pt.DroppedStdKeywords]:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 process_hyper_par=f,
@@ -5674,8 +5676,8 @@ class TestConfig:
 
         self._test_process_kw_fail_flag(
             go,
-            ({"P2N": val}, {}),
-            ({}, {"$P2N": val}),
+            ({"P2N": val}, []),
+            ({}, [("$P2N", val)]),
             [pf.ExtraKeywordError],
         )
 
@@ -5695,7 +5697,9 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
 
-        def go(f: pt.ProcessKeywordFailure) -> tuple[dict[str, str], dict[str, str]]:
+        def go(
+            f: pt.ProcessKeywordFailure,
+        ) -> tuple[pt.NonStdKeywords, pt.DroppedStdKeywords]:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 process_other_version=f,
@@ -5706,16 +5710,16 @@ class TestConfig:
         if version != "FCS3.0":
             self._test_process_kw_fail_flag(
                 go,
-                ({"UNICODE": val}, {}),
-                ({}, {"$UNICODE": val}),
+                ({"UNICODE": val}, []),
+                ({}, [("$UNICODE", val)]),
                 [pf.ExtraKeywordError],
             )
         else:
-            assert go("error") == ({}, {})
-            assert go("demote_warn") == ({}, {})
-            assert go("demote_silent") == ({}, {})
-            assert go("drop_warn") == ({}, {})
-            assert go("drop_silent") == ({}, {})
+            assert go("error") == ({}, [])
+            assert go("demote_warn") == ({}, [])
+            assert go("demote_silent") == ({}, [])
+            assert go("drop_warn") == ({}, [])
+            assert go("drop_silent") == ({}, [])
 
     @all_versions
     def test_process_extra_timestep(
@@ -5797,23 +5801,22 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
 
-        def go(f: bool) -> bool:
+        def go(f: bool) -> None:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 disallow_localtime=f,
                 time_meas_pattern="",
             )
-            return True
 
         if version == "FCS3.2":
             with pytest.RaisesGroup(pf.ParseKeywordValueError):
-                assert not go(True)
-            assert go(False)
+                go(True)
+            go(False)
         else:
             with pytest.RaisesGroup(pf.ExtraKeywordError):
-                assert not go(False)
+                go(False)
             with pytest.RaisesGroup(pf.ExtraKeywordError):
-                assert not go(True)
+                go(True)
 
     @all_versions
     def test_text_data_correction(self, version: pt.FCSVersion, tmp_path: Path) -> None:
@@ -6399,20 +6402,20 @@ class TestReadWrite:
         uncore: pf.api.StdTEXTOutput,
     ) -> None:
         assert uncore.flat_diagnostics.primary_split.delimiter == 30
-        assert len(uncore.flat_diagnostics.primary_split.byte_pairs) == 0
-        assert len(uncore.pseudostandard) == 0
-        assert len(uncore.std_diagnostics.hyper_par) == 0
-        assert len(uncore.std_diagnostics.other_version) == 0
+        assert uncore.flat_diagnostics.primary_split.byte_pairs == []
+        assert uncore.pseudostandard == {}
+        assert uncore.std_diagnostics.hyper_par == []
+        assert uncore.std_diagnostics.other_version == []
 
     @staticmethod
     def _assert_uncore_dataset_empty(
         uncore: pf.api.StdDatasetOutput,
     ) -> None:
         assert uncore.flat_diagnostics.primary_split.delimiter == 30
-        assert len(uncore.flat_diagnostics.primary_split.byte_pairs) == 0
-        assert len(uncore.pseudostandard) == 0
-        assert len(uncore.dataset.std_diagnostics.hyper_par) == 0
-        assert len(uncore.dataset.std_diagnostics.other_version) == 0
+        assert uncore.flat_diagnostics.primary_split.byte_pairs == []
+        assert uncore.pseudostandard == {}
+        assert uncore.dataset.std_diagnostics.hyper_par == []
+        assert uncore.dataset.std_diagnostics.other_version == []
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])
     def test_text_empty(self, tmp_path: Path, core: AnyCoreTEXT) -> None:

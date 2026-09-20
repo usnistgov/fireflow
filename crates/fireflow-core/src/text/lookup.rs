@@ -112,41 +112,48 @@ pub struct Diagnosed<T, D> {
 // }
 
 impl<T> Diagnosed<T, Trimmed> {
-    pub(crate) fn into_root_pair(self) -> (T, Option<(DollarStdKey, NEString)>)
+    pub(crate) fn into_root_pair(self) -> (T, Option<(DollarStdKey, TruncatedNEString)>)
     where
         T: ValueToStdKey<Index = ()>,
     {
         let k = self.inner;
-        (k, self.diagnostic.map(|t| (DollarWrap(T::std0()), t)))
+        let s = self.diagnostic.map(|t| (DollarWrap(T::std0()), t.into()));
+        (k, s)
     }
 
-    pub(crate) fn into_indexed_pair(self, i: &T::Index) -> (T, Option<(DollarStdKey, NEString)>)
+    pub(crate) fn into_indexed_pair(
+        self,
+        i: &T::Index,
+    ) -> (T, Option<(DollarStdKey, TruncatedNEString)>)
     where
         T: ValueToStdKey,
     {
         let k = self.inner;
-        (k, self.diagnostic.map(|t| (DollarWrap(T::std(i)), t)))
+        let s = self.diagnostic.map(|t| (DollarWrap(T::std(i)), t.into()));
+        (k, s)
     }
 }
 
 impl<T> Diagnosed<Option<T>, Trimmed> {
-    pub(crate) fn into_opt_root_pair(self) -> (Option<T>, Option<(DollarStdKey, NEString)>)
+    pub(crate) fn into_opt_root_pair(self) -> (Option<T>, Option<(DollarStdKey, TruncatedNEString)>)
     where
         T: ValueToStdKey<Index = ()>,
     {
         let k = self.inner;
-        (k, self.diagnostic.map(|t| (DollarWrap(T::std0()), t)))
+        let s = self.diagnostic.map(|t| (DollarWrap(T::std0()), t.into()));
+        (k, s)
     }
 
     pub(crate) fn into_opt_indexed_pair(
         self,
         i: &T::Index,
-    ) -> (Option<T>, Option<(DollarStdKey, NEString)>)
+    ) -> (Option<T>, Option<(DollarStdKey, TruncatedNEString)>)
     where
         T: ValueToStdKey,
     {
         let k = self.inner;
-        (k, self.diagnostic.map(|t| (DollarWrap(T::std(i)), t)))
+        let s = self.diagnostic.map(|t| (DollarWrap(T::std(i)), t.into()));
+        (k, s)
     }
 }
 
@@ -280,7 +287,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
     #[allow(clippy::type_complexity)]
     fn remove_req_with(
         kws: &mut StdLookupTx,
-        k: Self::Index,
+        i: Self::Index,
         data: Self::Payload<'_>,
         conf: &Self::Config,
     ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self>>
@@ -288,9 +295,9 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
         Self: FromStrWith,
         Self::Index: Copy,
     {
-        let v = Self::remove_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
+        let v = Self::remove_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
         Self::from_str_with(v, data, conf)
-            .map_err(|e| ParseKeyError::new1(e, k, v.to_owned()))
+            .map_err(|e| ParseKeyError::new1(e, i, v.to_owned()))
             .map_err(ReqKeyErrorInner::from)
     }
 

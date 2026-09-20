@@ -2182,16 +2182,16 @@ class DataSchemaDiagnostics:
 class StdTEXTDiagnostics:
     def __new__(
         cls,
-        optional: pft.StdKeywords,
-        hyper_par: pft.StdKeywords,
-        hyper_gate: pft.StdKeywords,
-        other_version: pft.StdKeywords,
+        optional: pft.DroppedStdKeywords,
+        hyper_par: pft.DroppedStdKeywords,
+        hyper_gate: pft.DroppedStdKeywords,
+        other_version: pft.DroppedStdKeywords,
         timestep: str | None,
         dedup_names: list[pft.Shortname | None],
         scale: list[pft.MeasScaleDiagnostic],
         gate_scale: list[pft.GateScaleDiagnostic],
-        trimmed: list[tuple[str, str]],
-        temporal_optical_pairs: list[tuple[str, str]],
+        trimmed: list[tuple[pft.StdKey, pft.NEStr]],
+        temporal_optical_pairs: list[tuple[pft.StdKey, pft.NEStr]],
         timestep_added: bool,
         spillover_was_indexed: bool | None,
         btim_pattern: str | None,
@@ -2207,13 +2207,13 @@ class StdTEXTDiagnostics:
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def optional(self) -> pft.StdKeywords: ...
+    def optional(self) -> pft.DroppedStdKeywords: ...
     @property
-    def hyper_par(self) -> pft.StdKeywords: ...
+    def hyper_par(self) -> pft.DroppedStdKeywords: ...
     @property
-    def hyper_gate(self) -> pft.StdKeywords: ...
+    def hyper_gate(self) -> pft.DroppedStdKeywords: ...
     @property
-    def other_version(self) -> pft.StdKeywords: ...
+    def other_version(self) -> pft.DroppedStdKeywords: ...
     @property
     def timestep(self) -> str | None: ...
     @property

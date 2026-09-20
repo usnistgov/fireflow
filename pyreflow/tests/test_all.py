@@ -4773,7 +4773,7 @@ class TestConfig:
 
         def go(f: TriFlag) -> list[tuple[str, str]]:
             out = pf.api.fcs_read_flat_text(p, allow_nonunique=f)
-            return out.flat_diagnostics.non_unique_std_keywords
+            return out.flat_diagnostics.primary_split.non_unique_std_keywords
 
         self._test_tri_flag(go, [("$NEXTDATA", "666")], [pf.ParseKeyError])
 
@@ -4788,7 +4788,7 @@ class TestConfig:
 
         def go(f: TriFlag) -> list[tuple[str, str]]:
             out = pf.api.fcs_read_flat_text(p, allow_nonunique=f)
-            return out.flat_diagnostics.non_unique_nonstd_keywords
+            return out.flat_diagnostics.primary_split.non_unique_nonstd_keywords
 
         self._test_tri_flag(go, [("slayer", "420")], [pf.ParseKeyError])
 
@@ -4929,11 +4929,11 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
-        def go(f: TriFlag) -> list[tuple[str | bytes, str | bytes]]:
+        def go(f: TriFlag) -> list[tuple[bytes, bytes]]:
             out = pf.api.fcs_read_flat_text(p, allow_non_ascii_keys=f)
-            return out.flat_diagnostics.byte_pairs
+            return out.flat_diagnostics.primary_split.byte_pairs
 
-        comp: list[tuple[str | bytes, str | bytes]] = [(b"t\0\0l", "Aenima")]
+        comp: list[tuple[bytes, bytes]] = [(b"t\0\0l", b"Aenima")]
         self._test_tri_flag(go, comp, [pf.ParseKeyError])
 
     @all_versions
@@ -4945,11 +4945,11 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
-        def go(f: TriFlag) -> list[tuple[str | bytes, str | bytes]]:
+        def go(f: TriFlag) -> list[tuple[bytes, bytes]]:
             out = pf.api.fcs_read_flat_text(p, allow_non_utf8_values=f)
-            return out.flat_diagnostics.byte_pairs
+            return out.flat_diagnostics.primary_split.byte_pairs
 
-        comp: list[tuple[str | bytes, str | bytes]] = [("tool", b"\xc6nima")]
+        comp: list[tuple[bytes, bytes]] = [(b"tool", b"\xc6nima")]
         self._test_tri_flag(go, comp, [pf.ParseKeyError])
 
     @all_versions
@@ -5021,10 +5021,10 @@ class TestConfig:
 
         def go(
             f: pt.TrimValueWhitespace,
-        ) -> tuple[list[tuple[str | bytes, str]], list[str | bytes]]:
+        ) -> tuple[list[tuple[str | bytes, str]], list[tuple[str | bytes, str]]]:
             out = pf.api.fcs_read_flat_text(p, trim_value_whitespace=f)
-            trimmed = out.flat_diagnostics.keys_with_trimmed_values
-            empty = out.flat_diagnostics.keys_with_empty_trimmed_values
+            trimmed = out.flat_diagnostics.primary_split.keys_with_trimmed_values
+            empty = out.flat_diagnostics.primary_split.keys_with_empty_trimmed_values
             return (trimmed, empty)
 
         # no error if trimming isn't desired, blank $CYT is perfectly valid by
@@ -5032,12 +5032,12 @@ class TestConfig:
         assert go("notrim") == ([], [])
 
         with pytest.RaisesGroup(pf.ParseKeyError):
-            assert go("trim") == ([], ["$CYT"])
+            assert go("trim") == ([], [("$CYT", " ")])
 
         with pytest.warns(pf.PyreflowWarning):
-            assert go("trim_blank_warn") == ([], ["$CYT"])
+            assert go("trim_blank_warn") == ([], [("$CYT", " ")])
 
-        assert go("trim_blank_silent") == ([], ["$CYT"])
+        assert go("trim_blank_silent") == ([], [("$CYT", " ")])
 
     @all_versions
     def test_ignore_standard_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
@@ -5050,7 +5050,7 @@ class TestConfig:
             ignore_standard_keys=["CYTSN"],
             allow_missing_crc="silent",
         )
-        assert out.dataset.repair_diagnostics.ignored == [("$CYTSN", "T1000")]
+        assert out.repair_diagnostics.ignored == [("$CYTSN", "T1000")]
 
     @all_versions
     def test_rename_standard_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
@@ -5373,7 +5373,7 @@ class TestConfig:
                 ignore_optical_only_keys=f,
                 process_optical_only_keys=g,
             )
-            ps = uncore.std_diagnostics.pseudostandard
+            ps = uncore.pseudostandard
             ns = core.nonstandard_keywords
             return (ps, ns)
 
@@ -5639,7 +5639,7 @@ class TestConfig:
                 process_pseudostandard=f,
                 time_meas_pattern="",
             )
-            return (core.nonstandard_keywords, uncore.std_diagnostics.pseudostandard)
+            return (core.nonstandard_keywords, uncore.pseudostandard)
 
         self._test_process_kw_fail_flag(
             go,
@@ -6399,8 +6399,8 @@ class TestReadWrite:
         uncore: pf.api.StdTEXTOutput,
     ) -> None:
         assert uncore.flat_diagnostics.primary_split.delimiter == 30
-        assert len(uncore.flat_diagnostics.byte_pairs) == 0
-        assert len(uncore.std_diagnostics.pseudostandard) == 0
+        assert len(uncore.flat_diagnostics.primary_split.byte_pairs) == 0
+        assert len(uncore.pseudostandard) == 0
         assert len(uncore.std_diagnostics.hyper_par) == 0
         assert len(uncore.std_diagnostics.other_version) == 0
 
@@ -6409,8 +6409,8 @@ class TestReadWrite:
         uncore: pf.api.StdDatasetOutput,
     ) -> None:
         assert uncore.flat_diagnostics.primary_split.delimiter == 30
-        assert len(uncore.flat_diagnostics.byte_pairs) == 0
-        assert len(uncore.dataset.std_diagnostics.pseudostandard) == 0
+        assert len(uncore.flat_diagnostics.primary_split.byte_pairs) == 0
+        assert len(uncore.pseudostandard) == 0
         assert len(uncore.dataset.std_diagnostics.hyper_par) == 0
         assert len(uncore.dataset.std_diagnostics.other_version) == 0
 

@@ -96,7 +96,7 @@ class _ReadStdKeywordsConfig(BaseModel):
     disallow_localtime: bool = False
 
 
-class _ReadDataKeywordsConfig(BaseModel):
+class _ReadRepairKeywordsConfig(BaseModel):
     ignore_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = (
         _DEFAULT_KEY_PATTERNS
     )
@@ -111,6 +111,9 @@ class _ReadDataKeywordsConfig(BaseModel):
     append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {}
     substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {}
     allow_repair_non_unique: pft.TriFlag = "false"
+
+
+class _ReadDataKeywordsConfig(BaseModel):
     text_data_correction: pft.OffsetCorrection = _DEFAULT_CORRECTION
     text_analysis_correction: pft.OffsetCorrection = _DEFAULT_CORRECTION
     ignore_text_data_offsets: bool = False
@@ -228,6 +231,7 @@ class PyreflowReadStdTEXTConfig(
     _HeaderMethods,
     _FlatTEXTMethods,
     _ReadSharedConfig,
+    _ReadRepairKeywordsConfig,
     _ReadDataKeywordsConfig,
     _ReadStdKeywordsConfig,
     _ReadFlatTEXTConfig,
@@ -270,6 +274,7 @@ class PyreflowReadFlatDatasetConfig(
     _FlatTEXTMethods,
     _ReadSharedConfig,
     _ReadEventsConfig,
+    _ReadRepairKeywordsConfig,
     _ReadDataKeywordsConfig,
     _ReadFlatTEXTConfig,
     _OffsetConfig,
@@ -324,6 +329,7 @@ class PyreflowReadStdDatasetConfig(
     _FlatDatasetMethods,
     _ReadSharedConfig,
     _ReadEventsConfig,
+    _ReadRepairKeywordsConfig,
     _ReadDataKeywordsConfig,
     _ReadStdKeywordsConfig,
     _ReadFlatTEXTConfig,

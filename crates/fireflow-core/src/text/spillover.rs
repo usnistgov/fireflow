@@ -331,7 +331,7 @@ mod tests {
     use super::*;
     use crate::test::*;
 
-    use fireflow_types::{ne_str, nonempty::string::DisplayableNE as _};
+    use fireflow_types::{ne_str, nonempty::DisplayableNE as _};
 
     use assert_matches::assert_matches;
 

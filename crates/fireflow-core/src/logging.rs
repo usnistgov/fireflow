@@ -3389,25 +3389,25 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn deconstruct<W>(self) -> (Option<V>, Vec<W>, Vec<E>)
-    where
-        LWC: IntoIterator<Item = W>,
-        RWC: IntoIterator<Item = W>,
-        EC: IntoIterator<Item = E>,
-    {
-        match self {
-            Succ(x) => {
-                let ws = x.warnings.into_iter().collect();
-                (Some(x.value), ws, vec![])
-            }
-            Fail(x) => {
-                let ws = x.warnings.into_iter().collect();
-                let es = x.errors.into_iter().collect();
-                (None, ws, es)
-            }
-        }
-    }
+    // #[cfg(test)]
+    // pub(crate) fn deconstruct<W>(self) -> (Option<V>, Vec<W>, Vec<E>)
+    // where
+    //     LWC: IntoIterator<Item = W>,
+    //     RWC: IntoIterator<Item = W>,
+    //     EC: IntoIterator<Item = E>,
+    // {
+    //     match self {
+    //         Succ(x) => {
+    //             let ws = x.warnings.into_iter().collect();
+    //             (Some(x.value), ws, vec![])
+    //         }
+    //         Fail(x) => {
+    //             let ws = x.warnings.into_iter().collect();
+    //             let es = x.errors.into_iter().collect();
+    //             (None, ws, es)
+    //         }
+    //     }
+    // }
 
     // pub(crate) fn as_ref(&self) -> Option<&V> {
     //     match self {

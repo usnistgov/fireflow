@@ -3923,10 +3923,10 @@ mod tests {
     use crate::test::*;
     use crate::text::{
         byteord::NewEndianError,
-        keyword_enum::{self as kr, Keyword1FromValue as _},
+        keyword_enum::{self as kr, AsStdKeywordPair as _, Keyword1FromValue as _},
     };
 
-    use fireflow_types::nonempty::string::DisplayNE as _;
+    use fireflow_types::nonempty::DisplayNE as _;
 
     use assert_matches::assert_matches;
     use proptest::prelude::*;

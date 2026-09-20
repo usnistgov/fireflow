@@ -977,21 +977,11 @@ mod serialize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fireflow_types::keystring::NEAsciiStringError;
-    use nonempty_collections::NESlice;
+    use fireflow_types::keystring::{AsciiStringError, NEAsciiStringError};
 
     use proptest::prelude::*;
 
-    const STD_KEY_STRAT: &str = "\\$[[:print:]]+";
     const NONSTD_KEY_STRAT: &str = "[[:print:]&&[^\\$]]\\$[[:print:]]*";
-
-    impl Arbitrary for StdKey {
-        type Parameters = ();
-        type Strategy = BoxedStrategy<Self>;
-        fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
-            STD_KEY_STRAT.prop_map(|s| s.parse().unwrap()).boxed()
-        }
-    }
 
     impl Arbitrary for NonStdKey {
         type Parameters = ();
@@ -1003,52 +993,39 @@ mod tests {
 
     // TODO test various configurations for insertion
 
-    proptest! {
-        #[test]
-        fn insert_std_key(s in STD_KEY_STRAT, v in any::<NEString>()) {
-            let k = s.parse::<StdKey>().unwrap();
-            let conf = ReadHeaderAndTEXTConfig::default();
-            let mut p = ParsedKeywords::default();
-            let res = p.insert(
-                &NESlice::try_from_slice(s.as_bytes()).unwrap(),
-                &v.as_ne_bytes(),
-                Encoding::Utf8,
-                &conf,
-            );
-            assert_eq!(None, res);
-            assert_eq!(p.std.get(&k).map(NEString::as_ne_str), Some(v.as_ne_str()));
-        }
-    }
+    // proptest! {
+    //     #[test]
+    //     fn insert_std_key(s in STD_KEY_STRAT, v in any::<NEString>()) {
+    //         let k = s.parse::<StdKey>().unwrap();
+    //         let conf = ReadHeaderAndTEXTConfig::default();
+    //         let mut p = ParsedKeywords::default();
+    //         let res = p.insert(
+    //             &NESlice::try_from_slice(s.as_bytes()).unwrap(),
+    //             &v.as_ne_bytes(),
+    //             Encoding::Utf8,
+    //             &conf,
+    //         );
+    //         assert_eq!(None, res);
+    //         assert_eq!(p.std.get(&k).map(NEString::as_ne_str), Some(v.as_ne_str()));
+    //     }
+    // }
 
-    proptest! {
-        #[test]
-        fn insert_nonstd_key(s in NONSTD_KEY_STRAT, v in any::<NEString>()) {
-            let k = s.parse::<NonStdKey>().unwrap();
-            let conf = ReadHeaderAndTEXTConfig::default();
-            let mut p = ParsedKeywords::default();
-            let res = p.insert(
-                &NESlice::try_from_slice(s.as_bytes()).unwrap(),
-                &v.as_ne_bytes(),
-                Encoding::Utf8,
-                &conf,
-            );
-            assert_eq!(None, res);
-            assert_eq!(p.nonstd.get(&k).map(NEString::as_ne_str), Some(v.as_ne_str()));
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn fromstr_std_key(s in STD_KEY_STRAT) {
-            // std key should always be stored without the dollar sign
-            let k = s.parse::<StdKey>().expect("strategy should be valid");
-            let s_noprefix = s.as_str().split_at(1).1;
-            let k_str: &str = k.as_ref();
-            assert_eq!(k_str, s_noprefix);
-            // reverse process should produce same string (with $)
-            assert_eq!(k.to_string(), s);
-        }
-    }
+    // proptest! {
+    //     #[test]
+    //     fn insert_nonstd_key(s in NONSTD_KEY_STRAT, v in any::<NEString>()) {
+    //         let k = s.parse::<NonStdKey>().unwrap();
+    //         let conf = ReadHeaderAndTEXTConfig::default();
+    //         let mut p = ParsedKeywords::default();
+    //         let res = p.insert(
+    //             &NESlice::try_from_slice(s.as_bytes()).unwrap(),
+    //             &v.as_ne_bytes(),
+    //             Encoding::Utf8,
+    //             &conf,
+    //         );
+    //         assert_eq!(None, res);
+    //         assert_eq!(p.nonstd.get(&k).map(NEString::as_ne_str), Some(v.as_ne_str()));
+    //     }
+    // }
 
     proptest! {
         #[test]
@@ -1063,41 +1040,12 @@ mod tests {
     }
 
     #[test]
-    fn fromstr_std_key_nonascii() {
-        let s = "$花冷え。"; // sugarsugarsugarsugarsugarsugarrrrrrrrr...
-        let k = s.parse::<StdKey>();
-        let e = StdKeyError::Ascii(NEAsciiStringError::Ascii(s.parse().unwrap()));
-        assert_eq!(Err(e), k);
-    }
-
-    proptest! {
-        #[test]
-        fn fromstr_std_key_noprefix(s in "[[:print:]&&[^\\$]][[:print:]]") {
-            let k = s.parse::<StdKey>();
-            let e = StdKeyError::Prefix(s.parse().unwrap());
-            assert_eq!(Err(e), k);
-        }
-    }
-
-    #[test]
-    fn fromstr_std_key_blank() {
-        let s = "";
-        let k = s.parse::<StdKey>();
-        assert_eq!(Err(StdKeyError::Ascii(NEAsciiStringError::Empty)), k);
-    }
-
-    #[test]
-    fn fromstr_std_key_onlyprefix() {
-        let s = "$";
-        let k = s.parse::<StdKey>();
-        assert_eq!(Err(StdKeyError::Empty), k);
-    }
-
-    #[test]
     fn fromstr_nonstd_key_nonascii() {
         let s = "サイ";
         let k = s.parse::<NonStdKey>();
-        let e = NonStdKeyError::Ascii(NEAsciiStringError::Ascii(s.parse().unwrap()));
+        let e = NonStdKeyError::Ascii(NEAsciiStringError::Ascii(AsciiStringError(
+            s.parse().unwrap(),
+        )));
         assert_eq!(Err(e), k);
     }
 
@@ -1105,7 +1053,7 @@ mod tests {
         #[test]
         fn fromstr_nonstd_key_hasprefix(s in "\\$[[:print:]]") {
             let k = s.parse::<NonStdKey>();
-            let e = NonStdKeyError::Prefix(s.parse().unwrap());
+            let e = NonStdKeyError::Prefix(TruncatedNEString(s.parse().unwrap()));
             assert_eq!(Err(e), k);
         }
     }

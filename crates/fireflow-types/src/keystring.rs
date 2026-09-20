@@ -87,7 +87,7 @@ pub enum NEAsciiStringError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 #[error("string should only have printable ASCII characters, found '{0}'")]
-pub struct AsciiStringError(String);
+pub struct AsciiStringError(pub String);
 
 /// Error when creating a new hashtable with non-unique keys.
 #[derive(Debug, Error, Display, PartialEq, Clone)]

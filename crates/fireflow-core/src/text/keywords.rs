@@ -468,7 +468,9 @@ impl Gain {
         let ignore = &AsRef::<EvaledReadStdKeywordsConfig>::as_ref(conf).ignore_optical_only_keys;
         let flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).process_optional_failure;
         if ignore.0.contains(&OpticalOnlyKey::Gain) {
-            kws.set_failure_flag(&Self::std(&i), flag);
+            if kws.read::<Self>(&i).is_some() {
+                kws.set_failure_flag(&Self::std(&i), flag);
+            }
             LogResult::new_switchable_ok(None, flag)
         } else {
             Self::remove_or_drop_meas_opt(kws, i, conf.as_ref())
@@ -3195,7 +3197,7 @@ kw_opt_meas_string!(Analyte, Analyte);
 kw_opt_meas_string!(Tag, Tag);
 kw_opt_meas_string!(DetectorName, Det);
 
-kw_opt_meas!(OpticalType, T, Self);
+kw_opt_meas!(OpticalType, Type, Self);
 
 // version specific
 kw_opt_meas!(Shortname, N, Option<Self>); // optional for 2.0/3.0

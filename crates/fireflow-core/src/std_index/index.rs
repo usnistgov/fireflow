@@ -13,7 +13,7 @@ use crate::validated::keys::{
 use fireflow_types::case_ins_regex::CaseInsRegex;
 use fireflow_types::config::{
     KeywordFailureFlag, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,
-    ReadDataKeywordsConfig, TemporalHasOpticalKeyError, TriErrorFlag as _,
+    TemporalHasOpticalKeyError, TriErrorFlag as _,
 };
 use fireflow_types::index::MeasIndex;
 use fireflow_types::keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns};
@@ -854,27 +854,36 @@ impl<'a> StdRepairTx<'a> {
 
 impl StdLookupTx<'_> {
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn finalize<C>(
+    pub(crate) fn finalize(
         &self,
         par: Par,
         gate: Gate,
         version: Version,
         nonstd: &mut NonStdKeywords,
         pstd: &mut PseudoStdKeywords,
-        conf: &C,
+        conf: &EvaledReadStdKeywordsConfig,
     ) -> WarningsAndErrorsResult<ExtraStdKeywords, (), ExtraStdKeywordError, ExtraStdKeywordError>
-    where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let dconf: &ReadDataKeywordsConfig = conf.as_ref();
-        let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
-        let mut demoted_or_dropped = vec![];
+        let mut optional = vec![];
         let mut hyper_par_ = vec![];
         let mut hyper_gate_ = vec![];
         let mut other_version_ = vec![];
         let mut timestep_ = None;
 
-        let mut go = |k, v: &NEStr, f| demoted_or_dropped.push((k, v.to_owned(), f));
+        // NOTE for dropped optional keywords we don't throw an error here. This
+        // is because the error that caused the keyword to be dropped in the
+        // first place was captured upstream at the call site where the optional
+        // keyword was requested. The reason why this is split comes down to
+        // speed and memory. It is more efficient (without some insane code
+        // gymnastics) to not store the error as part of the mask, and instead
+        // only store if it was dropped or not.
+        let mut go = |k, v: &NEStr, was_demoted| {
+            if was_demoted {
+                nonstd.insert_demoted(k, v.to_owned());
+            } else {
+                optional.push((DollarWrap(k), v.to_owned()));
+            }
+        };
 
         for (k, v, m) in self.root.iter_masked() {
             match m {
@@ -990,12 +999,12 @@ impl StdLookupTx<'_> {
         macro_rules! extend_errors {
             ($flag:ident, $errors:expr, $fun:expr) => {{
                 let it = $errors.iter().map($fun).map(ExtraStdKeywordError::from);
-                match sconf.$flag.is_error() {
+                match conf.$flag.is_error() {
                     Some(true) => errors.extend(it),
                     Some(false) => warnings.extend(it),
                     None => (),
                 }
-                if sconf.$flag.is_demote() {
+                if conf.$flag.is_demote() {
                     for (k, v) in $errors {
                         nonstd.insert_demoted(k.0, v);
                     }
@@ -1017,7 +1026,7 @@ impl StdLookupTx<'_> {
         });
 
         if timestep_.is_some() {
-            match sconf.process_extra_timestep.is_error() {
+            match conf.process_extra_timestep.is_error() {
                 Some(true) => errors.push(TimestepFoundError.into()),
                 Some(false) => warnings.push(TimestepFoundError.into()),
                 None => (),
@@ -1025,29 +1034,13 @@ impl StdLookupTx<'_> {
         }
 
         let timestep = timestep_.and_then(|ts| {
-            if sconf.process_extra_timestep.is_demote() {
+            if conf.process_extra_timestep.is_demote() {
                 nonstd.insert_demoted(RootKey::Timestep.to_std0(), ts);
                 None
             } else {
                 Some(ts)
             }
         });
-
-        let mut optional = vec![];
-
-        for (k, v, was_demoted) in demoted_or_dropped {
-            if was_demoted {
-                nonstd.insert_demoted(k, v);
-            } else {
-                optional.push((DollarWrap(k), v));
-            }
-            let e = KeywordOtherVersionError::new(DollarWrap(k), version).into();
-            match dconf.process_optional_failure.is_error() {
-                Some(true) => errors.push(e),
-                Some(false) => warnings.push(e),
-                None => (),
-            }
-        }
 
         // TODO this might not be the best spot for this. It is here because we
         // need to modify the nonstd keyword list depending on the config flag,
@@ -1058,14 +1051,14 @@ impl StdLookupTx<'_> {
                 let v_ = TruncatedNEString(v.to_owned());
                 PseudoStdKeyError::new(k.clone(), v_).into()
             };
-            match sconf.process_pseudostandard.is_error() {
+            match conf.process_pseudostandard.is_error() {
                 Some(true) => errors.push(e()),
                 Some(false) => warnings.push(e()),
                 None => (),
             }
         }
 
-        if sconf.process_pseudostandard.is_demote() {
+        if conf.process_pseudostandard.is_demote() {
             nonstd.extend(pstd.drain().map(|(k, v)| (NonStdKey::from(k.0), v)));
         }
 

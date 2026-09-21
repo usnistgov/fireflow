@@ -6185,7 +6185,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                     .map_commutative_warnings(NewCoreWarning::Link)
                     .and_then_commutative(|()| {
                         let gate = metaroot.specific.gate().unwrap_or(Gate(0));
-                        std.finalize(par, gate, version, &mut nonstd, pstd, conf)
+                        std.finalize(par, gate, version, &mut nonstd, pstd, conf.as_ref())
                             .map_errors(LookupCoreError::Extra)
                             .map_commutative_warnings(NewCoreWarning::Extra)
                     })

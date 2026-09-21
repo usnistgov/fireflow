@@ -149,7 +149,7 @@ impl<'a, K, S> MaskedVariableString<'a, K, S, RepairMask> {
 }
 
 impl<const LEN: usize, K> MaskedEnumString<'_, LEN, K, LookupMask> {
-    pub(crate) fn finalize_array(self) -> NestedEnumString<LEN, K>
+    pub(crate) fn commit_array(self) -> NestedEnumString<LEN, K>
     where
         K: EnumIndex<SubDimension = ()> + NumericEnum<LEN>,
     {
@@ -162,7 +162,7 @@ impl<const LEN: usize, K> MaskedEnumString<'_, LEN, K, LookupMask> {
 }
 
 impl<K, S> MaskedVariableString<'_, K, S, LookupMask> {
-    pub(crate) fn finalize_var(self) -> NestedVariableString<K, S>
+    pub(crate) fn commit_var(self) -> NestedVariableString<K, S>
     where
         S: Copy,
         K: EnumIndex<SubDimension = S>,

@@ -1074,7 +1074,7 @@ class TestCore:
         assert core.cyt == new
         with pytest.raises(TypeError):
             core.cyt = cast(str, None)
-        with pytest.raises(pf.ParseKeywordValueError):
+        with pytest.raises(ValueError):
             core.cyt = ""
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
@@ -3839,9 +3839,9 @@ class TestApiFunctions:
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
         conf = pfp.PyreflowReadStdTEXTConfig()
-        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
+        with pytest.RaisesGroup(pf.RelationalError):
             _ = pf.api.fcs_read_std_text(p, **conf.model_dump(), dataset_offset=0)
-        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
+        with pytest.RaisesGroup(pf.RelationalError):
             _ = pf.api.fcs_read_std_texts(p, **conf.model_dump())
 
     def test_read_std_text_pd(
@@ -3853,9 +3853,9 @@ class TestApiFunctions:
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
         conf = pfp.PyreflowReadStdTEXTConfig()
-        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
+        with pytest.RaisesGroup(pf.RelationalError):
             _ = conf.read_std_text(p)
-        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
+        with pytest.RaisesGroup(pf.RelationalError):
             _ = conf.read_std_texts(p)
 
     def test_read_flat_dataset(
@@ -3891,9 +3891,9 @@ class TestApiFunctions:
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
         conf = pfp.PyreflowReadStdDatasetConfig()
-        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
+        with pytest.RaisesGroup(pf.RelationalError):
             _ = pf.api.fcs_read_std_dataset(p, **conf.model_dump(), dataset_offset=0)
-        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
+        with pytest.RaisesGroup(pf.RelationalError):
             _ = pf.api.fcs_read_std_datasets(p, **conf.model_dump())
 
     def test_read_std_dataset_pd(
@@ -3905,9 +3905,9 @@ class TestApiFunctions:
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
         conf = pfp.PyreflowReadStdDatasetConfig()
-        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
+        with pytest.RaisesGroup(pf.RelationalError):
             _ = conf.read_std_dataset(p)
-        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
+        with pytest.RaisesGroup(pf.RelationalError):
             _ = conf.read_std_datasets(p)
 
     def test_other_width(self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2) -> None:

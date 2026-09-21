@@ -321,6 +321,7 @@ impl Default for StdKeywords {
 // TODO sealme in mod
 
 /// A "compiled" object to match keys efficiently.
+#[derive(Debug)]
 pub(crate) struct KeyMatcher<'a, T> {
     literal: HashMap<&'a KeyString, &'a T>,
     pattern: Vec<(&'a CaseInsRegex, &'a T)>,
@@ -639,6 +640,9 @@ impl<'a> StdRepairTx<'a> {
             let ignore_match = matchers.ignore.is_match(&ks);
             if demote_match {
                 *m = RepairMask::Delete;
+                // TODO this could be made more efficient by only moving once
+                // the index queried for errors
+                nonstd.insert_demoted(k, v.to_owned());
                 demoted.push(dk);
             } else if ignore_match {
                 *m = RepairMask::Delete;
@@ -857,19 +861,19 @@ impl<'a> StdRepairTx<'a> {
 }
 
 impl StdLookupTx<'_> {
-    pub(crate) fn finalize(self) -> StdKeywords {
+    pub(crate) fn commit(self) -> StdKeywords {
         StdKeywords {
-            root: self.root.finalize_array(),
-            meas: self.meas.finalize_var(),
-            gate: self.gate.finalize_var(),
-            region: self.region.finalize_var(),
-            csv_flag: self.csv_flag.finalize_var(),
-            dfc: self.dfc.finalize_var(),
+            root: self.root.commit_array(),
+            meas: self.meas.commit_var(),
+            gate: self.gate.commit_var(),
+            region: self.region.commit_var(),
+            csv_flag: self.csv_flag.commit_var(),
+            dfc: self.dfc.commit_var(),
         }
     }
 
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn extra_kw_errors(
+    pub(crate) fn finalize(
         &self,
         par: Par,
         gate: Gate,

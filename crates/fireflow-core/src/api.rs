@@ -1432,7 +1432,7 @@ impl FCSFileReader {
                         .map_pure_errors(ReadFlatDatasetError::from)
                         .zip_io_group_commutative(repair_res)
                         .map_ok_value(|(dataset, repair_diag)| {
-                            let final_std = ltx.finalize();
+                            let final_std = ltx.commit();
                             // Rebuild final keywords object since we may have
                             // repaired them to read DATA
                             let final_kws = ValidKeywords::new(final_std, kws.pstd, kws.nonstd);

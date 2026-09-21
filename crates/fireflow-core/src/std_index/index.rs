@@ -857,8 +857,19 @@ impl<'a> StdRepairTx<'a> {
 }
 
 impl StdLookupTx<'_> {
+    pub(crate) fn finalize(self) -> StdKeywords {
+        StdKeywords {
+            root: self.root.finalize_array(),
+            meas: self.meas.finalize_var(),
+            gate: self.gate.finalize_var(),
+            region: self.region.finalize_var(),
+            csv_flag: self.csv_flag.finalize_var(),
+            dfc: self.dfc.finalize_var(),
+        }
+    }
+
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn finalize(
+    pub(crate) fn extra_kw_errors(
         &self,
         par: Par,
         gate: Gate,
@@ -1342,6 +1353,9 @@ mod python {
 
     use pyo3::{prelude::*, types::PyDict};
 
+    // TODO this is inefficient. Whenever the user wants to use this object like
+    // a dict, we need to make a new dict. Gross. Turn this into a real python
+    // class with methods that make it act like a dict.
     impl<'py> FromPyObject<'_, 'py> for StdKeywords {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {

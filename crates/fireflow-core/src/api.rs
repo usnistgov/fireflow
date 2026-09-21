@@ -1411,13 +1411,10 @@ impl FCSFileReader {
                     .map_error(IOErrorGroup::Pure)
                     .and_then_commutative(|lst| {
                         let mut flat = out.this;
-                        let mut rtx = flat.keywords.std.as_transaction();
+                        let mut kws = flat.keywords;
+                        let mut rtx = kws.std.as_transaction();
                         let repair_res = rtx
-                            .repair(
-                                &mut flat.keywords.pstd,
-                                &mut flat.keywords.nonstd,
-                                &lst.conf().repair,
-                            )
+                            .repair(&mut kws.pstd, &mut kws.nonstd, &lst.conf().repair)
                             .map_commutative_warnings(ReadFlatDatasetWarning::from)
                             .map_errors(ReadFlatDatasetError::from);
                         let ltx = rtx.into_lookup_transaction();
@@ -1435,8 +1432,12 @@ impl FCSFileReader {
                         .map_pure_errors(ReadFlatDatasetError::from)
                         .zip_io_group_commutative(repair_res)
                         .map_ok_value(|(dataset, repair_diag)| {
+                            let final_std = ltx.finalize();
+                            // Rebuild final keywords object since we may have
+                            // repaired them to read DATA
+                            let final_kws = ValidKeywords::new(final_std, kws.pstd, kws.nonstd);
                             FlatDatasetOutput::new(
-                                flat.keywords,
+                                final_kws,
                                 flat.flat_diagnostics,
                                 dataset,
                                 scores,

@@ -1,7 +1,7 @@
 use crate::std_index::nested_string::{Iter, NestedEnumString, NestedString, NestedVariableString};
 use crate::validated::dataframe::HasLen;
 
-use fireflow_types::std_key::{EnumIndex, StdKey};
+use fireflow_types::std_key::{EnumIndex, NumericEnum, StdKey};
 use nonempty::{NEStr, NEString};
 
 use derive_new::new;
@@ -12,6 +12,7 @@ use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
 use super::index::LookupAction;
+use super::nested_string::NestedStringSize;
 
 pub type MaskedEnumString<'a, const LEN: usize, K, M> =
     MaskedString<'a, [usize; LEN], (), K, [M; LEN], (), M>;
@@ -144,6 +145,37 @@ impl<'a, K, S> MaskedVariableString<'a, K, S, RepairMask> {
             .map(|(k, m, v)| (k, LookupMask::new(m, LookupStatus::default()), v))
             .collect();
         MaskedString::new(self.inner, mask, appended)
+    }
+}
+
+impl<const LEN: usize, K> MaskedEnumString<'_, LEN, K, LookupMask> {
+    pub(crate) fn finalize_array(self) -> NestedEnumString<LEN, K>
+    where
+        K: EnumIndex<SubDimension = ()> + NumericEnum<LEN>,
+    {
+        let n_bytes = self.iter_final().map(|(_, v)| v.len().get()).sum();
+        let mut new = NestedString::init_array(n_bytes);
+        // SAFETY: input should be sorted and will not contain duplicates
+        unsafe { new.set_keys(self.iter_final()) }
+        new
+    }
+}
+
+impl<K, S> MaskedVariableString<'_, K, S, LookupMask> {
+    pub(crate) fn finalize_var(self) -> NestedVariableString<K, S>
+    where
+        S: Copy,
+        K: EnumIndex<SubDimension = S>,
+    {
+        let n_bytes = self.iter_final().map(|(_, v)| v.len().get()).sum();
+        let n_strings = self.iter_final().count();
+        let s = self.inner.sub_dimension();
+        let size = NestedStringSize::new(n_bytes, n_strings);
+        let mut new = NestedString::init_var(&size, *s);
+        let it = self.iter_final().map(|(k, v)| (k.offset(s), v));
+        // SAFETY: input should be sorted and will not contain duplicates
+        unsafe { new.extend_pairs(it) }
+        new
     }
 }
 
@@ -332,6 +364,18 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupMask> {
                 None => panic!("index out of bounds"),
             }
         }
+    }
+
+    pub(crate) fn iter_final<'b>(&'b self) -> impl Iterator<Item = (K, &'a NEStr)>
+    where
+        I: HasLen + Index<usize, Output = usize>,
+        K: EnumIndex<SubDimension = S>,
+        &'b C: IntoIterator<Item = &'b LookupMask> + 'a,
+    {
+        self.iter_masked().filter_map(|(k, v, m)| match m {
+            LookupStatus::Unseen | LookupStatus::Seen(LookupAction::None) => Some((k, v)),
+            LookupStatus::Seen(_) => None,
+        })
     }
 
     pub(crate) fn iter_masked<'b>(

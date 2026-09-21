@@ -22,6 +22,7 @@ use type_families::{impl_functor_once, impl_kind1};
 
 use std::borrow::Borrow;
 use std::iter;
+use std::marker::PhantomData;
 use std::ops;
 use std::slice::Iter;
 use std::str::FromStr;
@@ -328,10 +329,12 @@ pub type NumericEnumIter<T> = iter::Copied<Iter<'static, T>>;
 pub type RootKeyGenerator = NumericEnumIter<RootKey>;
 
 /// Index generator for indexed keys.
-pub type IndexedKeyGenerator<const LEN: usize, I, K> = iter::Map<
-    iter::Zip<iter::Cycle<NumericEnumIter<K>>, ops::RangeFrom<usize>>,
-    fn((K, usize)) -> IndexedKey<LEN, I, K>,
->;
+pub struct IndexedKeyGenerator<const LEN: usize, I, K: 'static> {
+    key_orig: NumericEnumIter<K>,
+    key: NumericEnumIter<K>,
+    index: usize,
+    _index: PhantomData<I>,
+}
 
 /// Index generator for $CSVnFLAG keys.
 pub type CsvFlagGenerator = iter::Map<ops::RangeFrom<usize>, fn(usize) -> CsvFlagKey>;
@@ -556,6 +559,25 @@ impl EnumIndex for RootKey {
     }
 }
 
+impl<const LEN: usize, I, K> Iterator for IndexedKeyGenerator<LEN, I, K>
+where
+    usize: Into<I>,
+    K: Copy + NumericEnum<LEN>,
+{
+    type Item = IndexedKey<LEN, I, K>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let k = if let Some(k) = self.key.next() {
+            k
+        } else {
+            self.index += 1;
+            self.key = self.key_orig.clone();
+            self.key.next().unwrap()
+        };
+        Some(IndexedKey::new(self.index.into(), k))
+    }
+}
+
 impl<const LEN: usize, I, K> EnumIndex for IndexedKey<LEN, I, K>
 where
     K: NumericEnum<LEN>,
@@ -565,11 +587,12 @@ where
     type Generator = IndexedKeyGenerator<LEN, I, K>;
 
     fn generate((): &Self::SubDimension) -> Self::Generator {
-        // TODO get rid of division with custom iterator
-        K::iter()
-            .cycle()
-            .zip(0_usize..)
-            .map(|(id, i)| Self::new((i / LEN).into(), id))
+        IndexedKeyGenerator {
+            key_orig: K::iter(),
+            key: K::iter(),
+            index: 0,
+            _index: PhantomData,
+        }
     }
 
     fn offset(&self, (): &Self::SubDimension) -> usize {

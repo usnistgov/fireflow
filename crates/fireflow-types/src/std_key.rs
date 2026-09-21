@@ -13,7 +13,7 @@ use type_families::FunctorOnce as _;
 
 use ambassador::Delegate;
 use bytemuck::{NoUninit, TransparentWrapper, must_cast_ref};
-use derive_more::{AsRef, Display, From, TryInto};
+use derive_more::{AsRef, Display, From, Into, TryInto};
 use derive_new::new;
 use strum::{EnumCount, VariantArray};
 use strum_macros::{EnumCount as EnumCount_, VariantArray};
@@ -50,7 +50,7 @@ pub enum RealOrPseudoStdKey {
 /// A key which starts with a '$' but is not defined in any FCS standard.
 ///
 /// The leading '$' is not included internally or when displayed.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, AsRef, Delegate)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, AsRef, Delegate, Into)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(KeyString)]

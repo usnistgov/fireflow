@@ -1487,26 +1487,6 @@ pub enum AnyStdDatasetFromKeywordsError {
     AppendRepair(AppendRepairFlagError),
 }
 
-// /// Error when reading specific version of standardized DATA from keyword pairs
-// #[derive(From, Display, Debug, Error, PartialEq, Clone)]
-// #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-// pub enum StdDatasetFromKeywordsError {
-//     Inner(StdDatasetFromFlatTextErrorInner),
-//     DatatsetLen(DatasetLenEOFError),
-//     Warn(StdDatasetFromFlatTEXTWarning),
-// }
-
-// /// Error (inner) when reading standardized DATA from keyword pairs
-// #[derive(From, Display, Debug, Error, PartialEq, Clone)]
-// #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-// pub enum StdDatasetFromFlatTextErrorInner {
-//     DatasetOffset(DatasetOffsetError),
-//     TEXT(StdTEXTFromFlatTEXTErrorInner),
-//     Dataframe(ReadCheckedDataframeError),
-//     Offsets(LookupTEXTOffsetsError),
-//     CRC(CRCError),
-// }
-
 /// Warning when reading standardized DATA from keyword pairs
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -5789,19 +5769,20 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             .map_commutative_warnings(StdTEXTFromKeywordsWithOffsetsWarning::from)
             .map_errors(StdTEXTFromKeywordsWithOffsetsError::from);
         let ltx = rtx.into_lookup_transaction();
-        // TODO return pseudostandard keywords somewhere
-        Self::new_from_transaction_with_offsets(ltx, kws.nonstd, offsets, start_time, st)
+        let mut pstd = kws.pstd;
+        Self::new_from_transaction_with_offsets(ltx, &mut pstd, kws.nonstd, offsets, start_time, st)
             .map_commutative_warnings(StdTEXTFromKeywordsWithOffsetsWarning::from)
             .map_errors(StdTEXTFromKeywordsWithOffsetsError::from)
             .zip_commutative(repair_res)
             .map_ok_value(|((core, core_offsets), repair_diag)| {
-                LookupCoreWithOffsetOutput::new(core, core_offsets, repair_diag, kws.pstd)
+                LookupCoreWithOffsetOutput::new(core, core_offsets, repair_diag, pstd)
             })
     }
 
     #[allow(clippy::type_complexity)]
     pub(crate) fn new_from_transaction_with_offsets<C>(
         mut tx: StdLookupTx,
+        pstd: &mut PseudoStdKeywords,
         nonstd: NonStdKeywords,
         offsets: &mut HeaderAndSuppOffsets,
         start_time: Instant,
@@ -5830,7 +5811,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             .map_commutative_warnings(StdTEXTFromTxWithOffsetsWarning::from)
             .map_errors(StdTEXTFromTxWithOffsetsError::from);
 
-        Self::lookup_inner(tx, nonstd, start_time, st.conf())
+        Self::lookup_inner(tx, pstd, nonstd, start_time, st.conf())
             .map_commutative_warnings(StdTEXTFromTxWithOffsetsWarning::from)
             .map_errors(StdTEXTFromTxWithOffsetsError::from)
             .zip_commutative(offsets_res)
@@ -5866,7 +5847,8 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     {
         let start_time = Instant::now();
         let tx = std.as_transaction();
-        Self::lookup_inner(tx, nonstd, start_time, conf)
+        let mut pstd = HashMap::new(); // TODO hack
+        Self::lookup_inner(tx, &mut pstd, nonstd, start_time, conf)
             .map_errors(StdTEXTFromKeywordsError::from)
             .map_ok_value(|out| (out.this, out.std_diag))
             .group()
@@ -5877,6 +5859,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     #[allow(clippy::too_many_lines)]
     fn lookup_inner<C>(
         mut std: StdLookupTx,
+        pstd: &mut PseudoStdKeywords,
         nonstd: NonStdKeywords,
         start_time: Instant,
         conf: &C,
@@ -5937,14 +5920,9 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                         (schema_start_time, original_names),
                     )| {
                         let meta_diag = metaroot_out.diagnostic;
-                        let new_res = Self::try_new(
-                            std,
-                            nonstd,
-                            metaroot_out.inner,
-                            meas,
-                            schema_out.data_schema,
-                            conf,
-                        );
+                        let mo = metaroot_out.inner;
+                        let sd = schema_out.data_schema;
+                        let new_res = Self::try_new(std, pstd, nonstd, mo, meas, sd, conf);
                         go_err!(new_res).map_ok_value(|(core, extra)| {
                             let std_pre_ns = schema_start_time.duration_since1(start_time);
                             let (diag, std_end) = StdTEXTDiagnostics::from_extra(
@@ -6179,10 +6157,11 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         ))
     }
 
-    // only meant to be called during lookup when keywords are being read from
-    // a hashtable
+    // only meant to be called during lookup when keywords are being parsed
+    // straight from TEXT
     pub(crate) fn try_new<C>(
         mut std: StdLookupTx,
+        pstd: &mut PseudoStdKeywords,
         mut nonstd: NonStdKeywords,
         mut metaroot: RootMeta<V::RootMeta>,
         measurements: VNamedTemporalsAndScaledOpticals<V>,
@@ -6206,7 +6185,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                     .map_commutative_warnings(NewCoreWarning::Link)
                     .and_then_commutative(|()| {
                         let gate = metaroot.specific.gate().unwrap_or(Gate(0));
-                        std.finalize(par, gate, version, &mut nonstd, conf)
+                        std.finalize(par, gate, version, &mut nonstd, pstd, conf)
                             .map_errors(LookupCoreError::Extra)
                             .map_commutative_warnings(NewCoreWarning::Extra)
                     })
@@ -6304,6 +6283,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             + AsRef<ReadSharedConfig>,
     {
         let start_time = Instant::now();
+        let mut pstd = HashMap::new();
 
         #[allow(
             clippy::result_large_err,
@@ -6324,6 +6304,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                 Self::new_from_transaction(
                     &mut fr.buf_read,
                     tx,
+                    &mut pstd,
                     nonstd,
                     &mut hns,
                     false,
@@ -6378,16 +6359,21 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             .map_commutative_warnings(StdDatasetFromKeywordsWarningInner::from)
             .map_errors(StdDatasetFromKeywordsErrorInner::from);
         let ltx = rtx.into_lookup_transaction();
-        Self::new_from_transaction(h, ltx, kws.nonstd, hns, scan_next_dataset, start_time, st)
+        let mut pstd = kws.pstd;
+        let ns = kws.nonstd;
+        let snd = scan_next_dataset;
+        Self::new_from_transaction(h, ltx, &mut pstd, ns, hns, snd, start_time, st)
             .map_commutative_warnings(StdDatasetFromKeywordsWarningInner::from)
             .map_pure_errors(StdDatasetFromKeywordsErrorInner::from)
             .zip_io_group_commutative(repair_res)
-            .map_ok_value(|((new, out), repair)| (new, out, repair, kws.pstd))
+            .map_ok_value(|((new, out), repair)| (new, out, repair, pstd))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_from_transaction<C, R>(
         h: &mut BufReader<R>,
         tx: StdLookupTx,
+        pstd: &mut PseudoStdKeywords,
         nonstd: NonStdKeywords,
         hns: &mut HeaderAndSuppOffsets,
         scan_next_dataset: bool,
@@ -6411,53 +6397,55 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadDatasetConfig>,
     {
-        VersionedCoreTEXT::<V>::new_from_transaction_with_offsets(tx, nonstd, hns, start_time, st)
-            .map_commutative_warnings(StdDatasetFromTxWarning::from)
-            .map_errors(StdDatasetFromTxError::from)
-            .group()
-            .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|(core_out, mut offsets)| {
-                let core = core_out.this;
-                let or = hns.header.final_offsets.others_reader();
-                let ar = AnalysisReader::new(offsets.offsets.final_analysis);
-                let version = core.fcs_version();
-                let final_data = &mut offsets.offsets.final_data;
-                let other = io_to_log!(or.h_read(h));
-                let analysis = io_to_log!(ar.h_read(h));
-                let read_other_anal_end = Instant::now();
-                let read_other_anal_time = read_other_anal_end.duration_since1(core_out.lookup_end);
-                let r0 = read_other_anal_end;
-                core.meas
-                    .h_read_df(h, offsets.tot, final_data, r0, st.conf().as_ref())
-                    .map_commutative_warnings(StdDatasetFromTxWarning::from)
-                    .map_pure_errors(StdDatasetFromTxError::from)
-                    .and_then_commutative(|df_out| {
-                        let ed = df_out.diagnostics;
-                        let d = &offsets.offsets;
-                        let v = version;
-                        let s = scan_next_dataset;
-                        let ns = core.nonstandard_keywords;
-                        let new = Self::new(core.rootmeta, df_out.inner, ns, analysis, other);
-                        let ts = LookupFlatDatasetTimings::new(
-                            df_out.read_data_time,
-                            df_out.check_ranges_time,
-                            read_other_anal_time,
-                            df_out.read_end,
-                        );
-                        DatasetDiagnostics::from_parts(h, v, ed, hns, d, s, &ts, st)
-                            .map_commutative_warnings(StdDatasetFromTxWarning::from)
-                            .map_pure_errors(StdDatasetFromTxError::from)
-                            .repack_warnings()
-                            .map_ok_value(|ds_diag| {
-                                let diag = StdDatasetFromKwsOutput::new(
-                                    offsets.offsets,
-                                    core_out.std_diag,
-                                    ds_diag,
-                                );
-                                (new, diag)
-                            })
-                    })
-            })
+        VersionedCoreTEXT::<V>::new_from_transaction_with_offsets(
+            tx, pstd, nonstd, hns, start_time, st,
+        )
+        .map_commutative_warnings(StdDatasetFromTxWarning::from)
+        .map_errors(StdDatasetFromTxError::from)
+        .group()
+        .map_error(IOErrorGroup::Pure)
+        .and_then_commutative(|(core_out, mut offsets)| {
+            let core = core_out.this;
+            let or = hns.header.final_offsets.others_reader();
+            let ar = AnalysisReader::new(offsets.offsets.final_analysis);
+            let version = core.fcs_version();
+            let final_data = &mut offsets.offsets.final_data;
+            let other = io_to_log!(or.h_read(h));
+            let analysis = io_to_log!(ar.h_read(h));
+            let read_other_anal_end = Instant::now();
+            let read_other_anal_time = read_other_anal_end.duration_since1(core_out.lookup_end);
+            let r0 = read_other_anal_end;
+            core.meas
+                .h_read_df(h, offsets.tot, final_data, r0, st.conf().as_ref())
+                .map_commutative_warnings(StdDatasetFromTxWarning::from)
+                .map_pure_errors(StdDatasetFromTxError::from)
+                .and_then_commutative(|df_out| {
+                    let ed = df_out.diagnostics;
+                    let d = &offsets.offsets;
+                    let v = version;
+                    let s = scan_next_dataset;
+                    let ns = core.nonstandard_keywords;
+                    let new = Self::new(core.rootmeta, df_out.inner, ns, analysis, other);
+                    let ts = LookupFlatDatasetTimings::new(
+                        df_out.read_data_time,
+                        df_out.check_ranges_time,
+                        read_other_anal_time,
+                        df_out.read_end,
+                    );
+                    DatasetDiagnostics::from_parts(h, v, ed, hns, d, s, &ts, st)
+                        .map_commutative_warnings(StdDatasetFromTxWarning::from)
+                        .map_pure_errors(StdDatasetFromTxError::from)
+                        .repack_warnings()
+                        .map_ok_value(|ds_diag| {
+                            let diag = StdDatasetFromKwsOutput::new(
+                                offsets.offsets,
+                                core_out.std_diag,
+                                ds_diag,
+                            );
+                            (new, diag)
+                        })
+                })
+        })
     }
 
     /// Write this core structure (HEADER+TEXT) to a file path

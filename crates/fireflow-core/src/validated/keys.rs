@@ -49,6 +49,12 @@ use {
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct NonStdKey(KeyString);
 
+impl From<PseudoStdKey> for NonStdKey {
+    fn from(value: PseudoStdKey) -> Self {
+        Self(KeyString::from(value))
+    }
+}
+
 /// Either a standard or non-standard key with '$' prefixed on the former.
 #[derive(Clone, Display, PartialEq, Debug, From)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]

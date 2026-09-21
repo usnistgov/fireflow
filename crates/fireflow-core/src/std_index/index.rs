@@ -71,6 +71,7 @@ pub enum ExtraStdKeywordError {
     HyperPar(HyperParError),
     HyperGate(HyperGateError),
     OtherVersion(KeywordOtherVersionError),
+    Pseudo(PseudoStdKeyError),
 }
 
 /// Error denoting that measurement keyword within standard but above $PAR was found
@@ -112,6 +113,16 @@ pub struct KeywordOtherVersionError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct TimestepFoundError;
+
+/// Error when pseudostandard keywords are encountered.
+#[derive(new, Debug, Error, PartialEq, Clone)]
+#[error("found pseudostandard key '{key}' with value '{value}'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
+pub struct PseudoStdKeyError {
+    pub key: DollarPseudoStdKey,
+    pub value: TruncatedNEString,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum LookupAction {
@@ -849,6 +860,7 @@ impl StdLookupTx<'_> {
         gate: Gate,
         version: Version,
         nonstd: &mut NonStdKeywords,
+        pstd: &mut PseudoStdKeywords,
         conf: &C,
     ) -> WarningsAndErrorsResult<ExtraStdKeywords, (), ExtraStdKeywordError, ExtraStdKeywordError>
     where
@@ -1035,6 +1047,27 @@ impl StdLookupTx<'_> {
                 Some(false) => warnings.push(e),
                 None => (),
             }
+        }
+
+        // TODO this might not be the best spot for this. It is here because we
+        // need to modify the nonstd keyword list depending on the config flag,
+        // and this just happens to be the easiest place to do this that will
+        // affect the entire standardization procedure.
+        for (k, v) in pstd.iter() {
+            let e = || {
+                let k_ = DollarWrap(k.clone());
+                let v_ = TruncatedNEString(v.to_owned());
+                PseudoStdKeyError::new(k_, v_).into()
+            };
+            match sconf.process_pseudostandard.is_error() {
+                Some(true) => errors.push(e()),
+                Some(false) => warnings.push(e()),
+                None => (),
+            }
+        }
+
+        if sconf.process_pseudostandard.is_demote() {
+            nonstd.extend(pstd.drain().map(|(k, v)| (NonStdKey::from(k), v)));
         }
 
         if let Some(ne) = NEVec::try_from_vec(errors) {

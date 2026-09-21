@@ -417,7 +417,7 @@ type NEBytes = bytes
 type NEStrOrBytes = str | bytes
 """A string or bytestring which cannot be empty."""
 
-type AnyKey = StdKey | PseudoStdKey | NonStdKey | bytes
+type AnyKey = StdKey | PseudoStdKey | NonStdKey
 """A valid key from *TEXT*."""
 
 type KeyOrBytes = AnyKey | bytes

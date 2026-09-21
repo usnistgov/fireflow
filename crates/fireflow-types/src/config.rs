@@ -562,7 +562,6 @@ pub struct ReadRepairKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
     /// Rename standard keys in TEXT.
     ///
     /// Keys matching the first part of the pair will be replaced by the second.
-    /// The leading "$" is implied so keys in this table should not include it.
     /// Comparisons are case-insensitive.
     ///
     /// Keys are renamed before [`Self::promote_to_standard`] and
@@ -593,15 +592,14 @@ pub struct ReadRepairKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
 
     /// Replace values of standard keys.
     ///
-    /// Keys will be matched in case-insensitive manner. The leading "$" is
-    /// implied, so keys in this table should not include it.
+    /// Keys will be matched in case-insensitive manner.
     pub replace_standard_key_values: RSKV,
 
     /// Append standard key/value pairs to those read from TEXT.
     ///
     /// This will be applied at the very end of TEXT processing, so no other
     /// key/value transformations will apply to it; they will be appended
-    /// literally as-is. The "$" prefix is implied and should not be included.
+    /// literally as-is.
     ///
     /// This will raise a warning or error if any keys are already present,
     /// and existing value will not be overwritten in such cases. This will also

@@ -26,7 +26,7 @@ use fireflow_types::keystring::{
     KeyString, KeyStringsOrPatterns, NonUniqueKeyError, checked_iter_to_hashmap,
 };
 use fireflow_types::keystring_pairs::{KeyStringPairs, KeyStringPairsError};
-use fireflow_types::std_key::{RealOrPseudoStdKey, StdKey};
+use fireflow_types::std_key::{DollarRealOrPseudoStdKey, DollarStdKey};
 use fireflow_types::timepattern::TimePattern;
 use nonempty::{NEString, NEVec};
 
@@ -243,7 +243,7 @@ pub type EvaledReadRepairKeywordsConfig = ReadRepairKeywordsConfig_<
 /// A map of [`KeyString`]/[`String`] pairs.
 ///
 /// The main use case for this is to replace or add key values.
-pub type KeyStringValues = HashMap<StdKey, NEString>;
+pub type KeyStringValues = HashMap<DollarStdKey, NEString>;
 
 pub(crate) fn eval_std_conf(
     conf: &ReadStdKeywordsConfig,
@@ -334,8 +334,8 @@ pub(crate) fn eval_repair_conf(
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AppendRepairFlagError {
     KeyPattern(NonUniqueKeyError<LiteralOrPattern<KeyString>>),
-    NonUniqueStd(NonUniqueKeyError<StdKey>),
-    NonUniqueMaybeStd(NonUniqueKeyError<RealOrPseudoStdKey>),
+    NonUniqueStd(NonUniqueKeyError<DollarStdKey>),
+    NonUniqueMaybeStd(NonUniqueKeyError<DollarRealOrPseudoStdKey>),
     KeyStringPairsValid(KeyStringPairsError),
 }
 

@@ -139,8 +139,8 @@ impl AppendableSelector<KeyStringPairs> {
     /// only if the latter is not already present.
     pub fn push_rename_spill_to_spillover(&mut self) {
         let mut hm = HashMap::new();
-        let from = "SPILL".parse::<RealOrPseudoStdKey>().unwrap();
-        let to = RootKey::Spillover.to_std0();
+        let from = DollarWrap("SPILL".parse::<RealOrPseudoStdKey>().unwrap());
+        let to = DollarWrap(RootKey::Spillover.to_std0());
         hm.insert(from, to);
         let pairs = KeyStringPairs::try_from(hm).unwrap();
         let kw_test = KeyTest::HasKey(AnyKey::Std(DollarWrap(RealOrPseudoStdKey::Real(

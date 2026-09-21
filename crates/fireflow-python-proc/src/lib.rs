@@ -11102,7 +11102,7 @@ impl DocArgParam {
         let d = format!(
             "Rename standard keys in {TEXT}. Keys matching the first part of \
              the pair will be replaced by the second. Comparisons are case \
-             insensitive. The leading {DOLLAR_STR} is implied so do not include it."
+             insensitive."
         );
         Self::new_param(ta::RENAME_STD_KEYS, pt, d).def_auto()
     }

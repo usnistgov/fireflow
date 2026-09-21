@@ -388,6 +388,10 @@ impl<'a> AllKeyMatchers<'a> {
 }
 
 impl StdKeywords {
+    pub fn iter_dollar_keywords(&self) -> impl Iterator<Item = (DollarStdKey, &NEStr)> {
+        self.iter_keywords().map(|(k, v)| (DollarWrap(k), v))
+    }
+
     pub fn iter_keywords(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {
         self.root
             .iter_std()
@@ -1362,7 +1366,7 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             // Use dict to preserve order
             let out = PyDict::new(py);
-            for (k, v) in self.iter_keywords() {
+            for (k, v) in self.iter_dollar_keywords() {
                 let k_ = k.into_pyobject(py)?;
                 let v_ = v.to_owned().into_pyobject(py)?;
                 out.set_item(k_, v_)?;

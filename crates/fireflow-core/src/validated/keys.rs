@@ -351,7 +351,7 @@ impl<T> DollarKey_<T, BiMeasIndex> {
 
 pub type NonStdKeywords = HashMap<NonStdKey, NEString>;
 
-pub type PseudoStdKeywords = HashMap<PseudoStdKey, NEString>;
+pub type PseudoStdKeywords = HashMap<DollarPseudoStdKey, NEString>;
 
 /// Error when parsing [`NonStdKey`] from string
 #[derive(From, PartialEq, Debug, Error, Clone)]
@@ -775,10 +775,10 @@ impl<'a> ParsedKeyword<'a> {
                     diag.keys_with_trimmed_values
                         .push((DollarKeyOrBytes::from(k), o.into()));
                 }
-                match nonstd.pstd.entry(kv.key) {
+                match nonstd.pstd.entry(DollarWrap(kv.key)) {
                     Entry::Occupied(e) => diag
                         .non_unique_pstd_keywords
-                        .push((DollarWrap(e.key().clone()), kv.value.into())),
+                        .push((e.key().clone(), kv.value.into())),
                     Entry::Vacant(e) => {
                         let _ = e.insert(kv.value);
                     }

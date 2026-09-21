@@ -8974,7 +8974,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_pstd_keywords() -> Self {
-        let keypath: Path = parse_quote!(fireflow_types::std_key::PseudoStdKey);
+        let keypath: Path = parse_quote!(fireflow_types::std_key::DollarPseudoStdKey);
         let valpath: Path = parse_quote!(nonempty::NEString);
         // TODO the :: here is awkward
         Self::new_py(["typing"], "PseudoStdKeywords")

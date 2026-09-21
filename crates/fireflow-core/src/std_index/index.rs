@@ -720,8 +720,8 @@ impl<'a> StdRepairTx<'a> {
 
         for (k0, k1) in Vec::from(pstd_rename) {
             let dk1 = DollarWrap(k1);
-            if let Entry::Occupied(e) = pstd.entry(k0.clone()) {
-                let k0_ = DollarWrap(e.key().to_owned());
+            if let Entry::Occupied(e) = pstd.entry(DollarWrap(k0.clone())) {
+                let k0_ = e.key().to_owned();
                 if self.insert(&k1, e.remove()).is_some() {
                     renamed_pseudo_std_non_unique.push((k0_, dk1));
                 } else {
@@ -1055,9 +1055,8 @@ impl StdLookupTx<'_> {
         // affect the entire standardization procedure.
         for (k, v) in pstd.iter() {
             let e = || {
-                let k_ = DollarWrap(k.clone());
                 let v_ = TruncatedNEString(v.to_owned());
-                PseudoStdKeyError::new(k_, v_).into()
+                PseudoStdKeyError::new(k.clone(), v_).into()
             };
             match sconf.process_pseudostandard.is_error() {
                 Some(true) => errors.push(e()),
@@ -1067,7 +1066,7 @@ impl StdLookupTx<'_> {
         }
 
         if sconf.process_pseudostandard.is_demote() {
-            nonstd.extend(pstd.drain().map(|(k, v)| (NonStdKey::from(k), v)));
+            nonstd.extend(pstd.drain().map(|(k, v)| (NonStdKey::from(k.0), v)));
         }
 
         if let Some(ne) = NEVec::try_from_vec(errors) {

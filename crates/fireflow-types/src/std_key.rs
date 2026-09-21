@@ -20,6 +20,7 @@ use strum_macros::{EnumCount as EnumCount_, VariantArray};
 use thiserror::Error;
 use type_families::{impl_functor_once, impl_kind1};
 
+use std::borrow::Borrow;
 use std::iter;
 use std::ops;
 use std::slice::Iter;
@@ -56,6 +57,12 @@ pub enum RealOrPseudoStdKey {
 #[as_ref(KeyString)]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct PseudoStdKey(KeyString);
+
+impl<T> Borrow<T> for DollarWrap<T> {
+    fn borrow(&self) -> &T {
+        &self.0
+    }
+}
 
 /// Wrap a type so its display string is prefixed with '$'.
 #[derive(

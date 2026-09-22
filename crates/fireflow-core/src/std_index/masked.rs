@@ -9,16 +9,16 @@ use derive_new::new;
 use std::array::from_fn;
 use std::fmt;
 use std::marker::PhantomData;
-use std::ops::{Index, IndexMut};
+use std::ops::{Index, IndexMut, Range};
 
 use super::index::LookupAction;
 use super::nested_string::NestedStringSize;
 
 pub type MaskedEnumString<'a, const LEN: usize, K, M> =
-    MaskedString<'a, [usize; LEN], (), K, [M; LEN], (), M>;
+    MaskedString<'a, [Range<usize>; LEN], (), K, [M; LEN], (), M>;
 
 pub type MaskedVariableString<'a, K, S, M> =
-    MaskedString<'a, Vec<usize>, S, K, Vec<M>, Vec<(K, M, NEString)>, M>;
+    MaskedString<'a, Vec<Range<usize>>, S, K, Vec<M>, Vec<(K, M, NEString)>, M>;
 
 #[derive(new)]
 pub(crate) struct MaskedString<'a, I, S, K, C, A, M> {
@@ -155,8 +155,8 @@ impl<const LEN: usize, K> MaskedEnumString<'_, LEN, K, LookupMask> {
     {
         let n_bytes = self.iter_final().map(|(_, v)| v.len().get()).sum();
         let mut new = NestedString::init_array(n_bytes);
-        // SAFETY: input should be sorted and will not contain duplicates
-        unsafe { new.set_keys(self.iter_final()) }
+        let dups = new.extend_dedup(self.iter_final());
+        assert!(dups.is_empty(), "there should be no duplicates");
         new
     }
 }
@@ -168,13 +168,12 @@ impl<K, S> MaskedVariableString<'_, K, S, LookupMask> {
         K: EnumIndex<SubDimension = S>,
     {
         let n_bytes = self.iter_final().map(|(_, v)| v.len().get()).sum();
-        let n_strings = self.iter_final().count();
+        let n_offsets = self.inner.n_offsets();
         let s = self.inner.sub_dimension();
-        let size = NestedStringSize::new(n_bytes, n_strings);
+        let size = NestedStringSize::new(n_bytes, n_offsets);
         let mut new = NestedString::init_var(&size, *s);
-        let it = self.iter_final().map(|(k, v)| (k.offset(s), v));
-        // SAFETY: input should be sorted and will not contain duplicates
-        unsafe { new.extend_pairs(it) }
+        let dups = new.extend_dedup(self.iter_final());
+        assert!(dups.is_empty(), "there should be no duplicates");
         new
     }
 }
@@ -188,7 +187,7 @@ impl<'a, const LEN: usize, K, M: Default> MaskedEnumString<'a, LEN, K, M> {
 
 impl<'a, K, S, M: Default> MaskedVariableString<'a, K, S, M> {
     pub fn init_var(inner: &'a NestedVariableString<K, S>) -> Self {
-        let n = inner.n_strings();
+        let n = inner.n_offsets();
         let mut mask = Vec::with_capacity(n);
         mask.resize_with(n, || M::default());
         Self {
@@ -203,7 +202,7 @@ impl<'a, K, S, M: Default> MaskedVariableString<'a, K, S, M> {
 impl<I, S, K, C, A> MaskedString<'_, I, S, K, C, A, RepairMask> {
     pub(crate) fn delete(&mut self, k: &K) -> Option<&NEStr>
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         C: IndexMut<usize, Output = RepairMask>,
         K: EnumIndex<SubDimension = S>,
         A: AppendableContainer<K, RepairMask>,
@@ -220,7 +219,7 @@ impl<I, S, K, C, A> MaskedString<'_, I, S, K, C, A, RepairMask> {
 
     pub(crate) fn insert(&mut self, k: &K, v: NEString) -> Option<NEString>
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         C: IndexMut<usize, Output = RepairMask>,
         K: EnumIndex<SubDimension = S>,
         A: AppendableContainer<K, RepairMask>,
@@ -237,7 +236,7 @@ impl<I, S, K, C, A> MaskedString<'_, I, S, K, C, A, RepairMask> {
 
     pub(crate) fn key_has_value(&self, k: &K) -> bool
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         K: EnumIndex<SubDimension = S>,
         C: Index<usize, Output = RepairMask>,
         A: AppendableContainer<K, RepairMask>,
@@ -268,7 +267,7 @@ impl<I, S, K, C, A> MaskedString<'_, I, S, K, C, A, RepairMask> {
         &'b mut self,
     ) -> impl Iterator<Item = (StdKey, &'b NEStr, &'b mut RepairMask)>
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         K: EnumIndex<SubDimension = S> + Into<StdKey>,
         &'b mut C: IntoIterator<Item = &'b mut RepairMask>,
     {
@@ -280,7 +279,7 @@ impl<I, S, K, C, A> MaskedString<'_, I, S, K, C, A, RepairMask> {
         &'b mut self,
     ) -> impl Iterator<Item = (StdKey, &'b str, &'b mut RepairMask)>
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         K: EnumIndex<SubDimension = S> + Into<StdKey>,
         &'b mut C: IntoIterator<Item = &'b mut RepairMask>,
     {
@@ -295,7 +294,7 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupMask> {
     pub(crate) fn parse_unseen<F, X>(&mut self, k: &K, f: F) -> Option<X>
     where
         F: FnOnce(&NEStr) -> (Option<LookupAction>, X),
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         K: EnumIndex<SubDimension = S> + fmt::Debug,
         C: IndexMut<usize, Output = LookupMask>,
         A: AppendableContainer<K, LookupMask>,
@@ -314,7 +313,7 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupMask> {
 
     pub(crate) fn remove_unseen(&mut self, k: &K) -> Option<&NEStr>
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         K: EnumIndex<SubDimension = S> + fmt::Debug,
         C: IndexMut<usize, Output = LookupMask>,
         A: AppendableContainer<K, LookupMask>,
@@ -332,7 +331,7 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupMask> {
 
     pub(crate) fn get_unseen(&self, k: &K) -> Option<&NEStr>
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         K: EnumIndex<SubDimension = S> + fmt::Debug,
         C: Index<usize, Output = LookupMask>,
         A: AppendableContainer<K, LookupMask>,
@@ -348,7 +347,7 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupMask> {
 
     pub(crate) fn set_lookup_action_seen(&mut self, k: &K, a: LookupAction)
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         K: EnumIndex<SubDimension = S>,
         C: IndexMut<usize, Output = LookupMask>,
         A: AppendableContainer<K, LookupMask>,
@@ -368,7 +367,7 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupMask> {
 
     pub(crate) fn iter_final<'b>(&'b self) -> impl Iterator<Item = (K, &'a NEStr)>
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         K: EnumIndex<SubDimension = S>,
         &'b C: IntoIterator<Item = &'b LookupMask> + 'a,
     {
@@ -382,7 +381,7 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupMask> {
         &'b self,
     ) -> impl Iterator<Item = (K, &'a NEStr, &'b LookupStatus)>
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         K: EnumIndex<SubDimension = S>,
         &'b C: IntoIterator<Item = &'b LookupMask> + 'a,
     {
@@ -396,7 +395,7 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupMask> {
         k: &K,
     ) -> Option<(Option<&NEStr>, &mut LookupStatus)>
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         K: EnumIndex<SubDimension = S>,
         C: IndexMut<usize, Output = LookupMask>,
         A: AppendableContainer<K, LookupMask>,
@@ -427,7 +426,7 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupMask> {
 
     fn get_lookup_value(&self, k: &K) -> Option<&NEStr>
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         K: EnumIndex<SubDimension = S>,
         C: Index<usize, Output = LookupMask>,
         A: AppendableContainer<K, LookupMask>,
@@ -441,7 +440,7 @@ impl<'a, I, S, K, C, A> MaskedString<'a, I, S, K, C, A, LookupMask> {
 impl<I, S, K, C, A, M> MaskedString<'_, I, S, K, C, A, M> {
     fn get_value(&self, k: &K) -> Option<&str>
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         K: EnumIndex<SubDimension = S>,
         A: AppendableContainer<K, M>,
     {
@@ -460,7 +459,7 @@ impl<I, S, K, C, A, M> MaskedString<'_, I, S, K, C, A, M> {
         A: AppendableContainer<K, M>,
     {
         let i = k.offset(self.inner.sub_dimension());
-        let n = self.inner.n_strings();
+        let n = self.inner.n_offsets();
         if i < n {
             Some(&self.mask[i])
         } else {
@@ -470,13 +469,13 @@ impl<I, S, K, C, A, M> MaskedString<'_, I, S, K, C, A, M> {
 
     fn get_value_and_mask_mut(&mut self, k: &K) -> Option<(&str, &mut M)>
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         C: IndexMut<usize, Output = M>,
         K: EnumIndex<SubDimension = S>,
         A: AppendableContainer<K, M>,
     {
         let i = k.offset(self.inner.sub_dimension());
-        let n = self.inner.n_strings();
+        let n = self.inner.n_offsets();
         if i < n {
             Some((self.inner.get_index_unchecked(i), &mut self.mask[i]))
         } else {
@@ -494,7 +493,7 @@ impl<I, S, K, C, A, M> MaskedString<'_, I, S, K, C, A, M> {
         A: AppendableContainer<K, M>,
     {
         let i = k.offset(self.inner.sub_dimension());
-        let n = self.inner.n_strings();
+        let n = self.inner.n_offsets();
         if i < n {
             Some(&mut self.mask[i])
         } else {
@@ -512,7 +511,7 @@ impl<I, S, K, C, A, M> MaskedString<'_, I, S, K, C, A, M> {
 
     pub(crate) fn iter(&self) -> Iter<'_, I, K>
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         K: EnumIndex<SubDimension = S>,
     {
         self.inner.iter()
@@ -520,7 +519,7 @@ impl<I, S, K, C, A, M> MaskedString<'_, I, S, K, C, A, M> {
 
     pub(crate) fn occupied(&self, k: &K) -> Option<bool>
     where
-        I: HasLen + Index<usize, Output = usize>,
+        I: HasLen + Index<usize, Output = Range<usize>>,
         K: EnumIndex<SubDimension = S>,
     {
         self.inner.occupied(k)

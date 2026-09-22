@@ -62,7 +62,9 @@ use fireflow_types::config::{
 };
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
 use fireflow_types::segment::{OffsetsFromTEXT, SupplementalTextSegmentId};
-use fireflow_types::std_key::{DollarPseudoStdKey, DollarStdKey, NonStdKey, RootKey, ToStd as _};
+use fireflow_types::std_key::{
+    DollarPseudoStdKey, DollarStdKey, NonStdKey, PseudoNonStdKey, RootKey, ToStd as _,
+};
 use nonempty::{IntoIteratorExt as _, NESlice, NEVec, NonEmptyIterator as _};
 
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
@@ -692,6 +694,9 @@ pub struct SplitTEXTDiagnostics {
 
     /// Standard keys which appear more than once with their values.
     pub non_unique_pstd_keywords: Vec<(DollarPseudoStdKey, TruncatedNEString)>,
+
+    /// Pseudo-nonstandard keys which appear more than once with their values.
+    pub non_unique_pnonstd_keywords: Vec<(PseudoNonStdKey, TruncatedNEString)>,
 
     /// Nonstandard keys which appear more than once with their values.
     pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedNEString)>,
@@ -1435,7 +1440,8 @@ impl FCSFileReader {
                             let final_std = ltx.commit();
                             // Rebuild final keywords object since we may have
                             // repaired them to read DATA
-                            let final_kws = ValidKeywords::new(final_std, kws.pstd, kws.nonstd);
+                            let final_kws =
+                                ValidKeywords::new(final_std, kws.pstd, kws.pnonstd, kws.nonstd);
                             FlatDatasetOutput::new(
                                 final_kws,
                                 flat.flat_diagnostics,
@@ -2066,7 +2072,7 @@ impl FlatTEXTOutput {
                         .group()
                         .map_error(IOErrorGroup::Pure);
 
-                    let vkws = ValidKeywords::new(index, nonstd.pstd, nonstd.nonstd);
+                    let vk = ValidKeywords::new(index, nonstd.pstd, nonstd.pnonstd, nonstd.nonstd);
                     let header_supp =
                         HeaderAndSuppOffsets::new(header, supp_text_offsets, nextdata);
 
@@ -2081,7 +2087,7 @@ impl FlatTEXTOutput {
                             primary_split: prim_out,
                             supp_split: supp_out,
                         };
-                        FlatTEXTOutputInner::new(Self::new(vkws, diag), text_read_end, txt_st)
+                        FlatTEXTOutputInner::new(Self::new(vk, diag), text_read_end, txt_st)
                     })
                 },
             )
@@ -2177,6 +2183,7 @@ impl SplitTEXTDiagnostics {
             byte_pairs: parsed.byte_pairs,
             non_unique_std_keywords: parsed.non_unique_std_keywords,
             non_unique_pstd_keywords: parsed.non_unique_pstd_keywords,
+            non_unique_pnonstd_keywords: parsed.non_unique_pnonstd_keywords,
             non_unique_nonstd_keywords: parsed.non_unique_nonstd_keywords,
             keys_with_empty_trimmed_values: parsed.keys_with_empty_trimmed_values,
             keys_with_trimmed_values: parsed.keys_with_trimmed_values,

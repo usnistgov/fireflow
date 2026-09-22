@@ -1,6 +1,4 @@
-use crate::std_key::{
-    DollarRealOrPseudoStdKey, DollarStdKey, PseudoStdKey, RealOrPseudoStdKey, StdKey,
-};
+use crate::std_key::{AnyStdKey, DollarAnyStdKey, DollarStdKey, PseudoStdKey, StdKey};
 
 use nonempty::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 
@@ -27,7 +25,7 @@ use {
 #[derive(Clone, Debug, Default, AsRef, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct KeyStringPairs(HashMap<DollarRealOrPseudoStdKey, DollarStdKey>);
+pub struct KeyStringPairs(HashMap<DollarAnyStdKey, DollarStdKey>);
 
 /// A map of std to std  key pairs.
 ///
@@ -42,26 +40,24 @@ pub struct StdKeyStringPairs(Vec<(StdKey, StdKey)>);
 pub struct PseudoStdKeyStringPairs<'a>(Vec<(&'a PseudoStdKey, StdKey)>);
 
 impl IntoIterator for KeyStringPairs {
-    type Item = (DollarRealOrPseudoStdKey, DollarStdKey);
-    type IntoIter = IntoIter<DollarRealOrPseudoStdKey, DollarStdKey>;
+    type Item = (DollarAnyStdKey, DollarStdKey);
+    type IntoIter = IntoIter<DollarAnyStdKey, DollarStdKey>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
 }
 
-impl TryFrom<HashMap<DollarRealOrPseudoStdKey, DollarStdKey>> for KeyStringPairs {
+impl TryFrom<HashMap<DollarAnyStdKey, DollarStdKey>> for KeyStringPairs {
     type Error = KeyStringPairsError;
 
-    fn try_from(
-        value: HashMap<DollarRealOrPseudoStdKey, DollarStdKey>,
-    ) -> Result<Self, Self::Error> {
+    fn try_from(value: HashMap<DollarAnyStdKey, DollarStdKey>) -> Result<Self, Self::Error> {
         if let Some(ne) = value.values().duplicates().try_into_nonempty_iter() {
             return Err(KeyStringNonUniqueError(ne.cloned().collect()).into());
         }
         let mut names = vec![];
         for (k, v) in &value {
-            if let RealOrPseudoStdKey::Real(rk) = k.0
+            if let AnyStdKey::Real(rk) = k.0
                 && rk == v.0
             {
                 names.push(k.clone());
@@ -83,8 +79,8 @@ impl KeyStringPairs {
         let mut pstd = vec![];
         for (k0, k1) in self.as_ref() {
             match &k0.0 {
-                RealOrPseudoStdKey::Real(k) => std.push((*k, k1.0)),
-                RealOrPseudoStdKey::Pseudo(k) => pstd.push((k, k1.0)),
+                AnyStdKey::Real(k) => std.push((*k, k1.0)),
+                AnyStdKey::Pseudo(k) => pstd.push((k, k1.0)),
             }
         }
         (StdKeyStringPairs(std), PseudoStdKeyStringPairs(pstd))
@@ -104,7 +100,7 @@ pub enum KeyStringPairsError {
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-pub struct KeyStringMatchingKeyValueError(NEVec<DollarRealOrPseudoStdKey>);
+pub struct KeyStringMatchingKeyValueError(NEVec<DollarAnyStdKey>);
 
 /// Error when values in [`KeyStringPairs`] are not unique
 #[derive(Error, Debug, PartialEq, Clone)]
@@ -115,7 +111,7 @@ pub struct KeyStringNonUniqueError(NEVec<DollarStdKey>);
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::std_key::{DollarRealOrPseudoStdKey, DollarStdKey};
+    use crate::std_key::{DollarAnyStdKey, DollarStdKey};
 
     use super::KeyStringPairs;
 
@@ -125,7 +121,7 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for KeyStringPairs {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let xs: HashMap<DollarRealOrPseudoStdKey, DollarStdKey> = obj.extract()?;
+            let xs: HashMap<DollarAnyStdKey, DollarStdKey> = obj.extract()?;
             let ret = xs.try_into()?;
             Ok(ret)
         }

@@ -22,7 +22,7 @@ use {
     fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
 };
 
-/// The internal string for a key (standard or nonstandard).
+/// The internal string for a non-standard key (standard or nonstandard).
 ///
 /// Must be non-empty and contain only ASCII characters. Comparisons will be
 /// case-insensitive.

@@ -873,17 +873,19 @@ pub fn impl_py_valid_keywords(input: TokenStream) -> TokenStream {
     let std = DocArg::new_std_keywords_param().into_ro(|_, _| quote!(self.0.std.clone().into()));
     let pstd =
         DocArg::new_pstd_keywords_param("pstd").into_ro(|_, _| quote!(self.0.pstd.clone().into()));
+    let pnonstd = DocArg::new_pnonstd_keywords_param("pnonstd")
+        .into_ro(|_, _| quote!(self.0.pnonstd.clone().into()));
     let nonstd =
         DocArg::new_nonstd_keywords_param().into_ro(|_, _| quote!(self.0.nonstd.clone().into()));
 
-    let args = [std, pstd, nonstd];
+    let args = [std, pstd, pnonstd, nonstd];
 
     let doc = DocString::new_class("Standard and non-standard keywords.").args(args);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(std, pstd, nonstd).into()
+                #path::new(std, pstd, pnonstd, nonstd).into()
             }
 
             // /// Dump this class as a dictionary.
@@ -2974,6 +2976,15 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.non_unique_pstd_keywords.clone()),
     );
 
+    let non_unique_pseudo_non = DocArgROIvar::new_ivar_ro(
+        "non_unique_pnonstd_keywords",
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_pnonstd_keyword()).add(PyAlias::new_ne_truncated_str()),
+        ),
+        format!("Pseudo-nonstandard keys which already appeared in {TEXT} previously."),
+        |_, _| quote!(self.0.non_unique_pnonstd_keywords.clone()),
+    );
+
     let non_unique_nonstd = DocArgROIvar::new_ivar_ro(
         "non_unique_nonstd_keywords",
         PyList::new1(
@@ -3065,6 +3076,7 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
         byte_pairs,
         non_unique_std,
         non_unique_pseudo,
+        non_unique_pseudo_non,
         non_unique_nonstd,
         trimmed_empty,
         trimmed,
@@ -8982,6 +8994,15 @@ impl<E: From<PyException>> PyAlias<E> {
             .set_default(PyDict::new_dummy())
     }
 
+    fn new_pnonstd_keywords() -> Self {
+        let keypath: Path = parse_quote!(fireflow_types::std_key::PseudoNonStdKey);
+        let valpath: Path = parse_quote!(nonempty::NEString);
+        // TODO the :: here is awkward
+        Self::new_py(["typing"], "PseudoNonStdKeywords")
+            .rstype(parse_quote!(hashbrown::HashMap::<#keypath, #valpath>))
+            .set_default(PyDict::new_dummy())
+    }
+
     fn new_nonstd_keywords() -> Self {
         let keypath: Path = parse_quote!(fireflow_types::std_key::NonStdKey);
         let valpath: Path = parse_quote!(nonempty::NEString);
@@ -9027,6 +9048,15 @@ impl<E: From<PyException>> PyAlias<E> {
         // Self::default().rstype(path).exc(e)
         let path = parse_quote!(fireflow_types::std_key::NonStdKey);
         Self::new_py(["typing"], "NonStdKey").rstype(path)
+    }
+
+    fn new_pnonstd_keyword() -> Self {
+        // let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
+        // let d = format!("if {ARG_TOKEN} is empty or starts with {DOLLAR_STR}");
+        // let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(d);
+        // Self::default().rstype(path).exc(e)
+        let path = parse_quote!(fireflow_types::std_key::PseudoNonStdKey);
+        Self::new_py(["typing"], "PseudoNonStdKey").rstype(path)
     }
 
     fn new_any_keyword() -> Self {
@@ -10034,6 +10064,14 @@ impl DocArgParam {
             name,
             PyAlias::new_pstd_keywords(),
             "Pseudostandard keywords.",
+        )
+    }
+
+    fn new_pnonstd_keywords_param(name: &'static str) -> Self {
+        Self::new_param(
+            name,
+            PyAlias::new_pnonstd_keywords(),
+            "Pseudo-nonstandard keywords.",
         )
     }
 

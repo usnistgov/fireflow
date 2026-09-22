@@ -446,6 +446,13 @@ Only printable ASCII characters are allowed.
 
 """
 
+type PseudoNonStdKey = NEStr
+"""A key that does not start with ``"$"`` but is really standard.
+
+Only printable ASCII characters are allowed.
+
+"""
+
 type NonStdKey = NEStr
 """A non-standard key (does not start with ``"$"``).
 
@@ -458,6 +465,9 @@ type StdKeywords = dict[StdKey, NEStr]
 
 type PseudoStdKeywords = dict[PseudoStdKey, NEStr]
 """All keys that start with '$' but are not really standard keywords."""
+
+type PseudoNonStdKeywords = dict[PseudoNonStdKey, NEStr]
+"""All keys that do not start with '$' but are really standard keywords."""
 
 type NonStdKeywords = dict[NonStdKey, NEStr]
 """All non-standard keywords and their serialized values."""

@@ -23,7 +23,7 @@ use fireflow_types::textdelim::TEXTDelim;
 use fireflow_types::timepattern::TimePattern;
 use fireflow_types::{
     args::dash as ta,
-    std_key::{DollarRealOrPseudoStdKey, DollarStdKey},
+    std_key::{DollarAnyStdKey, DollarStdKey},
 };
 use nonempty::{NEStr, NEString};
 
@@ -1917,10 +1917,7 @@ fn parse_key_string_pattern_list(s: &str) -> StrResult<Vec<KeyStringOrPattern>> 
 }
 
 fn parse_two_keystring_pair(s: &str) -> StrResult<Vec<BiKeyPair>> {
-    let go_k = |x: &str| {
-        x.parse::<DollarRealOrPseudoStdKey>()
-            .map_err(|e| e.to_string())
-    };
+    let go_k = |x: &str| x.parse::<DollarAnyStdKey>().map_err(|e| e.to_string());
     let go_v = |x: &str| x.parse::<DollarStdKey>().map_err(|e| e.to_string());
     parse_pairs(s, go_k, go_v)
 }
@@ -2115,7 +2112,7 @@ type AppResult<T> = Result<T, Box<dyn Error>>;
 
 type StrResult<T> = Result<T, String>;
 
-type BiKeyPair = (DollarRealOrPseudoStdKey, DollarStdKey);
+type BiKeyPair = (DollarAnyStdKey, DollarStdKey);
 
 type KeystringStringPair = (DollarStdKey, NEString);
 

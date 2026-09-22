@@ -2095,6 +2095,7 @@ class ValidKeywords:
         cls,
         std: pft.StdKeywords,
         pstd: pft.PseudoStdKeywords,
+        pnonstd: pft.PseudoNonStdKeywords,
         nonstd: pft.NonStdKeywords,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
@@ -2102,6 +2103,8 @@ class ValidKeywords:
     def std(self) -> pft.StdKeywords: ...
     @property
     def pstd(self) -> pft.PseudoStdKeywords: ...
+    @property
+    def pnonstd(self) -> pft.PseudoNonStdKeywords: ...
     @property
     def nonstd(self) -> pft.NonStdKeywords: ...
 
@@ -2284,6 +2287,7 @@ class SplitTEXTDiagnostics:
         byte_pairs: list[tuple[pft.NEBytes, pft.NEBytes]],
         non_unique_std_keywords: list[tuple[pft.StdKey, pft.NEStr]],
         non_unique_pstd_keywords: list[tuple[pft.PseudoStdKey, pft.NEStr]],
+        non_unique_pnonstd_keywords: list[tuple[pft.PseudoNonStdKey, pft.NEStr]],
         non_unique_nonstd_keywords: list[tuple[pft.NonStdKey, pft.NEStr]],
         keys_with_empty_trimmed_values: list[tuple[pft.KeyOrBytes, pft.NEStr]],
         keys_with_trimmed_values: list[tuple[pft.KeyOrBytes, pft.NEStr]],
@@ -2311,6 +2315,10 @@ class SplitTEXTDiagnostics:
     def non_unique_std_keywords(self) -> list[tuple[pft.StdKey, pft.NEStr]]: ...
     @property
     def non_unique_pstd_keywords(self) -> list[tuple[pft.PseudoStdKey, pft.NEStr]]: ...
+    @property
+    def non_unique_pnonstd_keywords(
+        self,
+    ) -> list[tuple[pft.PseudoNonStdKey, pft.NEStr]]: ...
     @property
     def non_unique_nonstd_keywords(self) -> list[tuple[pft.NonStdKey, pft.NEStr]]: ...
     @property

@@ -4,7 +4,7 @@ use fireflow_types::config::{KeyPatterns, TimeMeasNamePattern};
 use fireflow_types::datepattern::DatePattern;
 use fireflow_types::keystring::{KeyStringOrPattern, KeyStringsOrPatterns};
 use fireflow_types::keystring_pairs::KeyStringPairs;
-use fireflow_types::std_key::{DollarWrap, RealOrPseudoStdKey, RootKey, ToStd as _};
+use fireflow_types::std_key::{AnyStdKey, DollarWrap, RootKey, ToStd as _};
 use fireflow_types::timepattern::TimePattern;
 use nonempty::{NEStr, NEString, NEVec, NonEmptyIterator as _, ne_str, nev};
 
@@ -122,7 +122,7 @@ impl AppendableSelector<KeyPatterns> {
             once("/SPILL(?:OVER)?/".parse::<KeyStringOrPattern>().unwrap())
                 .map(|x| (x, ()))
                 .collect();
-        let kw_test = KeyTest::HasKey(AnyKey::Std(DollarWrap(RealOrPseudoStdKey::Real(
+        let kw_test = KeyTest::HasKey(AnyKey::Std(DollarWrap(AnyStdKey::Real(
             RootKey::Spillover.to_std0(),
         ))));
         let cond = Condition::Not(Condition::Root(kw_test).into());
@@ -139,11 +139,11 @@ impl AppendableSelector<KeyStringPairs> {
     /// only if the latter is not already present.
     pub fn push_rename_spill_to_spillover(&mut self) {
         let mut hm = HashMap::new();
-        let from = DollarWrap("SPILL".parse::<RealOrPseudoStdKey>().unwrap());
+        let from = DollarWrap("SPILL".parse::<AnyStdKey>().unwrap());
         let to = DollarWrap(RootKey::Spillover.to_std0());
         hm.insert(from, to);
         let pairs = KeyStringPairs::try_from(hm).unwrap();
-        let kw_test = KeyTest::HasKey(AnyKey::Std(DollarWrap(RealOrPseudoStdKey::Real(
+        let kw_test = KeyTest::HasKey(AnyKey::Std(DollarWrap(AnyStdKey::Real(
             RootKey::Spillover.to_std0(),
         ))));
         let cond = Condition::Not(Condition::Root(kw_test).into());
@@ -162,7 +162,7 @@ impl Selector<TimeMeasNamePattern> {
     pub fn new_time_meas_pattern() -> Self {
         let hdr_tm_regex = "^HDR-T(M)$".parse::<TimeMeasNamePattern>().unwrap();
         let is_macsquant = KeyTest::KeyIs(
-            AnyKey::Std(DollarWrap(RealOrPseudoStdKey::Real(RootKey::Cyt.to_std0()))),
+            AnyKey::Std(DollarWrap(AnyStdKey::Real(RootKey::Cyt.to_std0()))),
             ne_str!("MACSQuant").to_owned(),
         );
         let cond = Condition::Root(is_macsquant);
@@ -363,14 +363,14 @@ impl KeyTest {
     #[must_use]
     pub fn cyt_is(cyt: &NEStr) -> Self {
         Self::KeyIs(
-            DollarWrap(RealOrPseudoStdKey::Real(RootKey::Cyt.to_std0())).into(),
+            DollarWrap(AnyStdKey::Real(RootKey::Cyt.to_std0())).into(),
             cyt.to_owned(),
         )
     }
 
     pub fn cyt_matches(pat: &str) -> Result<Self, ValueRegexError> {
         Ok(Self::KeyMatches(
-            DollarWrap(RealOrPseudoStdKey::Real(RootKey::Cyt.to_std0())).into(),
+            DollarWrap(AnyStdKey::Real(RootKey::Cyt.to_std0())).into(),
             pat.parse()?,
         ))
     }

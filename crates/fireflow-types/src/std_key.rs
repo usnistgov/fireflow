@@ -40,15 +40,32 @@ use {
 
 pub type DollarStdKey = DollarWrap<StdKey>;
 pub type DollarPseudoStdKey = DollarWrap<PseudoStdKey>;
-pub type DollarRealOrPseudoStdKey = DollarWrap<RealOrPseudoStdKey>;
+pub type DollarAnyStdKey = DollarWrap<AnyStdKey>;
 
+/// A key that starts with a '$' which may or may not be a real standard key.
+///
+/// The leading '$' is not included internally or when displayed.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum RealOrPseudoStdKey {
+pub enum AnyStdKey {
     Real(StdKey),
     Pseudo(PseudoStdKey),
 }
+
+/// A key without '$' preifx which may or may not be a real standard key.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum AnyNonStdKey {
+    Real(NonStdKey),
+    Pseudo(PseudoNonStdKey),
+}
+
+/// A key which does not start with a '$' but would be a standard key if it did.
+///
+/// The leading '$' is not included internally or when displayed.
+pub type PseudoNonStdKey = StdKey;
 
 /// A key which starts with a '$' but is not defined in any FCS standard.
 ///
@@ -123,8 +140,9 @@ pub enum StdKey {
 #[derive(Clone, Debug)]
 pub enum ParsedKey {
     Std(StdKey),
-    Pseudo(PseudoStdKey),
+    PseudoStd(PseudoStdKey),
     NonStd(NonStdKey),
+    PseudoNonStd(PseudoNonStdKey),
     Bytes(NEVec<u8>),
 }
 
@@ -290,24 +308,29 @@ pub enum RegionKeyId {
     W,
 }
 
-/// Error when parsing [`DollarRealOrPseudoStdKey`] from string.
-#[derive(PartialEq, Display, Debug, Error, Clone)]
+/// Error when parsing [`DollarAnyStdKey`] from string.
+#[derive(PartialEq, Display, Debug, Error, Clone, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum DollarRealOrPseudoStdKeyError {
+pub enum DollarAnyStdKeyError {
     KeyString(NEAsciiStringError),
     SingleDollar(SingleDollarPrefixError),
+    Prefix(NoDollarPrefixError),
+}
+
+/// Error when parsing [`AnyNonStdKey`] from string.
+#[derive(PartialEq, Display, Debug, Error, Clone, From)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AnyNonStdKeyError {
+    KeyString(NEAsciiStringError),
     Prefix(DollarPrefixError),
 }
 
 /// Error when parsing [`DollarPseudoStdKey`] from string.
-#[derive(PartialEq, Error, Debug, Clone)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+#[derive(PartialEq, Display, Debug, Error, Clone, From)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum DollarPseudoStdKeyError {
-    #[error("{0}")]
-    Inner(DollarRealOrPseudoStdKeyError),
-    #[error("key is standard when pseudostandard is desired, got {0}")]
-    IsStd(StdKey),
+    Inner(DollarAnyStdKeyError),
+    Std(PseudoNonStdKeyError),
 }
 
 /// Error when parsing [`StdKey`] from string.
@@ -316,11 +339,11 @@ pub enum DollarPseudoStdKeyError {
 pub enum DollarStdKeyError {
     Inner(StdKeyError),
     SingleDollar(SingleDollarPrefixError),
-    Prefix(DollarPrefixError),
+    Prefix(NoDollarPrefixError),
 }
 
 /// Error when parsing [`StdKey`] from string.
-#[derive(PartialEq, Display, Debug, Error, Clone)]
+#[derive(PartialEq, Display, Debug, Error, Clone, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdKeyError {
     Pseudo(PseudoStdKeyError),
@@ -328,14 +351,11 @@ pub enum StdKeyError {
 }
 
 /// Error when parsing [`NonStdKey`] from string
-#[derive(From, PartialEq, Debug, Error, Clone)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+#[derive(PartialEq, Display, Debug, Error, Clone, From)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NonStdKeyError {
-    #[error("{0}")]
-    Ascii(NEAsciiStringError),
-    #[error("non-standard key must not start with '$', found '{0}'")]
-    Prefix(char),
+    Inner(AnyNonStdKeyError),
+    Std(PseudoNonStdKeyError),
 }
 
 /// Error when parsing key that should start with a '$' but does not.
@@ -343,7 +363,14 @@ pub enum NonStdKeyError {
 #[error("key must start with '$', got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct DollarPrefixError(char);
+pub struct NoDollarPrefixError(char);
+
+/// Error when parsing key that should not start with a '$' but actually does.
+#[derive(PartialEq, Debug, Error, Clone)]
+#[error("key must not start with '$'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct DollarPrefixError;
 
 /// Error when parsing a standard key which is just '$'
 #[derive(PartialEq, Debug, Error, Clone)]
@@ -354,10 +381,17 @@ pub struct SingleDollarPrefixError;
 
 /// Error when parsing a standard key that is actually a pseudostandard key.
 #[derive(PartialEq, Debug, Error, Clone)]
-#[error("key is not standard, got {0}")]
+#[error("key is non-standard when standard expected, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct PseudoStdKeyError(PseudoStdKey);
+
+/// Error when parsing a non-standard key that is actually a pseudo-nonstandard key.
+#[derive(PartialEq, Debug, Error, Clone)]
+#[error("key is standard when non-standard expected, got {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct PseudoNonStdKeyError(StdKey);
 
 /// Iterator for enums which map to numbers starting at 0
 pub type NumericEnumIter<T> = iter::Copied<Iter<'static, T>>;
@@ -445,23 +479,21 @@ impl NonStdKeywordsExt for HashMap<NonStdKey, NEString> {
 
 // Implement string parsing for top-level key types
 
-impl FromStr for DollarRealOrPseudoStdKey {
-    type Err = DollarRealOrPseudoStdKeyError;
+impl FromStr for DollarAnyStdKey {
+    type Err = DollarAnyStdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.parse::<DollarStdKey>() {
-            Ok(x) => Ok(x.fmap_once(RealOrPseudoStdKey::Real)),
+            Ok(x) => Ok(x.fmap_once(AnyStdKey::Real)),
             Err(e) => match e {
                 DollarStdKeyError::Inner(StdKeyError::Pseudo(x)) => {
-                    Ok(Self(RealOrPseudoStdKey::Pseudo(x.0)))
+                    Ok(Self(AnyStdKey::Pseudo(x.0)))
                 }
                 DollarStdKeyError::Inner(StdKeyError::KeyString(ee)) => {
-                    Err(DollarRealOrPseudoStdKeyError::KeyString(ee))
+                    Err(DollarAnyStdKeyError::KeyString(ee))
                 }
-                DollarStdKeyError::SingleDollar(ee) => {
-                    Err(DollarRealOrPseudoStdKeyError::SingleDollar(ee))
-                }
-                DollarStdKeyError::Prefix(ee) => Err(DollarRealOrPseudoStdKeyError::Prefix(ee)),
+                DollarStdKeyError::SingleDollar(ee) => Err(DollarAnyStdKeyError::SingleDollar(ee)),
+                DollarStdKeyError::Prefix(ee) => Err(DollarAnyStdKeyError::Prefix(ee)),
             },
         }
     }
@@ -471,17 +503,14 @@ impl FromStr for DollarPseudoStdKey {
     type Err = DollarPseudoStdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.parse::<DollarRealOrPseudoStdKey>() {
-            Ok(x) => match x.0 {
-                RealOrPseudoStdKey::Pseudo(k) => Ok(Self(k)),
-                RealOrPseudoStdKey::Real(k) => Err(DollarPseudoStdKeyError::IsStd(k)),
-            },
-            Err(e) => Err(DollarPseudoStdKeyError::Inner(e)),
+        match s.parse::<DollarAnyStdKey>()?.0 {
+            AnyStdKey::Pseudo(k) => Ok(Self(k)),
+            AnyStdKey::Real(k) => Err(PseudoNonStdKeyError(k).into()),
         }
     }
 }
 
-impl FromStr for RealOrPseudoStdKey {
+impl FromStr for AnyStdKey {
     type Err = NEAsciiStringError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -492,6 +521,13 @@ impl FromStr for RealOrPseudoStdKey {
                 StdKeyError::KeyString(ee) => Err(ee),
             },
         }
+    }
+}
+
+impl FromStr for StdKey {
+    type Err = StdKeyError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_str(s)
     }
 }
 
@@ -510,7 +546,7 @@ impl FromStr for DollarStdKey {
                     ee => ee.into(),
                 })
             } else {
-                let e = DollarPrefixError(char::from(*b0));
+                let e = NoDollarPrefixError(char::from(*b0));
                 Err(DollarStdKeyError::Prefix(e))
             }
         } else {
@@ -521,11 +557,21 @@ impl FromStr for DollarStdKey {
     }
 }
 
-impl FromStr for StdKey {
-    type Err = StdKeyError;
+impl FromStr for AnyNonStdKey {
+    type Err = AnyNonStdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str(s)
+        if s.as_bytes().first().is_some_and(|b| *b == STD_PREFIX) {
+            Err(DollarPrefixError.into())
+        } else {
+            match StdKey::from_str(s) {
+                Ok(x) => Ok(Self::Pseudo(x)),
+                Err(e) => match e {
+                    StdKeyError::Pseudo(x) => Ok(Self::Real(x.0.into())),
+                    StdKeyError::KeyString(ee) => Err(ee.into()),
+                },
+            }
+        }
     }
 }
 
@@ -533,15 +579,9 @@ impl FromStr for NonStdKey {
     type Err = NonStdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let ks = s.parse::<KeyString>().map_err(NonStdKeyError::Ascii)?;
-        let b = AsRef::<str>::as_ref(&ks)
-            .as_bytes()
-            .first()
-            .expect("keystring is never empty");
-        if *b == STD_PREFIX {
-            Err(NonStdKeyError::Prefix(char::from(*b)))
-        } else {
-            Ok(Self(ks))
+        match s.parse::<AnyNonStdKey>()? {
+            AnyNonStdKey::Pseudo(x) => Err(PseudoNonStdKeyError(x).into()),
+            AnyNonStdKey::Real(x) => Ok(x),
         }
     }
 }
@@ -774,7 +814,7 @@ impl<'a, T: ToDisplayNE<'a>> ToDisplayNE<'a> for DollarWrap<T> {
     }
 }
 
-impl<'a> ToDisplayNE<'a> for RealOrPseudoStdKey {
+impl<'a> ToDisplayNE<'a> for AnyStdKey {
     type NE = NEAlt<ToNE<StdKey>, ToNE<&'a PseudoStdKey>>;
     fn to_ne(&'a self) -> Self::NE {
         match self {
@@ -920,10 +960,10 @@ impl StdKey {
         match to_keystring(s) {
             Ok(ne) => {
                 // SAFETY: the check above ensures all bytes are 32-126
-                let k = unsafe { RealOrPseudoStdKey::from_ascii_bytes(ne.as_ne_bytes()) };
+                let k = unsafe { AnyStdKey::from_ascii_bytes(ne.as_ne_bytes()) };
                 match k {
-                    RealOrPseudoStdKey::Pseudo(x) => Err(StdKeyError::Pseudo(PseudoStdKeyError(x))),
-                    RealOrPseudoStdKey::Real(x) => Ok(x),
+                    AnyStdKey::Pseudo(x) => Err(StdKeyError::Pseudo(PseudoStdKeyError(x))),
+                    AnyStdKey::Real(x) => Ok(x),
                 }
             }
             Err(e) => Err(StdKeyError::KeyString(e)),
@@ -931,7 +971,7 @@ impl StdKey {
     }
 }
 
-impl RealOrPseudoStdKey {
+impl AnyStdKey {
     #[must_use]
     pub fn from_bytes_maybe(bytes: &NESlice<u8>) -> Option<Self> {
         is_printable_ascii(bytes.as_ref()).then(|| {
@@ -1472,7 +1512,7 @@ pub trait BlankKeyword {
 
 // TODO serde_with does this more concisely
 #[cfg(feature = "serde")]
-impl Serialize for DollarRealOrPseudoStdKey {
+impl Serialize for DollarAnyStdKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -1551,10 +1591,10 @@ impl ParsedKey {
         // '$' keyword
         if let Some((&STD_PREFIX, rest)) = bytes.as_ref().split_first() {
             if let Some(ne) = NESlice::try_from_slice(rest) {
-                if let Some(k) = RealOrPseudoStdKey::from_bytes_maybe(ne) {
+                if let Some(k) = AnyStdKey::from_bytes_maybe(ne) {
                     match k {
-                        RealOrPseudoStdKey::Real(x) => Self::Std(x),
-                        RealOrPseudoStdKey::Pseudo(x) => Self::Pseudo(x),
+                        AnyStdKey::Real(x) => Self::Std(x),
+                        AnyStdKey::Pseudo(x) => Self::PseudoStd(x),
                     }
                 } else {
                     Self::Bytes(bytes.to_ne_vec())
@@ -1623,6 +1663,16 @@ const fn is_zero_to_n_usize<X: NoUninit>(xs: &[X]) -> bool {
 
 //     const STD_KEY_STRAT: &str = "\\$[[:print:]]+";
 
+// const NONSTD_KEY_STRAT: &str = "[[:print:]&&[^\\$]]\\$[[:print:]]*";
+
+// impl Arbitrary for NonStdKey {
+//     type Parameters = ();
+//     type Strategy = BoxedStrategy<Self>;
+//     fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
+//         NONSTD_KEY_STRAT.prop_map(|s| s.parse().unwrap()).boxed()
+//     }
+// }
+
 //     impl Arbitrary for StdKey {
 //         type Parameters = ();
 //         type Strategy = BoxedStrategy<Self>;
@@ -1675,11 +1725,49 @@ const fn is_zero_to_n_usize<X: NoUninit>(xs: &[X]) -> bool {
 //         let k = s.parse::<StdKey>();
 //         assert_eq!(Err(StdKeyError::Empty), k);
 //     }
+
+// proptest! {
+//     #[test]
+//     fn fromstr_nonstd_key(s in NONSTD_KEY_STRAT) {
+//         // nonstd key should always match the input
+//         let k = s.parse::<NonStdKey>().expect("strategy should be valid");
+//         let k_str: &str = k.as_ref();
+//         assert_eq!(k_str, s);
+//         // reverse process should produce same string (without $)
+//         assert_eq!(k.to_string(), s);
+//     }
+// }
+
+// #[test]
+// fn fromstr_nonstd_key_nonascii() {
+//     let s = "サイ";
+//     let k = s.parse::<NonStdKey>();
+//     let e = NonStdKeyError::Ascii(NEAsciiStringError::Ascii(AsciiStringError(
+//         s.parse().unwrap(),
+//     )));
+//     assert_eq!(Err(e), k);
+// }
+
+// proptest! {
+//     #[test]
+//     fn fromstr_nonstd_key_hasprefix(s in "\\$[[:print:]]") {
+//         let k = s.parse::<NonStdKey>();
+//         let e = NonStdKeyError::Prefix(TruncatedNEString(s.parse().unwrap()));
+//         assert_eq!(Err(e), k);
+//     }
+// }
+
+// #[test]
+// fn fromstr_nonstd_key_blank() {
+//     let s = "";
+//     let k = s.parse::<NonStdKey>();
+//     assert_eq!(Err(NonStdKeyError::Ascii(NEAsciiStringError::Empty)), k);
+// }
 // }
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{DollarPseudoStdKey, DollarRealOrPseudoStdKey, DollarStdKey};
+    use super::{DollarAnyStdKey, DollarPseudoStdKey, DollarStdKey};
 
     use pyo3::prelude::*;
     use pyo3::types::PyString;
@@ -1709,5 +1797,5 @@ mod python {
 
     impl_to_from_str!(DollarStdKey);
     impl_to_from_str!(DollarPseudoStdKey);
-    impl_to_from_str!(DollarRealOrPseudoStdKey);
+    impl_to_from_str!(DollarAnyStdKey);
 }

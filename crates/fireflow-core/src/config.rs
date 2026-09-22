@@ -26,7 +26,7 @@ use fireflow_types::keystring::{
     KeyString, KeyStringsOrPatterns, NonUniqueKeyError, checked_iter_to_hashmap,
 };
 use fireflow_types::keystring_pairs::{KeyStringPairs, KeyStringPairsError};
-use fireflow_types::std_key::{DollarRealOrPseudoStdKey, DollarStdKey};
+use fireflow_types::std_key::{DollarAnyStdKey, DollarStdKey};
 use fireflow_types::timepattern::TimePattern;
 use nonempty::{NEString, NEVec};
 
@@ -335,7 +335,7 @@ pub(crate) fn eval_repair_conf(
 pub enum AppendRepairFlagError {
     KeyPattern(NonUniqueKeyError<LiteralOrPattern<KeyString>>),
     NonUniqueStd(NonUniqueKeyError<DollarStdKey>),
-    NonUniqueMaybeStd(NonUniqueKeyError<DollarRealOrPseudoStdKey>),
+    NonUniqueMaybeStd(NonUniqueKeyError<DollarAnyStdKey>),
     KeyStringPairsValid(KeyStringPairsError),
 }
 

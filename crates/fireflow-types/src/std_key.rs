@@ -1,4 +1,4 @@
-use crate::config::OpticalOnlyKey;
+use crate::config::{Encoding, OpticalOnlyKey};
 use crate::index::{BiMeasIndex, GateIndex, MeasIndex, RegionIndex, SubsetIndex};
 use crate::keystring::{
     CowKeyString, KeyString, NEAsciiStringError, is_printable_ascii, to_keystring,
@@ -6,8 +6,8 @@ use crate::keystring::{
 use crate::keywords::{Version, VersionMembership};
 
 use nonempty::{
-    DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESlice, NEStr, ToDisplayNE, ToNE,
-    ambassador_impl_ToDisplayNE, ne_str,
+    DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESlice, NEStr, NEString, NEVec,
+    ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE, ne_str, nev,
 };
 use type_families::FunctorOnce as _;
 
@@ -15,6 +15,7 @@ use ambassador::Delegate;
 use bytemuck::{NoUninit, TransparentWrapper, must_cast_ref};
 use derive_more::{AsRef, Display, From, Into, TryInto};
 use derive_new::new;
+use hashbrown::HashMap;
 use strum::{EnumCount, VariantArray};
 use strum_macros::{EnumCount as EnumCount_, VariantArray};
 use thiserror::Error;
@@ -59,9 +60,19 @@ pub enum RealOrPseudoStdKey {
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct PseudoStdKey(KeyString);
 
-impl<T> Borrow<T> for DollarWrap<T> {
-    fn borrow(&self) -> &T {
-        &self.0
+/// A key from TEXT which is not codified by the FCS standard.
+///
+/// This cannot start with `"$"` and may only contain ASCII characters.
+#[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord, Delegate)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
+#[as_ref(KeyString, str, NEStr)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
+pub struct NonStdKey(KeyString);
+
+impl From<PseudoStdKey> for NonStdKey {
+    fn from(value: PseudoStdKey) -> Self {
+        Self(KeyString::from(value))
     }
 }
 
@@ -85,6 +96,12 @@ impl<T> Borrow<T> for DollarWrap<T> {
 #[repr(transparent)]
 pub struct DollarWrap<T>(pub T);
 
+impl<T> Borrow<T> for DollarWrap<T> {
+    fn borrow(&self) -> &T {
+        &self.0
+    }
+}
+
 impl_kind1!(pub DollarWrapFamily, DollarWrap);
 
 impl_functor_once!(DollarWrap, self, mut f, DollarWrap(f(self.0)));
@@ -100,6 +117,15 @@ pub enum StdKey {
     Region(RegionKey),
     CsvFlag(CsvFlagKey),
     Dfc(DfcKey),
+}
+
+/// A key that was parsed from a bytestring
+#[derive(Clone, Debug)]
+pub enum ParsedKey {
+    Std(StdKey),
+    Pseudo(PseudoStdKey),
+    NonStd(NonStdKey),
+    Bytes(NEVec<u8>),
 }
 
 /// An FCS key which does not use any indices.
@@ -301,6 +327,17 @@ pub enum StdKeyError {
     KeyString(NEAsciiStringError),
 }
 
+/// Error when parsing [`NonStdKey`] from string
+#[derive(From, PartialEq, Debug, Error, Clone)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub enum NonStdKeyError {
+    #[error("{0}")]
+    Ascii(NEAsciiStringError),
+    #[error("non-standard key must not start with '$', found '{0}'")]
+    Prefix(char),
+}
+
 /// Error when parsing key that should start with a '$' but does not.
 #[derive(PartialEq, Debug, Error, Clone)]
 #[error("key must start with '$', got {0}")]
@@ -390,6 +427,22 @@ pub const REGION_W_KW_SUFFIX: &NEStr = ne_str!("W");
 // Include list of all keyword names/suffixes defined in build script
 include!(concat!(env!("OUT_DIR"), "/kw_strs.rs"));
 
+// Implement extension trait for processing nonstandard keywords in hash table.
+
+pub trait NonStdKeywordsExt {
+    fn insert_demoted(&mut self, key: StdKey, value: NEString);
+}
+
+impl NonStdKeywordsExt for HashMap<NonStdKey, NEString> {
+    fn insert_demoted(&mut self, key: StdKey, value: NEString) {
+        let mut k = NonStdKey(key.as_keystring());
+        while self.contains_key(&k) {
+            k.0.disambiguate();
+        }
+        assert!(self.insert(k, value).is_none(), "key not disambiguated");
+    }
+}
+
 // Implement string parsing for top-level key types
 
 impl FromStr for DollarRealOrPseudoStdKey {
@@ -473,6 +526,23 @@ impl FromStr for StdKey {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::from_str(s)
+    }
+}
+
+impl FromStr for NonStdKey {
+    type Err = NonStdKeyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let ks = s.parse::<KeyString>().map_err(NonStdKeyError::Ascii)?;
+        let b = AsRef::<str>::as_ref(&ks)
+            .as_bytes()
+            .first()
+            .expect("keystring is never empty");
+        if *b == STD_PREFIX {
+            Err(NonStdKeyError::Prefix(char::from(*b)))
+        } else {
+            Ok(Self(ks))
+        }
     }
 }
 
@@ -1471,6 +1541,35 @@ impl BlankKeyword for MeasKeyId {
     }
 }
 
+// Implement methods on parsed key
+
+impl ParsedKey {
+    #[must_use]
+    pub fn from_bytes(bytes: &NESlice<u8>, encoding: Encoding) -> Self {
+        let single_byte = matches!(encoding, Encoding::Single);
+        // TODO we may wish to distinguish an error between non-ASCII and only a
+        // '$' keyword
+        if let Some((&STD_PREFIX, rest)) = bytes.as_ref().split_first() {
+            if let Some(ne) = NESlice::try_from_slice(rest) {
+                if let Some(k) = RealOrPseudoStdKey::from_bytes_maybe(ne) {
+                    match k {
+                        RealOrPseudoStdKey::Real(x) => Self::Std(x),
+                        RealOrPseudoStdKey::Pseudo(x) => Self::Pseudo(x),
+                    }
+                } else {
+                    Self::Bytes(bytes.to_ne_vec())
+                }
+            } else {
+                Self::Bytes(nev![STD_PREFIX])
+            }
+        } else if let Some(k) = KeyString::from_bytes_maybe(bytes, single_byte) {
+            Self::NonStd(NonStdKey(k))
+        } else {
+            Self::Bytes(bytes.to_ne_vec())
+        }
+    }
+}
+
 // Random local functions
 
 /// Split an numeric index from a byte-string.
@@ -1511,6 +1610,10 @@ const fn is_zero_to_n_usize<X: NoUninit>(xs: &[X]) -> bool {
 
     true
 }
+
+// fn has_no_std_prefix(xs: &[u8]) -> bool {
+//     xs.first().is_some_and(|x| *x != STD_PREFIX)
+// }
 
 // #[cfg(test)]
 // mod test {

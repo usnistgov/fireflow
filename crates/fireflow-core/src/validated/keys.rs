@@ -5,8 +5,8 @@ use fireflow_types::config::Encoding;
 use fireflow_types::index::{BiMeasIndex, MeasIndex};
 use fireflow_types::keystring::{KeyString, NEAsciiStringError};
 use fireflow_types::std_key::{
-    DollarPseudoStdKey, DollarRealOrPseudoStdKey, DollarStdKey, DollarWrap, PseudoStdKey,
-    RealOrPseudoStdKey, STD_PREFIX, StdKey, ToStd,
+    DollarPseudoStdKey, DollarRealOrPseudoStdKey, DollarStdKey, DollarWrap, NonStdKey, ParsedKey,
+    PseudoStdKey, RealOrPseudoStdKey, STD_PREFIX, StdKey, ToStd,
 };
 use nonempty::{
     HasNELen as _, NEAlt, NESlice, NEStr, NEString, NEVec, ToDisplayNE, ToNE,
@@ -38,22 +38,6 @@ use {
     fireflow_types::python as py,
     pyo3::prelude::*,
 };
-
-/// A key from TEXT which is not codified by the FCS standard.
-///
-/// This cannot start with `"$"` and may only contain ASCII characters.
-#[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord, Delegate)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-#[as_ref(KeyString, str, NEStr)]
-#[delegate(ToDisplayNE<'a>, generics = "'a")]
-pub struct NonStdKey(KeyString);
-
-impl From<PseudoStdKey> for NonStdKey {
-    fn from(value: PseudoStdKey) -> Self {
-        Self(KeyString::from(value))
-    }
-}
 
 /// Either a standard or non-standard key with '$' prefixed on the former.
 #[derive(Clone, Display, PartialEq, Debug, From)]
@@ -353,17 +337,6 @@ pub type NonStdKeywords = HashMap<NonStdKey, NEString>;
 
 pub type PseudoStdKeywords = HashMap<DollarPseudoStdKey, NEString>;
 
-/// Error when parsing [`NonStdKey`] from string
-#[derive(From, PartialEq, Debug, Error, Clone)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub enum NonStdKeyError {
-    #[error("{0}")]
-    Ascii(NEAsciiStringError),
-    #[error("non-standard key must not start with '$', found '{0}'")]
-    Prefix(TruncatedNEString),
-}
-
 #[derive(Default)]
 pub(crate) struct ParsedKeywordsDiagnostic {
     /// Valid keys with non-UTF8 values.
@@ -436,36 +409,7 @@ pub trait ValueToStdKey {
     }
 }
 
-// Implement extension trait for processing nonstandard keywords in hash table.
-
-pub(crate) trait NonStdKeywordsExt {
-    fn insert_demoted(&mut self, key: StdKey, value: NEString);
-}
-
-impl NonStdKeywordsExt for NonStdKeywords {
-    fn insert_demoted(&mut self, key: StdKey, value: NEString) {
-        let mut k = NonStdKey(key.as_keystring());
-        while self.contains_key(&k) {
-            k.0.disambiguate();
-        }
-        assert!(self.insert(k, value).is_none(), "key not disambiguated");
-    }
-}
-
 // Implement methods for nonstd key wrappers
-
-impl FromStr for NonStdKey {
-    type Err = NonStdKeyError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let ks = s.parse::<KeyString>().map_err(NonStdKeyError::Ascii)?;
-        if has_no_std_prefix(AsRef::<str>::as_ref(&ks).as_bytes()) {
-            Ok(Self(ks))
-        } else {
-            Err(NonStdKeyError::Prefix(TruncatedNEString(ks.into())))
-        }
-    }
-}
 
 // Implement methods for misc types
 
@@ -497,14 +441,6 @@ pub(crate) struct NonEmptyValue<K, V> {
     pub(crate) original: Option<NEString>,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) enum ParsedKey {
-    Std(StdKey),
-    Pseudo(PseudoStdKey),
-    NonStd(NonStdKey),
-    Bytes(NEVec<u8>),
-}
-
 impl From<ParsedKey> for DollarKeyOrBytes {
     fn from(value: ParsedKey) -> Self {
         match value {
@@ -514,32 +450,6 @@ impl From<ParsedKey> for DollarKeyOrBytes {
             }
             ParsedKey::Std(x) => Self::Ascii(AnyKey::Std(DollarWrap(RealOrPseudoStdKey::Real(x)))),
             ParsedKey::NonStd(x) => Self::Ascii(AnyKey::NonStd(x)),
-        }
-    }
-}
-
-impl ParsedKey {
-    fn from_bytes(bytes: &NESlice<u8>, encoding: Encoding) -> Self {
-        let single_byte = matches!(encoding, Encoding::Single);
-        // TODO we may wish to distinguish an error between non-ASCII and only a
-        // '$' keyword
-        if let Some((&STD_PREFIX, rest)) = bytes.as_ref().split_first() {
-            if let Some(ne) = NESlice::try_from_slice(rest) {
-                if let Some(k) = RealOrPseudoStdKey::from_bytes_maybe(ne) {
-                    match k {
-                        RealOrPseudoStdKey::Real(x) => Self::Std(x),
-                        RealOrPseudoStdKey::Pseudo(x) => Self::Pseudo(x),
-                    }
-                } else {
-                    Self::Bytes(bytes.to_ne_vec())
-                }
-            } else {
-                Self::Bytes(nev![STD_PREFIX])
-            }
-        } else if let Some(k) = KeyString::from_bytes_maybe(bytes, single_byte) {
-            Self::NonStd(NonStdKey(k))
-        } else {
-            Self::Bytes(bytes.to_ne_vec())
         }
     }
 }
@@ -948,10 +858,6 @@ fn trunc_str(s: &str) -> String {
     } else {
         s.chars().flat_map(escape).collect()
     }
-}
-
-fn has_no_std_prefix(xs: &[u8]) -> bool {
-    xs.first().is_some_and(|x| *x != STD_PREFIX)
 }
 
 const TRUNCATED_BYTES_LIMIT: usize = 20;

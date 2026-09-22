@@ -5,10 +5,7 @@ use crate::std_index::masked::{
 };
 use crate::std_index::nested_string::{NestedEnumString, NestedStringSize, NestedVariableString};
 use crate::text::keywords::{Gate, Par};
-use crate::validated::keys::{
-    NonStdKey, NonStdKeywords, NonStdKeywordsExt as _, PseudoStdKeywords, TruncatedNEString,
-    ValueToStdKey,
-};
+use crate::validated::keys::{NonStdKeywords, PseudoStdKeywords, TruncatedNEString, ValueToStdKey};
 
 use fireflow_types::case_ins_regex::CaseInsRegex;
 use fireflow_types::config::{
@@ -20,7 +17,7 @@ use fireflow_types::keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatte
 use fireflow_types::keywords::Version;
 use fireflow_types::std_key::{
     CsvFlagKey, DfcKey, DollarPseudoStdKey, DollarStdKey, DollarWrap, EnumIndex as _, GateKey,
-    MeasKey, N_ROOT, RegionKey, RootKey, StdKey, ToStd as _,
+    MeasKey, N_ROOT, NonStdKey, NonStdKeywordsExt as _, RegionKey, RootKey, StdKey, ToStd as _,
 };
 use fireflow_types::sub_pattern::SubPattern;
 use nonempty::{NEStr, NEString, NEVec};

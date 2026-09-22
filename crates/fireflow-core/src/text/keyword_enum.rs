@@ -8,17 +8,12 @@ use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::keywords as kws;
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::FCSDate;
-use crate::validated::keys::{
-    DollarKey, DollarKey_, NonStdKey, SpecificKey_, ValueToStdKey, WritableKey,
-};
+use crate::validated::keys::{DollarKey, DollarKey_, SpecificKey_, ValueToStdKey, WritableKey};
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::index::{MeasIndex, RegionIndex};
 use fireflow_types::keywords::{Version, VersionMembership};
-#[cfg(feature = "serde")]
-use fireflow_types::std_key::BlankKeyword;
-use fireflow_types::std_key::DollarWrap;
-use fireflow_types::std_key::StdKey;
+use fireflow_types::std_key::{DollarWrap, NonStdKey, StdKey};
 use fireflow_types::textdelim::{
     DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim,
 };
@@ -32,6 +27,9 @@ use thiserror::Error;
 
 use std::fmt::{self, Write as _};
 use std::num::NonZeroU32;
+
+#[cfg(feature = "serde")]
+use fireflow_types::std_key::BlankKeyword;
 
 #[cfg(feature = "python")]
 use {

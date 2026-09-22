@@ -45,9 +45,9 @@ use crate::validated::header_offsets::{
     SuppToHeaderOffsetsValidationError, TextToHeaderOrSuppOffsetsValidationError,
 };
 use crate::validated::keys::{
-    AnyKey, DollarKeyOrBytes, NEDelimBytes, NEStringOrBytes, NonStdKey, ParsedKeyword,
-    ParsedKeywordCounts, ParsedKeywordsDiagnostic, ParsedNonStdKeywords, PseudoStdKeywords,
-    StringOrBytes, TruncatedNEBytes, TruncatedNEString, ValidKeywords, ValueToStdKey,
+    AnyKey, DollarKeyOrBytes, NEDelimBytes, NEStringOrBytes, ParsedKeyword, ParsedKeywordCounts,
+    ParsedKeywordsDiagnostic, ParsedNonStdKeywords, PseudoStdKeywords, StringOrBytes,
+    TruncatedNEBytes, TruncatedNEString, ValidKeywords, ValueToStdKey,
 };
 use crate::validated::read_state::{
     CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError, FileLen,
@@ -62,7 +62,7 @@ use fireflow_types::config::{
 };
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
 use fireflow_types::segment::{OffsetsFromTEXT, SupplementalTextSegmentId};
-use fireflow_types::std_key::{DollarPseudoStdKey, DollarStdKey, RootKey, ToStd as _};
+use fireflow_types::std_key::{DollarPseudoStdKey, DollarStdKey, NonStdKey, RootKey, ToStd as _};
 use nonempty::{IntoIteratorExt as _, NESlice, NEVec, NonEmptyIterator as _};
 
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};

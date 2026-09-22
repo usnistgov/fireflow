@@ -8983,7 +8983,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_nonstd_keywords() -> Self {
-        let keypath: Path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
+        let keypath: Path = parse_quote!(fireflow_types::std_key::NonStdKey);
         let valpath: Path = parse_quote!(nonempty::NEString);
         // TODO the :: here is awkward
         Self::new_py(["typing"], "NonStdKeywords")
@@ -9025,7 +9025,7 @@ impl<E: From<PyException>> PyAlias<E> {
         // let d = format!("if {ARG_TOKEN} is empty or starts with {DOLLAR_STR}");
         // let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(d);
         // Self::default().rstype(path).exc(e)
-        let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
+        let path = parse_quote!(fireflow_types::std_key::NonStdKey);
         Self::new_py(["typing"], "NonStdKey").rstype(path)
     }
 

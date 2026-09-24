@@ -1,6 +1,7 @@
-use nonempty::{NESlice, NEStr, NEString, ToDisplayNE};
+use crate::std_key::StdKey;
+use nonempty::{DisplayableNE as _, NESlice, NEStr, NEString, ToDisplayNE};
 
-use derive_more::{AsRef, Display};
+use derive_more::{AsRef, Display, From};
 use thiserror::Error;
 use unicase::Ascii;
 
@@ -14,13 +15,18 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use {
     crate::python as py,
-    fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
 };
 
-/// The internal string for a non-standard key (standard or nonstandard).
+/// The internal string for a non-standard key.
 ///
-/// Must be non-empty and contain only ASCII characters. Comparisons will be
-/// case-insensitive.
+/// Comparisons are case-insensitive.
+///
+/// The following properties are upheld for the internal value:
+/// * it will be non-empty.
+/// * it will only include ASCII bytes 32-126 (printable characters).
+/// * it will not have any character sequences that are also standard keys
+///   (ie it can never be `"P1N"` or `"OP"`).
 #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[as_ref(str)]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
@@ -39,22 +45,49 @@ impl Borrow<str> for KeyString {
 }
 
 /// Error when parsing [`KeyString`] from string
-#[derive(PartialEq, Debug, Error, Clone)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub enum NEAsciiStringError {
-    #[error("{0}")]
-    Ascii(AsciiStringError),
-    #[error("key string must not be empty")]
-    Empty,
+#[derive(From, PartialEq, Display, Debug, Error, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum NEKeyStringError {
+    Inner(KeyStringError),
+    Empty(EmptyKeyStringError),
+}
+
+/// Error when converting [`KeyString`] from non-empty string.
+#[derive(From, PartialEq, Display, Debug, Error, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum KeyStringError {
+    Std(InvalidStdKeyError),
+    Ascii(PrintableAsciiStringError),
 }
 
 /// Error when parsing [`KeyString`] from string
 #[derive(PartialEq, Debug, Error, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub enum NEAsciiStringError {
+    #[error("{0}")]
+    Ascii(PrintableAsciiStringError),
+    #[error("key string must not be empty")]
+    Empty,
+}
+
+#[derive(PartialEq, Debug, Error, Clone)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+#[error("string should not be a valid standard key, found '{0}'")]
+pub struct InvalidStdKeyError(pub StdKey);
+
+#[derive(PartialEq, Debug, Error, Clone)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 #[error("string should only have printable ASCII characters, found '{0}'")]
-pub struct AsciiStringError(pub NEString);
+pub struct PrintableAsciiStringError(pub NEString);
+
+#[derive(PartialEq, Debug, Error, Clone)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+#[error("string should not be empty")]
+pub struct EmptyKeyStringError;
 
 impl<'a> ToDisplayNE<'a> for KeyString {
     type NE = &'a NEString;
@@ -70,42 +103,64 @@ impl AsRef<NEStr> for KeyString {
 }
 
 impl FromStr for KeyString {
-    type Err = NEAsciiStringError;
+    type Err = NEKeyStringError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        to_keystring(s).map(|ne| Self(Ascii::new(ne.to_owned())))
+        if let Some(ne) = NEStr::try_new(s) {
+            Ok(ne.try_into()?)
+        } else {
+            Err(EmptyKeyStringError.into())
+        }
     }
 }
 
 impl TryFrom<NEString> for KeyString {
-    type Error = AsciiStringError;
+    type Error = KeyStringError;
     fn try_from(value: NEString) -> Result<Self, Self::Error> {
-        if is_printable_ascii(value.as_str().as_bytes()) {
-            Ok(Self(Ascii::new(value)))
+        if let Some(k) = StdKey::from_ne_str(value.as_ne_str()) {
+            Err(InvalidStdKeyError(k).into())
         } else {
-            Err(AsciiStringError(value))
+            Self::from_bytes(value.as_ne_str().as_ne_bytes())
+                .ok_or(PrintableAsciiStringError(value).into())
         }
     }
 }
 
 impl TryFrom<&NEStr> for KeyString {
-    type Error = AsciiStringError;
+    type Error = KeyStringError;
     fn try_from(value: &NEStr) -> Result<Self, Self::Error> {
-        if is_printable_ascii(value.as_str().as_bytes()) {
-            Ok(Self(Ascii::new(value.to_owned())))
+        if let Some(k) = StdKey::from_ne_str(value) {
+            Err(InvalidStdKeyError(k).into())
         } else {
-            Err(AsciiStringError(value.to_owned()))
+            Self::from_bytes(value.as_ne_bytes())
+                .ok_or_else(|| PrintableAsciiStringError(value.to_owned()).into())
         }
     }
 }
 
 impl KeyString {
-    fn new_unchecked(s: NEString) -> Self {
-        Self(Ascii::new(s))
+    #[must_use]
+    pub fn from_std_key(sk: &StdKey) -> Self {
+        let mut s = match sk {
+            StdKey::Root(k) => k.as_ne_str().to_owned(),
+            StdKey::Meas(k) => k.as_ne_string(),
+            StdKey::Gate(k) => k.as_ne_string(),
+            StdKey::Region(k) => k.as_ne_string(),
+            StdKey::Dfc(k) => k.as_ne_string(),
+            StdKey::CsvFlag(k) => k.as_ne_string(),
+        };
+        // No key in the FCS standard ends with a '_', so this will never
+        // produce an internally inconsistent keystring
+        s.push(DISAMBIGUATION_CHAR);
+        Self::new_unchecked(s)
     }
 
     pub fn disambiguate(&mut self) {
-        self.0.push('_');
+        self.0.push(DISAMBIGUATION_CHAR);
+    }
+
+    fn new_unchecked(s: NEString) -> Self {
+        Self(Ascii::new(s))
     }
 
     #[must_use]
@@ -118,10 +173,10 @@ impl KeyString {
         self.0.as_ne_str()
     }
 
-    pub(crate) fn from_bytes_maybe(xs: &NESlice<u8>) -> Option<Self> {
+    pub(crate) fn from_bytes(xs: &NESlice<u8>) -> Option<Self> {
         is_printable_ascii(xs.as_ref()).then(|| {
             // SAFETY: we just checked that the bytes are only ASCII chars
-            unsafe { Self::from_bytes(xs) }
+            unsafe { Self::from_bytes_unchecked(xs) }
         })
     }
 
@@ -130,7 +185,7 @@ impl KeyString {
     /// # Safety
     ///
     /// Caller must guarantee that bytes are valid UTF-8 characters.
-    unsafe fn from_bytes(xs: &NESlice<u8>) -> Self {
+    unsafe fn from_bytes_unchecked(xs: &NESlice<u8>) -> Self {
         // SAFETY: this function is marked unsafe since the caller must check
         Self::new_unchecked(unsafe { NEString::from_utf8_unchecked(xs.to_ne_vec()) })
     }
@@ -146,18 +201,8 @@ impl Serialize for KeyString {
     }
 }
 
-pub(crate) fn to_keystring(s: &str) -> Result<&NEStr, NEAsciiStringError> {
-    if let Some(ne) = NEStr::try_new(s) {
-        if is_printable_ascii(ne.as_ne_bytes().as_ref()) {
-            Ok(ne)
-        } else {
-            Err(NEAsciiStringError::Ascii(AsciiStringError(ne.to_owned())))
-        }
-    } else {
-        Err(NEAsciiStringError::Empty)
-    }
-}
-
-pub(crate) fn is_printable_ascii(xs: &[u8]) -> bool {
+fn is_printable_ascii(xs: &[u8]) -> bool {
     xs.iter().all(|x| 32 <= *x && *x <= 126)
 }
+
+const DISAMBIGUATION_CHAR: char = '_';

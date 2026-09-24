@@ -1,6 +1,6 @@
 use crate::config::OpticalOnlyKey;
 use crate::index::{BiMeasIndex, GateIndex, MeasIndex, RegionIndex, SubsetIndex};
-use crate::keystring::{AsciiStringError, KeyString, NEAsciiStringError};
+use crate::keystring::{KeyString, NEAsciiStringError, PrintableAsciiStringError};
 use crate::keywords::{Version, VersionMembership};
 
 use nonempty::{
@@ -510,7 +510,7 @@ impl PseudoNonStdKeywordsExt for HashMap<PseudoNonStdKey, NEString> {
         value: NEString,
     ) {
         if self.contains_key(&key) {
-            let mut k = NonStdKey(key.as_keystring());
+            let mut k = NonStdKey(KeyString::from_std_key(&key));
             while nonstd.contains_key(&k) {
                 k.0.disambiguate();
             }
@@ -965,19 +965,83 @@ macro_rules! match_bytes {
 }
 
 impl StdKey {
-    #[must_use]
-    pub fn as_keystring(&self) -> KeyString {
-        let res = match self {
-            Self::Root(k) => k.as_ne_str().try_into(),
-            Self::Meas(k) => k.as_ne_string().try_into(),
-            Self::Gate(k) => k.as_ne_string().try_into(),
-            Self::Region(k) => k.as_ne_string().try_into(),
-            Self::Dfc(k) => k.as_ne_string().try_into(),
-            Self::CsvFlag(k) => k.as_ne_string().try_into(),
-        };
-        let mut ks: KeyString = res.expect("standard key should make valid keystring");
-        ks.disambiguate();
-        ks
+    pub(crate) fn from_ne_str(s: &NEStr) -> Option<Self> {
+        Self::from_bytes(s.as_ne_bytes())
+    }
+
+    fn from_bytes(bytes: &NESlice<u8>) -> Option<Self> {
+        let (b0, bs) = bytes.split_first();
+        match b0.to_ascii_uppercase() {
+            // Try to match $Pn*, $PKn, or $PKNn first based on the first letter
+            // being "P".
+            b'P' => {
+                if let Some((b1, bs1)) = bs.split_first()
+                    && b1.eq_ignore_ascii_case(&b'K')
+                {
+                    if let Some((b2, bs2)) = bs.split_first()
+                        && b2.eq_ignore_ascii_case(&b'N')
+                        && let Some((i, rest)) = split_index_and_suffix(bs2)
+                        && rest.is_empty()
+                    {
+                        // $PKNn
+                        let k = MeasKey::new(i.into(), MeasKeyId::Pkn);
+                        Some(Self::Meas(k))
+                    } else if let Some((i, rest)) = split_index_and_suffix(bs1)
+                        && rest.is_empty()
+                    {
+                        // $PKn
+                        let k = MeasKey::new(i.into(), MeasKeyId::Pk);
+                        Some(Self::Meas(k))
+                    } else {
+                        // something else
+                        Self::from_bytes_nonparam(bytes)
+                    }
+                } else if let Some((i, rest)) = split_index_and_suffix(bs)
+                    && let Some(mid) = NonPeakMeasKeyId::from_bytes(rest)
+                {
+                    // $Pn*
+                    let k = MeasKey::new(i.into(), mid.into());
+                    Some(Self::Meas(k))
+                } else {
+                    // something else
+                    Self::from_bytes_nonparam(bytes)
+                }
+            }
+            // Try to match $Gn*
+            b'G' => {
+                if let Some((i, rest)) = split_index_and_suffix(bs)
+                    && let Some(gid) = GateKeyId::from_bytes(rest)
+                {
+                    let k = GateKey::new(i.into(), gid);
+                    Some(Self::Gate(k))
+                } else {
+                    Self::from_bytes_nonparam(bytes)
+                }
+            }
+            // Try to match $Rn*
+            b'R' => {
+                if let Some((i, rest)) = split_index_and_suffix(bs)
+                    && let Some(rid) = RegionKeyId::from_bytes(rest)
+                {
+                    let k = RegionKey::new(i.into(), rid);
+                    Some(Self::Region(k))
+                } else {
+                    Self::from_bytes_nonparam(bytes)
+                }
+            }
+            // We didn't find any of these prefixes, try all the other keywords.
+            _ => Self::from_bytes_nonparam(bytes),
+        }
+    }
+
+    fn from_bytes_nonparam(bytes: &NESlice<u8>) -> Option<Self> {
+        if let Some(rk) = RootKey::from_bytes(bytes.as_ref()) {
+            Some(Self::Root(rk))
+        } else if let Some(csv) = CsvFlagKey::from_bytes(bytes.as_ref()) {
+            Some(Self::CsvFlag(csv))
+        } else {
+            DfcKey::from_bytes(bytes.as_ref()).map(Self::Dfc)
+        }
     }
 
     #[must_use]
@@ -999,13 +1063,13 @@ impl StdKey {
 
     fn from_str(s: &str) -> Result<Self, StdKeyError> {
         if let Some(ne) = NEStr::try_new(s) {
-            if let Some(k) = AnyStdKey::from_str(ne) {
+            if let Some(k) = AnyStdKey::from_ne_str(ne) {
                 match k {
                     AnyStdKey::Pseudo(x) => Err(StdKeyError::Pseudo(PseudoStdKeyError(x))),
                     AnyStdKey::Real(x) => Ok(x),
                 }
             } else {
-                let e = NEAsciiStringError::Ascii(AsciiStringError(ne.to_owned()));
+                let e = NEAsciiStringError::Ascii(PrintableAsciiStringError(ne.to_owned()));
                 Err(StdKeyError::KeyString(e))
             }
         } else {
@@ -1015,84 +1079,15 @@ impl StdKey {
 }
 
 impl AnyStdKey {
-    fn from_str(s: &NEStr) -> Option<Self> {
-        Self::from_bytes_maybe(s.as_ne_bytes())
+    pub(crate) fn from_ne_str(s: &NEStr) -> Option<Self> {
+        Self::from_bytes(s.as_ne_bytes())
     }
 
-    fn from_bytes_maybe(bytes: &NESlice<u8>) -> Option<Self> {
-        let (b0, bs) = bytes.split_first();
-        match b0.to_ascii_uppercase() {
-            // Try to match $Pn*, $PKn, or $PKNn first based on the first letter
-            // being "P".
-            b'P' => {
-                if let Some((b1, bs1)) = bs.split_first()
-                    && b1.eq_ignore_ascii_case(&b'K')
-                {
-                    if let Some((b2, bs2)) = bs.split_first()
-                        && b2.eq_ignore_ascii_case(&b'N')
-                        && let Some((i, rest)) = split_index_and_suffix(bs2)
-                        && rest.is_empty()
-                    {
-                        // $PKNn
-                        let k = MeasKey::new(i.into(), MeasKeyId::Pkn);
-                        Some(Self::Real(StdKey::Meas(k)))
-                    } else if let Some((i, rest)) = split_index_and_suffix(bs1)
-                        && rest.is_empty()
-                    {
-                        // $PKn
-                        let k = MeasKey::new(i.into(), MeasKeyId::Pk);
-                        Some(Self::Real(StdKey::Meas(k)))
-                    } else {
-                        // something else
-                        Self::from_ascii_bytes_nonparam(bytes)
-                    }
-                } else if let Some((i, rest)) = split_index_and_suffix(bs)
-                    && let Some(mid) = NonPeakMeasKeyId::from_bytes(rest)
-                {
-                    // $Pn*
-                    let k = MeasKey::new(i.into(), mid.into());
-                    Some(Self::Real(StdKey::Meas(k)))
-                } else {
-                    // something else
-                    Self::from_ascii_bytes_nonparam(bytes)
-                }
-            }
-            // Try to match $Gn*
-            b'G' => {
-                if let Some((i, rest)) = split_index_and_suffix(bs)
-                    && let Some(gid) = GateKeyId::from_bytes(rest)
-                {
-                    let k = GateKey::new(i.into(), gid);
-                    Some(Self::Real(StdKey::Gate(k)))
-                } else {
-                    Self::from_ascii_bytes_nonparam(bytes)
-                }
-            }
-            // Try to match $Rn*
-            b'R' => {
-                if let Some((i, rest)) = split_index_and_suffix(bs)
-                    && let Some(rid) = RegionKeyId::from_bytes(rest)
-                {
-                    let k = RegionKey::new(i.into(), rid);
-                    Some(Self::Real(StdKey::Region(k)))
-                } else {
-                    Self::from_ascii_bytes_nonparam(bytes)
-                }
-            }
-            // We didn't find any of these prefixes, try all the other keywords.
-            _ => Self::from_ascii_bytes_nonparam(bytes),
-        }
-    }
-
-    fn from_ascii_bytes_nonparam(bytes: &NESlice<u8>) -> Option<Self> {
-        if let Some(rk) = RootKey::from_bytes(bytes.as_ref()) {
-            Some(Self::Real(StdKey::Root(rk)))
-        } else if let Some(csv) = CsvFlagKey::from_bytes(bytes.as_ref()) {
-            Some(Self::Real(StdKey::CsvFlag(csv)))
-        } else if let Some(dfc) = DfcKey::from_bytes(bytes.as_ref()) {
-            Some(Self::Real(StdKey::Dfc(dfc)))
+    fn from_bytes(bytes: &NESlice<u8>) -> Option<Self> {
+        if let Some(sk) = StdKey::from_bytes(bytes) {
+            Some(Self::Real(sk))
         } else {
-            let p = KeyString::from_bytes_maybe(bytes)?;
+            let p = KeyString::from_bytes(bytes)?;
             Some(Self::Pseudo(PseudoStdKey(p)))
         }
     }
@@ -1693,7 +1688,7 @@ impl ParsedKey {
         // '$' keyword
         if let Some((&STD_PREFIX, rest)) = bytes.as_ref().split_first() {
             if let Some(ne) = NESlice::try_from_slice(rest) {
-                if let Some(k) = AnyStdKey::from_bytes_maybe(ne) {
+                if let Some(k) = AnyStdKey::from_bytes(ne) {
                     match k {
                         AnyStdKey::Real(x) => Self::Std(x),
                         AnyStdKey::Pseudo(x) => Self::PseudoStd(x),
@@ -1704,7 +1699,7 @@ impl ParsedKey {
             } else {
                 Self::Bytes(nev![STD_PREFIX])
             }
-        } else if let Some(k) = AnyStdKey::from_bytes_maybe(bytes) {
+        } else if let Some(k) = AnyStdKey::from_bytes(bytes) {
             match k {
                 AnyStdKey::Real(x) => Self::PseudoNonStd(x),
                 AnyStdKey::Pseudo(x) => Self::NonStd(NonStdKey(x.0)),

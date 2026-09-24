@@ -13,7 +13,7 @@ use crate::validated::shortname::Shortname;
 
 use fireflow_types::index::{MeasIndex, RegionIndex};
 use fireflow_types::keywords::{Version, VersionMembership};
-use fireflow_types::std_key::{DollarWrap, NonStdKey, StdKey};
+use fireflow_types::std_key::{DollarWrap, NonStdKey, PseudoNonStdKey, StdKey};
 use fireflow_types::textdelim::{
     DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim,
 };
@@ -64,6 +64,7 @@ pub(crate) enum AnyKeyword<'a> {
 #[delegate(HasDelim)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
+#[delegate(AsKeywordPair)]
 pub(crate) enum ReqKeyword<'a> {
     Root(ReqRootKeyword<'a>),
     Meas(ReqMeasKeyword<'a>),
@@ -86,6 +87,7 @@ pub(crate) enum OptKeyword<'a> {
 #[delegate(DisplayEscaped)]
 pub(crate) enum StdOrNonStdOptRootKeyword<'a> {
     Std(OptRootKeyword<'a>),
+    PseudoNonStd(PseudoNonStdKeyword<'a>),
     NonStd(NonStdKeyword<'a>),
 }
 
@@ -94,6 +96,7 @@ pub(crate) enum StdOrNonStdOptRootKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
+#[delegate(AsKeywordPair)]
 pub enum ReqRootKeyword<'a> {
     ByteOrd2_0(SplitKeyword<kws::ByteOrd2_0>),
     ByteOrd3_1(SplitKeyword<kws::ByteOrd3_1>),
@@ -109,6 +112,7 @@ pub enum ReqRootKeyword<'a> {
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 #[delegate(HasMembership)]
+#[delegate(AsKeywordPair)]
 pub enum OptRootKeyword<'a> {
     GateMeas(GateMeasKeyword<'a>),
     GateRegion(RegionKeyword<'a>),
@@ -166,6 +170,7 @@ pub enum OptRootKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
+#[delegate(AsKeywordPair)]
 #[cfg_attr(feature = "serde", delegate(AsHeader))]
 pub enum ReqMeasKeyword<'a> {
     Shortname(RefKeyword<'a, Shortname>),
@@ -178,6 +183,7 @@ pub enum ReqMeasKeyword<'a> {
 /// Any optional measurement keyword type
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
+#[delegate(AsKeywordPair)]
 #[delegate(DisplayEscaped)]
 pub enum OptMeasKeyword<'a> {
     Shortname(RefKeyword<'a, Shortname>),
@@ -191,6 +197,7 @@ pub enum OptMeasKeyword<'a> {
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 #[delegate(HasMembership)]
+#[delegate(AsKeywordPair)]
 #[cfg_attr(feature = "serde", delegate(AsHeader))]
 pub enum OptScaledOpticalKeyword<'a> {
     Scale(OptScaleKeyword),
@@ -202,6 +209,7 @@ pub enum OptScaledOpticalKeyword<'a> {
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 #[delegate(HasMembership)]
+#[delegate(AsKeywordPair)]
 #[cfg_attr(feature = "serde", delegate(AsHeader))]
 pub enum OptScaleKeyword {
     Scale(SplitKeyword<kws::Scale>),
@@ -213,6 +221,7 @@ pub enum OptScaleKeyword {
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 #[delegate(HasMembership)]
+#[delegate(AsKeywordPair)]
 #[cfg_attr(feature = "serde", delegate(AsHeader))]
 pub enum OptOpticalKeyword<'a> {
     Longname(NEStringKeyword<'a, kws::Longname>),
@@ -238,6 +247,7 @@ pub enum OptOpticalKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
+#[delegate(AsKeywordPair)]
 #[delegate(HasMembership)]
 pub enum OptTemporalKeyword<'a> {
     Timestep(SplitKeyword<kws::Timestep>),
@@ -249,6 +259,7 @@ pub enum OptTemporalKeyword<'a> {
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 #[delegate(HasMembership)]
+#[delegate(AsKeywordPair)]
 #[cfg_attr(feature = "serde", delegate(AsHeader))]
 pub enum OptMeasTemporalKeyword<'a> {
     Longname(NEStringKeyword<'a, kws::Longname>),
@@ -262,6 +273,7 @@ pub enum OptMeasTemporalKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
+#[delegate(AsKeywordPair)]
 #[delegate(HasMembership)]
 #[cfg_attr(feature = "serde", delegate(AsHeader))]
 pub enum OptPeakKeyword {
@@ -273,6 +285,7 @@ pub enum OptPeakKeyword {
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
+#[delegate(AsKeywordPair)]
 #[delegate(HasMembership)]
 pub enum GateMeasKeyword<'a> {
     Scale(SplitKeyword<kws::GateScale>),
@@ -289,6 +302,7 @@ pub enum GateMeasKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
+#[delegate(AsKeywordPair)]
 #[delegate(HasMembership)]
 pub enum RegionKeyword<'a> {
     GateIndex2_0(SplitKeyword<kws::RegionGateIndex2_0>),
@@ -296,6 +310,9 @@ pub enum RegionKeyword<'a> {
     GateIndex3_2(SplitKeyword<kws::RegionGateIndex3_2>),
     Window(RegionWindowSplitKeyword<'a>),
 }
+
+/// A pseudo-non-standard keyword.
+pub(crate) type PseudoNonStdKeyword<'a> = SplitKeyword_<PseudoNonStdKey, &'a NEStr>;
 
 /// A non-standard keyword.
 pub(crate) type NonStdKeyword<'a> = SplitKeyword_<&'a NonStdKey, &'a NEStr>;
@@ -309,26 +326,13 @@ pub struct SplitKeyword_<K, V> {
 
 pub type SplitKeyword<T> = SplitKeyword_<DollarKey<T>, T>;
 
-// pub type SplitKeyword0<T> = SplitKeyword<DKey0<T>, T>;
-// pub type SplitKeywordMeas<T> = SplitKeyword<SpecificMeasKey<T>, T>;
-// pub type SplitKeyword2<T> = SplitKeyword<DKey2<T>, T>;
-
 pub type RefKeyword<'a, T> = SplitKeyword_<DollarKey<T>, &'a T>;
 
-// pub type RefKeyword0<'a, T> = SplitKeyword_<DKey0<T>, &'a T>;
-// pub type RefKeyword1<'a, T> = SplitKeyword_<SpecificMeasKey<T>, &'a T>;
-
 pub type OptZSTKeyword<K, T> = SplitKeyword_<DollarKey<K>, T>;
-// pub type OptZSTKeyword1<K, T> = SplitKeyword_<SpecificMeasKey<K>, T>;
 
 pub type NEStringKeyword<'a, T> = NEStringKeyword_<'a, DollarKey<T>>;
 
-// pub type NEStringKeyword0<'a, T> = NEStringKeyword<'a, DKey0<T>>;
-// pub type NEStringKeyword1<'a, T> = NEStringKeyword<'a, SpecificMeasKey<T>>;
-
 pub type NonZeroU32Keyword<T> = NonZeroU32Keyword_<DollarKey<T>>;
-
-// pub type NonZeroU32Keyword0<T> = NonZeroU32Keyword<DKey0<T>>;
 
 pub type NEStringKeyword_<'a, K> = SplitKeyword_<K, &'a NEStr>;
 pub type NonZeroU32Keyword_<K> = SplitKeyword_<K, NonZeroU32>;
@@ -705,8 +709,9 @@ impl Keyword1FromValue<'_> for OptPeakKeyword {}
 impl<'a> Keyword1FromValue<'a> for GateMeasKeyword<'a> {}
 impl Keyword1FromValue<'_> for RegionKeyword<'_> {}
 
-impl<T: ValueToStdKey, V> AsStdKeywordPair for SplitKeyword_<DollarKey<T>, V>
+impl<T, V> AsStdKeywordPair for SplitKeyword_<DollarKey<T>, V>
 where
+    T: ValueToStdKey,
     for<'a> V: ToDisplayNE<'a>,
 {
     fn as_std_key_pair(&self) -> (StdKey, NEString) {
@@ -717,16 +722,42 @@ where
     }
 }
 
-impl<T: AsStdKeywordPair> AsKeywordPair for T {
+impl<V> AsStdKeywordPair for SplitKeyword_<PseudoNonStdKey, V>
+where
+    for<'a> V: ToDisplayNE<'a>,
+{
+    fn as_std_key_pair(&self) -> (StdKey, NEString) {
+        (self.key, ToNE(&self.value).to_ne_string())
+    }
+}
+
+impl<T, V> AsKeywordPair for SplitKeyword_<DollarKey<T>, V>
+where
+    T: ValueToStdKey,
+    for<'a> V: ToDisplayNE<'a>,
+{
     fn as_key_pair(&self) -> (WritableKey, NEString) {
         let (k, v) = self.as_std_key_pair();
-        (DollarWrap(k).into(), v)
+        (WritableKey::Std(DollarWrap(k)), v)
+    }
+}
+
+impl<V> AsKeywordPair for SplitKeyword_<PseudoNonStdKey, V>
+where
+    for<'a> V: ToDisplayNE<'a>,
+{
+    fn as_key_pair(&self) -> (WritableKey, NEString) {
+        let (k, v) = self.as_std_key_pair();
+        (WritableKey::PseudoNonStd(k), v)
     }
 }
 
 impl AsKeywordPair for NonStdKeyword<'_> {
     fn as_key_pair(&self) -> (WritableKey, NEString) {
-        (self.key.clone().into(), ToNE(&self.value).to_ne_string())
+        (
+            WritableKey::NonStd(self.key.clone()),
+            ToNE(&self.value).to_ne_string(),
+        )
     }
 }
 
@@ -778,6 +809,12 @@ impl HasDelim for ReqMeasKeyword<'_> {
         } else {
             None
         }
+    }
+}
+
+impl HasDelim for PseudoNonStdKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.value.has_delim(d)
     }
 }
 
@@ -1222,6 +1259,17 @@ where
         let mut xf = EscapedFormatter { delim, inner: f };
         // ASSUME standard keys don't need to be escaped because the delim
         // character is 0-31 which never appears in the standard keys
+        xf.write_with_delim(&self.key, false)?;
+        xf.write_with_delim(&self.value, true)?;
+        Ok(())
+    }
+}
+
+impl DisplayEscaped for PseudoNonStdKeyword<'_> {
+    fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut xf = EscapedFormatter { delim, inner: f };
+        // ditto previous impl since these are the same as standard keys
+        // without '$'
         xf.write_with_delim(&self.key, false)?;
         xf.write_with_delim(&self.value, true)?;
         Ok(())

@@ -1,6 +1,5 @@
 use crate::byteord::ConfigByteOrd;
 use crate::index::MeasIndex;
-use crate::keystring::KeyStringsOrPatterns;
 use crate::keywords::Version;
 use crate::macros::{impl_config_flag, impl_str_enum};
 use crate::other_width::OtherWidth;
@@ -9,7 +8,6 @@ use crate::segment::{
     AnalysisSegmentId, DataSegmentId, HeaderCorrection, OtherSegmentId, PrimaryTextSegmentId,
     SupplementalTextSegmentId, TEXTCorrection,
 };
-use crate::sub_pattern::SubPattern;
 use crate::textdelim::TEXTDelim;
 
 use nonempty::{NEStr, ne_str};
@@ -22,17 +20,12 @@ use num_traits::One as _;
 use regex::Regex;
 use thiserror::Error;
 
-use std::{
-    collections::HashSet,
-    fmt,
-    fs::{File, OpenOptions},
-    hash::Hash,
-    num::NonZeroU8,
-    str::FromStr,
-};
-
-#[cfg(feature = "serde")]
-use serde::Serialize;
+use std::collections::HashSet;
+use std::fmt;
+use std::fs::{File, OpenOptions};
+use std::hash::Hash;
+use std::num::NonZeroU8;
+use std::str::FromStr;
 
 #[cfg(feature = "python")]
 use {
@@ -42,6 +35,9 @@ use {
     },
     pyo3::prelude::*,
 };
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 /// Specific configuration for writing HEADER+TEXT
 #[derive(Clone, Copy, Default, new)]
@@ -1410,33 +1406,6 @@ pub struct TemporalHasOpticalKeyError {
     key: OpticalOnlyKey,
 }
 
-/// A list of patterns that match [`crate::validated::keys::StdKey`]s or
-/// [`crate::validated::keys::NonStdKey`]s.
-pub type KeyPatterns = KeyStringsOrPatterns<()>;
-
-#[cfg(feature = "serde")]
-impl Serialize for KeyPatterns {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let inner: Vec<_> = self.0.iter().map(|(x, ())| x).collect();
-        inner.serialize(serializer)
-    }
-}
-
-pub type SubPatterns = KeyStringsOrPatterns<SubPattern>;
-
-#[cfg(feature = "serde")]
-impl Serialize for SubPatterns {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.serialize(serializer)
-    }
-}
-
 /// The maximum number of bytes that an offset may be truncated if beyond EOF.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
@@ -2371,27 +2340,15 @@ mod tests {
 mod python {
     use super::{
         BYTEORD_OVERRIDE_ENDIAN_LEVEL, BYTEORD_OVERRIDE_NONE_LEVEL, ByteordOverride,
-        FIX_INT_WIDTH_NEVER_LEVEL, FIX_INT_WIDTH_NEXT_BYTE_LEVEL, IntWidthOverride, KeyPatterns,
-        OpticalOnlyKeys, SubPatterns,
+        FIX_INT_WIDTH_NEVER_LEVEL, FIX_INT_WIDTH_NEXT_BYTE_LEVEL, IntWidthOverride,
+        OpticalOnlyKeys,
     };
 
     use crate::byteord::ConfigByteOrd;
-    use crate::case_ins_regex::{LiteralOrPattern, LiteralOrPatternError};
-    use crate::keystring::KeyStringOrPattern;
     use crate::python::ConfigError;
-    use crate::sub_pattern::SubPattern;
 
-    use hashbrown::HashMap;
     use nonempty::NEStr;
-    use pyo3::{
-        IntoPyObjectExt as _,
-        prelude::*,
-        types::{PyDict, PyString},
-    };
-
-    use std::convert::Infallible;
-    use std::fmt;
-    use std::str::FromStr;
+    use pyo3::{IntoPyObjectExt as _, prelude::*};
 
     impl<'py> FromPyObject<'_, 'py> for OpticalOnlyKeys {
         type Error = PyErr;
@@ -2408,43 +2365,6 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             self.0.into_iter().collect::<Vec<_>>().into_pyobject(py)
-        }
-    }
-
-    impl<'py> FromPyObject<'_, 'py> for KeyPatterns {
-        type Error = PyErr;
-        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let xs: Vec<KeyStringOrPattern> = obj.extract()?;
-            Ok(Self(xs.into_iter().map(|x| (x, ())).collect()))
-        }
-    }
-
-    impl<'py> IntoPyObject<'py> for KeyPatterns {
-        type Target = PyAny;
-        type Output = Bound<'py, Self::Target>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            self.0.keys().cloned().collect::<Vec<_>>().into_pyobject(py)
-        }
-    }
-
-    type _SubPattern = HashMap<String, SubPattern>;
-
-    impl<'py> FromPyObject<'_, 'py> for SubPatterns {
-        type Error = PyErr;
-        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            Ok(Self(obj.extract::<HashMap<_, _>>()?))
-        }
-    }
-
-    impl<'py> IntoPyObject<'py> for SubPatterns {
-        type Target = PyDict;
-        type Output = Bound<'py, Self::Target>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            self.0.into_pyobject(py)
         }
     }
 
@@ -2510,31 +2430,6 @@ mod python {
                 Self::None => BYTEORD_OVERRIDE_NONE_LEVEL.into_bound_py_any(py),
                 Self::Endian => BYTEORD_OVERRIDE_ENDIAN_LEVEL.into_bound_py_any(py),
             }
-        }
-    }
-
-    // TODO make FromStr and ToStr derive work for these, which will
-    // in turn require than the bounds attributes get cleaned up
-
-    impl<'py, L> FromPyObject<'_, 'py> for LiteralOrPattern<L>
-    where
-        PyErr: From<LiteralOrPatternError<L::Err>>,
-        L: FromStr,
-        Self: FromStr<Err = LiteralOrPatternError<L::Err>>,
-    {
-        type Error = PyErr;
-        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            Ok(obj.extract::<String>()?.parse()?)
-        }
-    }
-
-    impl<'py, L: fmt::Display> IntoPyObject<'py> for LiteralOrPattern<L> {
-        type Target = PyString;
-        type Output = Bound<'py, Self::Target>;
-        type Error = Infallible;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            self.to_string().into_pyobject(py)
         }
     }
 }

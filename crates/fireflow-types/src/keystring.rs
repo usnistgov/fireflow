@@ -1,17 +1,15 @@
-use crate::case_ins_regex::{LiteralOrPattern, LiteralOrPatternError};
-
 use nonempty::{
-    IntoNonEmptyIterator as _, NESlice, NEStr, NEString, NEVec, NonEmptyIterator as _, ToDisplayNE,
+    IntoNonEmptyIterator as _, NESlice, NEStr, NEString, NonEmptyIterator as _, ToDisplayNE,
 };
 
 use derive_more::{AsRef, Display};
-use hashbrown::HashMap;
-use itertools::Itertools as _;
 use thiserror::Error;
 use unicase::Ascii;
 
+use std::borrow::Borrow;
 use std::borrow::Cow;
-use std::{borrow::Borrow, collections::HashSet, fmt, hash::Hash, str::FromStr};
+use std::hash::Hash;
+use std::str::FromStr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -56,22 +54,6 @@ impl AsRef<str> for CowKeyString<'_> {
     }
 }
 
-/// Either a literal string or regexp which matches a [`StdKey`]/[`NonStdKey`].
-pub type KeyStringOrPattern = LiteralOrPattern<KeyString>;
-
-/// Error when parsing literal keys or pattern strings when building [`KeyStringsOrPatterns`]
-pub type KeyStringsOrPatternsError = LiteralOrPatternError<NEAsciiStringError>;
-
-/// A list of patterns that match [`StdKey`]s or [`NonStdKey`]s.
-#[derive(Clone, PartialEq)]
-pub struct KeyStringsOrPatterns<T>(pub HashMap<KeyStringOrPattern, T>);
-
-impl<T> Default for KeyStringsOrPatterns<T> {
-    fn default() -> Self {
-        Self(HashMap::default())
-    }
-}
-
 /// Error when parsing [`KeyString`] from string
 #[derive(PartialEq, Debug, Error, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -88,19 +70,7 @@ pub enum NEAsciiStringError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 #[error("string should only have printable ASCII characters, found '{0}'")]
-pub struct AsciiStringError(pub String);
-
-/// Error when creating a new hashtable with non-unique keys.
-#[derive(Debug, Error, Display, PartialEq, Clone)]
-#[display(
-    "the following keys were non-unique when creating new hash table: {}",
-    self.0.iter().join(","),
-)]
-#[display(bound(T: fmt::Display))]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-#[cfg_attr(feature = "python", bound(T: fmt::Display))]
-pub struct NonUniqueKeyError<T>(NEVec<T>);
+pub struct AsciiStringError(pub NEString);
 
 impl<'a> ToDisplayNE<'a> for KeyString {
     type NE = &'a NEString;
@@ -129,7 +99,7 @@ impl TryFrom<NEString> for CowKeyString<'_> {
         if is_printable_ascii(value.as_str().as_bytes()) {
             Ok(Self(Ascii::new(Cow::Owned(value))))
         } else {
-            Err(AsciiStringError(value.into()))
+            Err(AsciiStringError(value))
         }
     }
 }
@@ -140,7 +110,7 @@ impl<'a> TryFrom<&'a NEStr> for CowKeyString<'a> {
         if is_printable_ascii(value.as_str().as_bytes()) {
             Ok(Self(Ascii::new(Cow::Borrowed(value))))
         } else {
-            Err(AsciiStringError(value.to_string()))
+            Err(AsciiStringError(value.to_owned()))
         }
     }
 }
@@ -207,67 +177,18 @@ impl Serialize for KeyString {
     }
 }
 
-impl<T> FromIterator<(KeyStringOrPattern, T)> for KeyStringsOrPatterns<T> {
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = (KeyStringOrPattern, T)>,
-    {
-        Self(iter.into_iter().collect())
-    }
-}
-
-impl FromIterator<KeyStringOrPattern> for KeyStringsOrPatterns<()> {
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = KeyStringOrPattern>,
-    {
-        Self(iter.into_iter().map(|x| (x, ())).collect())
-    }
-}
-
-impl<T> KeyStringsOrPatterns<T> {
-    pub fn from_many(
-        xs: impl IntoIterator<Item = Self>,
-    ) -> Result<Self, NonUniqueKeyError<LiteralOrPattern<KeyString>>> {
-        checked_iter_to_hashmap(xs.into_iter().flat_map(|x| x.0.into_iter())).map(Self)
-    }
-}
-
 pub(crate) fn to_keystring(s: &str) -> Result<&NEStr, NEAsciiStringError> {
-    if is_printable_ascii(s.as_bytes()) {
-        if let Some(ne) = NEStr::try_new(s) {
+    if let Some(ne) = NEStr::try_new(s) {
+        if is_printable_ascii(ne.as_ne_bytes().as_ref()) {
             Ok(ne)
         } else {
-            Err(NEAsciiStringError::Empty)
+            Err(NEAsciiStringError::Ascii(AsciiStringError(ne.to_owned())))
         }
     } else {
-        Err(NEAsciiStringError::Ascii(AsciiStringError(s.into())))
+        Err(NEAsciiStringError::Empty)
     }
 }
 
 pub(crate) fn is_printable_ascii(xs: &[u8]) -> bool {
     xs.iter().all(|x| 32 <= *x && *x <= 126)
-}
-
-// TODO put me somewhere useful
-pub fn checked_iter_to_hashmap<K, V>(
-    xs: impl IntoIterator<Item = (K, V)>,
-) -> Result<HashMap<K, V>, NonUniqueKeyError<K>>
-where
-    K: Hash + Clone + Eq,
-{
-    let mut duplicated = HashSet::new();
-    let mut new = HashMap::new();
-    for (k, v) in xs {
-        if new.contains_key(&k) {
-            duplicated.insert(k);
-        } else {
-            new.insert(k, v);
-        }
-    }
-    let multi: Vec<_> = duplicated.into_iter().collect();
-    if let Some(ne) = NEVec::try_from_vec(multi) {
-        return Err(NonUniqueKeyError(ne));
-    }
-    Ok(new)
 }

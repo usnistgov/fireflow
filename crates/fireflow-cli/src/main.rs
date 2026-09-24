@@ -7,17 +7,15 @@ use fireflow_core::{
     validated::read_state::DatasetOffset,
 };
 
-use fireflow_types::byteord::ConfigByteOrd;
-use fireflow_types::case_ins_regex::PATTERN_DELIMITER;
 use fireflow_types::config::{
     self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, NumericByteWidth,
 };
 use fireflow_types::datepattern::DatePattern;
-use fireflow_types::keystring::KeyStringOrPattern;
 use fireflow_types::keywords as tk;
 use fireflow_types::other_width::OtherWidth;
 use fireflow_types::segment::OffsetsCorrection;
 use fireflow_types::std_key as sk;
+use fireflow_types::std_pattern::PATTERN_DELIMITER;
 use fireflow_types::sub_pattern::SubPattern;
 use fireflow_types::textdelim::TEXTDelim;
 use fireflow_types::timepattern::TimePattern;
@@ -25,6 +23,7 @@ use fireflow_types::{
     args::dash as ta,
     std_key::{DollarAnyStdKey, DollarStdKey},
 };
+use fireflow_types::{byteord::ConfigByteOrd, std_pattern::StdKeyOrPattern};
 use nonempty::{NEStr, NEString};
 
 use ansi_term::{ANSIString, Style};
@@ -487,7 +486,8 @@ fn run() -> AppResult<()> {
              separate multiple values. If a single value starts and ends with \
              the same value, encapsulate this with two delimiters. \
              Values that start and end with {delim} will be \
-             interpreted as a single regular expressions; in such cases {delim} \
+             interpreted as a regexp-like pattern where '[n-m]' matches indices \
+             (such as that for {pn_n}; in such cases {delim} \
              is not interpreted as a delimiter. \
              An empty string encodes an empty list of values.",
             delim = fmt_val(PATTERN_DELIMITER)
@@ -498,7 +498,6 @@ fn run() -> AppResult<()> {
             .action(ArgAction::Append)
             .value_name("<#>KEY_OR_PAT[<#>KEY_OR_PAT..]<#>")
             .help(more_help)
-            .value_parser(ValueParser::new(parse_key_string_pattern_list))
     };
 
     let dedup_meas_names = override_flag_arg(
@@ -698,17 +697,20 @@ fn run() -> AppResult<()> {
     let ignore_std_key = make_key_str_args(
         ta::IGNORE_STD_KEYS,
         "Ignore standard keys exactly matching KEY_OR_PAT. The leading '$' is implied.",
-    );
+    )
+    .value_parser(ValueParser::new(parse_std_key_or_pattern_list::<true>));
 
     let promote_to_std = make_key_str_args(
         ta::PROMOTE_TO_STD,
         "Promote non-standard keys matching KEY_OR_PAT to standard.",
-    );
+    )
+    .value_parser(ValueParser::new(parse_std_key_or_pattern_list::<false>));
 
     let demote_from_std = make_key_str_args(
         ta::DEMOTE_FROM_STD,
         "Demote standard keys matching KEY_OR_PAT to non-standard. The leading '$' is implied.",
-    );
+    )
+    .value_parser(ValueParser::new(parse_std_key_or_pattern_list::<true>));
 
     let rename_standard_keys = Arg::new(ta::RENAME_STD_KEYS)
         .long(ta::RENAME_STD_KEYS)
@@ -1615,13 +1617,13 @@ fn get_repair_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadRepairKeywordsCo
     let strat = get_strategy(s);
     let mut c = cfg::ReadRepairKeywordsConfig::new_with_strategy(strat);
 
-    get_many::<KeyStringOrPattern, _, _>(s, ta::IGNORE_STD_KEYS, |xs| {
+    get_many::<StdKeyOrPattern<_>, _, _>(s, ta::IGNORE_STD_KEYS, |xs| {
         c.ignore_standard_keys = AppendableSelector::root(xs);
     });
-    get_many::<KeyStringOrPattern, _, _>(s, ta::PROMOTE_TO_STD, |xs| {
+    get_many::<StdKeyOrPattern<_>, _, _>(s, ta::PROMOTE_TO_STD, |xs| {
         c.promote_nonstandard_keys = AppendableSelector::root(xs);
     });
-    get_many::<KeyStringOrPattern, _, _>(s, ta::DEMOTE_FROM_STD, |xs| {
+    get_many::<StdKeyOrPattern<_>, _, _>(s, ta::DEMOTE_FROM_STD, |xs| {
         c.demote_standard_keys = AppendableSelector::root(xs);
     });
 
@@ -1888,8 +1890,13 @@ fn parse_offset_pair(s: &str) -> StrResult<(i32, i32)> {
     }
 }
 
-fn parse_key_string_pattern_list(s: &str) -> StrResult<Vec<KeyStringOrPattern>> {
-    let go = |ss: &str| ss.parse::<KeyStringOrPattern>().map_err(|e| e.to_string());
+fn parse_std_key_or_pattern_list<const DOLLAR: bool>(
+    s: &str,
+) -> StrResult<Vec<StdKeyOrPattern<DOLLAR>>> {
+    let go = |ss: &str| {
+        ss.parse::<StdKeyOrPattern<DOLLAR>>()
+            .map_err(|e| e.to_string())
+    };
     let single = || Ok(vec![go(s)?]);
     if let Some(ne) = NEStr::try_new(s) {
         if ne.first() == ne.last() && ne.len().get() > 2 {
@@ -1929,7 +1936,10 @@ fn parse_keystring_string_pair(s: &str) -> StrResult<Vec<KeystringStringPair>> {
 }
 
 fn parse_sub_pattern_pair(s: &str) -> StrResult<Vec<SubPatternPair>> {
-    let go_k = |x: &str| x.parse::<KeyStringOrPattern>().map_err(|e| e.to_string());
+    let go_k = |x: &str| {
+        x.parse::<StdKeyOrPattern<true>>()
+            .map_err(|e| e.to_string())
+    };
     let go_v = |x: &str| parse_sub_pattern_inner(x).map_err(|e| e.to_string());
     parse_pairs(s, go_k, go_v)
 }
@@ -2116,7 +2126,7 @@ type BiKeyPair = (DollarAnyStdKey, DollarStdKey);
 
 type KeystringStringPair = (DollarStdKey, NEString);
 
-type SubPatternPair = (KeyStringOrPattern, SubPattern);
+type SubPatternPair = (StdKeyOrPattern<true>, SubPattern);
 
 const SUBCMD_VERSION: &str = "version";
 

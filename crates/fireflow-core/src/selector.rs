@@ -1,10 +1,10 @@
 use crate::validated::keys::{AnyKey, ValidKeywords};
 
-use fireflow_types::config::{KeyPatterns, TimeMeasNamePattern};
+use fireflow_types::config::TimeMeasNamePattern;
 use fireflow_types::datepattern::DatePattern;
-use fireflow_types::keystring::{KeyStringOrPattern, KeyStringsOrPatterns};
 use fireflow_types::keystring_pairs::KeyStringPairs;
 use fireflow_types::std_key::{AnyStdKey, DollarWrap, RootKey, ToStd as _};
+use fireflow_types::std_pattern::StdKeyPatterns;
 use fireflow_types::timepattern::TimePattern;
 use nonempty::{NEStr, NEString, NEVec, NonEmptyIterator as _, ne_str, nev};
 
@@ -19,7 +19,7 @@ use std::mem;
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
-use {fireflow_types::case_ins_regex::serialize_regex, serde::Serialize};
+use {fireflow_types::sub_pattern::serialize_regex, serde::Serialize};
 
 #[cfg(feature = "python")]
 use {
@@ -110,7 +110,7 @@ impl<T: Default> Default for Selector<T> {
 // if this is a problem or a sign of something very suboptimal. When this is
 // mainlined it would be worth checking.
 
-impl AppendableSelector<KeyPatterns> {
+impl<const DOLLAR: bool> AppendableSelector<StdKeyPatterns<DOLLAR>> {
     /// Promote SPILL or SPILLOVER but only if $SPILLOVER is not already present.
     ///
     /// Meant to be used with
@@ -118,10 +118,7 @@ impl AppendableSelector<KeyPatterns> {
     /// map SPILL, SPILLOVER, and $SPILL to $SPILLOVER but only if the latter is
     /// not already present.
     pub fn push_promote_spillover(&mut self) {
-        let pats: KeyStringsOrPatterns<()> =
-            once("/SPILL(?:OVER)?/".parse::<KeyStringOrPattern>().unwrap())
-                .map(|x| (x, ()))
-                .collect();
+        let pats: StdKeyPatterns<_> = once("/SPILL(?:OVER)?/".parse().unwrap()).collect();
         let kw_test = KeyTest::HasKey(AnyKey::Std(DollarWrap(AnyStdKey::Real(
             RootKey::Spillover.to_std0(),
         ))));

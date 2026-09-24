@@ -3938,13 +3938,13 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        _ = pf.api.fcs_read_flat_dataset(p, ignore_standard_keys=["wood"])
-        _ = pf.api.fcs_read_flat_dataset(p, ignore_standard_keys=["/wooden+leg/"])
+        _ = pf.api.fcs_read_flat_dataset(p, ignore_standard_keys=["$INST"])
+        _ = pf.api.fcs_read_flat_dataset(p, ignore_standard_keys=["/$P[1-10]N/"])
         # TODO blank should be an error since it will match anything
         with pytest.raises(pf.ParseKeyError):
             _ = pf.api.fcs_read_flat_dataset(p, ignore_standard_keys=[""])
         with pytest.raises(pf.ConfigError):
-            _ = pf.api.fcs_read_flat_dataset(p, ignore_standard_keys=["/((((/"])
+            _ = pf.api.fcs_read_flat_dataset(p, ignore_standard_keys=["/wooden_leg/"])
 
     def test_rename_standard_keys(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
@@ -4038,32 +4038,30 @@ class TestApiFunctions:
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
         _ = pf.api.fcs_read_flat_dataset(
-            p, substitute_standard_key_values={"history": ("viking", "pirate", True)}
+            p, substitute_standard_key_values={"$CELLS": ("T cells", "Tea Sells", True)}
+        )
+        _ = pf.api.fcs_read_flat_dataset(
+            p,
+            substitute_standard_key_values={"/$P[1-42]N/": ("odin", "thor", False)},
         )
         _ = pf.api.fcs_read_flat_dataset(
             p,
             substitute_standard_key_values={
-                "/religion?/": ("odin+thor", "cannons+other stuff", False)
-            },
-        )
-        _ = pf.api.fcs_read_flat_dataset(
-            p,
-            substitute_standard_key_values={
-                "time": ("(10[0-9]+)AD", "16${1}AD", False)
+                "$DATE": ("(10[0-9]+)AD", "16${1}AD", False)
             },
         )
         with pytest.raises(pf.ConfigError):
             _ = pf.api.fcs_read_flat_dataset(
                 p,
                 substitute_standard_key_values={
-                    "drone": ("Sunn O)))))", "refrigerator motor", False)
+                    "$OP": ("Sunn O)))))", "..............", False)
                 },
             )
         with pytest.raises(pf.ConfigError):
             _ = pf.api.fcs_read_flat_dataset(
                 p,
                 substitute_standard_key_values={
-                    "spiral": ("1.61", "the meaning of life is ${1}", False)
+                    "$COM": ("1.61", "the meaning of life is ${1}", False)
                 },
             )
 
@@ -5041,7 +5039,7 @@ class TestConfig:
 
         out = pf.api.fcs_read_flat_dataset(
             p,
-            ignore_standard_keys=["CYTSN"],
+            ignore_standard_keys=["$CYTSN"],
             allow_missing_crc="silent",
         )
         assert out.repair_diagnostics.ignored == [("$CYTSN", "T1000")]
@@ -5081,10 +5079,10 @@ class TestConfig:
 
         out = pf.api.fcs_read_flat_dataset(
             p,
-            demote_standard_keys=["OP"],
+            demote_standard_keys=["$OP"],
             allow_missing_crc="silent",
         )
-        assert out.keywords.nonstd["OP"] == "Lars Ulrich"
+        assert out.keywords.pnonstd["OP"] == "Lars Ulrich"
 
     @all_versions
     def test_replace_std_key_vals(self, version: pt.FCSVersion, tmp_path: Path) -> None:
@@ -5120,10 +5118,10 @@ class TestConfig:
 
         out = pf.api.fcs_read_flat_dataset(
             p,
-            substitute_standard_key_values={"OP": ("death", "deth", False)},
+            substitute_standard_key_values={"$OP": ("death", "deth", False)},
             allow_missing_crc="silent",
         )
-        assert out.keywords.std["$OP"] == "Megadeth"  # this is the way
+        assert out.keywords.std["$OP"] == "Megadeth"
 
     @all_versions
     def test_dedup_meas_names(self, version: pt.FCSVersion, tmp_path: Path) -> None:
@@ -5361,39 +5359,40 @@ class TestConfig:
 
         def go(
             f: list[pt.OpticalOnlyKey], g: pt.ProcessOpticalOnlyKeys
-        ) -> tuple[dict[str, str], dict[str, str]]:
+        ) -> tuple[pt.PseudoStdKeywords, pt.PseudoNonStdKeywords, pt.NonStdKeywords]:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 ignore_optical_only_keys=f,
                 process_optical_only_keys=g,
             )
             ps = uncore.pseudostandard
+            pns = core.pseudo_nonstandard_keywords
             ns = core.nonstandard_keywords
-            return (ps, ns)
+            return (ps, pns, ns)
 
         with pytest.RaisesGroup(pf.RelationalError):
             # dummy assertions which should all fail at the error catch
-            assert go([], "demote_warn") == ({}, {})
+            assert go([], "demote_warn") == ({}, {}, {})
         with pytest.RaisesGroup(pf.RelationalError):
-            assert go([], "demote_silent") == ({}, {})
+            assert go([], "demote_silent") == ({}, {}, {})
         with pytest.RaisesGroup(pf.RelationalError):
-            assert go([], "drop_warn") == ({}, {})
+            assert go([], "drop_warn") == ({}, {}, {})
         with pytest.RaisesGroup(pf.RelationalError):
-            assert go([], "drop_silent") == ({}, {})
+            assert go([], "drop_silent") == ({}, {}, {})
         with pytest.RaisesGroup(pf.RelationalError):
-            assert go(["L"], "demote_warn") == ({}, {})
+            assert go(["L"], "demote_warn") == ({}, {}, {})
         with pytest.RaisesGroup(pf.RelationalError):
-            assert go(["L"], "demote_silent") == ({}, {})
+            assert go(["L"], "demote_silent") == ({}, {}, {})
         with pytest.RaisesGroup(pf.RelationalError):
-            assert go(["L"], "drop_warn") == ({}, {})
+            assert go(["L"], "drop_warn") == ({}, {}, {})
         with pytest.RaisesGroup(pf.RelationalError):
-            assert go(["L"], "drop_silent") == ({}, {})
+            assert go(["L"], "drop_silent") == ({}, {}, {})
         with pytest.warns(pf.PyreflowWarning):
-            assert go(["O"], "demote_warn") == ({}, {"P1O": jiggawatt})
+            assert go(["O"], "demote_warn") == ({}, {"P1O": jiggawatt}, {})
         with pytest.warns(pf.PyreflowWarning):
-            assert go(["O"], "drop_warn") == ({}, {})
-        go(["O"], "demote_silent") == ({}, {"$P1O": jiggawatt})
-        go(["O"], "drop_silent") == ({}, {})
+            assert go(["O"], "drop_warn") == ({}, {}, {})
+        go(["O"], "demote_silent") == ({}, {"$P1O": jiggawatt}, {})
+        go(["O"], "drop_silent") == ({}, {}, {})
 
     @all_versions
     @pytest.mark.parametrize(
@@ -5658,22 +5657,26 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
 
-        def go(
-            f: pt.ProcessKeywordFailure,
-        ) -> tuple[pt.NonStdKeywords, pt.DroppedStdKeywords]:
+        type Ret = tuple[
+            pt.PseudoNonStdKeywords, pt.NonStdKeywords, pt.DroppedStdKeywords
+        ]
+
+        def go(f: pt.ProcessKeywordFailure) -> Ret:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 process_hyper_par=f,
                 time_meas_pattern="",
             )
-            return (core.nonstandard_keywords, uncore.std_diagnostics.hyper_par)
+            return (
+                core.pseudo_nonstandard_keywords,
+                core.nonstandard_keywords,
+                uncore.std_diagnostics.hyper_par,
+            )
 
-        self._test_process_kw_fail_flag(
-            go,
-            ({"P2N": val}, []),
-            ({}, [("$P2N", val)]),
-            [pf.ExtraKeywordError],
-        )
+        demote: Ret = ({"P2N": val}, {}, [])
+        drop: Ret = ({}, {}, [("$P2N", val)])
+
+        self._test_process_kw_fail_flag(go, demote, drop, [pf.ExtraKeywordError])
 
     @all_versions
     def test_process_other_version(
@@ -5691,29 +5694,33 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
 
-        def go(
-            f: pt.ProcessKeywordFailure,
-        ) -> tuple[pt.NonStdKeywords, pt.DroppedStdKeywords]:
+        type Ret = tuple[
+            pt.PseudoNonStdKeywords, pt.NonStdKeywords, pt.DroppedStdKeywords
+        ]
+
+        def go(f: pt.ProcessKeywordFailure) -> Ret:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 process_other_version=f,
                 time_meas_pattern="",
             )
-            return (core.nonstandard_keywords, uncore.std_diagnostics.other_version)
+            return (
+                core.pseudo_nonstandard_keywords,
+                core.nonstandard_keywords,
+                uncore.std_diagnostics.other_version,
+            )
+
+        demote: Ret = ({"UNICODE": val}, {}, [])
+        drop: Ret = ({}, {}, [("$UNICODE", val)])
 
         if version != "FCS3.0":
-            self._test_process_kw_fail_flag(
-                go,
-                ({"UNICODE": val}, []),
-                ({}, [("$UNICODE", val)]),
-                [pf.ExtraKeywordError],
-            )
+            self._test_process_kw_fail_flag(go, demote, drop, [pf.ExtraKeywordError])
         else:
-            assert go("error") == ({}, [])
-            assert go("demote_warn") == ({}, [])
-            assert go("demote_silent") == ({}, [])
-            assert go("drop_warn") == ({}, [])
-            assert go("drop_silent") == ({}, [])
+            assert go("error") == ({}, {}, [])
+            assert go("demote_warn") == ({}, {}, [])
+            assert go("demote_silent") == ({}, {}, [])
+            assert go("drop_warn") == ({}, {}, [])
+            assert go("drop_silent") == ({}, {}, [])
 
     @all_versions
     def test_process_extra_timestep(
@@ -5731,32 +5738,36 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
 
-        def go(f: pt.ProcessKeywordFailure) -> tuple[dict[str, str], None | str]:
+        type Ret = tuple[pt.PseudoNonStdKeywords, pt.NonStdKeywords, None | str]
+
+        def go(f: pt.ProcessKeywordFailure) -> Ret:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 process_extra_timestep=f,
                 time_meas_pattern="",
             )
-            return (core.nonstandard_keywords, uncore.std_diagnostics.timestep)
+            return (
+                core.pseudo_nonstandard_keywords,
+                core.nonstandard_keywords,
+                uncore.std_diagnostics.timestep,
+            )
+
+        demote: Ret = ({"TIMESTEP": val}, {}, None)
+        drop: Ret = ({}, {}, val)
 
         if version != "FCS2.0":
-            self._test_process_kw_fail_flag(
-                go,
-                ({"TIMESTEP": val}, None),
-                ({}, val),
-                [pf.ExtraKeywordError],
-            )
+            self._test_process_kw_fail_flag(go, demote, drop, [pf.ExtraKeywordError])
         else:
             with pytest.RaisesGroup(pf.ExtraKeywordError):
-                assert go("error") == ({}, None)
+                assert go("error") == ({}, {}, None)
             with pytest.RaisesGroup(pf.ExtraKeywordError):
-                assert go("demote_warn") == ({}, None)
+                assert go("demote_warn") == ({}, {}, None)
             with pytest.RaisesGroup(pf.ExtraKeywordError):
-                assert go("demote_silent") == ({}, None)
+                assert go("demote_silent") == ({}, {}, None)
             with pytest.RaisesGroup(pf.ExtraKeywordError):
-                assert go("drop_warn") == ({}, None)
+                assert go("drop_warn") == ({}, {}, None)
             with pytest.RaisesGroup(pf.ExtraKeywordError):
-                assert go("drop_silent") == ({}, None)
+                assert go("drop_silent") == ({}, {}, None)
 
     @all_versions
     def test_fix_log_scale_offsets(
@@ -6004,17 +6015,20 @@ class TestConfig:
         kws = {"$DATE": val}
         self.mock_header_std_text(p, version, kws=kws)
 
-        def go(f: pt.ProcessKeywordFailure) -> dict[str, str]:
+        type Ret = tuple[pt.PseudoNonStdKeywords, pt.NonStdKeywords]
+
+        def go(f: pt.ProcessKeywordFailure) -> Ret:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 process_optional_failure=f,
                 time_meas_pattern="",
             )
-            return core.nonstandard_keywords
+            return (core.pseudo_nonstandard_keywords, core.nonstandard_keywords)
 
-        self._test_process_kw_fail_flag(
-            go, {"DATE": val}, {}, [pf.ParseKeywordValueError]
-        )
+        demote: Ret = ({"DATE": val}, {})
+        drop: Ret = ({}, {})
+
+        self._test_process_kw_fail_flag(go, demote, drop, [pf.ParseKeywordValueError])
 
     @all_versions
     def test_int_widths_from_byteord(

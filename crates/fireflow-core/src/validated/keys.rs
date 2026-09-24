@@ -44,15 +44,17 @@ pub enum AnyKey {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum WritableKey {
     Std(DollarStdKey),
+    PseudoNonStd(PseudoNonStdKey),
     NonStd(NonStdKey),
 }
 
 impl<'a> ToDisplayNE<'a> for WritableKey {
-    type NE = NEAlt<ToNE<&'a DollarStdKey>, ToNE<&'a NonStdKey>>;
+    type NE = NEAlt<ToNE<DollarStdKey>, NEAlt<ToNE<PseudoNonStdKey>, ToNE<&'a NonStdKey>>>;
     fn to_ne(&'a self) -> Self::NE {
         match self {
-            Self::Std(x) => NEAlt::Left(ToNE(x)),
-            Self::NonStd(x) => NEAlt::Right(ToNE(x)),
+            Self::Std(x) => NEAlt::Left(ToNE(*x)),
+            Self::PseudoNonStd(x) => NEAlt::Right(NEAlt::Left(ToNE(*x))),
+            Self::NonStd(x) => NEAlt::Right(NEAlt::Right(ToNE(x))),
         }
     }
 }

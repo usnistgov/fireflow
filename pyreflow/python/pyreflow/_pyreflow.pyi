@@ -424,6 +424,7 @@ class _CoreCommon:
     all_detector_types: pft.OpticalKeyVals[str]
     all_detector_voltages: pft.OpticalKeyVals[float]
 
+    pseudo_nonstandard_keywords: pft.PseudoNonStdKeywords
     nonstandard_keywords: pft.NonStdKeywords
     def standard_keywords(
         self,
@@ -1131,12 +1132,14 @@ class CoreTEXT2_0(
         sys: str = "",
         tr: pft.Trigger | None = None,
         applied_gates: pft.AppliedGates2_0 = ([], {}, None),
+        pseudo_nonstandard_keywords: pft.PseudoNonStdKeywords = {},
         nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
     @classmethod
     def from_kws(
         cls,
         std: pft.StdKeywords,
+        pnonstd: pft.PseudoNonStdKeywords,
         nonstd: pft.NonStdKeywords,
         # std args
         dedup_measurement_names: bool = False,
@@ -1225,12 +1228,14 @@ class CoreTEXT3_0(
         sys: str = "",
         tr: pft.Trigger | None = None,
         applied_gates: pft.AppliedGates3_0 = ([], {}, None),
+        pseudo_nonstandard_keywords: pft.PseudoNonStdKeywords = {},
         nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
     @classmethod
     def from_kws(
         cls,
         std: pft.StdKeywords,
+        pnonstd: pft.PseudoNonStdKeywords,
         nonstd: pft.NonStdKeywords,
         # std args
         dedup_measurement_names: bool = False,
@@ -1340,12 +1345,14 @@ class CoreTEXT3_1(
         sys: str = "",
         tr: pft.Trigger | None = None,
         applied_gates: pft.AppliedGates3_0 = ([], {}, None),
+        pseudo_nonstandard_keywords: pft.PseudoNonStdKeywords = {},
         nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
     @classmethod
     def from_kws(
         cls,
         std: pft.StdKeywords,
+        pnonstd: pft.PseudoNonStdKeywords,
         nonstd: pft.NonStdKeywords,
         # std args
         dedup_measurement_names: bool = False,
@@ -1455,12 +1462,14 @@ class CoreTEXT3_2(
         sys: str = "",
         tr: pft.Trigger | None = None,
         applied_gates: pft.AppliedGates3_2 = ({}, None),
+        pseudo_nonstandard_keywords: pft.PseudoNonStdKeywords = {},
         nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
     @classmethod
     def from_kws(
         cls,
         std: pft.StdKeywords,
+        pnonstd: pft.PseudoNonStdKeywords,
         nonstd: pft.NonStdKeywords,
         # std args
         dedup_measurement_names: bool = False,
@@ -1550,6 +1559,7 @@ class CoreDataset2_0(
         sys: str = "",
         tr: pft.Trigger | None = None,
         applied_gates: pft.AppliedGates2_0 = ([], {}, None),
+        pseudo_nonstandard_keywords: pft.PseudoNonStdKeywords = {},
         nonstandard_keywords: pft.NonStdKeywords = {},
         analysis: pft.AnalysisBytes = "",
         others: list[bytes] = [],
@@ -1560,6 +1570,7 @@ class CoreDataset2_0(
         path: Path,
         header: Header,
         std: pft.StdKeywords,
+        pnonstd: pft.PseudoNonStdKeywords,
         nonstd: pft.NonStdKeywords,
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
@@ -1661,6 +1672,7 @@ class CoreDataset3_0(
         sys: str = "",
         tr: pft.Trigger | None = None,
         applied_gates: pft.AppliedGates3_0 = ([], {}, None),
+        pseudo_nonstandard_keywords: pft.PseudoNonStdKeywords = {},
         nonstandard_keywords: pft.NonStdKeywords = {},
         analysis: pft.AnalysisBytes = "",
         others: list[bytes] = [],
@@ -1671,6 +1683,7 @@ class CoreDataset3_0(
         path: Path,
         header: Header,
         std: pft.StdKeywords,
+        pnonstd: pft.PseudoNonStdKeywords,
         nonstd: pft.NonStdKeywords,
         # offset args
         allow_pseudoempty: bool = False,
@@ -1803,6 +1816,7 @@ class CoreDataset3_1(
         sys: str = "",
         tr: pft.Trigger | None = None,
         applied_gates: pft.AppliedGates3_0 = ([], {}, None),
+        pseudo_nonstandard_keywords: pft.PseudoNonStdKeywords = {},
         nonstandard_keywords: pft.NonStdKeywords = {},
         analysis: pft.AnalysisBytes = "",
         others: list[bytes] = [],
@@ -1813,6 +1827,7 @@ class CoreDataset3_1(
         path: Path,
         header: Header,
         std: pft.StdKeywords,
+        pnonstd: pft.PseudoNonStdKeywords,
         nonstd: pft.NonStdKeywords,
         # offset args
         allow_pseudoempty: bool = False,
@@ -1945,6 +1960,7 @@ class CoreDataset3_2(
         sys: str = "",
         tr: pft.Trigger | None = None,
         applied_gates: pft.AppliedGates3_2 = ({}, None),
+        pseudo_nonstandard_keywords: pft.PseudoNonStdKeywords = {},
         nonstandard_keywords: pft.NonStdKeywords = {},
         analysis: pft.AnalysisBytes = "",
         others: list[bytes] = [],
@@ -1955,6 +1971,7 @@ class CoreDataset3_2(
         path: Path,
         header: Header,
         std: pft.StdKeywords,
+        pnonstd: pft.PseudoNonStdKeywords,
         nonstd: pft.NonStdKeywords,
         # offset args
         allow_pseudoempty: bool = False,
@@ -2113,7 +2130,7 @@ class RepairDiagnostics:
     def __new__(
         cls,
         demoted: list[pft.StdKey],
-        promoted: list[pft.NonStdKey],
+        promoted: list[pft.PseudoNonStdKey],
         subbed: list[tuple[pft.StdKey, pft.NEStr]],
         replaced: list[tuple[pft.StdKey, pft.NEStr]],
         renamed_std: list[tuple[pft.StdKey, pft.StdKey]],
@@ -2125,7 +2142,6 @@ class RepairDiagnostics:
         promoted_non_unique: list[tuple[pft.StdKey, pft.NEStr]],
         promoted_demoted_noop: list[pft.NonStdKey],
         promoted_ignored_noop: list[pft.NonStdKey],
-        promoted_pseudo_std: list[pft.NonStdKey],
         appended_non_unique: list[tuple[pft.StdKey, pft.NEStr]],
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
@@ -2157,8 +2173,6 @@ class RepairDiagnostics:
     def promoted_demoted_noop(self) -> list[pft.NonStdKey]: ...
     @property
     def promoted_ignored_noop(self) -> list[pft.NonStdKey]: ...
-    @property
-    def promoted_pseudo_std(self) -> list[pft.NonStdKey]: ...
     @property
     def appended_non_unique(self) -> list[tuple[pft.StdKey, pft.NEStr]]: ...
 
@@ -3011,8 +3025,8 @@ def fcs_read_std_text(
     promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
     demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
     rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-    replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-    append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
+    replace_standard_key_values: pft.AppendableSelector[pft.StdKeyValues] = {},
+    append_standard_keywords: pft.AppendableSelector[pft.StdKeyValues] = {},
     substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
     allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),
@@ -3072,8 +3086,8 @@ def fcs_read_flat_dataset(
     promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
     demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
     rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-    replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-    append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
+    replace_standard_key_values: pft.AppendableSelector[pft.StdKeyValues] = {},
+    append_standard_keywords: pft.AppendableSelector[pft.StdKeyValues] = {},
     substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
     allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),
@@ -3167,8 +3181,8 @@ def fcs_read_std_dataset(
     promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
     demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
     rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-    replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-    append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
+    replace_standard_key_values: pft.AppendableSelector[pft.StdKeyValues] = {},
+    append_standard_keywords: pft.AppendableSelector[pft.StdKeyValues] = {},
     substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
     allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),
@@ -3309,8 +3323,8 @@ def fcs_read_std_texts(
     promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
     demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
     rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-    replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-    append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
+    replace_standard_key_values: pft.AppendableSelector[pft.StdKeyValues] = {},
+    append_standard_keywords: pft.AppendableSelector[pft.StdKeyValues] = {},
     substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
     allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),
@@ -3372,8 +3386,8 @@ def fcs_read_flat_datasets(
     promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
     demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
     rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-    replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-    append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
+    replace_standard_key_values: pft.AppendableSelector[pft.StdKeyValues] = {},
+    append_standard_keywords: pft.AppendableSelector[pft.StdKeyValues] = {},
     substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
     allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),
@@ -3468,8 +3482,8 @@ def fcs_read_std_datasets(
     promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
     demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
     rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-    replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-    append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
+    replace_standard_key_values: pft.AppendableSelector[pft.StdKeyValues] = {},
+    append_standard_keywords: pft.AppendableSelector[pft.StdKeyValues] = {},
     substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
     allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),
@@ -3582,8 +3596,8 @@ def fcs_summarize(
     promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
     demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = [],
     rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {},
-    replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {},
-    append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {},
+    replace_standard_key_values: pft.AppendableSelector[pft.StdKeyValues] = {},
+    append_standard_keywords: pft.AppendableSelector[pft.StdKeyValues] = {},
     substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
     allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),

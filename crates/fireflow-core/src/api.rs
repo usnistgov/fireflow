@@ -1419,7 +1419,12 @@ impl FCSFileReader {
                         let mut kws = flat.keywords;
                         let mut rtx = kws.std.as_transaction();
                         let repair_res = rtx
-                            .repair(&mut kws.pstd, &mut kws.nonstd, &lst.conf().repair)
+                            .repair(
+                                &mut kws.pstd,
+                                &mut kws.pnonstd,
+                                &mut kws.nonstd,
+                                &lst.conf().repair,
+                            )
                             .map_commutative_warnings(ReadFlatDatasetWarning::from)
                             .map_errors(ReadFlatDatasetError::from);
                         let ltx = rtx.into_lookup_transaction();

@@ -138,8 +138,8 @@ type KeyStringPairs = dict[KeyString, KeyString]
 All values must be unique and no value can match its own key.
 """
 
-type KeyStringValues = dict[KeyString, NEStr]
-"""Mapping between a key from *TEXT* and a value."""
+type StdKeyValues = dict[KeyString, NEStr]
+"""Mapping between a standard key from *TEXT* and a value."""
 
 type ProcessKeywordFailure = Literal[
     "error",

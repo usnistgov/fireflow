@@ -1,8 +1,6 @@
 use crate::config::{Encoding, OpticalOnlyKey};
 use crate::index::{BiMeasIndex, GateIndex, MeasIndex, RegionIndex, SubsetIndex};
-use crate::keystring::{
-    CowKeyString, KeyString, NEAsciiStringError, is_printable_ascii, to_keystring,
-};
+use crate::keystring::{AsciiStringError, CowKeyString, KeyString, NEAsciiStringError};
 use crate::keywords::{Version, VersionMembership};
 
 use nonempty::{
@@ -282,6 +280,38 @@ pub enum MeasKeyId {
     Pkn,
 }
 
+/// An identifier corresponding to a $Pn* keyword (sans peaks)
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum NonPeakMeasKeyId {
+    N,
+    R,
+    E,
+    S,
+    F,
+    T,
+    P,
+    V,
+    B,
+    L,
+    O,
+    G,
+    D,
+    Det,
+    Tag,
+    Type,
+    Feature,
+    Analyte,
+    Datatype,
+    Calibration,
+}
+
+/// An identifier corresponding to a peak $Pn* keyword
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum PeakMeasKeyId {
+    Pk,
+    Pkn,
+}
+
 /// An identifier corresponding to a $Gn* keyword.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
@@ -463,17 +493,31 @@ include!(concat!(env!("OUT_DIR"), "/kw_strs.rs"));
 
 // Implement extension trait for processing nonstandard keywords in hash table.
 
-pub trait NonStdKeywordsExt {
-    fn insert_demoted(&mut self, key: StdKey, value: NEString);
+pub trait PseudoNonStdKeywordsExt {
+    fn insert_demoted(
+        &mut self,
+        nonstd: &mut HashMap<NonStdKey, NEString>,
+        key: StdKey,
+        value: NEString,
+    );
 }
 
-impl NonStdKeywordsExt for HashMap<NonStdKey, NEString> {
-    fn insert_demoted(&mut self, key: StdKey, value: NEString) {
-        let mut k = NonStdKey(key.as_keystring());
-        while self.contains_key(&k) {
-            k.0.disambiguate();
+impl PseudoNonStdKeywordsExt for HashMap<PseudoNonStdKey, NEString> {
+    fn insert_demoted(
+        &mut self,
+        nonstd: &mut HashMap<NonStdKey, NEString>,
+        key: StdKey,
+        value: NEString,
+    ) {
+        if self.contains_key(&key) {
+            let mut k = NonStdKey(key.as_keystring());
+            while nonstd.contains_key(&k) {
+                k.0.disambiguate();
+            }
+            assert!(nonstd.insert(k, value).is_none(), "key not disambiguated");
+        } else {
+            let _ = self.insert(key, value);
         }
-        assert!(self.insert(k, value).is_none(), "key not disambiguated");
     }
 }
 
@@ -957,35 +1001,28 @@ impl StdKey {
     }
 
     fn from_str(s: &str) -> Result<Self, StdKeyError> {
-        match to_keystring(s) {
-            Ok(ne) => {
-                // SAFETY: the check above ensures all bytes are 32-126
-                let k = unsafe { AnyStdKey::from_ascii_bytes(ne.as_ne_bytes()) };
+        if let Some(ne) = NEStr::try_new(s) {
+            if let Some(k) = AnyStdKey::from_str(ne) {
                 match k {
                     AnyStdKey::Pseudo(x) => Err(StdKeyError::Pseudo(PseudoStdKeyError(x))),
                     AnyStdKey::Real(x) => Ok(x),
                 }
+            } else {
+                let e = NEAsciiStringError::Ascii(AsciiStringError(ne.to_owned()));
+                Err(StdKeyError::KeyString(e))
             }
-            Err(e) => Err(StdKeyError::KeyString(e)),
+        } else {
+            Err(StdKeyError::KeyString(NEAsciiStringError::Empty))
         }
     }
 }
 
 impl AnyStdKey {
-    #[must_use]
-    pub fn from_bytes_maybe(bytes: &NESlice<u8>) -> Option<Self> {
-        is_printable_ascii(bytes.as_ref()).then(|| {
-            // SAFETY: we checked that bytes are ASCII
-            unsafe { Self::from_ascii_bytes(bytes) }
-        })
+    fn from_str(s: &NEStr) -> Option<Self> {
+        Self::from_bytes_maybe(s.as_ne_bytes(), false)
     }
 
-    /// Parse a standard key a sequence of bytes (non-empty).
-    ///
-    /// # Safety
-    ///
-    /// The caller must check that the bytes are printable ASCII (32-126).
-    unsafe fn from_ascii_bytes(bytes: &NESlice<u8>) -> Self {
+    fn from_bytes_maybe(bytes: &NESlice<u8>, single_byte: bool) -> Option<Self> {
         let (b0, bs) = bytes.split_first();
         match b0.to_ascii_uppercase() {
             // Try to match $Pn*, $PKn, or $PKNn first based on the first letter
@@ -1001,82 +1038,65 @@ impl AnyStdKey {
                     {
                         // $PKNn
                         let k = MeasKey::new(i.into(), MeasKeyId::Pkn);
-                        Self::Real(StdKey::Meas(k))
+                        Some(Self::Real(StdKey::Meas(k)))
                     } else if let Some((i, rest)) = split_index_and_suffix(bs1)
                         && rest.is_empty()
                     {
                         // $PKn
                         let k = MeasKey::new(i.into(), MeasKeyId::Pk);
-                        Self::Real(StdKey::Meas(k))
+                        Some(Self::Real(StdKey::Meas(k)))
                     } else {
                         // something else
-                        //
-                        // SAFETY: function is unsafe
-                        unsafe { Self::from_ascii_bytes_nonparam(bytes) }
+                        Self::from_ascii_bytes_nonparam(bytes, single_byte)
                     }
                 } else if let Some((i, rest)) = split_index_and_suffix(bs)
-                    && let Some(mid) =
-                        NESlice::try_from_slice(rest).and_then(MeasKeyId::from_suffix)
+                    && let Some(mid) = NonPeakMeasKeyId::from_bytes(rest)
                 {
                     // $Pn*
-                    let k = MeasKey::new(i.into(), mid);
-                    Self::Real(StdKey::Meas(k))
+                    let k = MeasKey::new(i.into(), mid.into());
+                    Some(Self::Real(StdKey::Meas(k)))
                 } else {
                     // something else
-                    //
-                    // SAFETY: function is unsafe
-                    unsafe { Self::from_ascii_bytes_nonparam(bytes) }
+                    Self::from_ascii_bytes_nonparam(bytes, single_byte)
                 }
             }
             // Try to match $Gn*
             b'G' => {
                 if let Some((i, rest)) = split_index_and_suffix(bs)
-                    && rest.len() == 1
-                    && let Some(gid) = GateKeyId::from_byte(rest[0])
+                    && let Some(gid) = GateKeyId::from_bytes(rest)
                 {
                     let k = GateKey::new(i.into(), gid);
-                    Self::Real(StdKey::Gate(k))
+                    Some(Self::Real(StdKey::Gate(k)))
                 } else {
-                    // SAFETY: function is unsafe
-                    unsafe { Self::from_ascii_bytes_nonparam(bytes) }
+                    Self::from_ascii_bytes_nonparam(bytes, single_byte)
                 }
             }
             // Try to match $Rn*
             b'R' => {
                 if let Some((i, rest)) = split_index_and_suffix(bs)
-                    && rest.len() == 1
-                    && let Some(rid) = RegionKeyId::from_byte(rest[0])
+                    && let Some(rid) = RegionKeyId::from_bytes(rest)
                 {
                     let k = RegionKey::new(i.into(), rid);
-                    Self::Real(StdKey::Region(k))
+                    Some(Self::Real(StdKey::Region(k)))
                 } else {
-                    // SAFETY: function is unsafe
-                    unsafe { Self::from_ascii_bytes_nonparam(bytes) }
+                    Self::from_ascii_bytes_nonparam(bytes, single_byte)
                 }
             }
             // We didn't find any of these prefixes, try all the other keywords.
-            //
-            // SAFETY: function is unsafe
-            _ => unsafe { Self::from_ascii_bytes_nonparam(bytes) },
+            _ => Self::from_ascii_bytes_nonparam(bytes, single_byte),
         }
     }
 
-    /// Parse a non-parameter standard key a sequence of bytes (non-empty).
-    ///
-    /// # Safety
-    ///
-    /// The caller must check that the bytes are printable ASCII (32-126)
-    unsafe fn from_ascii_bytes_nonparam(bytes: &NESlice<u8>) -> Self {
+    fn from_ascii_bytes_nonparam(bytes: &NESlice<u8>, single_byte: bool) -> Option<Self> {
         if let Some(rk) = RootKey::from_bytes(bytes.as_ref()) {
-            Self::Real(StdKey::Root(rk))
+            Some(Self::Real(StdKey::Root(rk)))
         } else if let Some(csv) = CsvFlagKey::from_bytes(bytes.as_ref()) {
-            Self::Real(StdKey::CsvFlag(csv))
+            Some(Self::Real(StdKey::CsvFlag(csv)))
         } else if let Some(dfc) = DfcKey::from_bytes(bytes.as_ref()) {
-            Self::Real(StdKey::Dfc(dfc))
+            Some(Self::Real(StdKey::Dfc(dfc)))
         } else {
-            // SAFETY: function is unsafe
-            let p = unsafe { KeyString::from_bytes(bytes) };
-            Self::Pseudo(PseudoStdKey(p))
+            let p = KeyString::from_bytes_maybe(bytes, single_byte)?;
+            Some(Self::Pseudo(PseudoStdKey(p)))
         }
     }
 }
@@ -1274,36 +1294,43 @@ impl RootKey {
     }
 }
 
-enum PrefixOrSuffix {
+pub(crate) enum PrefixOrSuffix {
     Prefix(&'static NEStr),
     Suffix(&'static NEStr),
 }
 
 impl MeasKeyId {
     const fn prefix_or_suffix(self) -> PrefixOrSuffix {
+        match self.split_peak() {
+            Ok(x) => PrefixOrSuffix::Suffix(x.suffix()),
+            Err(x) => PrefixOrSuffix::Prefix(x.prefix()),
+        }
+    }
+
+    pub(crate) const fn split_peak(self) -> Result<NonPeakMeasKeyId, PeakMeasKeyId> {
         match self {
-            Self::N => PrefixOrSuffix::Suffix(N_KW_SUFFIX),
-            Self::R => PrefixOrSuffix::Suffix(R_KW_SUFFIX),
-            Self::E => PrefixOrSuffix::Suffix(E_KW_SUFFIX),
-            Self::S => PrefixOrSuffix::Suffix(S_KW_SUFFIX),
-            Self::F => PrefixOrSuffix::Suffix(F_KW_SUFFIX),
-            Self::T => PrefixOrSuffix::Suffix(T_KW_SUFFIX),
-            Self::P => PrefixOrSuffix::Suffix(P_KW_SUFFIX),
-            Self::V => PrefixOrSuffix::Suffix(V_KW_SUFFIX),
-            Self::B => PrefixOrSuffix::Suffix(B_KW_SUFFIX),
-            Self::L => PrefixOrSuffix::Suffix(L_KW_SUFFIX),
-            Self::O => PrefixOrSuffix::Suffix(O_KW_SUFFIX),
-            Self::G => PrefixOrSuffix::Suffix(G_KW_SUFFIX),
-            Self::D => PrefixOrSuffix::Suffix(D_KW_SUFFIX),
-            Self::Det => PrefixOrSuffix::Suffix(DET_KW_SUFFIX),
-            Self::Tag => PrefixOrSuffix::Suffix(TAG_KW_SUFFIX),
-            Self::Type => PrefixOrSuffix::Suffix(TYPE_KW_SUFFIX),
-            Self::Feature => PrefixOrSuffix::Suffix(FEATURE_KW_SUFFIX),
-            Self::Analyte => PrefixOrSuffix::Suffix(ANALYTE_KW_SUFFIX),
-            Self::Datatype => PrefixOrSuffix::Suffix(DATATYPE_KW_SUFFIX),
-            Self::Calibration => PrefixOrSuffix::Suffix(CALIBRATION_KW_SUFFIX),
-            Self::Pk => PrefixOrSuffix::Prefix(PK_KW_PREFIX),
-            Self::Pkn => PrefixOrSuffix::Prefix(PKN_KW_PREFIX),
+            Self::N => Ok(NonPeakMeasKeyId::N),
+            Self::R => Ok(NonPeakMeasKeyId::R),
+            Self::E => Ok(NonPeakMeasKeyId::E),
+            Self::S => Ok(NonPeakMeasKeyId::S),
+            Self::F => Ok(NonPeakMeasKeyId::F),
+            Self::T => Ok(NonPeakMeasKeyId::T),
+            Self::P => Ok(NonPeakMeasKeyId::P),
+            Self::V => Ok(NonPeakMeasKeyId::V),
+            Self::B => Ok(NonPeakMeasKeyId::B),
+            Self::L => Ok(NonPeakMeasKeyId::L),
+            Self::O => Ok(NonPeakMeasKeyId::O),
+            Self::G => Ok(NonPeakMeasKeyId::G),
+            Self::D => Ok(NonPeakMeasKeyId::D),
+            Self::Det => Ok(NonPeakMeasKeyId::Det),
+            Self::Tag => Ok(NonPeakMeasKeyId::Tag),
+            Self::Type => Ok(NonPeakMeasKeyId::Type),
+            Self::Feature => Ok(NonPeakMeasKeyId::Feature),
+            Self::Analyte => Ok(NonPeakMeasKeyId::Analyte),
+            Self::Datatype => Ok(NonPeakMeasKeyId::Datatype),
+            Self::Calibration => Ok(NonPeakMeasKeyId::Calibration),
+            Self::Pk => Err(PeakMeasKeyId::Pk),
+            Self::Pkn => Err(PeakMeasKeyId::Pkn),
         }
     }
 
@@ -1325,46 +1352,6 @@ impl MeasKeyId {
         }
     }
 
-    fn from_suffix(bytes: &NESlice<u8>) -> Option<Self> {
-        let sn = bytes.len().get();
-        match sn {
-            1 => {
-                match_bytes!(
-                    [*bytes.first()],
-                    N_KW_SUFFIX => Self::N,
-                    R_KW_SUFFIX => Self::R,
-                    E_KW_SUFFIX => Self::E,
-                    S_KW_SUFFIX => Self::S,
-                    F_KW_SUFFIX => Self::F,
-                    T_KW_SUFFIX => Self::T,
-                    P_KW_SUFFIX => Self::P,
-                    V_KW_SUFFIX => Self::V,
-                    B_KW_SUFFIX => Self::B,
-                    L_KW_SUFFIX => Self::L,
-                    O_KW_SUFFIX => Self::O,
-                    G_KW_SUFFIX => Self::G,
-                    D_KW_SUFFIX => Self::D
-                )
-            }
-            3 => match_bytes!(
-                bytes.as_ref(),
-                DET_KW_SUFFIX => Self::Det,
-                TAG_KW_SUFFIX => Self::Tag
-            ),
-            7 => match_bytes!(
-                bytes.as_ref(),
-                FEATURE_KW_SUFFIX => Self::Feature,
-                ANALYTE_KW_SUFFIX => Self::Analyte
-            ),
-            _ => match_bytes!(
-                bytes.as_ref(),
-                TYPE_KW_SUFFIX => Self::Type,
-                DATATYPE_KW_SUFFIX => Self::Datatype,
-                CALIBRATION_KW_SUFFIX => Self::Calibration
-            ),
-        }
-    }
-
     fn from_optical_only_key(k: OpticalOnlyKey) -> Self {
         match k {
             OpticalOnlyKey::Gain => Self::G,
@@ -1383,8 +1370,119 @@ impl MeasKeyId {
     }
 }
 
+impl From<NonPeakMeasKeyId> for MeasKeyId {
+    fn from(value: NonPeakMeasKeyId) -> Self {
+        match value {
+            NonPeakMeasKeyId::N => Self::N,
+            NonPeakMeasKeyId::R => Self::R,
+            NonPeakMeasKeyId::E => Self::E,
+            NonPeakMeasKeyId::S => Self::S,
+            NonPeakMeasKeyId::F => Self::F,
+            NonPeakMeasKeyId::T => Self::T,
+            NonPeakMeasKeyId::P => Self::P,
+            NonPeakMeasKeyId::V => Self::V,
+            NonPeakMeasKeyId::B => Self::B,
+            NonPeakMeasKeyId::L => Self::L,
+            NonPeakMeasKeyId::O => Self::O,
+            NonPeakMeasKeyId::G => Self::G,
+            NonPeakMeasKeyId::D => Self::D,
+            NonPeakMeasKeyId::Det => Self::Det,
+            NonPeakMeasKeyId::Tag => Self::Tag,
+            NonPeakMeasKeyId::Type => Self::Type,
+            NonPeakMeasKeyId::Feature => Self::Feature,
+            NonPeakMeasKeyId::Analyte => Self::Analyte,
+            NonPeakMeasKeyId::Datatype => Self::Datatype,
+            NonPeakMeasKeyId::Calibration => Self::Calibration,
+        }
+    }
+}
+
+impl From<PeakMeasKeyId> for MeasKeyId {
+    fn from(value: PeakMeasKeyId) -> Self {
+        match value {
+            PeakMeasKeyId::Pk => Self::Pk,
+            PeakMeasKeyId::Pkn => Self::Pkn,
+        }
+    }
+}
+
+impl NonPeakMeasKeyId {
+    pub(crate) const fn suffix(self) -> &'static NEStr {
+        match self {
+            Self::N => N_KW_SUFFIX,
+            Self::R => R_KW_SUFFIX,
+            Self::E => E_KW_SUFFIX,
+            Self::S => S_KW_SUFFIX,
+            Self::F => F_KW_SUFFIX,
+            Self::T => T_KW_SUFFIX,
+            Self::P => P_KW_SUFFIX,
+            Self::V => V_KW_SUFFIX,
+            Self::B => B_KW_SUFFIX,
+            Self::L => L_KW_SUFFIX,
+            Self::O => O_KW_SUFFIX,
+            Self::G => G_KW_SUFFIX,
+            Self::D => D_KW_SUFFIX,
+            Self::Det => DET_KW_SUFFIX,
+            Self::Tag => TAG_KW_SUFFIX,
+            Self::Type => TYPE_KW_SUFFIX,
+            Self::Feature => FEATURE_KW_SUFFIX,
+            Self::Analyte => ANALYTE_KW_SUFFIX,
+            Self::Datatype => DATATYPE_KW_SUFFIX,
+            Self::Calibration => CALIBRATION_KW_SUFFIX,
+        }
+    }
+
+    pub(crate) const fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        match bytes.len() {
+            1 => {
+                match_bytes!(
+                    bytes,
+                    N_KW_SUFFIX => Self::N,
+                    R_KW_SUFFIX => Self::R,
+                    E_KW_SUFFIX => Self::E,
+                    S_KW_SUFFIX => Self::S,
+                    F_KW_SUFFIX => Self::F,
+                    T_KW_SUFFIX => Self::T,
+                    P_KW_SUFFIX => Self::P,
+                    V_KW_SUFFIX => Self::V,
+                    B_KW_SUFFIX => Self::B,
+                    L_KW_SUFFIX => Self::L,
+                    O_KW_SUFFIX => Self::O,
+                    G_KW_SUFFIX => Self::G,
+                    D_KW_SUFFIX => Self::D
+                )
+            }
+            3 => match_bytes!(
+                bytes,
+                DET_KW_SUFFIX => Self::Det,
+                TAG_KW_SUFFIX => Self::Tag
+            ),
+            7 => match_bytes!(
+                bytes,
+                FEATURE_KW_SUFFIX => Self::Feature,
+                ANALYTE_KW_SUFFIX => Self::Analyte
+            ),
+            _ => match_bytes!(
+                bytes,
+                TYPE_KW_SUFFIX => Self::Type,
+                DATATYPE_KW_SUFFIX => Self::Datatype,
+                CALIBRATION_KW_SUFFIX => Self::Calibration
+            ),
+        }
+    }
+}
+
+impl PeakMeasKeyId {
+    pub(crate) const fn prefix(self) -> &'static NEStr {
+        match self {
+            Self::Pk => PK_KW_PREFIX,
+            Self::Pkn => PKN_KW_PREFIX,
+        }
+    }
+}
+
 impl GateKeyId {
-    const fn suffix(self) -> &'static NEStr {
+    pub(crate) const fn suffix(self) -> &'static NEStr {
         match self {
             Self::N => N_KW_SUFFIX,
             Self::R => R_KW_SUFFIX,
@@ -1415,23 +1513,27 @@ impl GateKeyId {
         VersionMembership::Three([Version::FCS2_0, Version::FCS3_0, Version::FCS3_1])
     }
 
-    fn from_byte(b: u8) -> Option<Self> {
-        match_bytes!(
-            [b],
-            N_KW_SUFFIX => Self::N,
-            R_KW_SUFFIX => Self::R,
-            E_KW_SUFFIX => Self::E,
-            S_KW_SUFFIX => Self::S,
-            F_KW_SUFFIX => Self::F,
-            T_KW_SUFFIX => Self::T,
-            P_KW_SUFFIX => Self::P,
-            V_KW_SUFFIX => Self::V
-        )
+    pub(crate) const fn from_bytes(bs: &[u8]) -> Option<Self> {
+        if bs.len() == 1 {
+            match_bytes!(
+                bs,
+                N_KW_SUFFIX => Self::N,
+                R_KW_SUFFIX => Self::R,
+                E_KW_SUFFIX => Self::E,
+                S_KW_SUFFIX => Self::S,
+                F_KW_SUFFIX => Self::F,
+                T_KW_SUFFIX => Self::T,
+                P_KW_SUFFIX => Self::P,
+                V_KW_SUFFIX => Self::V
+            )
+        } else {
+            None
+        }
     }
 }
 
 impl RegionKeyId {
-    const fn suffix(self) -> &'static NEStr {
+    pub(crate) const fn suffix(self) -> &'static NEStr {
         match self {
             Self::I => REGION_I_KW_SUFFIX,
             Self::W => REGION_W_KW_SUFFIX,
@@ -1446,12 +1548,16 @@ impl RegionKeyId {
         }
     }
 
-    const fn from_byte(b: u8) -> Option<Self> {
-        match_bytes!(
-            [b],
-            REGION_I_KW_SUFFIX => Self::I,
-            REGION_W_KW_SUFFIX => Self::W
-        )
+    pub(crate) const fn from_bytes(bs: &[u8]) -> Option<Self> {
+        if bs.len() == 1 {
+            match_bytes!(
+                bs,
+                REGION_I_KW_SUFFIX => Self::I,
+                REGION_W_KW_SUFFIX => Self::W
+            )
+        } else {
+            None
+        }
     }
 
     const fn membership() -> VersionMembership {
@@ -1591,7 +1697,7 @@ impl ParsedKey {
         // '$' keyword
         if let Some((&STD_PREFIX, rest)) = bytes.as_ref().split_first() {
             if let Some(ne) = NESlice::try_from_slice(rest) {
-                if let Some(k) = AnyStdKey::from_bytes_maybe(ne) {
+                if let Some(k) = AnyStdKey::from_bytes_maybe(ne, single_byte) {
                     match k {
                         AnyStdKey::Real(x) => Self::Std(x),
                         AnyStdKey::Pseudo(x) => Self::PseudoStd(x),
@@ -1602,8 +1708,11 @@ impl ParsedKey {
             } else {
                 Self::Bytes(nev![STD_PREFIX])
             }
-        } else if let Some(k) = KeyString::from_bytes_maybe(bytes, single_byte) {
-            Self::NonStd(NonStdKey(k))
+        } else if let Some(k) = AnyStdKey::from_bytes_maybe(bytes, single_byte) {
+            match k {
+                AnyStdKey::Real(x) => Self::PseudoNonStd(x),
+                AnyStdKey::Pseudo(x) => Self::NonStd(NonStdKey(x.0)),
+            }
         } else {
             Self::Bytes(bytes.to_ne_vec())
         }

@@ -107,8 +107,8 @@ class _ReadRepairKeywordsConfig(BaseModel):
         _DEFAULT_KEY_PATTERNS
     )
     rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {}
-    replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {}
-    append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {}
+    replace_standard_key_values: pft.AppendableSelector[pft.StdKeyValues] = {}
+    append_standard_keywords: pft.AppendableSelector[pft.StdKeyValues] = {}
     substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {}
     allow_repair_non_unique: pft.TriFlag = "false"
 

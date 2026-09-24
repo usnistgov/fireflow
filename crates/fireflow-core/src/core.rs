@@ -74,8 +74,8 @@ use crate::text::gating::{
 use crate::text::keyword_enum::{
     AnyKeyword, AnyMetarootKeyLossError, AnyTemporalToOpticalKeyLossError, AsKeywordPair as _,
     HasMembership as _, Keyword0FromValue as _, Keyword1FromValue as _, NonStdKeyword, OptKeyword,
-    OptMeasKeyword, OptRootKeyword, ReqKeyword, ReqMeasKeyword, ReqRootKeyword, SplitKeyword,
-    SplitKeyword_, StdOrNonStdOptRootKeyword,
+    OptMeasKeyword, OptRootKeyword, PseudoNonStdKeyword, ReqKeyword, ReqMeasKeyword,
+    ReqRootKeyword, SplitKeyword, SplitKeyword_, StdOrNonStdOptRootKeyword,
 };
 use crate::text::keywords::{
     Abrt, AlphaNumType, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Carrierid, Carriertype,
@@ -113,8 +113,8 @@ use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
-    DollarKey, NonStdKeywords, PseudoStdKeywords, StringOrBytes, TruncatedNEString, ValidKeywords,
-    ValueToStdKey as _,
+    DollarKey, NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords, StringOrBytes,
+    TruncatedNEString, ValidKeywords, ValueToStdKey as _,
 };
 use crate::validated::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
@@ -260,14 +260,10 @@ pub struct Core<Analysis, Layout, Other, Root, Temporal, Optical, Scale, Name, V
     /// Measurement TEXT keywords and DATA if applicable.
     meas: CoreMeasurements<Layout, Temporal, Optical, Scale, Name, Version>,
 
+    /// Pseudo-non-standard keywords.
+    pseudo_nonstandard_keywords: PseudoNonStdKeywords,
+
     /// Non-standard keywords.
-    ///
-    /// This will include all the keywords that do not start with '$'.
-    ///
-    /// Keywords which do start with '$' but are not part of the standard are
-    /// considered 'pseudostandard' and stored elsewhere since this structure
-    /// will also be used to write FCS-compliant files (which do not allow
-    /// nonstandard keywords starting with '$')
     nonstandard_keywords: NonStdKeywords,
 
     /// ANALYSIS segment (if applicable)
@@ -3704,7 +3700,8 @@ impl CoreTEXT2_0 {
         sys: Sys,
         tr: Option<Trigger>,
         applied_gates: AppliedGates2_0,
-        nonstandard_keywords: NonStdKeywords,
+        pseudo_nonstd_kws: PseudoNonStdKeywords,
+        nonstd_kws: NonStdKeywords,
     ) -> ErrorsResult<Self, (), NewCoreTEXTError> {
         Timestamps::try_new(btim, etim, date)
             .map_errors(NewCoreTEXTError::from)
@@ -3716,8 +3713,14 @@ impl CoreTEXT2_0 {
                 let metaroot = RootMeta::new(
                     abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
                 );
-                Self::try_new_nodrop(metaroot, measurements, data_schema, nonstandard_keywords)
-                    .map_errors(NewCoreTEXTError::from)
+                Self::try_new_nodrop(
+                    metaroot,
+                    measurements,
+                    data_schema,
+                    pseudo_nonstd_kws,
+                    nonstd_kws,
+                )
+                .map_errors(NewCoreTEXTError::from)
             })
     }
 }
@@ -3753,7 +3756,8 @@ impl CoreTEXT3_0 {
         sys: Sys,
         tr: Option<Trigger>,
         applied_gates: AppliedGates3_0,
-        nonstandard_keywords: NonStdKeywords,
+        pseudo_nonstd_kws: PseudoNonStdKeywords,
+        nonstd_kws: NonStdKeywords,
     ) -> ErrorsResult<Self, (), NewCoreTEXTError> {
         let subset = SubsetData::new(csvbits, cstot, csvflags);
         Timestamps::try_new(btim, etim, date)
@@ -3774,8 +3778,14 @@ impl CoreTEXT3_0 {
                 let metaroot = RootMeta::new(
                     abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
                 );
-                Self::try_new_nodrop(metaroot, measurements, data_schema, nonstandard_keywords)
-                    .map_errors(NewCoreTEXTError::from)
+                Self::try_new_nodrop(
+                    metaroot,
+                    measurements,
+                    data_schema,
+                    pseudo_nonstd_kws,
+                    nonstd_kws,
+                )
+                .map_errors(NewCoreTEXTError::from)
             })
     }
 }
@@ -3817,7 +3827,8 @@ impl CoreTEXT3_1 {
         sys: Sys,
         tr: Option<Trigger>,
         applied_gates: AppliedGates3_0,
-        nonstandard_keywords: NonStdKeywords,
+        pseudo_nonstd_kws: PseudoNonStdKeywords,
+        nonstd_kws: NonStdKeywords,
     ) -> ErrorsResult<Self, (), NewCoreTEXTError> {
         let subset = SubsetData::new(csvbits, cstot, csvflags);
         Timestamps::try_new(btim, etim, date)
@@ -3840,8 +3851,14 @@ impl CoreTEXT3_1 {
                 let metaroot = RootMeta::new(
                     abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
                 );
-                Self::try_new_nodrop(metaroot, measurements, data_schema, nonstandard_keywords)
-                    .map_errors(NewCoreTEXTError::from)
+                Self::try_new_nodrop(
+                    metaroot,
+                    measurements,
+                    data_schema,
+                    pseudo_nonstd_kws,
+                    nonstd_kws,
+                )
+                .map_errors(NewCoreTEXTError::from)
             })
     }
 }
@@ -3888,7 +3905,8 @@ impl CoreTEXT3_2 {
         sys: Sys,
         tr: Option<Trigger>,
         applied_gates: AppliedGates3_2,
-        nonstandard_keywords: NonStdKeywords,
+        pseudo_nonstd_kws: PseudoNonStdKeywords,
+        nonstd_kws: NonStdKeywords,
     ) -> ErrorsResult<Self, (), NewCoreTEXTError> {
         let ts_res = Timestamps::try_new(btim, etim, date)
             .map_errors(NewCoreTEXTError::from)
@@ -3917,8 +3935,14 @@ impl CoreTEXT3_2 {
                 let metaroot = RootMeta::new(
                     abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
                 );
-                Self::try_new_nodrop(metaroot, measurements, data_schema, nonstandard_keywords)
-                    .map_errors(NewCoreTEXTError::from)
+                Self::try_new_nodrop(
+                    metaroot,
+                    measurements,
+                    data_schema,
+                    pseudo_nonstd_kws,
+                    nonstd_kws,
+                )
+                .map_errors(NewCoreTEXTError::from)
             })
     }
 }
@@ -4996,9 +5020,19 @@ where
         Ok(())
     }
 
+    /// Get reference to pseudo-non-standard keywords.
+    pub fn pseudo_nonstandard_keywords(&self) -> &PseudoNonStdKeywords {
+        &self.pseudo_nonstandard_keywords
+    }
+
     /// Get reference to non-standard keywords.
     pub fn nonstandard_keywords(&self) -> &NonStdKeywords {
         &self.nonstandard_keywords
+    }
+
+    /// Set pseudo-non-standard keywords to new hash map.
+    pub fn set_pseudo_nonstandard_keywords(&mut self, kws: PseudoNonStdKeywords) {
+        self.pseudo_nonstandard_keywords = kws;
     }
 
     /// Set non-standard keywords to new hash map.
@@ -5049,6 +5083,7 @@ where
                 Core::new(
                     metaroot,
                     meas_layout,
+                    self.pseudo_nonstandard_keywords,
                     self.nonstandard_keywords,
                     self.analysis,
                     self.others,
@@ -5388,6 +5423,11 @@ where
     }
 
     fn opt_std_and_nonstd_keywords(&self) -> impl Iterator<Item = StdOrNonStdOptRootKeyword<'_>> {
+        let pns = self
+            .pseudo_nonstandard_keywords
+            .iter()
+            .map(|(k, v)| PseudoNonStdKeyword::new(*k, v.as_ne_str()))
+            .map(StdOrNonStdOptRootKeyword::from);
         let ns = self
             .nonstandard_keywords
             .iter()
@@ -5396,6 +5436,7 @@ where
         self.rootmeta
             .opt_root_keywords()
             .map(StdOrNonStdOptRootKeyword::from)
+            .chain(pns)
             .chain(ns)
     }
 
@@ -5765,24 +5806,38 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     {
         let mut rtx = kws.std.as_transaction();
         let repair_res = rtx
-            .repair(&mut kws.pstd, &mut kws.nonstd, st.conf().as_ref())
+            .repair(
+                &mut kws.pstd,
+                &mut kws.pnonstd,
+                &mut kws.nonstd,
+                st.conf().as_ref(),
+            )
             .map_commutative_warnings(StdTEXTFromKeywordsWithOffsetsWarning::from)
             .map_errors(StdTEXTFromKeywordsWithOffsetsError::from);
         let ltx = rtx.into_lookup_transaction();
         let mut pstd = kws.pstd;
-        Self::new_from_transaction_with_offsets(ltx, &mut pstd, kws.nonstd, offsets, start_time, st)
-            .map_commutative_warnings(StdTEXTFromKeywordsWithOffsetsWarning::from)
-            .map_errors(StdTEXTFromKeywordsWithOffsetsError::from)
-            .zip_commutative(repair_res)
-            .map_ok_value(|((core, core_offsets), repair_diag)| {
-                LookupCoreWithOffsetOutput::new(core, core_offsets, repair_diag, pstd)
-            })
+        Self::new_from_transaction_with_offsets(
+            ltx,
+            &mut pstd,
+            kws.pnonstd,
+            kws.nonstd,
+            offsets,
+            start_time,
+            st,
+        )
+        .map_commutative_warnings(StdTEXTFromKeywordsWithOffsetsWarning::from)
+        .map_errors(StdTEXTFromKeywordsWithOffsetsError::from)
+        .zip_commutative(repair_res)
+        .map_ok_value(|((core, core_offsets), repair_diag)| {
+            LookupCoreWithOffsetOutput::new(core, core_offsets, repair_diag, pstd)
+        })
     }
 
     #[allow(clippy::type_complexity)]
     pub(crate) fn new_from_transaction_with_offsets<C>(
         mut tx: StdLookupTx,
         pstd: &mut PseudoStdKeywords,
+        pnonstd: PseudoNonStdKeywords,
         nonstd: NonStdKeywords,
         offsets: &mut HeaderAndSuppOffsets,
         start_time: Instant,
@@ -5811,7 +5866,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             .map_commutative_warnings(StdTEXTFromTxWithOffsetsWarning::from)
             .map_errors(StdTEXTFromTxWithOffsetsError::from);
 
-        Self::lookup_inner(tx, pstd, nonstd, start_time, st.conf())
+        Self::lookup_inner(tx, pstd, pnonstd, nonstd, start_time, st.conf())
             .map_commutative_warnings(StdTEXTFromTxWithOffsetsWarning::from)
             .map_errors(StdTEXTFromTxWithOffsetsError::from)
             .zip_commutative(offsets_res)
@@ -5827,6 +5882,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     /// will trigger pseudostandard warnings.
     pub fn new_from_keywords<C>(
         std: &StdKeywords,
+        pnonstd: PseudoNonStdKeywords,
         nonstd: NonStdKeywords,
         conf: &C,
     ) -> WarningsAndGroupResult<
@@ -5848,7 +5904,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         let start_time = Instant::now();
         let tx = std.as_transaction();
         let mut pstd = HashMap::new(); // TODO hack
-        Self::lookup_inner(tx, &mut pstd, nonstd, start_time, conf)
+        Self::lookup_inner(tx, &mut pstd, pnonstd, nonstd, start_time, conf)
             .map_errors(StdTEXTFromKeywordsError::from)
             .map_ok_value(|out| (out.this, out.std_diag))
             .group()
@@ -5860,6 +5916,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     fn lookup_inner<C>(
         mut std: StdLookupTx,
         pstd: &mut PseudoStdKeywords,
+        pnonstd: PseudoNonStdKeywords,
         nonstd: NonStdKeywords,
         start_time: Instant,
         conf: &C,
@@ -5922,7 +5979,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                         let meta_diag = metaroot_out.diagnostic;
                         let mo = metaroot_out.inner;
                         let sd = schema_out.data_schema;
-                        let new_res = Self::try_new(std, pstd, nonstd, mo, meas, sd, conf);
+                        let new_res = Self::try_new(std, pstd, pnonstd, nonstd, mo, meas, sd, conf);
                         go_err!(new_res).map_ok_value(|(core, extra)| {
                             let std_pre_ns = schema_start_time.duration_since1(start_time);
                             let (diag, std_end) = StdTEXTDiagnostics::from_extra(
@@ -6151,6 +6208,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         Ok(Core::new(
             self.rootmeta,
             layout,
+            self.pseudo_nonstandard_keywords,
             self.nonstandard_keywords,
             analysis,
             others,
@@ -6159,9 +6217,11 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
 
     // only meant to be called during lookup when keywords are being parsed
     // straight from TEXT
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn try_new<C>(
         mut std: StdLookupTx,
         pstd: &mut PseudoStdKeywords,
+        mut pnonstd: PseudoNonStdKeywords,
         mut nonstd: NonStdKeywords,
         mut metaroot: RootMeta<V::RootMeta>,
         measurements: VNamedTemporalsAndScaledOpticals<V>,
@@ -6185,11 +6245,13 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                     .map_commutative_warnings(NewCoreWarning::Link)
                     .and_then_commutative(|()| {
                         let gate = metaroot.specific.gate().unwrap_or(Gate(0));
-                        std.finalize(par, gate, version, &mut nonstd, pstd, conf.as_ref())
+                        let pn = &mut pnonstd;
+                        let n = &mut nonstd;
+                        std.finalize(par, gate, version, pn, n, pstd, conf.as_ref())
                             .map_errors(LookupCoreError::Extra)
                             .map_commutative_warnings(NewCoreWarning::Extra)
                     })
-                    .map_ok_value(|extra| (Self::new(metaroot, ml, nonstd, (), ()), extra))
+                    .map_ok_value(|extra| (Self::new(metaroot, ml, pnonstd, nonstd, (), ()), extra))
             })
     }
 
@@ -6197,6 +6259,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         mut metaroot: RootMeta<V::RootMeta>,
         measurements: VNamedTemporalsAndOpticalsWithScale<V>,
         data_schema: V::DataSchema,
+        pnonstd: PseudoNonStdKeywords,
         nonstd: NonStdKeywords,
     ) -> ErrorsResult<Self, (), NewCoreError> {
         CoreMeasurements::try_new_nodrop(measurements, data_schema)
@@ -6204,7 +6267,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             .and_then_commutative(|ml| {
                 Self::check_relationships_nodrop(&mut metaroot, ml.meta())
                     .map_errors(NewCoreError::from)
-                    .map_ok_value(|()| Self::new(metaroot, ml, nonstd, (), ()))
+                    .map_ok_value(|()| Self::new(metaroot, ml, pnonstd, nonstd, (), ()))
             })
     }
 
@@ -6256,10 +6319,12 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
 }
 
 impl<V: VersionSet> VersionedCoreDataset<V> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new_from_keywords<C>(
         p: &PathBuf,
         mut hns: HeaderAndSuppOffsets,
         std: &StdKeywords,
+        pnonstd: PseudoNonStdKeywords,
         nonstd: NonStdKeywords,
         dataset_offset: DatasetOffset,
         dataset_len: Option<DatasetLen>,
@@ -6305,6 +6370,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                     &mut fr.buf_read,
                     tx,
                     &mut pstd,
+                    pnonstd,
                     nonstd,
                     &mut hns,
                     false,
@@ -6355,14 +6421,19 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     {
         let mut rtx = kws.std.as_transaction();
         let repair_res = rtx
-            .repair(&mut kws.pstd, &mut kws.nonstd, st.conf().as_ref())
+            .repair(
+                &mut kws.pstd,
+                &mut kws.pnonstd,
+                &mut kws.nonstd,
+                st.conf().as_ref(),
+            )
             .map_commutative_warnings(StdDatasetFromKeywordsWarningInner::from)
             .map_errors(StdDatasetFromKeywordsErrorInner::from);
         let ltx = rtx.into_lookup_transaction();
         let mut pstd = kws.pstd;
         let ns = kws.nonstd;
         let snd = scan_next_dataset;
-        Self::new_from_transaction(h, ltx, &mut pstd, ns, hns, snd, start_time, st)
+        Self::new_from_transaction(h, ltx, &mut pstd, kws.pnonstd, ns, hns, snd, start_time, st)
             .map_commutative_warnings(StdDatasetFromKeywordsWarningInner::from)
             .map_pure_errors(StdDatasetFromKeywordsErrorInner::from)
             .zip_io_group_commutative(repair_res)
@@ -6374,6 +6445,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         h: &mut BufReader<R>,
         tx: StdLookupTx,
         pstd: &mut PseudoStdKeywords,
+        pnonstd: PseudoNonStdKeywords,
         nonstd: NonStdKeywords,
         hns: &mut HeaderAndSuppOffsets,
         scan_next_dataset: bool,
@@ -6398,7 +6470,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             + AsRef<ReadDatasetConfig>,
     {
         VersionedCoreTEXT::<V>::new_from_transaction_with_offsets(
-            tx, pstd, nonstd, hns, start_time, st,
+            tx, pstd, pnonstd, nonstd, hns, start_time, st,
         )
         .map_commutative_warnings(StdDatasetFromTxWarning::from)
         .map_errors(StdDatasetFromTxError::from)
@@ -6424,8 +6496,9 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                     let d = &offsets.offsets;
                     let v = version;
                     let s = scan_next_dataset;
+                    let pns = core.pseudo_nonstandard_keywords;
                     let ns = core.nonstandard_keywords;
-                    let new = Self::new(core.rootmeta, df_out.inner, ns, analysis, other);
+                    let new = Self::new(core.rootmeta, df_out.inner, pns, ns, analysis, other);
                     let ts = LookupFlatDatasetTimings::new(
                         df_out.read_data_time,
                         df_out.check_ranges_time,
@@ -6820,6 +6893,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         CoreTEXT::new(
             self.rootmeta,
             self.meas.without_data(),
+            self.pseudo_nonstandard_keywords,
             self.nonstandard_keywords,
             (),
             (),

@@ -5,26 +5,26 @@ use crate::std_index::masked::{
 };
 use crate::std_index::nested_string::{NestedEnumString, NestedStringSize, NestedVariableString};
 use crate::text::keywords::{Gate, Par};
-use crate::validated::keys::{NonStdKeywords, PseudoStdKeywords, TruncatedNEString, ValueToStdKey};
+use crate::validated::keys::{
+    NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords, TruncatedNEString, ValueToStdKey,
+};
 
-use fireflow_types::case_ins_regex::CaseInsRegex;
 use fireflow_types::config::{
     KeywordFailureFlag, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,
     TemporalHasOpticalKeyError, TriErrorFlag as _,
 };
 use fireflow_types::index::MeasIndex;
-use fireflow_types::keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns};
 use fireflow_types::keywords::Version;
 use fireflow_types::std_key::{
     CsvFlagKey, DfcKey, DollarPseudoStdKey, DollarStdKey, DollarWrap, EnumIndex as _, GateKey,
-    MeasKey, N_ROOT, NonStdKey, NonStdKeywordsExt as _, RegionKey, RootKey, StdKey, ToStd as _,
+    MeasKey, N_ROOT, NonStdKey, PseudoNonStdKey, PseudoNonStdKeywordsExt as _, RegionKey, RootKey,
+    StdKey, ToStd as _,
 };
-use fireflow_types::sub_pattern::SubPattern;
 use nonempty::{NEStr, NEString, NEVec};
 
 use derive_more::{Display, From};
 use derive_new::new;
-use hashbrown::{HashMap, hash_map::Entry};
+use hashbrown::hash_map::Entry;
 use itertools::Itertools as _;
 use thiserror::Error;
 
@@ -144,7 +144,6 @@ pub enum RepairError {
     RenamePseudoStd(RenamePseudoStdNonUniqueError),
     PromoteNonUnique(PromoteNonUniqueError),
     AppendNonUnique(AppendNonUniqueError),
-    PromotePseudo(PromotePseudoStdError),
 }
 
 /// Error when renaming standard keys which are not unique.
@@ -193,13 +192,6 @@ pub struct AppendNonUniqueError {
     value: TruncatedNEString,
 }
 
-/// Error when promoting nonstandard keyword that is pseudostandard
-#[derive(Debug, Error, PartialEq, Clone)]
-#[error("could not promote key {0} because it is pseudostandard")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct PromotePseudoStdError(NonStdKey);
-
 /// Diagnostic output from repairing the keyword list.
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -209,7 +201,7 @@ pub struct RepairDiagnostics {
     pub demoted: Vec<DollarStdKey>,
 
     /// Non-standard keys which were promoted.
-    pub promoted: Vec<NonStdKey>,
+    pub promoted: Vec<PseudoNonStdKey>,
 
     /// Standard keys which had values that were substituted.
     ///
@@ -260,11 +252,6 @@ pub struct RepairDiagnostics {
     /// These keys were not moved.
     pub promoted_ignored_noop: Vec<NonStdKey>,
 
-    /// Non-standard keys which were promoted but are pseudostandard.
-    ///
-    /// These keys were not moved.
-    pub promoted_pseudo_std: Vec<NonStdKey>,
-
     /// Appended keys which collided with an existing standard key.
     pub appended_non_unique: Vec<(DollarStdKey, TruncatedNEString)>,
 }
@@ -309,76 +296,6 @@ impl Default for StdKeywords {
             region: NestedVariableString::default(),
             csv_flag: NestedVariableString::default(),
             dfc: NestedVariableString::default(),
-        }
-    }
-}
-
-// TODO sealme in mod
-
-/// A "compiled" object to match keys efficiently.
-#[derive(Debug)]
-pub(crate) struct KeyMatcher<'a, T> {
-    literal: HashMap<&'a KeyString, &'a T>,
-    pattern: Vec<(&'a CaseInsRegex, &'a T)>,
-}
-
-impl<'a, T> KeyMatcher<'a, T> {
-    pub(crate) fn from_keys(keys: &'a KeyStringsOrPatterns<T>) -> Self {
-        keys.0.iter().collect()
-    }
-}
-
-impl KeyMatcher<'_, ()> {
-    fn is_match(&self, other: &KeyString) -> bool {
-        self.literal.contains_key(other)
-            || self
-                .pattern
-                .iter()
-                .any(|p| p.0.as_ref().is_match(other.as_ref()))
-    }
-}
-
-impl<T> KeyMatcher<'_, T> {
-    fn get(&self, other: &KeyString) -> Option<&T> {
-        self.literal.get(other).copied().or(self
-            .pattern
-            .iter()
-            .find(|p| p.0.as_ref().is_match(other.as_ref()))
-            .map(|(_, x)| *x))
-    }
-}
-
-impl<'a, X> FromIterator<(&'a KeyStringOrPattern, &'a X)> for KeyMatcher<'a, X> {
-    fn from_iter<T>(iter: T) -> Self
-    where
-        T: IntoIterator<Item = (&'a KeyStringOrPattern, &'a X)>,
-    {
-        let (literal, pattern): (HashMap<_, _>, Vec<_>) = iter
-            .into_iter()
-            .map(|(k, v)| match k {
-                KeyStringOrPattern::Literal(l) => Ok((l, v)),
-                KeyStringOrPattern::Pattern(p) => Err((p, v)),
-            })
-            .partition_result();
-        Self { literal, pattern }
-    }
-}
-
-/// All compiled key matchers to prevent repeated allocations in loops
-pub(crate) struct AllKeyMatchers<'a> {
-    pub(crate) promote: KeyMatcher<'a, ()>,
-    pub(crate) demote: KeyMatcher<'a, ()>,
-    pub(crate) ignore: KeyMatcher<'a, ()>,
-    pub(crate) subs: KeyMatcher<'a, SubPattern>,
-}
-
-impl<'a> AllKeyMatchers<'a> {
-    pub(crate) fn from_config(conf: &'a EvaledReadRepairKeywordsConfig) -> Self {
-        Self {
-            promote: KeyMatcher::from_keys(&conf.promote_nonstandard_keys),
-            demote: KeyMatcher::from_keys(&conf.demote_standard_keys),
-            ignore: KeyMatcher::from_keys(&conf.ignore_standard_keys),
-            subs: KeyMatcher::from_keys(&conf.substitute_standard_key_values),
         }
     }
 }
@@ -545,104 +462,131 @@ impl<'a> StdRepairTx<'a> {
     pub(crate) fn repair(
         &mut self,
         pstd: &mut PseudoStdKeywords,
+        pnonstd: &mut PseudoNonStdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &EvaledReadRepairKeywordsConfig,
     ) -> DeferredWarningsAndErrors<RepairDiagnostics, RepairError, RepairError> {
-        // Operation order:
-        // 1. drop/demote
-        // 2. promote
-        // 3. sub/replace
-        // 4. rename
-        // 5. append
+        let match_promote = conf.promote_nonstandard_keys.as_matcher();
+        let match_demote = conf.demote_standard_keys.as_matcher();
+        let match_ignore = conf.ignore_standard_keys.as_matcher();
+        let match_subs = conf.substitute_standard_key_values.as_matcher();
 
-        let matchers = AllKeyMatchers::from_config(conf);
+        // ignore
 
-        // drop and demote
-
-        let mut demoted = vec![];
         let mut ignored = vec![];
 
-        for (k, v, m) in self.iter_ne_masked_mut() {
-            let dk = DollarWrap(k);
-            let ks = k.as_keystring();
-            let demote_match = matchers.demote.is_match(&ks);
-            let ignore_match = matchers.ignore.is_match(&ks);
-            if demote_match {
-                *m = RepairMask::Delete;
-                // TODO this could be made more efficient by only moving once
-                // the index queried for errors
-                nonstd.insert_demoted(k, v.to_owned());
-                demoted.push(dk);
-            } else if ignore_match {
-                *m = RepairMask::Delete;
-                ignored.push((dk, TruncatedNEString(v.to_owned())));
+        for (k, ()) in &match_ignore.literals {
+            if let Some(v) = self.delete(k) {
+                ignored.push((DollarWrap(*k), TruncatedNEString(v.to_owned())));
+            }
+        }
+
+        if match_ignore.has_wildcards() {
+            for (k, v, m) in self.iter_ne_masked_mut() {
+                if match_ignore.is_wildcard_match(&k) {
+                    *m = RepairMask::Delete;
+                    ignored.push((DollarWrap(k), TruncatedNEString(v.to_owned())));
+                }
+            }
+        }
+
+        // demote
+
+        let mut demoted = vec![];
+
+        for (k, ()) in &match_demote.literals {
+            if let Some(v) = self.delete(k) {
+                pnonstd.insert_demoted(nonstd, *k, v.to_owned());
+                demoted.push(DollarWrap(*k));
+            }
+        }
+
+        if match_demote.has_wildcards() {
+            for (k, v, m) in self.iter_ne_masked_mut() {
+                if match_demote.is_wildcard_match(&k) {
+                    *m = RepairMask::Delete;
+                    // TODO this could be made more efficient by only moving once
+                    // the index queried for errors
+                    pnonstd.insert_demoted(nonstd, k, v.to_owned());
+                    demoted.push(DollarWrap(k));
+                }
             }
         }
 
         // promote
 
-        let mut promote_demoted_noop = vec![];
-        let mut promote_ignored_noop = vec![];
+        // TODO no idea what to do with these yet (if anything)
+        let promote_demoted_noop = vec![];
+        let promote_ignored_noop = vec![];
         let mut promote_non_unique = vec![];
-        let mut promote_pseudo_std = vec![];
         let mut promoted = vec![];
 
-        nonstd.retain(|k, v| {
-            let ks = k.as_ref();
-            if matchers.promote.is_match(ks) {
-                if matchers.demote.is_match(ks) {
-                    // Key is promoted but also demoted. These cancel so do
-                    // nothing and warn user.
-                    promote_demoted_noop.push(k.to_owned());
-                    true
-                } else if matchers.ignore.is_match(ks) {
-                    // Key is promoted but also ignored. This is probably a
-                    // mistake, so do nothing and warn user.
-                    promote_ignored_noop.push(k.to_owned());
-                    true
-                } else if let Ok(sk) = ks.as_str().parse::<StdKey>() {
-                    // Key is promoted and std. Try to insert and take out
-                    // of nonstd list if successful.
-                    if self.insert(&sk, v.to_owned()).is_some() {
-                        promote_non_unique.push((DollarWrap(sk), TruncatedNEString(v.to_owned())));
+        for (k, ()) in &match_promote.literals {
+            if let Some(v) = pnonstd.remove(k) {
+                if let Some(vf) = self.insert(k, v) {
+                    promote_non_unique.push((DollarWrap(*k), TruncatedNEString(vf)));
+                } else {
+                    promoted.push(*k);
+                }
+            }
+        }
+
+        if match_promote.has_wildcards() {
+            pnonstd.retain(|k, v| {
+                if match_promote.is_wildcard_match(k) {
+                    if let Some(vf) = self.insert(k, v.to_owned()) {
+                        promote_non_unique.push((DollarWrap(*k), TruncatedNEString(vf)));
                         true
                     } else {
-                        promoted.push(k.to_owned());
+                        promoted.push(*k);
                         false
                     }
                 } else {
-                    // Key is promoted but is pseudostandard. This is likely
-                    // a mistake so do nothing and warn user.
-                    promote_pseudo_std.push(k.to_owned());
                     true
                 }
-            } else {
-                // Key is not promoted, do nothing.
-                true
-            }
-        });
+            });
+        }
 
-        // replace/sub
+        // replace
 
-        let replace = &conf.replace_standard_key_values;
-        let mut removed = vec![];
-        let mut subbed = vec![];
         let mut replaced = vec![];
 
-        for (k, v, m) in self.iter_ne_masked_mut() {
-            let dk = DollarWrap(k);
-            let ks = k.as_keystring();
-            if let Some(subpat) = matchers.subs.get(&ks) {
+        for (dk, vf) in &conf.replace_standard_key_values {
+            if let Some(v) = self.delete(&dk.0) {
+                replaced.push((*dk, TruncatedNEString(v.to_owned())));
+                let _ = self.insert(&dk.0, vf.to_owned());
+            }
+        }
+
+        // sub
+
+        let mut removed = vec![];
+        let mut subbed = vec![];
+
+        for (k, subpat) in &match_subs.literals {
+            let dk = DollarWrap(*k);
+            if let Some(v) = self.delete(k) {
                 if let Ok(vf) = NEString::try_from(subpat.sub(v.as_str())) {
                     subbed.push((dk, TruncatedNEString(v.to_owned())));
-                    *m = RepairMask::Insert(vf);
+                    let _ = self.insert(k, vf);
                 } else {
                     removed.push((dk, TruncatedNEString(v.to_owned())));
-                    *m = RepairMask::Delete;
                 }
-            } else if let Some(r) = replace.get(&k) {
-                replaced.push((dk, TruncatedNEString(v.to_owned())));
-                *m = RepairMask::Insert(r.to_owned());
+            }
+        }
+
+        if match_subs.has_wildcards() {
+            for (k, v, m) in self.iter_ne_masked_mut() {
+                if let Some(subpat) = match_subs.get_wildcard(&k) {
+                    let dk = DollarWrap(k);
+                    if let Ok(vf) = NEString::try_from(subpat.sub(v.as_str())) {
+                        subbed.push((dk, TruncatedNEString(v.to_owned())));
+                        *m = RepairMask::Insert(vf);
+                    } else {
+                        removed.push((dk, TruncatedNEString(v.to_owned())));
+                        *m = RepairMask::Delete;
+                    }
+                }
             }
         }
 
@@ -708,7 +652,6 @@ impl<'a> StdRepairTx<'a> {
             promoted_demoted_noop: promote_demoted_noop,
             promoted_ignored_noop: promote_ignored_noop,
             promoted_non_unique: promote_non_unique,
-            promoted_pseudo_std: promote_pseudo_std,
             appended_non_unique,
         };
 
@@ -732,12 +675,7 @@ impl<'a> StdRepairTx<'a> {
             .iter()
             .map(|(k, v)| AppendNonUniqueError::new(*k, v.clone()))
             .map(RepairError::from);
-        let e4 = ret
-            .promoted_pseudo_std
-            .iter()
-            .map(|k| PromotePseudoStdError(k.clone()))
-            .map(RepairError::from);
-        let es = e0.chain(e1).chain(e2).chain(e3).chain(e4);
+        let es = e0.chain(e1).chain(e2).chain(e3);
 
         let flag = conf.allow_repair_non_unique;
         LogResult::new_deferred_switchable_iter3((), es, flag)
@@ -802,11 +740,13 @@ impl StdLookupTx<'_> {
     }
 
     #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn finalize(
         &self,
         par: Par,
         gate: Gate,
         version: Version,
+        pnonstd: &mut PseudoNonStdKeywords,
         nonstd: &mut NonStdKeywords,
         pstd: &mut PseudoStdKeywords,
         conf: &EvaledReadStdKeywordsConfig,
@@ -827,7 +767,7 @@ impl StdLookupTx<'_> {
         // only store if it was dropped or not.
         let mut go = |k, v: &NEStr, was_demoted| {
             if was_demoted {
-                nonstd.insert_demoted(k, v.to_owned());
+                pnonstd.insert_demoted(nonstd, k, v.to_owned());
             } else {
                 optional.push((DollarWrap(k), v.to_owned()));
             }
@@ -954,7 +894,7 @@ impl StdLookupTx<'_> {
                 }
                 if conf.$flag.is_demote() {
                     for (k, v) in $errors {
-                        nonstd.insert_demoted(k.0, v);
+                        pnonstd.insert_demoted(nonstd, k.0, v);
                     }
                     Default::default()
                 } else {
@@ -983,7 +923,7 @@ impl StdLookupTx<'_> {
 
         let timestep = timestep_.and_then(|ts| {
             if conf.process_extra_timestep.is_demote() {
-                nonstd.insert_demoted(RootKey::Timestep.to_std0(), ts);
+                pnonstd.insert_demoted(nonstd, RootKey::Timestep.to_std0(), ts);
                 None
             } else {
                 Some(ts)

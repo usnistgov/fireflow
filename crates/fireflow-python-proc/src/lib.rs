@@ -1,10 +1,9 @@
 extern crate proc_macro;
 
-use fireflow_types::{
-    args::underscore as ta,
-    config::{self as tc, EnumStrIter as _},
-    keywords as tk, python as tp, std_key as sk,
-};
+use fireflow_types::args::underscore as ta;
+use fireflow_types::config::{self as tc, EnumStrIter as _};
+use fireflow_types::{keywords as tk, python as tp, std_key as sk};
+
 use nonempty::{IntoNonEmptyIterator as _, NEStr, NEVec, NonEmptyIterator as _};
 
 use const_format::formatcp;
@@ -14,11 +13,11 @@ use itertools::Itertools as _;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{ToTokens, format_ident, quote};
+use syn::parse::{Parse, ParseStream};
+use syn::token::Comma;
 use syn::{
-    GenericArgument, Ident, LitInt, LitStr, Path, PathArguments, Type,
-    parse::{Parse, ParseStream},
-    parse_macro_input, parse_quote,
-    token::Comma,
+    GenericArgument, Ident, LitInt, LitStr, Path, PathArguments, Type, parse_macro_input,
+    parse_quote,
 };
 
 use std::cmp::Ordering;
@@ -1515,7 +1514,7 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
 
     let promoted = DocArgROIvar::new_ivar_ro(
         "promoted",
-        PyList::new1(PyAlias::new_nonstd_keyword()),
+        PyList::new1(PyAlias::new_pnonstd_keyword()),
         "Non-standard keys which were promoted.",
         |_, _| quote!(self.0.promoted.clone()),
     );
@@ -1617,13 +1616,6 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.promoted_ignored_noop.clone()),
     );
 
-    let promoted_pseudo_std = DocArgROIvar::new_ivar_ro(
-        "promoted_pseudo_std",
-        PyList::new1(PyAlias::new_nonstd_keyword()),
-        "Non-standard keys which were promoted but are pseudostandard.",
-        |_, _| quote!(self.0.promoted_pseudo_std.clone()),
-    );
-
     let appended_non_unique = DocArgROIvar::new_ivar_ro(
         "appended_non_unique",
         PyList::new1(
@@ -1647,7 +1639,6 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
         promoted_non_unique,
         promoted_demoted_noop,
         promoted_ignored_noop,
-        promoted_pseudo_std,
         appended_non_unique,
     ];
     let doc = DocString::new_class("Diagnostic output from repairing the keyword list.").args(args);
@@ -3485,6 +3476,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let applied_gates = DocArg::new_applied_gates_ivar(version);
 
+    let pseudo_nonstandard_keywords = DocArg::new_core_pseudo_nonstandard_keywords_ivar();
     let nonstandard_keywords = DocArg::new_core_nonstandard_keywords_ivar();
 
     let common_kws = [
@@ -3502,6 +3494,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         sys,
         tr,
         applied_gates,
+        pseudo_nonstandard_keywords,
         nonstandard_keywords,
     ];
 
@@ -4828,6 +4821,12 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
         format!("Standard keywords. {no_kws}"),
     );
 
+    let pnonstd_param = DocArg::new_param(
+        "pnonstd",
+        PyAlias::new_pnonstd_keywords(),
+        "Pseudo-non-Standard keywords.",
+    );
+
     let nonstd_param = DocArg::new_param(
         "nonstd",
         PyAlias::new_nonstd_keywords(),
@@ -4842,7 +4841,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
     let xs = [exc0, exc1, exc2];
 
     let doc = DocString::new_fun("Make new instance from keywords.")
-        .args([std_param, nonstd_param])
+        .args([std_param, pnonstd_param, nonstd_param])
         .args(std_args)
         .args(layout_args)
         .args(shared_args)
@@ -4881,7 +4880,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
                 let shared = #shared_conf { #(#shared_recs),* };
                 let conf = #core_conf { standard, layout, shared };
                 let (core, uncore) =
-                    #path::new_from_keywords(&std, nonstd, &conf).py_resolve_commutative()?;
+                    #path::new_from_keywords(&std, pnonstd, nonstd, &conf).py_resolve_commutative()?;
                 Ok((core.into(), uncore.into()))
             }
         }
@@ -4918,6 +4917,11 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let path_param = DocArg::new_path_param(true);
     let header_param = DocArg::new_header_and_supp_param();
     let std_param = DocArg::new_param("std", PyAlias::new_std_keywords(), "Standard keywords.");
+    let pnonstd_param = DocArg::new_param(
+        "pnonstd",
+        PyAlias::new_pnonstd_keywords(),
+        "Pseudo-non-Standard keywords.",
+    );
     let nonstd_param = DocArg::new_param(
         "nonstd",
         PyAlias::new_nonstd_keywords(),
@@ -4940,6 +4944,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         .arg(path_param)
         .arg(header_param)
         .arg(std_param)
+        .arg(pnonstd_param)
         .arg(nonstd_param)
         .args(config_args)
         .arg(dataset_offset_param)
@@ -4996,6 +5001,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                     &path,
                     header.into(),
                     &std,
+                    pnonstd,
                     nonstd,
                     dataset_offset,
                     dataset_len,
@@ -9070,15 +9076,15 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_sub_patterns() -> Self {
-        let path = types_config_path("SubPatterns");
+        let path = parse_quote!(fireflow_types::std_pattern::SubPatterns);
         Self::new_py(["typing"], "SubPatterns")
             .rstype(path)
             .set_default(PyDict::new_dummy())
     }
 
-    fn new_key_patterns() -> Self {
-        let path = types_config_path("KeyPatterns");
-        Self::new_py(["typing"], "KeyPatterns")
+    fn new_std_key_patterns(dollar: bool) -> Self {
+        let path = parse_quote!(fireflow_types::std_pattern::StdKeyPatterns<#dollar>);
+        Self::new_py(["typing"], "StdKeyPatterns")
             .rstype(path)
             .set_default(PyList::new_dummy())
     }
@@ -9091,10 +9097,10 @@ impl<E: From<PyException>> PyAlias<E> {
             .set_default(PyDict::new_dummy())
     }
 
-    fn new_keystring_values() -> Self {
-        let path = config_path("KeyStringValues");
+    fn new_std_key_values() -> Self {
+        let path = config_path("StdKeyValues");
         // TODO exception if dict keys are not unique
-        Self::new_py(["typing"], "KeyStringValues")
+        Self::new_py(["typing"], "StdKeyValues")
             .rstype(path)
             .set_default(PyDict::new_dummy())
     }
@@ -9807,14 +9813,31 @@ impl DocArgRWIvar {
     //     )
     // }
 
+    fn new_core_pseudo_nonstandard_keywords_ivar() -> Self {
+        let d = format!("Standard keywords which do not start with {DOLLAR_STR}.");
+        Self::new_pseudo_nonstandard_keywords_ivar(
+            d.as_str(),
+            |_, _| quote!(self.0.pseudo_nonstandard_keywords().clone()),
+            |n, _| quote!(self.0.set_pseudo_nonstandard_keywords(#n)),
+        )
+    }
+
     fn new_core_nonstandard_keywords_ivar() -> Self {
-        let d =
-            format!("Pairs of non-standard keyword values. Keys must not start with {DOLLAR_STR}.");
+        let d = format!("Non-standard keywords. Keys must not start with {DOLLAR_STR}.");
         Self::new_nonstandard_keywords_ivar(
             d.as_str(),
             |_, _| quote!(self.0.nonstandard_keywords().clone()),
             |n, _| quote!(self.0.set_nonstandard_keywords(#n)),
         )
+    }
+
+    fn new_pseudo_nonstandard_keywords_ivar(
+        desc: &str,
+        f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
+        g: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
+    ) -> Self {
+        let p = PyAlias::new_pnonstd_keywords();
+        Self::new_ivar_rw("pseudo_nonstandard_keywords", p, desc, false, f, g).def_auto()
     }
 
     fn new_nonstandard_keywords_ivar(
@@ -11115,21 +11138,21 @@ impl DocArgParam {
             "Remove standard keys from {TEXT}. The leading {DOLLAR_STR} \
              is implied so do not include it."
         );
-        Self::new_key_patterns_param(ta::IGNORE_STD_KEYS, d)
+        Self::new_std_key_patterns_param(ta::IGNORE_STD_KEYS, d, true)
     }
 
     fn new_promote_to_standard() -> Self {
         let d = format!("Promote nonstandard keys to standard keys in {TEXT}.");
-        Self::new_key_patterns_param(ta::PROMOTE_TO_STD, d)
+        Self::new_std_key_patterns_param(ta::PROMOTE_TO_STD, d, false)
     }
 
     fn new_demote_from_standard() -> Self {
         let d = format!("Demote nonstandard keys from standard keys in {TEXT}.");
-        Self::new_key_patterns_param(ta::DEMOTE_FROM_STD, d)
+        Self::new_std_key_patterns_param(ta::DEMOTE_FROM_STD, d, true)
     }
 
-    fn new_key_patterns_param(argname: &str, desc: impl fmt::Display) -> Self {
-        let inner = PyAlias::new_key_patterns();
+    fn new_std_key_patterns_param(argname: &str, desc: impl fmt::Display, dollar: bool) -> Self {
+        let inner = PyAlias::new_std_key_patterns(dollar);
         let pt = PyAlias::new_appendable_selector(inner);
         Self::new_param(argname, pt, desc).def_auto()
     }
@@ -11146,7 +11169,7 @@ impl DocArgParam {
     }
 
     fn new_replace_standard_key_values() -> Self {
-        let inner = PyAlias::new_keystring_values();
+        let inner = PyAlias::new_std_key_values();
         Self::new_param(
             ta::REPLACE_STD_KEY_VALS,
             PyAlias::new_appendable_selector(inner),
@@ -11168,7 +11191,7 @@ impl DocArgParam {
     }
 
     fn new_append_standard_keywords() -> Self {
-        let inner = PyAlias::new_keystring_values();
+        let inner = PyAlias::new_std_key_values();
         Self::new_param(
             ta::APPEND_STD_KEYWORDS,
             PyAlias::new_appendable_selector(inner),

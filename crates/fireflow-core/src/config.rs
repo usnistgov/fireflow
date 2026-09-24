@@ -14,19 +14,19 @@ use crate::logging::{ErrorsResult, ResultExt as _};
 use crate::selector::{AppendableSelector, Selector};
 use crate::validated::keys::ValidKeywords;
 
-use fireflow_types::case_ins_regex::LiteralOrPattern;
 use fireflow_types::config::{
-    HasStrategy, KeyPatterns, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
+    HasStrategy, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
     ReadHeaderInnerConfig, ReadOffsetConfig, ReadRepairKeywordsConfig_, ReadSharedConfig,
-    ReadStdKeywordsConfig_, SubPatterns, TimeMeasNamePattern, WriteDatasetInnerConfig,
-    WriteMultiConfig, WriteTEXTInnerConfig,
+    ReadStdKeywordsConfig_, TimeMeasNamePattern, WriteDatasetInnerConfig, WriteMultiConfig,
+    WriteTEXTInnerConfig,
 };
 use fireflow_types::datepattern::DatePattern;
-use fireflow_types::keystring::{
-    KeyString, KeyStringsOrPatterns, NonUniqueKeyError, checked_iter_to_hashmap,
-};
 use fireflow_types::keystring_pairs::{KeyStringPairs, KeyStringPairsError};
 use fireflow_types::std_key::{DollarAnyStdKey, DollarStdKey};
+use fireflow_types::std_pattern::{
+    NonUniqueKeyError, StdKeyOrPattern, StdKeyPatterns, StdKeysOrPatterns, SubPatterns,
+    checked_iter_to_hashmap,
+};
 use fireflow_types::timepattern::TimePattern;
 use nonempty::{NEString, NEVec};
 
@@ -213,12 +213,12 @@ pub type ReadStdKeywordsConfig = ReadStdKeywordsConfig_<
 >;
 
 pub type ReadRepairKeywordsConfig = ReadRepairKeywordsConfig_<
-    AppendableSelector<KeyPatterns>,
+    AppendableSelector<StdKeyPatterns<true>>,
     AppendableSelector<KeyStringPairs>,
-    AppendableSelector<KeyPatterns>,
-    AppendableSelector<KeyPatterns>,
-    AppendableSelector<KeyStringValues>,
-    AppendableSelector<KeyStringValues>,
+    AppendableSelector<StdKeyPatterns<false>>,
+    AppendableSelector<StdKeyPatterns<true>>,
+    AppendableSelector<StdKeyValues>,
+    AppendableSelector<StdKeyValues>,
     AppendableSelector<SubPatterns>,
 >;
 
@@ -231,19 +231,19 @@ pub type EvaledReadStdKeywordsConfig = ReadStdKeywordsConfig_<
 >;
 
 pub type EvaledReadRepairKeywordsConfig = ReadRepairKeywordsConfig_<
-    KeyPatterns,
+    StdKeyPatterns<true>,
     KeyStringPairs,
-    KeyPatterns,
-    KeyPatterns,
-    KeyStringValues,
-    KeyStringValues,
+    StdKeyPatterns<false>,
+    StdKeyPatterns<true>,
+    StdKeyValues,
+    StdKeyValues,
     SubPatterns,
 >;
 
-/// A map of [`KeyString`]/[`String`] pairs.
+/// A map of [`DollarStdKey`]/[`String`] pairs.
 ///
 /// The main use case for this is to replace or add key values.
-pub type KeyStringValues = HashMap<DollarStdKey, NEString>;
+pub type StdKeyValues = HashMap<DollarStdKey, NEString>;
 
 pub(crate) fn eval_std_conf(
     conf: &ReadStdKeywordsConfig,
@@ -281,7 +281,7 @@ pub(crate) fn eval_repair_conf(
         let checked = checked_iter_to_hashmap(xs.into_iter().flat_map(KeyStringPairs::into_iter))?;
         KeyStringPairs::try_from(checked).map_err(AppendRepairFlagError::KeyStringPairsValid)
     };
-    let go_val = |xs: NEVec<KeyStringValues>| {
+    let go_val = |xs: NEVec<StdKeyValues>| {
         let res = checked_iter_to_hashmap(xs.into_iter().flat_map(HashMap::into_iter))?;
         Ok(res)
     };
@@ -289,7 +289,7 @@ pub(crate) fn eval_repair_conf(
     macro_rules! go_keystr {
         ($field:ident) => {
             conf.$field
-                .try_eval(kws, |xs| Ok(KeyStringsOrPatterns::from_many(xs)?))
+                .try_eval(kws, |xs| Ok(StdKeysOrPatterns::from_many(xs)?))
                 .into_nowarn()
         };
     }
@@ -333,7 +333,8 @@ pub(crate) fn eval_repair_conf(
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AppendRepairFlagError {
-    KeyPattern(NonUniqueKeyError<LiteralOrPattern<KeyString>>),
+    Std(NonUniqueKeyError<StdKeyOrPattern<true>>),
+    PseudoNonStd(NonUniqueKeyError<StdKeyOrPattern<false>>),
     NonUniqueStd(NonUniqueKeyError<DollarStdKey>),
     NonUniqueMaybeStd(NonUniqueKeyError<DollarAnyStdKey>),
     KeyStringPairsValid(KeyStringPairsError),

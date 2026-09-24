@@ -6,7 +6,7 @@ use thiserror::Error;
 use fireflow_core_proc::DisplayAsPyErr;
 
 #[cfg(feature = "serde")]
-use {crate::case_ins_regex::serialize_regex, serde::Serialize};
+use serde::{Serialize, Serializer};
 
 /// Pattern to match a string and apply a sed-like substitution operation.
 #[derive(Clone, Debug, Display)]
@@ -99,6 +99,14 @@ impl SubPattern {
 pub struct SubPatternError {
     from: Regex,
     to: String,
+}
+
+#[cfg(feature = "serde")]
+pub fn serialize_regex<S>(this: &Regex, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    this.as_str().serialize(serializer)
 }
 
 #[cfg(test)]

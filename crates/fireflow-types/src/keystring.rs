@@ -7,7 +7,6 @@ use thiserror::Error;
 use unicase::Ascii;
 
 use std::borrow::Borrow;
-use std::borrow::Cow;
 use std::hash::Hash;
 use std::str::FromStr;
 
@@ -35,22 +34,9 @@ impl From<KeyString> for NEString {
     }
 }
 
-/// The borrowed internal string for a key (standard or nonstandard).
-///
-/// Must be non-empty and contain only ASCII characters. Comparisons will be
-/// case-insensitive.
-#[derive(Clone, Debug)]
-pub struct CowKeyString<'a>(Ascii<Cow<'a, NEStr>>);
-
 impl Borrow<str> for KeyString {
     fn borrow(&self) -> &str {
         self.as_ref()
-    }
-}
-
-impl AsRef<str> for CowKeyString<'_> {
-    fn as_ref(&self) -> &str {
-        self.0.as_str()
     }
 }
 
@@ -93,22 +79,22 @@ impl FromStr for KeyString {
     }
 }
 
-impl TryFrom<NEString> for CowKeyString<'_> {
+impl TryFrom<NEString> for KeyString {
     type Error = AsciiStringError;
     fn try_from(value: NEString) -> Result<Self, Self::Error> {
         if is_printable_ascii(value.as_str().as_bytes()) {
-            Ok(Self(Ascii::new(Cow::Owned(value))))
+            Ok(Self(Ascii::new(value)))
         } else {
             Err(AsciiStringError(value))
         }
     }
 }
 
-impl<'a> TryFrom<&'a NEStr> for CowKeyString<'a> {
+impl TryFrom<&NEStr> for KeyString {
     type Error = AsciiStringError;
-    fn try_from(value: &'a NEStr) -> Result<Self, Self::Error> {
+    fn try_from(value: &NEStr) -> Result<Self, Self::Error> {
         if is_printable_ascii(value.as_str().as_bytes()) {
-            Ok(Self(Ascii::new(Cow::Borrowed(value))))
+            Ok(Self(Ascii::new(value.to_owned())))
         } else {
             Err(AsciiStringError(value.to_owned()))
         }
@@ -157,13 +143,6 @@ impl KeyString {
         let ne = xs.nonempty_iter().copied().collect();
         // SAFETY: this function is marked unsafe since the caller must check
         Self::new_unchecked(unsafe { NEString::from_utf8_unchecked(ne) })
-    }
-}
-
-impl CowKeyString<'_> {
-    #[must_use]
-    pub fn into_keystring(self) -> KeyString {
-        KeyString::new_unchecked(self.0.into_inner().into_owned())
     }
 }
 

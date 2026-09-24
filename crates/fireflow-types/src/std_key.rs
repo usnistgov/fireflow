@@ -1,6 +1,6 @@
 use crate::config::{Encoding, OpticalOnlyKey};
 use crate::index::{BiMeasIndex, GateIndex, MeasIndex, RegionIndex, SubsetIndex};
-use crate::keystring::{AsciiStringError, CowKeyString, KeyString, NEAsciiStringError};
+use crate::keystring::{AsciiStringError, KeyString, NEAsciiStringError};
 use crate::keywords::{Version, VersionMembership};
 
 use nonempty::{
@@ -967,11 +967,6 @@ macro_rules! match_bytes {
 impl StdKey {
     #[must_use]
     pub fn as_keystring(&self) -> KeyString {
-        self.as_cow_keystring().into_keystring()
-    }
-
-    #[must_use]
-    pub fn as_cow_keystring(&self) -> CowKeyString<'_> {
         let res = match self {
             Self::Root(k) => k.as_ne_str().try_into(),
             Self::Meas(k) => k.as_ne_string().try_into(),

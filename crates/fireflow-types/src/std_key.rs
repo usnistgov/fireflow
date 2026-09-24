@@ -975,7 +975,9 @@ impl StdKey {
             Self::Dfc(k) => k.as_ne_string().try_into(),
             Self::CsvFlag(k) => k.as_ne_string().try_into(),
         };
-        res.expect("standard key should make valid keystring")
+        let mut ks: KeyString = res.expect("standard key should make valid keystring");
+        ks.disambiguate();
+        ks
     }
 
     #[must_use]

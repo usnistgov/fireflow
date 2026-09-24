@@ -574,7 +574,7 @@ impl<'a> ParsedKeyword<'a> {
     where
         V: ValueFromBytes<'a>,
     {
-        let pk = ParsedKey::from_bytes(key, encoding);
+        let pk = ParsedKey::from_bytes(key);
         let pv = val.parse_from_bytes(trim, encoding);
         // This will throw away the trimmed value if it was computed in the case
         // of non-ascii keys. This is very rare so probably not worth

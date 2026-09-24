@@ -1,6 +1,4 @@
-use nonempty::{
-    IntoNonEmptyIterator as _, NESlice, NEStr, NEString, NonEmptyIterator as _, ToDisplayNE,
-};
+use nonempty::{NESlice, NEStr, NEString, ToDisplayNE};
 
 use derive_more::{AsRef, Display};
 use thiserror::Error;
@@ -120,16 +118,11 @@ impl KeyString {
         self.0.as_ne_str()
     }
 
-    pub(crate) fn from_bytes_maybe(xs: &NESlice<u8>, single_byte: bool) -> Option<Self> {
-        if single_byte {
-            let ne = xs.into_nonempty_iter().copied().map(char::from).collect();
-            Some(Self::new_unchecked(ne))
-        } else if is_printable_ascii(xs.as_ref()) {
+    pub(crate) fn from_bytes_maybe(xs: &NESlice<u8>) -> Option<Self> {
+        is_printable_ascii(xs.as_ref()).then(|| {
             // SAFETY: we just checked that the bytes are only ASCII chars
-            Some(unsafe { Self::from_bytes(xs) })
-        } else {
-            None
-        }
+            unsafe { Self::from_bytes(xs) }
+        })
     }
 
     /// Make new keystring from slice of bytes known not to be empty.
@@ -138,9 +131,8 @@ impl KeyString {
     ///
     /// Caller must guarantee that bytes are valid UTF-8 characters.
     unsafe fn from_bytes(xs: &NESlice<u8>) -> Self {
-        let ne = xs.nonempty_iter().copied().collect();
         // SAFETY: this function is marked unsafe since the caller must check
-        Self::new_unchecked(unsafe { NEString::from_utf8_unchecked(ne) })
+        Self::new_unchecked(unsafe { NEString::from_utf8_unchecked(xs.to_ne_vec()) })
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::config::{Encoding, OpticalOnlyKey};
+use crate::config::OpticalOnlyKey;
 use crate::index::{BiMeasIndex, GateIndex, MeasIndex, RegionIndex, SubsetIndex};
 use crate::keystring::{AsciiStringError, KeyString, NEAsciiStringError};
 use crate::keywords::{Version, VersionMembership};
@@ -1016,10 +1016,10 @@ impl StdKey {
 
 impl AnyStdKey {
     fn from_str(s: &NEStr) -> Option<Self> {
-        Self::from_bytes_maybe(s.as_ne_bytes(), false)
+        Self::from_bytes_maybe(s.as_ne_bytes())
     }
 
-    fn from_bytes_maybe(bytes: &NESlice<u8>, single_byte: bool) -> Option<Self> {
+    fn from_bytes_maybe(bytes: &NESlice<u8>) -> Option<Self> {
         let (b0, bs) = bytes.split_first();
         match b0.to_ascii_uppercase() {
             // Try to match $Pn*, $PKn, or $PKNn first based on the first letter
@@ -1044,7 +1044,7 @@ impl AnyStdKey {
                         Some(Self::Real(StdKey::Meas(k)))
                     } else {
                         // something else
-                        Self::from_ascii_bytes_nonparam(bytes, single_byte)
+                        Self::from_ascii_bytes_nonparam(bytes)
                     }
                 } else if let Some((i, rest)) = split_index_and_suffix(bs)
                     && let Some(mid) = NonPeakMeasKeyId::from_bytes(rest)
@@ -1054,7 +1054,7 @@ impl AnyStdKey {
                     Some(Self::Real(StdKey::Meas(k)))
                 } else {
                     // something else
-                    Self::from_ascii_bytes_nonparam(bytes, single_byte)
+                    Self::from_ascii_bytes_nonparam(bytes)
                 }
             }
             // Try to match $Gn*
@@ -1065,7 +1065,7 @@ impl AnyStdKey {
                     let k = GateKey::new(i.into(), gid);
                     Some(Self::Real(StdKey::Gate(k)))
                 } else {
-                    Self::from_ascii_bytes_nonparam(bytes, single_byte)
+                    Self::from_ascii_bytes_nonparam(bytes)
                 }
             }
             // Try to match $Rn*
@@ -1076,15 +1076,15 @@ impl AnyStdKey {
                     let k = RegionKey::new(i.into(), rid);
                     Some(Self::Real(StdKey::Region(k)))
                 } else {
-                    Self::from_ascii_bytes_nonparam(bytes, single_byte)
+                    Self::from_ascii_bytes_nonparam(bytes)
                 }
             }
             // We didn't find any of these prefixes, try all the other keywords.
-            _ => Self::from_ascii_bytes_nonparam(bytes, single_byte),
+            _ => Self::from_ascii_bytes_nonparam(bytes),
         }
     }
 
-    fn from_ascii_bytes_nonparam(bytes: &NESlice<u8>, single_byte: bool) -> Option<Self> {
+    fn from_ascii_bytes_nonparam(bytes: &NESlice<u8>) -> Option<Self> {
         if let Some(rk) = RootKey::from_bytes(bytes.as_ref()) {
             Some(Self::Real(StdKey::Root(rk)))
         } else if let Some(csv) = CsvFlagKey::from_bytes(bytes.as_ref()) {
@@ -1092,7 +1092,7 @@ impl AnyStdKey {
         } else if let Some(dfc) = DfcKey::from_bytes(bytes.as_ref()) {
             Some(Self::Real(StdKey::Dfc(dfc)))
         } else {
-            let p = KeyString::from_bytes_maybe(bytes, single_byte)?;
+            let p = KeyString::from_bytes_maybe(bytes)?;
             Some(Self::Pseudo(PseudoStdKey(p)))
         }
     }
@@ -1688,13 +1688,12 @@ impl BlankKeyword for MeasKeyId {
 
 impl ParsedKey {
     #[must_use]
-    pub fn from_bytes(bytes: &NESlice<u8>, encoding: Encoding) -> Self {
-        let single_byte = matches!(encoding, Encoding::Single);
+    pub fn from_bytes(bytes: &NESlice<u8>) -> Self {
         // TODO we may wish to distinguish an error between non-ASCII and only a
         // '$' keyword
         if let Some((&STD_PREFIX, rest)) = bytes.as_ref().split_first() {
             if let Some(ne) = NESlice::try_from_slice(rest) {
-                if let Some(k) = AnyStdKey::from_bytes_maybe(ne, single_byte) {
+                if let Some(k) = AnyStdKey::from_bytes_maybe(ne) {
                     match k {
                         AnyStdKey::Real(x) => Self::Std(x),
                         AnyStdKey::Pseudo(x) => Self::PseudoStd(x),
@@ -1705,7 +1704,7 @@ impl ParsedKey {
             } else {
                 Self::Bytes(nev![STD_PREFIX])
             }
-        } else if let Some(k) = AnyStdKey::from_bytes_maybe(bytes, single_byte) {
+        } else if let Some(k) = AnyStdKey::from_bytes_maybe(bytes) {
             match k {
                 AnyStdKey::Real(x) => Self::PseudoNonStd(x),
                 AnyStdKey::Pseudo(x) => Self::NonStd(NonStdKey(x.0)),

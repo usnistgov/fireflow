@@ -1579,20 +1579,6 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.promoted_non_unique.clone()),
     );
 
-    let promoted_demoted_noop = DocArgROIvar::new_ivar_ro(
-        "promoted_demoted_noop",
-        PyList::new1(PyAlias::new_nonstd_keyword()),
-        "Non-standard keys which are promoted and also demoted as standard keys.",
-        |_, _| quote!(self.0.promoted_demoted_noop.clone()),
-    );
-
-    let promoted_ignored_noop = DocArgROIvar::new_ivar_ro(
-        "promoted_ignored_noop",
-        PyList::new1(PyAlias::new_nonstd_keyword()),
-        "Non-standard keys which are promoted and also ignored as standard keys.",
-        |_, _| quote!(self.0.promoted_ignored_noop.clone()),
-    );
-
     let appended_non_unique = DocArgROIvar::new_ivar_ro(
         "appended_non_unique",
         PyList::new1(
@@ -1612,8 +1598,6 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
         ignored,
         removed,
         promoted_non_unique,
-        promoted_demoted_noop,
-        promoted_ignored_noop,
         appended_non_unique,
     ];
     let doc = DocString::new_class("Diagnostic output from repairing the keyword list.").args(args);

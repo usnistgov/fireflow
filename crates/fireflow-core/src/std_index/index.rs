@@ -16,7 +16,7 @@ use fireflow_types::config::{
 use fireflow_types::index::MeasIndex;
 use fireflow_types::keywords::Version;
 use fireflow_types::std_key::{
-    AnyKey, CsvFlagKey, DfcKey, DollarWrap, EnumIndex as _, GateKey, MeasKey, N_ROOT, NonStdKey,
+    AnyKey, CsvFlagKey, DfcKey, DollarWrap, EnumIndex as _, GateKey, MeasKey, N_ROOT,
     PseudoNonStdKey, PseudoNonStdKeywordsExt as _, PseudoStdKey, RawStdKey, RegionKey, RootKey,
     StdKey, ToStd as _,
 };
@@ -221,16 +221,6 @@ pub struct RepairDiagnostics {
     ///
     /// These keys were not moved.
     pub promoted_non_unique: Vec<(PseudoNonStdKey, TruncatedNEString)>,
-
-    /// Non-standard keys which are promoted and also demoted as standard keys.
-    ///
-    /// These keys were not moved.
-    pub promoted_demoted_noop: Vec<NonStdKey>,
-
-    /// Non-standard keys which are promoted and also ignored as standard keys.
-    ///
-    /// These keys were not moved.
-    pub promoted_ignored_noop: Vec<NonStdKey>,
 
     /// Appended keys which collided with an existing standard key.
     pub appended_non_unique: Vec<(StdKey, TruncatedNEString)>,
@@ -495,9 +485,6 @@ impl<'a> StdRepairTx<'a> {
 
         // promote
 
-        // TODO no idea what to do with these yet (if anything)
-        let promote_demoted_noop = vec![];
-        let promote_ignored_noop = vec![];
         let mut promote_non_unique = vec![];
         let mut promoted = vec![];
 
@@ -525,6 +512,68 @@ impl<'a> StdRepairTx<'a> {
                     true
                 }
             });
+        }
+
+        // rename
+
+        let mut renamed = vec![];
+        let mut renamed_non_unique = vec![];
+
+        for (k0, k1) in &conf.rename_standard_keys {
+            macro_rules! go {
+                () => {
+                    match k0 {
+                        AnyKey::Std(k0_) => self.delete(&k0_.0).map(|v| {
+                            renamed.push((k0.clone(), k1.clone()));
+                            v.to_owned()
+                        }),
+                        AnyKey::PseudoNonStd(k0_) => pnonstd.remove(k0_).inspect(|_| {
+                            renamed.push((k0.clone(), k1.clone()));
+                        }),
+                        AnyKey::PseudoStd(k0_) => pstd.remove(k0_).inspect(|_| {
+                            renamed.push((k0.clone(), k1.clone()));
+                        }),
+                        AnyKey::NonStd(k0_) => nonstd.remove(k0_).inspect(|_| {
+                            renamed.push((k0.clone(), k1.clone()));
+                        }),
+                    }
+                };
+            }
+
+            match k1 {
+                AnyKey::Std(k1_) => {
+                    if self.key_has_value(&k1_.0) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = go!() {
+                        // we checked above so this shouldn't return anything
+                        let _ = self.insert(&k1_.0, v);
+                    }
+                }
+                AnyKey::PseudoNonStd(k1_) => {
+                    if pnonstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = go!() {
+                        // we checked above so this shouldn't return anything
+                        let _ = pnonstd.insert(*k1_, v);
+                    }
+                }
+                AnyKey::PseudoStd(k1_) => {
+                    if pstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = go!() {
+                        // we checked above so this shouldn't return anything
+                        let _ = pstd.insert(k1_.clone(), v);
+                    }
+                }
+                AnyKey::NonStd(k1_) => {
+                    if nonstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = go!() {
+                        // we checked above so this shouldn't return anything
+                        let _ = nonstd.insert(k1_.clone(), v);
+                    }
+                }
+            }
         }
 
         // replace
@@ -569,206 +618,6 @@ impl<'a> StdRepairTx<'a> {
             }
         }
 
-        // rename
-
-        // let (std_rename, pstd_rename) = conf.rename_standard_keys.split();
-
-        let mut renamed = vec![];
-        let mut renamed_non_unique = vec![];
-
-        for (k0, k1) in &conf.rename_standard_keys {
-            match (k0, k1) {
-                (AnyKey::Std(k0_), AnyKey::Std(k1_)) => {
-                    if self.key_has_value(&k1_.0) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = self.delete(&k0_.0) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.to_owned();
-                        // we checked above so this shouldn't return anything
-                        let _ = self.insert(&k1_.0, vf);
-                    }
-                }
-                (AnyKey::Std(k0_), AnyKey::PseudoNonStd(k1_)) => {
-                    if pnonstd.contains_key(k1_) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = self.delete(&k0_.0) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.to_owned();
-                        // we checked above so this shouldn't return anything
-                        let _ = pnonstd.insert(*k1_, vf);
-                    }
-                }
-                (AnyKey::Std(k0_), AnyKey::PseudoStd(k1_)) => {
-                    if pstd.contains_key(k1_) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = self.delete(&k0_.0) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.to_owned();
-                        // we checked above so this shouldn't return anything
-                        let _ = pstd.insert(k1_.clone(), vf);
-                    }
-                }
-                (AnyKey::Std(k0_), AnyKey::NonStd(k1_)) => {
-                    if nonstd.contains_key(k1_) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = self.delete(&k0_.0) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.to_owned();
-                        // we checked above so this shouldn't return anything
-                        let _ = nonstd.insert(k1_.clone(), vf);
-                    }
-                }
-
-                (AnyKey::PseudoNonStd(k0_), AnyKey::Std(k1_)) => {
-                    if self.key_has_value(&k1_.0) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = pnonstd.remove(k0_) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.clone();
-                        // we checked above so this shouldn't return anything
-                        let _ = self.insert(&k1_.0, vf);
-                    }
-                }
-                (AnyKey::PseudoNonStd(k0_), AnyKey::PseudoNonStd(k1_)) => {
-                    if pnonstd.contains_key(k1_) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = pnonstd.remove(k0_) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.clone();
-                        // we checked above so this shouldn't return anything
-                        let _ = pnonstd.insert(*k1_, vf);
-                    }
-                }
-                (AnyKey::PseudoNonStd(k0_), AnyKey::PseudoStd(k1_)) => {
-                    if pstd.contains_key(k1_) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = pnonstd.remove(k0_) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.clone();
-                        // we checked above so this shouldn't return anything
-                        let _ = pstd.insert(k1_.clone(), vf);
-                    }
-                }
-                (AnyKey::PseudoNonStd(k0_), AnyKey::NonStd(k1_)) => {
-                    if nonstd.contains_key(k1_) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = pnonstd.remove(k0_) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.clone();
-                        // we checked above so this shouldn't return anything
-                        let _ = nonstd.insert(k1_.clone(), vf);
-                    }
-                }
-
-                (AnyKey::PseudoStd(k0_), AnyKey::Std(k1_)) => {
-                    if self.key_has_value(&k1_.0) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = pstd.remove(k0_) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.clone();
-                        // we checked above so this shouldn't return anything
-                        let _ = self.insert(&k1_.0, vf);
-                    }
-                }
-                (AnyKey::PseudoStd(k0_), AnyKey::PseudoNonStd(k1_)) => {
-                    if pnonstd.contains_key(k1_) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = pstd.remove(k0_) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.clone();
-                        // we checked above so this shouldn't return anything
-                        let _ = pnonstd.insert(*k1_, vf);
-                    }
-                }
-                (AnyKey::PseudoStd(k0_), AnyKey::PseudoStd(k1_)) => {
-                    if pstd.contains_key(k1_) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = pstd.remove(k0_) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.clone();
-                        // we checked above so this shouldn't return anything
-                        let _ = pstd.insert(k1_.clone(), vf);
-                    }
-                }
-                (AnyKey::PseudoStd(k0_), AnyKey::NonStd(k1_)) => {
-                    if nonstd.contains_key(k1_) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = pstd.remove(k0_) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.clone();
-                        // we checked above so this shouldn't return anything
-                        let _ = nonstd.insert(k1_.clone(), vf);
-                    }
-                }
-
-                (AnyKey::NonStd(k0_), AnyKey::Std(k1_)) => {
-                    if self.key_has_value(&k1_.0) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = nonstd.remove(k0_) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.clone();
-                        // we checked above so this shouldn't return anything
-                        let _ = self.insert(&k1_.0, vf);
-                    }
-                }
-                (AnyKey::NonStd(k0_), AnyKey::PseudoNonStd(k1_)) => {
-                    if pnonstd.contains_key(k1_) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = nonstd.remove(k0_) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.clone();
-                        // we checked above so this shouldn't return anything
-                        let _ = pnonstd.insert(*k1_, vf);
-                    }
-                }
-                (AnyKey::NonStd(k0_), AnyKey::PseudoStd(k1_)) => {
-                    if pstd.contains_key(k1_) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = nonstd.remove(k0_) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.clone();
-                        // we checked above so this shouldn't return anything
-                        let _ = pstd.insert(k1_.clone(), vf);
-                    }
-                }
-                (AnyKey::NonStd(k0_), AnyKey::NonStd(k1_)) => {
-                    if nonstd.contains_key(k1_) {
-                        renamed_non_unique.push((k0.clone(), k1.clone()));
-                    } else if let Some(v) = nonstd.remove(k0_) {
-                        renamed.push((k0.clone(), k1.clone()));
-                        let vf = v.clone();
-                        // we checked above so this shouldn't return anything
-                        let _ = nonstd.insert(k1_.clone(), vf);
-                    }
-                }
-            }
-        }
-
-        // for (k0, k1) in Vec::from(pstd_rename) {
-        //     let dk1 = DollarWrap0(k1);
-        //     if let Entry::Occupied(e) = pstd.entry(DollarWrap0(k0.clone())) {
-        //         let k0_ = e.key().to_owned();
-        //         if self.insert(&k1, e.remove()).is_some() {
-        //             renamed_pseudo_std_non_unique.push((k0_, dk1));
-        //         } else {
-        //             renamed_pseudo_std.push((k0_, dk1));
-        //         }
-        //     }
-        // }
-
-        // for (k0, k1) in Vec::from(std_rename) {
-        //     let dk0 = DollarWrap0(k0);
-        //     let dk1 = DollarWrap0(k1);
-        //     if self.key_has_value(&k1) {
-        //         renamed_std_non_unique.push((dk0, dk1));
-        //     } else if let Some(v) = self.delete(&k0) {
-        //         renamed_std.push((dk0, dk1));
-        //         let vf = v.to_owned();
-        //         // we checked above so this shouldn't return anything
-        //         let _ = self.insert(&k1, vf);
-        //     }
-        // }
-
         // append
 
         let mut appended_non_unique = vec![];
@@ -792,8 +641,6 @@ impl<'a> StdRepairTx<'a> {
             renamed_non_unique,
             ignored,
             removed,
-            promoted_demoted_noop: promote_demoted_noop,
-            promoted_ignored_noop: promote_ignored_noop,
             promoted_non_unique: promote_non_unique,
             appended_non_unique,
         };

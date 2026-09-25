@@ -7,6 +7,7 @@ use fireflow_core::{
     validated::read_state::DatasetOffset,
 };
 
+use fireflow_types::args::dash as ta;
 use fireflow_types::config::{
     self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, NumericByteWidth,
 };
@@ -14,15 +15,11 @@ use fireflow_types::datepattern::DatePattern;
 use fireflow_types::keywords as tk;
 use fireflow_types::other_width::OtherWidth;
 use fireflow_types::segment::OffsetsCorrection;
-use fireflow_types::std_key as sk;
+use fireflow_types::std_key::{self as sk, AnyKey, DollarStdKey};
 use fireflow_types::std_pattern::PATTERN_DELIMITER;
 use fireflow_types::sub_pattern::SubPattern;
 use fireflow_types::textdelim::TEXTDelim;
 use fireflow_types::timepattern::TimePattern;
-use fireflow_types::{
-    args::dash as ta,
-    std_key::{DollarAnyStdKey, DollarStdKey},
-};
 use fireflow_types::{byteord::ConfigByteOrd, std_pattern::StdKeyOrPattern};
 use nonempty::{NEStr, NEString};
 
@@ -41,6 +38,7 @@ use zmij::Buffer as FBuf;
 
 use std::collections::HashSet;
 use std::error::Error;
+use std::fmt;
 use std::fmt::Display;
 use std::io::{self, Write};
 use std::iter::once;
@@ -1890,11 +1888,15 @@ fn parse_offset_pair(s: &str) -> StrResult<(i32, i32)> {
     }
 }
 
-fn parse_std_key_or_pattern_list<const DOLLAR: bool>(
+fn parse_std_key_or_pattern_list<const HAS_PRE: bool>(
     s: &str,
-) -> StrResult<Vec<StdKeyOrPattern<DOLLAR>>> {
+) -> StrResult<Vec<StdKeyOrPattern<HAS_PRE>>>
+where
+    StdKeyOrPattern<HAS_PRE>: FromStr,
+    <StdKeyOrPattern<HAS_PRE> as FromStr>::Err: fmt::Display,
+{
     let go = |ss: &str| {
-        ss.parse::<StdKeyOrPattern<DOLLAR>>()
+        ss.parse::<StdKeyOrPattern<HAS_PRE>>()
             .map_err(|e| e.to_string())
     };
     let single = || Ok(vec![go(s)?]);
@@ -1924,8 +1926,8 @@ fn parse_std_key_or_pattern_list<const DOLLAR: bool>(
 }
 
 fn parse_two_keystring_pair(s: &str) -> StrResult<Vec<BiKeyPair>> {
-    let go_k = |x: &str| x.parse::<DollarAnyStdKey>().map_err(|e| e.to_string());
-    let go_v = |x: &str| x.parse::<DollarStdKey>().map_err(|e| e.to_string());
+    let go_k = |x: &str| x.parse::<AnyKey>().map_err(|e| e.to_string());
+    let go_v = |x: &str| x.parse::<AnyKey>().map_err(|e| e.to_string());
     parse_pairs(s, go_k, go_v)
 }
 
@@ -2122,7 +2124,7 @@ type AppResult<T> = Result<T, Box<dyn Error>>;
 
 type StrResult<T> = Result<T, String>;
 
-type BiKeyPair = (DollarAnyStdKey, DollarStdKey);
+type BiKeyPair = (AnyKey, AnyKey);
 
 type KeystringStringPair = (DollarStdKey, NEString);
 

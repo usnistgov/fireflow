@@ -2133,13 +2133,11 @@ class RepairDiagnostics:
         promoted: list[pft.PseudoNonStdKey],
         subbed: list[tuple[pft.StdKey, pft.NEStr]],
         replaced: list[tuple[pft.StdKey, pft.NEStr]],
-        renamed_std: list[tuple[pft.StdKey, pft.StdKey]],
-        renamed_pseudo_std: list[tuple[pft.PseudoStdKey, pft.StdKey]],
-        renamed_std_non_unique: list[tuple[pft.StdKey, pft.StdKey]],
-        renamed_pseudo_std_non_unique: list[tuple[pft.PseudoStdKey, pft.StdKey]],
+        renamed: list[tuple[pft.AnyKey, pft.AnyKey]],
+        renamed_non_unique: list[tuple[pft.AnyKey, pft.AnyKey]],
         ignored: list[tuple[pft.StdKey, pft.NEStr]],
         removed: list[tuple[pft.StdKey, pft.NEStr]],
-        promoted_non_unique: list[tuple[pft.StdKey, pft.NEStr]],
+        promoted_non_unique: list[tuple[pft.PseudoNonStdKey, pft.NEStr]],
         promoted_demoted_noop: list[pft.NonStdKey],
         promoted_ignored_noop: list[pft.NonStdKey],
         appended_non_unique: list[tuple[pft.StdKey, pft.NEStr]],
@@ -2154,21 +2152,15 @@ class RepairDiagnostics:
     @property
     def replaced(self) -> list[tuple[pft.StdKey, pft.NEStr]]: ...
     @property
-    def renamed_std(self) -> list[tuple[pft.StdKey, pft.StdKey]]: ...
+    def renamed(self) -> list[tuple[pft.AnyKey, pft.AnyKey]]: ...
     @property
-    def renamed_pseudo_std(self) -> list[tuple[pft.PseudoStdKey, pft.StdKey]]: ...
-    @property
-    def renamed_std_non_unique(self) -> list[tuple[pft.StdKey, pft.StdKey]]: ...
-    @property
-    def renamed_pseudo_std_non_unique(
-        self,
-    ) -> list[tuple[pft.PseudoStdKey, pft.StdKey]]: ...
+    def renamed_non_unique(self) -> list[tuple[pft.AnyKey, pft.AnyKey]]: ...
     @property
     def ignored(self) -> list[tuple[pft.StdKey, pft.NEStr]]: ...
     @property
     def removed(self) -> list[tuple[pft.StdKey, pft.NEStr]]: ...
     @property
-    def promoted_non_unique(self) -> list[tuple[pft.StdKey, pft.NEStr]]: ...
+    def promoted_non_unique(self) -> list[tuple[pft.PseudoNonStdKey, pft.NEStr]]: ...
     @property
     def promoted_demoted_noop(self) -> list[pft.NonStdKey]: ...
     @property

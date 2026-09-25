@@ -4,8 +4,8 @@ use crate::std_index::index::StdKeywords;
 use fireflow_types::config::Encoding;
 use fireflow_types::index::{BiMeasIndex, MeasIndex};
 use fireflow_types::std_key::{
-    AnyStdKey, DollarAnyStdKey, DollarPseudoStdKey, DollarStdKey, DollarWrap, NonStdKey, ParsedKey,
-    PseudoNonStdKey, PseudoStdKey, StdKey, ToStd,
+    AnyKey, DollarPseudoStdKey, DollarStdKey, DollarWrap, NonStdKey, ParsedKey, PseudoNonStdKey,
+    StdKey, ToStd,
 };
 use nonempty::{HasNELen as _, NEAlt, NESlice, NEStr, NEString, NEVec, ToDisplayNE, ToNE};
 
@@ -25,19 +25,6 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {fireflow_core_proc::FromInnerPyObject, pyo3::prelude::*};
-
-/// Either a standard or non-standard key with '$' prefixed on the former.
-#[derive(Clone, Display, PartialEq, Debug, From)]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum AnyKey {
-    // NOTE this must include the '$' prefix since otherwise it would be
-    // impossible to tell the difference b/t a pseudostandard and a nonstandard
-    // key when parsing from a string (which is what the python impls will do)
-    Std(DollarAnyStdKey),
-    NonStd(NonStdKey),
-    PseudoNonStd(PseudoNonStdKey),
-}
 
 /// A standard (non-pseudostandard) key or non-standard key.
 #[derive(Clone, PartialEq, From)]
@@ -416,14 +403,14 @@ pub trait ValueToStdKey {
 #[derive(Debug)]
 pub(crate) enum ParsedKeyword<'a> {
     // Valid std key value as a slice
-    StdSlice(NonEmptyValue<StdKey, &'a NEStr>),
+    StdSlice(NonEmptyValue<DollarStdKey, &'a NEStr>),
     // Valid std key value as owned value (used for values with latin1
     // characters and escaped delimiters)
-    StdOwned(NonEmptyValue<StdKey, NEString>),
+    StdOwned(NonEmptyValue<DollarStdKey, NEString>),
     // Valid non-std key and valid
     NonStd(NonEmptyValue<NonStdKey, NEString>),
     // Pseudo-std key and value
-    PseudoStd(NonEmptyValue<PseudoStdKey, NEString>),
+    PseudoStd(NonEmptyValue<DollarPseudoStdKey, NEString>),
     // Pseudo-non-std key and value
     PseudoNonStd(NonEmptyValue<PseudoNonStdKey, NEString>),
     // Key (any type or raw bytes) where value was trimmed to empty whitespace
@@ -447,10 +434,10 @@ impl From<ParsedKey> for DollarKeyOrBytes {
     fn from(value: ParsedKey) -> Self {
         match value {
             ParsedKey::Bytes(x) => Self::Bytes(TruncatedNEBytes(x)),
-            ParsedKey::PseudoStd(x) => Self::Ascii(AnyKey::Std(DollarWrap(AnyStdKey::Pseudo(x)))),
-            ParsedKey::Std(x) => Self::Ascii(AnyKey::Std(DollarWrap(AnyStdKey::Real(x)))),
-            ParsedKey::NonStd(x) => Self::Ascii(AnyKey::NonStd(x)),
+            ParsedKey::Std(x) => Self::Ascii(AnyKey::Std(x)),
             ParsedKey::PseudoNonStd(x) => Self::Ascii(AnyKey::PseudoNonStd(x)),
+            ParsedKey::PseudoStd(x) => Self::Ascii(AnyKey::PseudoStd(x)),
+            ParsedKey::NonStd(x) => Self::Ascii(AnyKey::NonStd(x)),
         }
     }
 }
@@ -611,11 +598,9 @@ impl<'a> ParsedKeyword<'a> {
                 Self::NonAsciiKey(NonEmptyValue::new(k, v, original))
             }
             (ParsedKey::Bytes(k), ParsedValue::Bytes(v)) => Self::BothInvalid(k, v),
-            (ParsedKey::Std(k), ParsedValue::Bytes(v)) => {
-                Self::NonUtf8Value(AnyKey::Std(DollarWrap(AnyStdKey::Real(k))), v)
-            }
+            (ParsedKey::Std(k), ParsedValue::Bytes(v)) => Self::NonUtf8Value(AnyKey::Std(k), v),
             (ParsedKey::PseudoStd(k), ParsedValue::Bytes(v)) => {
-                Self::NonUtf8Value(AnyKey::Std(DollarWrap(AnyStdKey::Pseudo(k))), v)
+                Self::NonUtf8Value(AnyKey::PseudoStd(k), v)
             }
             (ParsedKey::NonStd(k), ParsedValue::Bytes(v)) => {
                 Self::NonUtf8Value(AnyKey::NonStd(k), v)
@@ -660,19 +645,19 @@ impl<'a> ParsedKeyword<'a> {
         match self {
             Self::StdSlice(kv) => {
                 if let Some(o) = kv.original {
-                    let k = AnyKey::Std(DollarWrap(kv.key.into()));
+                    let k = AnyKey::Std(kv.key);
                     diag.keys_with_trimmed_values
                         .push((DollarKeyOrBytes::from(k), o.into()));
                 }
-                std.push((kv.key, f_slice(kv.value)));
+                std.push((kv.key.0, f_slice(kv.value)));
             }
             Self::StdOwned(kv) => {
                 if let Some(o) = kv.original {
-                    let k = AnyKey::Std(DollarWrap(kv.key.into()));
+                    let k = AnyKey::Std(kv.key);
                     diag.keys_with_trimmed_values
                         .push((DollarKeyOrBytes::from(k), o.into()));
                 }
-                std.push((kv.key, f_owned(kv.value)));
+                std.push((kv.key.0, f_owned(kv.value)));
             }
             Self::NonStd(kv) => {
                 if let Some(o) = kv.original {
@@ -691,11 +676,11 @@ impl<'a> ParsedKeyword<'a> {
             }
             Self::PseudoStd(kv) => {
                 if let Some(o) = kv.original {
-                    let k = AnyKey::Std(DollarWrap(kv.key.clone().into()));
+                    let k = AnyKey::PseudoStd(kv.key.clone());
                     diag.keys_with_trimmed_values
                         .push((DollarKeyOrBytes::from(k), o.into()));
                 }
-                match nonstd.pstd.entry(DollarWrap(kv.key)) {
+                match nonstd.pstd.entry(kv.key) {
                     Entry::Occupied(e) => diag
                         .non_unique_pstd_keywords
                         .push((e.key().clone(), kv.value.into())),
@@ -706,7 +691,7 @@ impl<'a> ParsedKeyword<'a> {
             }
             Self::PseudoNonStd(kv) => {
                 if let Some(o) = kv.original {
-                    let k = AnyKey::Std(DollarWrap(kv.key.into()));
+                    let k = AnyKey::PseudoNonStd(kv.key);
                     diag.keys_with_trimmed_values
                         .push((DollarKeyOrBytes::from(k), o.into()));
                 }
@@ -804,25 +789,23 @@ impl ParsedKeywordsDiagnostic {
 impl ValidKeywords {
     pub(crate) fn get_any(&self, k: &AnyKey) -> Option<&NEStr> {
         match k {
-            AnyKey::Std(k0) => match &k0.0 {
-                AnyStdKey::Real(k1) => self.get_std(k1),
-                AnyStdKey::Pseudo(k1) => self.get_pstd(k1),
-            },
-            AnyKey::NonStd(k0) => self.get_nonstd(k0),
+            AnyKey::Std(k0) => self.get_std(k0),
             AnyKey::PseudoNonStd(k0) => self.get_pnonstd(k0),
+            AnyKey::PseudoStd(k0) => self.get_pstd(k0),
+            AnyKey::NonStd(k0) => self.get_nonstd(k0),
         }
     }
 
-    pub(crate) fn get_std(&self, k: &StdKey) -> Option<&NEStr> {
-        self.std.get(k)
-    }
-
-    pub(crate) fn get_pstd(&self, k: &PseudoStdKey) -> Option<&NEStr> {
-        self.pstd.get(k).map(NEString::as_ne_str)
+    pub(crate) fn get_std(&self, k: &DollarStdKey) -> Option<&NEStr> {
+        self.std.get(&k.0)
     }
 
     pub(crate) fn get_pnonstd(&self, k: &PseudoNonStdKey) -> Option<&NEStr> {
         self.pnonstd.get(k).map(NEString::as_ne_str)
+    }
+
+    pub(crate) fn get_pstd(&self, k: &DollarPseudoStdKey) -> Option<&NEStr> {
+        self.pstd.get(k).map(NEString::as_ne_str)
     }
 
     pub(crate) fn get_nonstd(&self, k: &NonStdKey) -> Option<&NEStr> {

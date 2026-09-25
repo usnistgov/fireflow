@@ -1,11 +1,12 @@
 use crate::index::{BiMeasIndex, IndexFromOne};
 use crate::std_key::{
-    CsvFlagKey, DfcKey, DollarStdKey, DollarStdKeyError, GateKeyId, IndexedKey, NonPeakMeasKeyId,
-    PeakMeasKeyId, RegionKeyId, STD_PREFIX, StdKey, StdKeyError,
+    CsvFlagKey, DfcKey, DollarStdKey, DollarStdKey_, DollarWrap0, GateKeyId, IndexedKey,
+    NonPeakMeasKeyId, PeakMeasKeyId, PseudoNonStdKey, PseudoNonStdKeyError0, RegionKeyId,
+    STD_PREFIX, StdKey, StdKeyError0,
 };
 use crate::sub_pattern::SubPattern;
 
-use nonempty::{DisplayableNE as _, IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
+use nonempty::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
 
 use const_format::formatcp;
 use derive_more::{AsRef, Display, From};
@@ -28,7 +29,7 @@ use {
 
 /// A list of patterns that match keys.
 #[derive(Clone, AsRef, PartialEq)]
-pub struct StdKeysOrPatterns<const DOLLAR: bool, T>(pub HashMap<StdKeyOrPattern<DOLLAR>, T>);
+pub struct StdKeysOrPatterns<const HAS_PRE: bool, T>(pub HashMap<StdKeyOrPattern<HAS_PRE>, T>);
 
 impl<const DOLLAR: bool, T> Default for StdKeysOrPatterns<DOLLAR, T> {
     fn default() -> Self {
@@ -36,31 +37,32 @@ impl<const DOLLAR: bool, T> Default for StdKeysOrPatterns<DOLLAR, T> {
     }
 }
 
-pub struct StdKeysMatcher<'a, T> {
+pub struct StdKeysMatcher<'a, const HAS_PRE: bool, T> {
     // use hashmap since we can make non-unique patterns that produce the same
     // literal keys
-    pub literals: HashMap<StdKey, &'a T>,
+    pub literals: HashMap<DollarStdKey_<HAS_PRE>, &'a T>,
     pub wildcards: Vec<(&'a StdWildcard, &'a T)>,
 }
 
 /// A list of patterns that match [`crate::validated::keys::StdKey`]s.
-pub type StdKeyPatterns<const DOLLAR: bool> = StdKeysOrPatterns<DOLLAR, ()>;
+pub type StdKeyPatterns<const HAS_PRE: bool> = StdKeysOrPatterns<HAS_PRE, ()>;
 
 /// A list of substitutions that match [`crate::validated::keys::StdKey`]s.
 pub type SubPatterns = StdKeysOrPatterns<true, SubPattern>;
 
 #[derive(From, Clone, PartialEq, Eq, Hash, Display, Debug)]
-// #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub enum StdKeyOrPattern<const DOLLAR: bool> {
-    #[display("{}{}", if DOLLAR { "$" } else {""}, _0.as_displayable())]
-    Key(StdKey),
-    #[display("{}{_0}", if DOLLAR { "$" } else {""},)]
-    Pattern(StdIndexPattern),
+#[display(bound(DollarWrap0<HAS_PRE, StdKey>: fmt::Display))]
+#[display(bound(DollarWrap0<HAS_PRE, StdIndexPattern>: fmt::Display))]
+pub enum StdKeyOrPattern<const HAS_PRE: bool> {
+    Key(DollarStdKey_<HAS_PRE>),
+    Pattern(StdIndexPattern<HAS_PRE>),
 }
+
+pub type StdIndexPattern<const HAS_PRE: bool> = DollarWrap0<HAS_PRE, StdIndexPattern_>;
 
 #[derive(From, Clone, PartialEq, Eq, Hash, Display, Debug)]
 #[display("{PATTERN_DELIMITER}{_0}{PATTERN_DELIMITER}")]
-pub enum StdIndexPattern {
+pub enum StdIndexPattern_ {
     Discrete(StdIndexedKeys),
     Wildcard(StdWildcard),
 }
@@ -126,8 +128,8 @@ pub struct NonUniqueKeyError<T>(NEVec<T>);
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdKeyOrPatternError {
     Pattern(StdIndexPatternError),
-    Literal(StdKeyError),
-    DollarLiteral(DollarStdKeyError),
+    Literal(StdKeyError0),
+    DollarLiteral(PseudoNonStdKeyError0),
 }
 
 /// Error when parsing [`StdIndexPattern`] from [`String`].
@@ -140,10 +142,10 @@ pub enum StdKeyOrPatternError {
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct StdIndexPatternError;
 
-impl<const DOLLAR: bool> StdKeyOrPattern<DOLLAR> {
+impl<const HAS_PRE: bool> StdKeyOrPattern<HAS_PRE> {
     pub fn put_keys<'a, T: Copy>(
         &'a self,
-        literals: &mut HashMap<StdKey, T>,
+        literals: &mut HashMap<DollarStdKey_<HAS_PRE>, T>,
         wildcards: &mut Vec<(&'a StdWildcard, T)>,
         value: T,
     ) {
@@ -151,22 +153,27 @@ impl<const DOLLAR: bool> StdKeyOrPattern<DOLLAR> {
             Self::Key(k) => {
                 let _ = literals.insert(*k, value);
             }
-            Self::Pattern(p) => match p {
-                StdIndexPattern::Discrete(ks) => ks.put_keys(literals, value),
-                StdIndexPattern::Wildcard(w) => wildcards.push((w, value)),
+            Self::Pattern(p) => match p.as_ref() {
+                StdIndexPattern_::Discrete(ks) => ks.put_keys(literals, value),
+                StdIndexPattern_::Wildcard(w) => wildcards.push((w, value)),
             },
         }
     }
 }
 
 impl StdIndexedKeys {
-    fn put_keys<T: Copy>(&self, keys: &mut HashMap<StdKey, T>, value: T) {
+    fn put_keys<const HAS_PRE: bool, T: Copy>(
+        &self,
+        keys: &mut HashMap<DollarStdKey_<HAS_PRE>, T>,
+        value: T,
+    ) {
         match self {
             Self::Meas(js, i) => {
                 let it = js
                     .as_ref()
                     .into_nonempty_iter()
                     .map(|j| StdKey::Meas(IndexedKey::new((*j).into(), (*i).into())))
+                    .map(DollarWrap0)
                     .map(|k| (k, value));
                 keys.extend(it);
             }
@@ -175,6 +182,7 @@ impl StdIndexedKeys {
                     .as_ref()
                     .into_nonempty_iter()
                     .map(|j| StdKey::Meas(IndexedKey::new((*j).into(), (*i).into())))
+                    .map(DollarWrap0)
                     .map(|k| (k, value));
                 keys.extend(it);
             }
@@ -183,6 +191,7 @@ impl StdIndexedKeys {
                     .as_ref()
                     .into_nonempty_iter()
                     .map(|j| StdKey::Gate(IndexedKey::new((*j).into(), *i)))
+                    .map(DollarWrap0)
                     .map(|k| (k, value));
                 keys.extend(it);
             }
@@ -191,6 +200,7 @@ impl StdIndexedKeys {
                     .as_ref()
                     .into_nonempty_iter()
                     .map(|j| StdKey::Region(IndexedKey::new((*j).into(), *i)))
+                    .map(DollarWrap0)
                     .map(|k| (k, value));
                 keys.extend(it);
             }
@@ -199,6 +209,7 @@ impl StdIndexedKeys {
                     .as_ref()
                     .into_nonempty_iter()
                     .map(|j| StdKey::CsvFlag(CsvFlagKey::new((*j).into())))
+                    .map(DollarWrap0)
                     .map(|k| (k, value));
                 keys.extend(it);
             }
@@ -213,6 +224,7 @@ impl StdIndexedKeys {
                     })
                     .map(DfcKey::new)
                     .map(StdKey::Dfc)
+                    .map(DollarWrap0)
                     .map(|k| (k, value));
                 keys.extend(it);
             }
@@ -236,9 +248,9 @@ impl StdWildcard {
     }
 }
 
-impl<const DOLLAR: bool, T> StdKeysOrPatterns<DOLLAR, T> {
+impl<const HAS_PRE: bool, T> StdKeysOrPatterns<HAS_PRE, T> {
     #[must_use]
-    pub fn as_matcher(&self) -> StdKeysMatcher<'_, T> {
+    pub fn as_matcher(&self) -> StdKeysMatcher<'_, HAS_PRE, T> {
         let mut literals = HashMap::new();
         let mut wildcards = vec![];
 
@@ -254,19 +266,19 @@ impl<const DOLLAR: bool, T> StdKeysOrPatterns<DOLLAR, T> {
 
     pub fn from_many(
         xs: impl IntoIterator<Item = Self>,
-    ) -> Result<Self, NonUniqueKeyError<StdKeyOrPattern<DOLLAR>>> {
+    ) -> Result<Self, NonUniqueKeyError<StdKeyOrPattern<HAS_PRE>>> {
         checked_iter_to_hashmap(xs.into_iter().flat_map(|x| x.0.into_iter())).map(Self)
     }
 }
 
-impl StdKeysMatcher<'_, ()> {
+impl<const HAS_PRE: bool> StdKeysMatcher<'_, HAS_PRE, ()> {
     #[must_use]
     pub fn is_wildcard_match(&self, key: &StdKey) -> bool {
         self.get_wildcard(key).is_some()
     }
 }
 
-impl<'a, T> StdKeysMatcher<'a, T> {
+impl<'a, const HAS_PRE: bool, T> StdKeysMatcher<'a, HAS_PRE, T> {
     #[must_use]
     pub fn get_wildcard(&self, key: &StdKey) -> Option<&'a T> {
         self.wildcards
@@ -303,7 +315,8 @@ enum Idx {
     Discrete(StdIndices),
 }
 
-impl<const DOLLAR: bool> FromStr for StdKeyOrPattern<DOLLAR> {
+// TODO this can be cleaned up
+impl FromStr for StdKeyOrPattern<true> {
     type Err = StdKeyOrPatternError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -313,24 +326,40 @@ impl<const DOLLAR: bool> FromStr for StdKeyOrPattern<DOLLAR> {
         {
             if let Some((b, bs)) = inner.as_bytes().split_first()
                 && *b == STD_PREFIX
-                && DOLLAR
             {
                 let ss = str::from_utf8(bs).expect("stripping prefix shouldn't break utf8");
-                let p = StdIndexPattern::from_str(ss).ok_or(StdIndexPatternError)?;
-                Ok(Self::Pattern(p))
+                let p = StdIndexPattern_::from_str(ss).ok_or(StdIndexPatternError)?;
+                Ok(Self::Pattern(DollarWrap0(p)))
             } else {
-                let p = StdIndexPattern::from_str(inner).ok_or(StdIndexPatternError)?;
-                Ok(Self::Pattern(p))
+                Err(StdIndexPatternError.into())
             }
-        } else if DOLLAR {
-            Ok(Self::Key(s.parse::<DollarStdKey>()?.0))
         } else {
-            Ok(Self::Key(s.parse::<StdKey>()?))
+            Ok(Self::Key(s.parse::<DollarStdKey>()?))
         }
     }
 }
 
-impl StdIndexPattern {
+impl FromStr for StdKeyOrPattern<false> {
+    type Err = StdKeyOrPatternError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(inner) = s
+            .strip_prefix(PATTERN_DELIMITER)
+            .and_then(|x| x.strip_suffix(PATTERN_DELIMITER))
+        {
+            if inner.as_bytes().first().is_some_and(|b| STD_PREFIX != *b) {
+                let p = StdIndexPattern_::from_str(inner).ok_or(StdIndexPatternError)?;
+                Ok(Self::Pattern(DollarWrap0(p)))
+            } else {
+                Err(StdIndexPatternError.into())
+            }
+        } else {
+            Ok(Self::Key(s.parse::<PseudoNonStdKey>()?))
+        }
+    }
+}
+
+impl StdIndexPattern_ {
     fn from_str(s: &str) -> Option<Self> {
         static MEAS_RE: LazyLock<Regex> = LazyLock::new(|| build_regex(MEAS_PATTERN));
         static GATE_RE: LazyLock<Regex> = LazyLock::new(|| build_regex(GATE_PATTERN));
@@ -549,15 +578,20 @@ mod python {
     use pyo3::types::{PyDict, PyString};
 
     use std::convert::Infallible;
+    use std::str::FromStr;
 
-    impl<'py, const DOLLAR: bool> FromPyObject<'_, 'py> for StdKeyOrPattern<DOLLAR> {
+    impl<'py, const HAS_PRE: bool> FromPyObject<'_, 'py> for StdKeyOrPattern<HAS_PRE>
+    where
+        Self: FromStr,
+        PyErr: From<<Self as FromStr>::Err>,
+    {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             Ok(obj.extract::<String>()?.parse()?)
         }
     }
 
-    impl<'py, const DOLLAR: bool> IntoPyObject<'py> for StdKeyOrPattern<DOLLAR> {
+    impl<'py, const HAS_PRE: bool> IntoPyObject<'py> for StdKeyOrPattern<HAS_PRE> {
         type Target = PyString;
         type Output = Bound<'py, Self::Target>;
         type Error = Infallible;
@@ -567,15 +601,18 @@ mod python {
         }
     }
 
-    impl<'py, const DOLLAR: bool> FromPyObject<'_, 'py> for StdKeyPatterns<DOLLAR> {
+    impl<'py, const HAS_PRE: bool> FromPyObject<'_, 'py> for StdKeyPatterns<HAS_PRE>
+    where
+        for<'a> StdKeyOrPattern<HAS_PRE>: FromPyObject<'a, 'py>,
+    {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let xs: Vec<StdKeyOrPattern<DOLLAR>> = obj.extract()?;
+            let xs: Vec<StdKeyOrPattern<HAS_PRE>> = obj.extract()?;
             Ok(Self(xs.into_iter().map(|x| (x, ())).collect()))
         }
     }
 
-    impl<'py, const DOLLAR: bool> IntoPyObject<'py> for StdKeyPatterns<DOLLAR> {
+    impl<'py, const HAS_PRE: bool> IntoPyObject<'py> for StdKeyPatterns<HAS_PRE> {
         type Target = PyAny;
         type Output = Bound<'py, Self::Target>;
         type Error = PyErr;

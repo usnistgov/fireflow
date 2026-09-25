@@ -22,7 +22,7 @@ use fireflow_types::config::{
 };
 use fireflow_types::datepattern::DatePattern;
 use fireflow_types::keystring_pairs::{KeyStringPairs, KeyStringPairsError};
-use fireflow_types::std_key::{DollarAnyStdKey, DollarStdKey};
+use fireflow_types::std_key::{AnyKey, DollarStdKey};
 use fireflow_types::std_pattern::{
     NonUniqueKeyError, StdKeyOrPattern, StdKeyPatterns, StdKeysOrPatterns, SubPatterns,
     checked_iter_to_hashmap,
@@ -336,7 +336,7 @@ pub enum AppendRepairFlagError {
     Std(NonUniqueKeyError<StdKeyOrPattern<true>>),
     PseudoNonStd(NonUniqueKeyError<StdKeyOrPattern<false>>),
     NonUniqueStd(NonUniqueKeyError<DollarStdKey>),
-    NonUniqueMaybeStd(NonUniqueKeyError<DollarAnyStdKey>),
+    NonUniqueMaybeStd(NonUniqueKeyError<AnyKey>),
     KeyStringPairsValid(KeyStringPairsError),
 }
 

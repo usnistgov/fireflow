@@ -1,9 +1,10 @@
-use crate::std_key::{AnyStdKey, DollarAnyStdKey, DollarStdKey, PseudoStdKey, StdKey};
+use crate::std_key::AnyKey;
 
 use nonempty::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 
-use derive_more::{AsRef, Display, From, Into};
-use hashbrown::{HashMap, hash_map::IntoIter};
+use derive_more::{AsRef, Display, From};
+use hashbrown::HashMap;
+use hashbrown::hash_map::{IntoIter, Iter};
 use itertools::Itertools as _;
 use thiserror::Error;
 
@@ -25,65 +26,49 @@ use {
 #[derive(Clone, Debug, Default, AsRef, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct KeyStringPairs(HashMap<DollarAnyStdKey, DollarStdKey>);
+pub struct KeyStringPairs(HashMap<AnyKey, AnyKey>);
 
-/// A map of std to std  key pairs.
-///
-/// Keys are validated not to collide with each other.
-#[derive(Clone, Debug, Default, AsRef, PartialEq, Into)]
-pub struct StdKeyStringPairs(Vec<(StdKey, StdKey)>);
-
-/// A map of pseudo(std) to std  key pairs.
-///
-/// Keys are validated not to collide with each other.
-#[derive(Clone, Debug, Default, AsRef, PartialEq, Into)]
-pub struct PseudoStdKeyStringPairs<'a>(Vec<(&'a PseudoStdKey, StdKey)>);
+impl KeyStringPairs {
+    fn iter(&self) -> Iter<'_, AnyKey, AnyKey> {
+        (&self.0).into_iter()
+    }
+}
 
 impl IntoIterator for KeyStringPairs {
-    type Item = (DollarAnyStdKey, DollarStdKey);
-    type IntoIter = IntoIter<DollarAnyStdKey, DollarStdKey>;
+    type Item = (AnyKey, AnyKey);
+    type IntoIter = IntoIter<AnyKey, AnyKey>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
 }
 
-impl TryFrom<HashMap<DollarAnyStdKey, DollarStdKey>> for KeyStringPairs {
-    type Error = KeyStringPairsError;
+impl<'a> IntoIterator for &'a KeyStringPairs {
+    type Item = (&'a AnyKey, &'a AnyKey);
+    type IntoIter = Iter<'a, AnyKey, AnyKey>;
 
-    fn try_from(value: HashMap<DollarAnyStdKey, DollarStdKey>) -> Result<Self, Self::Error> {
-        if let Some(ne) = value.values().duplicates().try_into_nonempty_iter() {
-            return Err(KeyStringNonUniqueError(ne.cloned().collect()).into());
-        }
-        let mut names = vec![];
-        for (k, v) in &value {
-            if let AnyStdKey::Real(rk) = k.0
-                && rk == v.0
-            {
-                names.push(k.clone());
-            }
-        }
-        if let Ok(ns) = NEVec::try_from(names) {
-            Err(KeyStringMatchingKeyValueError(ns).into())
-        } else {
-            Ok(Self(value))
-        }
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
-impl KeyStringPairs {
-    // TODO this doesn't need to take ownership, I could use references downstream
-    #[must_use]
-    pub fn split(&self) -> (StdKeyStringPairs, PseudoStdKeyStringPairs<'_>) {
-        let mut std = vec![];
-        let mut pstd = vec![];
-        for (k0, k1) in self.as_ref() {
-            match &k0.0 {
-                AnyStdKey::Real(k) => std.push((*k, k1.0)),
-                AnyStdKey::Pseudo(k) => pstd.push((k, k1.0)),
-            }
+impl TryFrom<HashMap<AnyKey, AnyKey>> for KeyStringPairs {
+    type Error = KeyStringPairsError;
+
+    fn try_from(value: HashMap<AnyKey, AnyKey>) -> Result<Self, Self::Error> {
+        if let Some(ne) = value.values().duplicates().try_into_nonempty_iter() {
+            return Err(KeyStringNonUniqueError(ne.cloned().collect()).into());
         }
-        (StdKeyStringPairs(std), PseudoStdKeyStringPairs(pstd))
+        if let Some(ne) = value
+            .iter()
+            .filter(|(k, v)| k == v)
+            .map(|(k, _)| k.clone())
+            .try_into_nonempty_iter()
+        {
+            Err(KeyStringMatchingKeyValueError(ne.collect()).into())
+        } else {
+            Ok(Self(value))
+        }
     }
 }
 
@@ -100,18 +85,18 @@ pub enum KeyStringPairsError {
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-pub struct KeyStringMatchingKeyValueError(NEVec<DollarAnyStdKey>);
+pub struct KeyStringMatchingKeyValueError(NEVec<AnyKey>);
 
 /// Error when values in [`KeyStringPairs`] are not unique
 #[derive(Error, Debug, PartialEq, Clone)]
-#[error("the following value are not unique: {}", .0.iter().join(","))]
+#[error("the following values are not unique: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-pub struct KeyStringNonUniqueError(NEVec<DollarStdKey>);
+pub struct KeyStringNonUniqueError(NEVec<AnyKey>);
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::std_key::{DollarAnyStdKey, DollarStdKey};
+    use crate::std_key::AnyKey;
 
     use super::KeyStringPairs;
 
@@ -121,7 +106,7 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for KeyStringPairs {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let xs: HashMap<DollarAnyStdKey, DollarStdKey> = obj.extract()?;
+            let xs: HashMap<AnyKey, AnyKey> = obj.extract()?;
             let ret = xs.try_into()?;
             Ok(ret)
         }

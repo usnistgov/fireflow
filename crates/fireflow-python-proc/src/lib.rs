@@ -1537,42 +1537,18 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.replaced.clone()),
     );
 
-    let renamed_std = DocArgROIvar::new_ivar_ro(
-        "renamed_std",
-        PyList::new1(
-            PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_dollar_std_keyword()),
-        ),
-        "Standard keys which were renamed. The first element of the pair is the original name.",
-        |_, _| quote!(self.0.renamed_std.clone()),
+    let renamed = DocArgROIvar::new_ivar_ro(
+        "renamed",
+        PyList::new1(PyTuple::new1(PyAlias::new_any_keyword()).add(PyAlias::new_any_keyword())),
+        "Keys which were renamed. The first element of the pair is the original name.",
+        |_, _| quote!(self.0.renamed.clone()),
     );
 
-    let renamed_pseudo_std = DocArgROIvar::new_ivar_ro(
-        "renamed_pseudo_std",
-        PyList::new1(
-            PyTuple::new1(PyAlias::new_dollar_pstd_keyword())
-                .add(PyAlias::new_dollar_std_keyword()),
-        ),
-        "Standard keys which were renamed. The first element of the pair is the original name.",
-        |_, _| quote!(self.0.renamed_pseudo_std.clone()),
-    );
-
-    let renamed_std_non_unique = DocArgROIvar::new_ivar_ro(
-        "renamed_std_non_unique",
-        PyList::new1(
-            PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_dollar_std_keyword()),
-        ),
-        "Standard keys which were renamed. The first element of the pair is the original name.",
-        |_, _| quote!(self.0.renamed_std_non_unique.clone()),
-    );
-
-    let renamed_pseudo_std_non_unique = DocArgROIvar::new_ivar_ro(
-        "renamed_pseudo_std_non_unique",
-        PyList::new1(
-            PyTuple::new1(PyAlias::new_dollar_pstd_keyword())
-                .add(PyAlias::new_dollar_std_keyword()),
-        ),
-        "Standard keys which were renamed. The first element of the pair is the original name.",
-        |_, _| quote!(self.0.renamed_pseudo_std_non_unique.clone()),
+    let renamed_non_unique = DocArgROIvar::new_ivar_ro(
+        "renamed_non_unique",
+        PyList::new1(PyTuple::new1(PyAlias::new_any_keyword()).add(PyAlias::new_any_keyword())),
+        "Standard which were renamed. The first element of the pair is the original name.",
+        |_, _| quote!(self.0.renamed_non_unique.clone()),
     );
 
     let ignored = DocArgROIvar::new_ivar_ro(
@@ -1596,7 +1572,7 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
     let promoted_non_unique = DocArgROIvar::new_ivar_ro(
         "promoted_non_unique",
         PyList::new1(
-            PyTuple::new1(PyAlias::new_dollar_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+            PyTuple::new1(PyAlias::new_pnonstd_keyword()).add(PyAlias::new_ne_truncated_str()),
         ),
         "Non-standard keys which collided with a standard key when promoted.",
         |_, _| quote!(self.0.promoted_non_unique.clone()),
@@ -1630,10 +1606,8 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
         promoted,
         subbed,
         replaced,
-        renamed_std,
-        renamed_pseudo_std,
-        renamed_std_non_unique,
-        renamed_pseudo_std_non_unique,
+        renamed,
+        renamed_non_unique,
         ignored,
         removed,
         promoted_non_unique,
@@ -9066,7 +9040,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_any_keyword() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::AnyKey);
+        let path = parse_quote!(fireflow_types::std_key::AnyKey);
         Self::new_py(["typing"], "AnyKey").rstype(path)
     }
 

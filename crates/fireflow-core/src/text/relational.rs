@@ -42,7 +42,7 @@ use crate::validated::shortname::Shortname;
 use fireflow_types::config::ProcessOptionalFailure;
 use fireflow_types::index::{MeasIndex, RegionIndex};
 use fireflow_types::std_key::{
-    DfcKey, DollarStdKey, DollarWrap, IndexedKey, RegionKeyId, ToStd as _,
+    DfcKey, DollarStdKey, DollarWrap0, IndexedKey, RegionKeyId, ToStd as _,
 };
 use nonempty::{IntoIteratorExt as _, IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
 
@@ -491,7 +491,7 @@ impl RemovedGateLink {
         BrokenIndexedLinkError: From<BrokenRegionLinkError>,
     {
         let ri = self.region_index;
-        let region_key = DollarWrap(IndexedKey::new(ri, RegionKeyId::I).into());
+        let region_key = DollarWrap0(IndexedKey::new(ri, RegionKeyId::I).into());
         let k = DollarKey::new(ri);
         let e0 = KeyToIndexLinkError::new(self.meas_indices.into(), k);
         let e1 = DependentKeyError::<RegionWindow>::new2(ri, NEVec::new(region_key));

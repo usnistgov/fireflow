@@ -1,20 +1,13 @@
-use crate::validated::keys::{AnyKey, ValidKeywords};
+use crate::validated::keys::ValidKeywords;
 
-use fireflow_types::config::TimeMeasNamePattern;
-use fireflow_types::datepattern::DatePattern;
-use fireflow_types::keystring_pairs::KeyStringPairs;
-use fireflow_types::std_key::{AnyStdKey, DollarWrap, RootKey, ToStd as _};
-use fireflow_types::std_pattern::StdKeyPatterns;
-use fireflow_types::timepattern::TimePattern;
-use nonempty::{NEStr, NEString, NEVec, NonEmptyIterator as _, ne_str, nev};
+use fireflow_types::std_key::{AnyKey, DollarWrap0, RootKey, ToStd as _};
+use nonempty::{NEStr, NEString, NEVec, NonEmptyIterator as _, nev};
 
 use derive_more::Display;
 use derive_new::new;
-use hashbrown::HashMap;
 use regex::Regex;
 use thiserror::Error;
 
-use std::iter::once;
 use std::mem;
 use std::str::FromStr;
 
@@ -110,119 +103,115 @@ impl<T: Default> Default for Selector<T> {
 // if this is a problem or a sign of something very suboptimal. When this is
 // mainlined it would be worth checking.
 
-impl<const DOLLAR: bool> AppendableSelector<StdKeyPatterns<DOLLAR>> {
-    /// Promote SPILL or SPILLOVER but only if $SPILLOVER is not already present.
-    ///
-    /// Meant to be used with
-    /// [`AppendableSelector::push_rename_spill_to_spillover`] which in sum will
-    /// map SPILL, SPILLOVER, and $SPILL to $SPILLOVER but only if the latter is
-    /// not already present.
-    pub fn push_promote_spillover(&mut self) {
-        let pats: StdKeyPatterns<_> = once("/SPILL(?:OVER)?/".parse().unwrap()).collect();
-        let kw_test = KeyTest::HasKey(AnyKey::Std(DollarWrap(AnyStdKey::Real(
-            RootKey::Spillover.to_std0(),
-        ))));
-        let cond = Condition::Not(Condition::Root(kw_test).into());
-        let new = Selector::if_then(cond, Selector::root(pats));
-        self.push(new);
-    }
-}
+// impl AppendableSelector<StdKeyPatterns<false>> {
+//     /// Promote SPILL or SPILLOVER but only if $SPILLOVER is not already present.
+//     ///
+//     /// Meant to be used with
+//     /// [`AppendableSelector::push_rename_spill_to_spillover`] which in sum will
+//     /// map SPILL, SPILLOVER, and $SPILL to $SPILLOVER but only if the latter is
+//     /// not already present.
+//     pub fn push_promote_spillover(&mut self) {
+//         let pats: StdKeyPatterns<_> = once("/SPILL(?:OVER)?/".parse().unwrap()).collect();
+//         let kw_test = KeyTest::HasKey(AnyKey::Std(DollarWrap0(RootKey::Spillover.to_std0())));
+//         let cond = Condition::Not(Condition::Root(kw_test).into());
+//         let new = Selector::if_then(cond, Selector::root(pats));
+//         self.push(new);
+//     }
+// }
 
-impl AppendableSelector<KeyStringPairs> {
-    /// Rename $SPILL to $SPILLOVER.
-    ///
-    /// Meant to be used with [`AppendableSelector::push_promote_spillover`]
-    /// which in sum will map SPILL, SPILLOVER, and $SPILL to $SPILLOVER but
-    /// only if the latter is not already present.
-    pub fn push_rename_spill_to_spillover(&mut self) {
-        let mut hm = HashMap::new();
-        let from = DollarWrap("SPILL".parse::<AnyStdKey>().unwrap());
-        let to = DollarWrap(RootKey::Spillover.to_std0());
-        hm.insert(from, to);
-        let pairs = KeyStringPairs::try_from(hm).unwrap();
-        let kw_test = KeyTest::HasKey(AnyKey::Std(DollarWrap(AnyStdKey::Real(
-            RootKey::Spillover.to_std0(),
-        ))));
-        let cond = Condition::Not(Condition::Root(kw_test).into());
-        let new = Selector::if_then(cond, Selector::root(pairs));
-        self.push(new);
-    }
-}
+// impl AppendableSelector<KeyStringPairs> {
+//     /// Rename $SPILL to $SPILLOVER.
+//     ///
+//     /// Meant to be used with [`AppendableSelector::push_promote_spillover`]
+//     /// which in sum will map SPILL, SPILLOVER, and $SPILL to $SPILLOVER but
+//     /// only if the latter is not already present.
+//     pub fn push_rename_spill_to_spillover(&mut self) {
+//         let mut hm = HashMap::new();
+//         let from = "SPILL".parse::<AnyKey>().unwrap();
+//         let to = AnyKey::Std(DollarWrap0(RootKey::Spillover.to_std0()));
+//         hm.insert(from, to);
+//         let pairs = KeyStringPairs::try_from(hm).unwrap();
+//         let kw_test = KeyTest::HasKey(AnyKey::Std(DollarWrap0(RootKey::Spillover.to_std0())));
+//         let cond = Condition::Not(Condition::Root(kw_test).into());
+//         let new = Selector::if_then(cond, Selector::root(pairs));
+//         self.push(new);
+//     }
+// }
 
-impl Selector<TimeMeasNamePattern> {
-    /// Create new selector for vendor-specific time measurement names.
-    ///
-    /// Included patterns:
-    ///
-    /// * `/HDR-T(M)/` - common on Miltenyi MACSQuant Analyzers (all models?)
-    #[must_use]
-    pub fn new_time_meas_pattern() -> Self {
-        let hdr_tm_regex = "^HDR-T(M)$".parse::<TimeMeasNamePattern>().unwrap();
-        let is_macsquant = KeyTest::KeyIs(
-            AnyKey::Std(DollarWrap(AnyStdKey::Real(RootKey::Cyt.to_std0()))),
-            ne_str!("MACSQuant").to_owned(),
-        );
-        let cond = Condition::Root(is_macsquant);
-        Self::if_then(cond, Self::root(hdr_tm_regex))
-    }
-}
+// impl Selector<TimeMeasNamePattern> {
+//     /// Create new selector for vendor-specific time measurement names.
+//     ///
+//     /// Included patterns:
+//     ///
+//     /// * `/HDR-T(M)/` - common on Miltenyi MACSQuant Analyzers (all models?)
+//     #[must_use]
+//     pub fn new_time_meas_pattern() -> Self {
+//         let hdr_tm_regex = "^HDR-T(M)$".parse::<TimeMeasNamePattern>().unwrap();
+//         let is_macsquant = KeyTest::KeyIs(
+//             AnyKey::Std(DollarWrap0(RootKey::Cyt.to_std0())),
+//             ne_str!("MACSQuant").to_owned(),
+//         );
+//         let cond = Condition::Root(is_macsquant);
+//         Self::if_then(cond, Self::root(hdr_tm_regex))
+//     }
+// }
 
-impl Selector<Option<TimePattern>> {
-    /// Create new selector for vendor-specific $BTIM/$ETIM patterns.
-    ///
-    /// Included patterns:
-    ///
-    /// * `%H:%M:%S:%@` - common on BD Accuri C6
-    #[must_use]
-    pub fn new_time_pattern() -> Self {
-        let accuri = "%H:%M:%S:%@".parse::<TimePattern>().unwrap();
-        let cond = Condition::Root(KeyTest::cyt_is(ne_str!("Accuri C6")));
-        Self::if_then(cond, Self::root(Some(accuri)))
-    }
-}
+// impl Selector<Option<TimePattern>> {
+//     /// Create new selector for vendor-specific $BTIM/$ETIM patterns.
+//     ///
+//     /// Included patterns:
+//     ///
+//     /// * `%H:%M:%S:%@` - common on BD Accuri C6
+//     #[must_use]
+//     pub fn new_time_pattern() -> Self {
+//         let accuri = "%H:%M:%S:%@".parse::<TimePattern>().unwrap();
+//         let cond = Condition::Root(KeyTest::cyt_is(ne_str!("Accuri C6")));
+//         Self::if_then(cond, Self::root(Some(accuri)))
+//     }
+// }
 
-impl Selector<Option<DatePattern>> {
-    /// Create new selector for vendor-specific $DATE patterns.
-    ///
-    /// Included patterns:
-    ///
-    /// * `%Y-%b-%d` - common on Miltenyi MACSQuant Analyzers (all models?)
-    /// * `%d %b %Y` - common on Beckman Coulter MoFlo (all models?)
-    /// * `%d-%m-%Y` - common on Partec PAS.
-    #[must_use]
-    pub fn new_date_pattern() -> Self {
-        let mqa = "%Y-%b-%d".parse::<DatePattern>().unwrap();
-        let moflo = "%d %b %Y".parse::<DatePattern>().unwrap();
-        let pas = "%d-%m-%Y".parse::<DatePattern>().unwrap();
-        let is_mqa = KeyTest::cyt_is(ne_str!("MACSQuant"));
-        let is_moflo = KeyTest::cyt_matches("MoFlo.*").unwrap();
-        let is_pas = KeyTest::cyt_is(ne_str!("partec PAS"));
-        let forms = nev![
-            (Condition::Root(is_moflo), Self::root(Some(moflo))),
-            (Condition::Root(is_pas), Self::root(Some(pas))),
-            (Condition::Root(is_mqa), Self::root(Some(mqa)))
-        ];
-        Self::Branch(Branch::Cond(Cond { forms }))
-    }
-}
+// impl Selector<Option<DatePattern>> {
+//     /// Create new selector for vendor-specific $DATE patterns.
+//     ///
+//     /// Included patterns:
+//     ///
+//     /// * `%Y-%b-%d` - common on Miltenyi MACSQuant Analyzers (all models?)
+//     /// * `%d %b %Y` - common on Beckman Coulter MoFlo (all models?)
+//     /// * `%d-%m-%Y` - common on Partec PAS.
+//     #[must_use]
+//     pub fn new_date_pattern() -> Self {
+//         let mqa = "%Y-%b-%d".parse::<DatePattern>().unwrap();
+//         let moflo = "%d %b %Y".parse::<DatePattern>().unwrap();
+//         let pas = "%d-%m-%Y".parse::<DatePattern>().unwrap();
+//         let is_mqa = KeyTest::cyt_is(ne_str!("MACSQuant"));
+//         let is_moflo = KeyTest::cyt_matches("MoFlo.*").unwrap();
+//         let is_pas = KeyTest::cyt_is(ne_str!("partec PAS"));
+//         let forms = nev![
+//             (Condition::Root(is_moflo), Self::root(Some(moflo))),
+//             (Condition::Root(is_pas), Self::root(Some(pas))),
+//             (Condition::Root(is_mqa), Self::root(Some(mqa)))
+//         ];
+//         Self::Branch(Branch::Cond(Cond { forms }))
+//     }
+// }
 
-impl Selector<Option<String>> {
-    /// Create new selector for vendor-specific $LAST_MODIFIED patterns.
-    ///
-    /// For now this does nothing.
-    #[must_use]
-    pub fn new_last_modified_pattern() -> Self {
-        Self::default()
-    }
+// impl Selector<Option<String>> {
+//     /// Create new selector for vendor-specific $LAST_MODIFIED patterns.
+//     ///
+//     /// For now this does nothing.
+//     #[must_use]
+//     pub fn new_last_modified_pattern() -> Self {
+//         Self::default()
+//     }
 
-    /// Create new selector for vendor-specific $BEGIN/ENDDATETIME patterns.
-    ///
-    /// For now this does nothing.
-    #[must_use]
-    pub fn new_datetime_pattern() -> Self {
-        Self::default()
-    }
-}
+//     /// Create new selector for vendor-specific $BEGIN/ENDDATETIME patterns.
+//     ///
+//     /// For now this does nothing.
+//     #[must_use]
+//     pub fn new_datetime_pattern() -> Self {
+//         Self::default()
+//     }
+// }
 
 impl<T> Selector<T> {
     #[must_use]
@@ -360,14 +349,14 @@ impl KeyTest {
     #[must_use]
     pub fn cyt_is(cyt: &NEStr) -> Self {
         Self::KeyIs(
-            DollarWrap(AnyStdKey::Real(RootKey::Cyt.to_std0())).into(),
+            AnyKey::Std(DollarWrap0(RootKey::Cyt.to_std0())),
             cyt.to_owned(),
         )
     }
 
     pub fn cyt_matches(pat: &str) -> Result<Self, ValueRegexError> {
         Ok(Self::KeyMatches(
-            DollarWrap(AnyStdKey::Real(RootKey::Cyt.to_std0())).into(),
+            AnyKey::Std(DollarWrap0(RootKey::Cyt.to_std0())),
             pat.parse()?,
         ))
     }
@@ -403,9 +392,7 @@ impl FromStr for ValueRegex {
 mod python {
     use super::{AppendableSelector, Branch, Cond, Condition, If, KeyTest, Selector, ValueRegex};
 
-    use crate::validated::keys::AnyKey;
-
-    use fireflow_types::python as fp;
+    use fireflow_types::{python as fp, std_key::AnyKey};
     use nonempty::{NEStr, NEString, NEVec};
 
     use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyTuple};

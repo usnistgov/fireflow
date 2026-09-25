@@ -16,15 +16,14 @@ use fireflow_types::config::{
 use fireflow_types::index::MeasIndex;
 use fireflow_types::keywords::Version;
 use fireflow_types::std_key::{
-    CsvFlagKey, DfcKey, DollarPseudoStdKey, DollarStdKey, DollarWrap, EnumIndex as _, GateKey,
-    MeasKey, N_ROOT, NonStdKey, PseudoNonStdKey, PseudoNonStdKeywordsExt as _, RegionKey, RootKey,
-    StdKey, ToStd as _,
+    AnyKey, CsvFlagKey, DfcKey, DollarPseudoStdKey, DollarStdKey, DollarWrap0, EnumIndex as _,
+    GateKey, MeasKey, N_ROOT, NonStdKey, PseudoNonStdKey, PseudoNonStdKeywordsExt as _, RegionKey,
+    RootKey, StdKey, ToStd as _,
 };
 use nonempty::{NEStr, NEString, NEVec};
 
 use derive_more::{Display, From};
 use derive_new::new;
-use hashbrown::hash_map::Entry;
 use itertools::Itertools as _;
 use thiserror::Error;
 
@@ -140,30 +139,19 @@ impl LookupAction {
 #[derive(Debug, Display, Error, PartialEq, Clone, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RepairError {
-    RenameStd(RenameStdNonUniqueError),
-    RenamePseudoStd(RenamePseudoStdNonUniqueError),
+    RenameStd(RenameNonUniqueError),
     PromoteNonUnique(PromoteNonUniqueError),
     AppendNonUnique(AppendNonUniqueError),
 }
 
 /// Error when renaming standard keys which are not unique.
 #[derive(new, Debug, Error, PartialEq, Clone)]
-#[error("standard key {k0} could not be renamed to {k1} because {k1} already exists")]
+#[error("key {k0} could not be renamed to {k1} because {k1} already exists")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct RenameStdNonUniqueError {
-    k0: DollarStdKey,
-    k1: DollarStdKey,
-}
-
-/// Error when renaming pseudostandard keys which are not unique.
-#[derive(new, Debug, Error, PartialEq, Clone)]
-#[error("pseudostandard key {k0} could not be renamed to {k1} because {k1} already exists")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct RenamePseudoStdNonUniqueError {
-    k0: DollarPseudoStdKey,
-    k1: DollarStdKey,
+pub struct RenameNonUniqueError {
+    k0: AnyKey,
+    k1: AnyKey,
 }
 
 /// Error when promoting keys which are not unique.
@@ -175,7 +163,7 @@ pub struct RenamePseudoStdNonUniqueError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct PromoteNonUniqueError {
-    key: DollarStdKey,
+    key: PseudoNonStdKey,
     value: TruncatedNEString,
 }
 
@@ -213,21 +201,13 @@ pub struct RepairDiagnostics {
     /// Values here are the original.
     pub replaced: Vec<(DollarStdKey, TruncatedNEString)>,
 
-    /// Standard keys which were renamed.
+    /// Keys which were renamed.
     ///
     /// First key in pair is the original.
-    pub renamed_std: Vec<(DollarStdKey, DollarStdKey)>,
+    pub renamed: Vec<(AnyKey, AnyKey)>,
 
-    /// Pseudostandard keys which were renamed.
-    ///
-    /// First key in pair is the original.
-    pub renamed_pseudo_std: Vec<(DollarPseudoStdKey, DollarStdKey)>,
-
-    /// Standard keys not renamed because they collided with an existing key.
-    pub renamed_std_non_unique: Vec<(DollarStdKey, DollarStdKey)>,
-
-    /// Pseudostandard keys not renamed because they collided with an existing key.
-    pub renamed_pseudo_std_non_unique: Vec<(DollarPseudoStdKey, DollarStdKey)>,
+    /// Keys not renamed because they collided with an existing key.
+    pub renamed_non_unique: Vec<(AnyKey, AnyKey)>,
 
     /// Standard keys which were ignored.
     pub ignored: Vec<(DollarStdKey, TruncatedNEString)>,
@@ -240,7 +220,7 @@ pub struct RepairDiagnostics {
     /// Non-standard keys which collided with a standard key when promoted.
     ///
     /// These keys were not moved.
-    pub promoted_non_unique: Vec<(DollarStdKey, TruncatedNEString)>,
+    pub promoted_non_unique: Vec<(PseudoNonStdKey, TruncatedNEString)>,
 
     /// Non-standard keys which are promoted and also demoted as standard keys.
     ///
@@ -302,7 +282,7 @@ impl Default for StdKeywords {
 
 impl StdKeywords {
     pub fn iter_dollar_keywords(&self) -> impl Iterator<Item = (DollarStdKey, &NEStr)> {
-        self.iter_keywords().map(|(k, v)| (DollarWrap(k), v))
+        self.iter_keywords().map(|(k, v)| (DollarWrap0(k), v))
     }
 
     pub fn iter_keywords(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {
@@ -379,7 +359,7 @@ impl StdKeywords {
                 StdKey::CsvFlag(i) => csv_flag.push_dedup(&i, v),
                 StdKey::Dfc(i) => dfc.push_dedup(&i, v),
             } {
-                duplicates.push((DollarWrap(k), dup.as_ref().to_owned().into()));
+                duplicates.push((DollarWrap0(k), dup.as_ref().to_owned().into()));
             }
         }
 
@@ -476,8 +456,8 @@ impl<'a> StdRepairTx<'a> {
         let mut ignored = vec![];
 
         for (k, ()) in &match_ignore.literals {
-            if let Some(v) = self.delete(k) {
-                ignored.push((DollarWrap(*k), TruncatedNEString(v.to_owned())));
+            if let Some(v) = self.delete(&k.0) {
+                ignored.push((*k, TruncatedNEString(v.to_owned())));
             }
         }
 
@@ -485,7 +465,7 @@ impl<'a> StdRepairTx<'a> {
             for (k, v, m) in self.iter_ne_masked_mut() {
                 if match_ignore.is_wildcard_match(&k) {
                     *m = RepairMask::Delete;
-                    ignored.push((DollarWrap(k), TruncatedNEString(v.to_owned())));
+                    ignored.push((DollarWrap0(k), TruncatedNEString(v.to_owned())));
                 }
             }
         }
@@ -495,9 +475,9 @@ impl<'a> StdRepairTx<'a> {
         let mut demoted = vec![];
 
         for (k, ()) in &match_demote.literals {
-            if let Some(v) = self.delete(k) {
-                pnonstd.insert_demoted(nonstd, *k, v.to_owned());
-                demoted.push(DollarWrap(*k));
+            if let Some(v) = self.delete(&k.0) {
+                pnonstd.insert_demoted(nonstd, k.0, v.to_owned());
+                demoted.push(*k);
             }
         }
 
@@ -508,7 +488,7 @@ impl<'a> StdRepairTx<'a> {
                     // TODO this could be made more efficient by only moving once
                     // the index queried for errors
                     pnonstd.insert_demoted(nonstd, k, v.to_owned());
-                    demoted.push(DollarWrap(k));
+                    demoted.push(DollarWrap0(k));
                 }
             }
         }
@@ -523,8 +503,8 @@ impl<'a> StdRepairTx<'a> {
 
         for (k, ()) in &match_promote.literals {
             if let Some(v) = pnonstd.remove(k) {
-                if let Some(vf) = self.insert(k, v) {
-                    promote_non_unique.push((DollarWrap(*k), TruncatedNEString(vf)));
+                if let Some(vf) = self.insert(&k.0, v) {
+                    promote_non_unique.push((*k, TruncatedNEString(vf)));
                 } else {
                     promoted.push(*k);
                 }
@@ -533,9 +513,9 @@ impl<'a> StdRepairTx<'a> {
 
         if match_promote.has_wildcards() {
             pnonstd.retain(|k, v| {
-                if match_promote.is_wildcard_match(k) {
-                    if let Some(vf) = self.insert(k, v.to_owned()) {
-                        promote_non_unique.push((DollarWrap(*k), TruncatedNEString(vf)));
+                if match_promote.is_wildcard_match(&k.0) {
+                    if let Some(vf) = self.insert(&k.0, v.to_owned()) {
+                        promote_non_unique.push((*k, TruncatedNEString(vf)));
                         true
                     } else {
                         promoted.push(*k);
@@ -564,13 +544,12 @@ impl<'a> StdRepairTx<'a> {
         let mut subbed = vec![];
 
         for (k, subpat) in &match_subs.literals {
-            let dk = DollarWrap(*k);
-            if let Some(v) = self.delete(k) {
+            if let Some(v) = self.delete(&k.0) {
                 if let Ok(vf) = NEString::try_from(subpat.sub(v.as_str())) {
-                    subbed.push((dk, TruncatedNEString(v.to_owned())));
-                    let _ = self.insert(k, vf);
+                    subbed.push((*k, TruncatedNEString(v.to_owned())));
+                    let _ = self.insert(&k.0, vf);
                 } else {
-                    removed.push((dk, TruncatedNEString(v.to_owned())));
+                    removed.push((*k, TruncatedNEString(v.to_owned())));
                 }
             }
         }
@@ -578,7 +557,7 @@ impl<'a> StdRepairTx<'a> {
         if match_subs.has_wildcards() {
             for (k, v, m) in self.iter_ne_masked_mut() {
                 if let Some(subpat) = match_subs.get_wildcard(&k) {
-                    let dk = DollarWrap(k);
+                    let dk = DollarWrap0(k);
                     if let Ok(vf) = NEString::try_from(subpat.sub(v.as_str())) {
                         subbed.push((dk, TruncatedNEString(v.to_owned())));
                         *m = RepairMask::Insert(vf);
@@ -592,37 +571,203 @@ impl<'a> StdRepairTx<'a> {
 
         // rename
 
-        let (std_rename, pstd_rename) = conf.rename_standard_keys.split();
+        // let (std_rename, pstd_rename) = conf.rename_standard_keys.split();
 
-        let mut renamed_pseudo_std_non_unique = vec![];
-        let mut renamed_std_non_unique = vec![];
-        let mut renamed_pseudo_std = vec![];
-        let mut renamed_std = vec![];
+        let mut renamed = vec![];
+        let mut renamed_non_unique = vec![];
 
-        for (k0, k1) in Vec::from(pstd_rename) {
-            let dk1 = DollarWrap(k1);
-            if let Entry::Occupied(e) = pstd.entry(DollarWrap(k0.clone())) {
-                let k0_ = e.key().to_owned();
-                if self.insert(&k1, e.remove()).is_some() {
-                    renamed_pseudo_std_non_unique.push((k0_, dk1));
-                } else {
-                    renamed_pseudo_std.push((k0_, dk1));
+        for (k0, k1) in &conf.rename_standard_keys {
+            match (k0, k1) {
+                (AnyKey::Std(k0_), AnyKey::Std(k1_)) => {
+                    if self.key_has_value(&k1_.0) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = self.delete(&k0_.0) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.to_owned();
+                        // we checked above so this shouldn't return anything
+                        let _ = self.insert(&k1_.0, vf);
+                    }
+                }
+                (AnyKey::Std(k0_), AnyKey::PseudoNonStd(k1_)) => {
+                    if pnonstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = self.delete(&k0_.0) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.to_owned();
+                        // we checked above so this shouldn't return anything
+                        let _ = pnonstd.insert(*k1_, vf);
+                    }
+                }
+                (AnyKey::Std(k0_), AnyKey::PseudoStd(k1_)) => {
+                    if pstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = self.delete(&k0_.0) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.to_owned();
+                        // we checked above so this shouldn't return anything
+                        let _ = pstd.insert(k1_.clone(), vf);
+                    }
+                }
+                (AnyKey::Std(k0_), AnyKey::NonStd(k1_)) => {
+                    if nonstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = self.delete(&k0_.0) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.to_owned();
+                        // we checked above so this shouldn't return anything
+                        let _ = nonstd.insert(k1_.clone(), vf);
+                    }
+                }
+
+                (AnyKey::PseudoNonStd(k0_), AnyKey::Std(k1_)) => {
+                    if self.key_has_value(&k1_.0) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = pnonstd.remove(k0_) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.clone();
+                        // we checked above so this shouldn't return anything
+                        let _ = self.insert(&k1_.0, vf);
+                    }
+                }
+                (AnyKey::PseudoNonStd(k0_), AnyKey::PseudoNonStd(k1_)) => {
+                    if pnonstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = pnonstd.remove(k0_) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.clone();
+                        // we checked above so this shouldn't return anything
+                        let _ = pnonstd.insert(*k1_, vf);
+                    }
+                }
+                (AnyKey::PseudoNonStd(k0_), AnyKey::PseudoStd(k1_)) => {
+                    if pstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = pnonstd.remove(k0_) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.clone();
+                        // we checked above so this shouldn't return anything
+                        let _ = pstd.insert(k1_.clone(), vf);
+                    }
+                }
+                (AnyKey::PseudoNonStd(k0_), AnyKey::NonStd(k1_)) => {
+                    if nonstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = pnonstd.remove(k0_) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.clone();
+                        // we checked above so this shouldn't return anything
+                        let _ = nonstd.insert(k1_.clone(), vf);
+                    }
+                }
+
+                (AnyKey::PseudoStd(k0_), AnyKey::Std(k1_)) => {
+                    if self.key_has_value(&k1_.0) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = pstd.remove(k0_) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.clone();
+                        // we checked above so this shouldn't return anything
+                        let _ = self.insert(&k1_.0, vf);
+                    }
+                }
+                (AnyKey::PseudoStd(k0_), AnyKey::PseudoNonStd(k1_)) => {
+                    if pnonstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = pstd.remove(k0_) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.clone();
+                        // we checked above so this shouldn't return anything
+                        let _ = pnonstd.insert(*k1_, vf);
+                    }
+                }
+                (AnyKey::PseudoStd(k0_), AnyKey::PseudoStd(k1_)) => {
+                    if pstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = pstd.remove(k0_) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.clone();
+                        // we checked above so this shouldn't return anything
+                        let _ = pstd.insert(k1_.clone(), vf);
+                    }
+                }
+                (AnyKey::PseudoStd(k0_), AnyKey::NonStd(k1_)) => {
+                    if nonstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = pstd.remove(k0_) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.clone();
+                        // we checked above so this shouldn't return anything
+                        let _ = nonstd.insert(k1_.clone(), vf);
+                    }
+                }
+
+                (AnyKey::NonStd(k0_), AnyKey::Std(k1_)) => {
+                    if self.key_has_value(&k1_.0) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = nonstd.remove(k0_) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.clone();
+                        // we checked above so this shouldn't return anything
+                        let _ = self.insert(&k1_.0, vf);
+                    }
+                }
+                (AnyKey::NonStd(k0_), AnyKey::PseudoNonStd(k1_)) => {
+                    if pnonstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = nonstd.remove(k0_) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.clone();
+                        // we checked above so this shouldn't return anything
+                        let _ = pnonstd.insert(*k1_, vf);
+                    }
+                }
+                (AnyKey::NonStd(k0_), AnyKey::PseudoStd(k1_)) => {
+                    if pstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = nonstd.remove(k0_) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.clone();
+                        // we checked above so this shouldn't return anything
+                        let _ = pstd.insert(k1_.clone(), vf);
+                    }
+                }
+                (AnyKey::NonStd(k0_), AnyKey::NonStd(k1_)) => {
+                    if nonstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = nonstd.remove(k0_) {
+                        renamed.push((k0.clone(), k1.clone()));
+                        let vf = v.clone();
+                        // we checked above so this shouldn't return anything
+                        let _ = nonstd.insert(k1_.clone(), vf);
+                    }
                 }
             }
         }
 
-        for (k0, k1) in Vec::from(std_rename) {
-            let dk0 = DollarWrap(k0);
-            let dk1 = DollarWrap(k1);
-            if self.key_has_value(&k1) {
-                renamed_std_non_unique.push((dk0, dk1));
-            } else if let Some(v) = self.delete(&k0) {
-                renamed_std.push((dk0, dk1));
-                let vf = v.to_owned();
-                // we checked above so this shouldn't return anything
-                let _ = self.insert(&k1, vf);
-            }
-        }
+        // for (k0, k1) in Vec::from(pstd_rename) {
+        //     let dk1 = DollarWrap0(k1);
+        //     if let Entry::Occupied(e) = pstd.entry(DollarWrap0(k0.clone())) {
+        //         let k0_ = e.key().to_owned();
+        //         if self.insert(&k1, e.remove()).is_some() {
+        //             renamed_pseudo_std_non_unique.push((k0_, dk1));
+        //         } else {
+        //             renamed_pseudo_std.push((k0_, dk1));
+        //         }
+        //     }
+        // }
+
+        // for (k0, k1) in Vec::from(std_rename) {
+        //     let dk0 = DollarWrap0(k0);
+        //     let dk1 = DollarWrap0(k1);
+        //     if self.key_has_value(&k1) {
+        //         renamed_std_non_unique.push((dk0, dk1));
+        //     } else if let Some(v) = self.delete(&k0) {
+        //         renamed_std.push((dk0, dk1));
+        //         let vf = v.to_owned();
+        //         // we checked above so this shouldn't return anything
+        //         let _ = self.insert(&k1, vf);
+        //     }
+        // }
 
         // append
 
@@ -643,10 +788,8 @@ impl<'a> StdRepairTx<'a> {
             promoted,
             subbed,
             replaced,
-            renamed_std,
-            renamed_pseudo_std,
-            renamed_std_non_unique,
-            renamed_pseudo_std_non_unique,
+            renamed,
+            renamed_non_unique,
             ignored,
             removed,
             promoted_demoted_noop: promote_demoted_noop,
@@ -656,26 +799,21 @@ impl<'a> StdRepairTx<'a> {
         };
 
         let e0 = ret
-            .renamed_std_non_unique
+            .renamed_non_unique
             .iter()
-            .map(|(k0, k1)| RenameStdNonUniqueError::new(*k0, *k1))
+            .map(|(k0, k1)| RenameNonUniqueError::new(k0.clone(), k1.clone()))
             .map(RepairError::from);
         let e1 = ret
-            .renamed_pseudo_std_non_unique
-            .iter()
-            .map(|(k0, k1)| RenamePseudoStdNonUniqueError::new(k0.clone(), *k1))
-            .map(RepairError::from);
-        let e2 = ret
             .promoted_non_unique
             .iter()
             .map(|(k, v)| PromoteNonUniqueError::new(*k, v.clone()))
             .map(RepairError::from);
-        let e3 = ret
+        let e2 = ret
             .appended_non_unique
             .iter()
             .map(|(k, v)| AppendNonUniqueError::new(*k, v.clone()))
             .map(RepairError::from);
-        let es = e0.chain(e1).chain(e2).chain(e3);
+        let es = e0.chain(e1).chain(e2);
 
         let flag = conf.allow_repair_non_unique;
         LogResult::new_deferred_switchable_iter3((), es, flag)
@@ -769,7 +907,7 @@ impl StdLookupTx<'_> {
             if was_demoted {
                 pnonstd.insert_demoted(nonstd, k, v.to_owned());
             } else {
-                optional.push((DollarWrap(k), v.to_owned()));
+                optional.push((DollarWrap0(k), v.to_owned()));
             }
         };
 
@@ -788,7 +926,7 @@ impl StdLookupTx<'_> {
                         // another version or not.
                         RootKey::Nextdata => (),
                         RootKey::Beginstext | RootKey::Endstext if version > Version::FCS2_0 => (),
-                        _ => other_version_.push((DollarWrap(k.into()), vo)),
+                        _ => other_version_.push((DollarWrap0(k.into()), vo)),
                     }
                 }
                 LookupStatus::Seen(a) => match a {
@@ -803,11 +941,11 @@ impl StdLookupTx<'_> {
 
         for (k, v, m) in meas_it.by_ref() {
             if usize::from(k.index) >= usize::from(par) {
-                hyper_par_.push((DollarWrap(k.into()), v.to_owned()));
+                hyper_par_.push((DollarWrap0(k.into()), v.to_owned()));
                 break;
             }
             match m {
-                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
+                LookupStatus::Unseen => other_version_.push((DollarWrap0(k.into()), v.to_owned())),
                 LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => go(k.into(), v, true),
@@ -816,17 +954,17 @@ impl StdLookupTx<'_> {
             }
         }
 
-        hyper_par_.extend(meas_it.map(|(k, v, _)| (DollarWrap(k.into()), v.to_owned())));
+        hyper_par_.extend(meas_it.map(|(k, v, _)| (DollarWrap0(k.into()), v.to_owned())));
 
         let mut gate_it = self.gate.iter_masked();
 
         for (k, v, m) in gate_it.by_ref() {
             if usize::from(k.index) >= usize::from(gate) {
-                hyper_gate_.push((DollarWrap(k.into()), v.to_owned()));
+                hyper_gate_.push((DollarWrap0(k.into()), v.to_owned()));
                 break;
             }
             match m {
-                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
+                LookupStatus::Unseen => other_version_.push((DollarWrap0(k.into()), v.to_owned())),
                 LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => go(k.into(), v, true),
@@ -835,13 +973,13 @@ impl StdLookupTx<'_> {
             }
         }
 
-        hyper_gate_.extend(gate_it.map(|(k, v, _)| (DollarWrap(k.into()), v.to_owned())));
+        hyper_gate_.extend(gate_it.map(|(k, v, _)| (DollarWrap0(k.into()), v.to_owned())));
 
         // TODO we could also do something like hyper_par/gate with these but
         // they are hardly used anyways and doing so would be complex
         for (k, v, m) in self.region.iter_masked() {
             match m {
-                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
+                LookupStatus::Unseen => other_version_.push((DollarWrap0(k.into()), v.to_owned())),
                 LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => go(k.into(), v, true),
@@ -853,7 +991,7 @@ impl StdLookupTx<'_> {
         // TODO ditto $CSMODE
         for (k, v, m) in self.csv_flag.iter_masked() {
             match m {
-                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
+                LookupStatus::Unseen => other_version_.push((DollarWrap0(k.into()), v.to_owned())),
                 LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => go(k.into(), v, true),
@@ -868,9 +1006,9 @@ impl StdLookupTx<'_> {
             match m {
                 LookupStatus::Unseen => {
                     if is_hyper_par {
-                        hyper_par_.push((DollarWrap(k.into()), v.to_owned()));
+                        hyper_par_.push((DollarWrap0(k.into()), v.to_owned()));
                     } else {
-                        other_version_.push((DollarWrap(k.into()), v.to_owned()));
+                        other_version_.push((DollarWrap0(k.into()), v.to_owned()));
                     }
                 }
                 LookupStatus::Seen(a) => match a {
@@ -947,7 +1085,11 @@ impl StdLookupTx<'_> {
         }
 
         if conf.process_pseudostandard.is_demote() {
-            nonstd.extend(pstd.drain().map(|(k, v)| (NonStdKey::from(k.0), v)));
+            let (demoted, _not_demoted): (Vec<_>, Vec<_>) = pstd
+                .drain()
+                .map(|(k, v)| k.demote().map(|x| (x, v)))
+                .partition_result();
+            nonstd.extend(demoted);
         }
 
         if let Some(ne) = NEVec::try_from_vec(errors) {
@@ -1000,7 +1142,7 @@ impl StdLookupTx<'_> {
                     if warn {
                         ws.push(err());
                     }
-                    pairs.push((DollarWrap(k), vf.into()));
+                    pairs.push((DollarWrap0(k), vf.into()));
                 } else {
                     es.push(err());
                 }
@@ -1093,7 +1235,7 @@ impl Serialize for StdKeywords {
         let n = self.iter_keywords().count();
         let mut map = serializer.serialize_map(Some(n))?;
         for (k, v) in self.iter_keywords() {
-            map.serialize_entry(&DollarWrap(k), v)?;
+            map.serialize_entry(&DollarWrap0::<true, _>(k), v)?;
         }
         map.end()
     }

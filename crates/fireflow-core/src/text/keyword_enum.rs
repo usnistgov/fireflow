@@ -13,7 +13,7 @@ use crate::validated::shortname::Shortname;
 
 use fireflow_types::index::{MeasIndex, RegionIndex};
 use fireflow_types::keywords::{Version, VersionMembership};
-use fireflow_types::std_key::{DollarWrap, NonStdKey, PseudoNonStdKey, StdKey};
+use fireflow_types::std_key::{DollarWrap0, NonStdKey, PseudoNonStdKey, StdKey};
 use fireflow_types::textdelim::{
     DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim,
 };
@@ -727,7 +727,7 @@ where
     for<'a> V: ToDisplayNE<'a>,
 {
     fn as_std_key_pair(&self) -> (StdKey, NEString) {
-        (self.key, ToNE(&self.value).to_ne_string())
+        (self.key.0, ToNE(&self.value).to_ne_string())
     }
 }
 
@@ -738,7 +738,7 @@ where
 {
     fn as_key_pair(&self) -> (WritableKey, NEString) {
         let (k, v) = self.as_std_key_pair();
-        (WritableKey::Std(DollarWrap(k)), v)
+        (WritableKey::Std(DollarWrap0(k)), v)
     }
 }
 
@@ -748,7 +748,7 @@ where
 {
     fn as_key_pair(&self) -> (WritableKey, NEString) {
         let (k, v) = self.as_std_key_pair();
-        (WritableKey::PseudoNonStd(k), v)
+        (WritableKey::PseudoNonStd(DollarWrap0(k)), v)
     }
 }
 

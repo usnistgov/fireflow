@@ -2190,6 +2190,7 @@ class StdTEXTDiagnostics:
         hyper_gate: pft.DroppedStdKeywords,
         other_version: pft.DroppedStdKeywords,
         timestep: str | None,
+        undemoted_pseudostandard: list[tuple[pft.PseudoStdKey, pft.NEStr]],
         dedup_names: list[pft.Shortname | None],
         scale: list[pft.MeasScaleDiagnostic],
         gate_scale: list[pft.GateScaleDiagnostic],
@@ -2219,6 +2220,8 @@ class StdTEXTDiagnostics:
     def other_version(self) -> pft.DroppedStdKeywords: ...
     @property
     def timestep(self) -> str | None: ...
+    @property
+    def undemoted_pseudostandard(self) -> list[tuple[pft.PseudoStdKey, pft.NEStr]]: ...
     @property
     def dedup_names(self) -> list[pft.Shortname | None]: ...
     @property

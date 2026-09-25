@@ -135,7 +135,7 @@ use fireflow_types::keywords::{
     HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use fireflow_types::segment::{AnalysisSegmentId, DataSegmentId};
-use fireflow_types::std_key::StdKey;
+use fireflow_types::std_key::{PseudoStdKey, StdKey};
 use fireflow_types::textdelim::TEXTDelim;
 use fireflow_types::timepattern::TimePattern;
 use nonempty::{IntoIteratorExt as _, NESlice, NEStr, NEString, NEVec, NonEmptyIterator as _};
@@ -1111,6 +1111,11 @@ pub struct StdTEXTDiagnostics {
     /// $TIMESTEP if it is given but not used.
     pub timestep: Option<NEString>,
 
+    /// Pseudo-standard keywords that could not be demoted.
+    ///
+    /// These start with at least two '$' characters.
+    pub undemoted_pseudostandard: Vec<(PseudoStdKey, TruncatedNEString)>,
+
     /// Original $PnN if they are renamed to remove duplicates.
     pub dedup_names: Vec<Option<Shortname>>,
 
@@ -1190,11 +1195,11 @@ impl StdTEXTDiagnostics {
         let read_std_ns = (post + pre).as_nanos();
         let ret = Self {
             optional: extra.optional,
-            // pseudostandard: extra.pseudostandard,
             hyper_par: extra.hyper_par,
             hyper_gate: extra.hyper_gate,
             other_version: extra.other_version,
             timestep: extra.timestep,
+            undemoted_pseudostandard: extra.undemoted_pseudostandard,
             dedup_names: original_names,
             scale: meas.scale,
             gate_scale: metaroot.applied_gates.fixed_scales,

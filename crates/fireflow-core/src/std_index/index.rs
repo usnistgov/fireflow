@@ -54,6 +54,7 @@ pub struct ExtraStdKeywords {
     pub hyper_par: DroppedStdKeywords,
     pub hyper_gate: DroppedStdKeywords,
     pub other_version: DroppedStdKeywords,
+    pub undemoted_pseudostandard: Vec<(PseudoStdKey, TruncatedNEString)>,
     pub timestep: Option<NEString>,
 }
 
@@ -931,13 +932,19 @@ impl StdLookupTx<'_> {
             }
         }
 
-        if conf.process_pseudostandard.is_demote() {
-            let (demoted, _not_demoted): (Vec<_>, Vec<_>) = pstd
+        let undemoted_pseudostandard = if conf.process_pseudostandard.is_demote() {
+            let (demoted, not_demoted): (Vec<_>, Vec<_>) = pstd
                 .drain()
-                .map(|(k, v)| k.demote().map(|x| (x, v)))
+                .map(|(k, v)| match k.demote() {
+                    Ok(x) => Ok((x, v)),
+                    Err(x) => Err((x, TruncatedNEString(v))),
+                })
                 .partition_result();
             nonstd.extend(demoted);
-        }
+            not_demoted
+        } else {
+            vec![]
+        };
 
         if let Some(ne) = NEVec::try_from_vec(errors) {
             LogResult::new_from_ne_err_iter(ne, ()).set_commutative_warnings(warnings)
@@ -947,6 +954,7 @@ impl StdLookupTx<'_> {
                 hyper_par,
                 hyper_gate,
                 other_version,
+                undemoted_pseudostandard,
                 timestep,
             };
             LogResult::new_ok(ret).set_commutative_warnings(warnings)

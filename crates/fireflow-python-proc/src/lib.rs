@@ -2185,6 +2185,18 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.timestep.clone()),
     );
 
+    let undemoted_pseudostandard = DocArgROIvar::new_ivar_ro(
+        "undemoted_pseudostandard",
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_pseudo_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+        ),
+        format!(
+            "Pseudo-standard keywords that could not be demoted. \
+             These start with at least two {DOLLAR_STR} characters."
+        ),
+        |_, _| quote!(self.0.undemoted_pseudostandard.clone()),
+    );
+
     let dedup_names = DocArgROIvar::new_ivar_ro(
         "dedup_names",
         PyList::new1(PyOpt::new1(PyAlias::new_shortname())),
@@ -2317,6 +2329,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
             hyper_gate,
             other_version,
             timestep,
+            undemoted_pseudostandard,
             dedup_names,
             scale,
             gate_scale,

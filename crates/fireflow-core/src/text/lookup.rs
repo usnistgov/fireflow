@@ -5,8 +5,8 @@ use crate::validated::keys::{DollarKey, DollarKey_, TruncatedNEString, ValueToSt
 use fireflow_types::config::{
     ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, TrimIntraValueWhitespace,
 };
-use fireflow_types::nonstd_key::DollarWrap;
-use fireflow_types::std_key::StdKey;
+use fireflow_types::keys::StdKey;
+use fireflow_types::keys::nonstd::DollarWrap;
 use nonempty::{NEStr, NEString};
 
 use type_families::{BifunctorOnce, Sibling2, impl_kind2};

@@ -39,13 +39,13 @@ use fireflow_types::impl_str_enum_kw;
 use fireflow_types::index::{
     BiMeasIndex, GateIndex, IndexFromOne, MeasIndex, RegionIndex, SubsetIndex,
 };
+use fireflow_types::keys::raw_std::{
+    CsvFlagKeyMarker, DfcKey, DfcKeyMarker, MeasKeyId, RawStdKey, RegionKeyId, RootKey, ToStd as _,
+};
 use fireflow_types::keywords::{
     MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version,
 };
 use fireflow_types::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
-use fireflow_types::std_key::{
-    CsvFlagKeyMarker, DfcKey, DfcKeyMarker, MeasKeyId, RawStdKey, RegionKeyId, RootKey, ToStd as _,
-};
 use fireflow_types::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 use nonempty::{
     DisplayableNE as _, IntoIteratorExt as _, IntoNonEmptyIterator as _, NEAlt, NEConcat,
@@ -2926,8 +2926,8 @@ macro_rules! kw_meta {
     ($t:ident, $k:ident) => {
         impl crate::validated::keys::ValueToStdKey for $t {
             type Index = ();
-            type Id = fireflow_types::std_key::RootKey;
-            const STD: Self::Id = fireflow_types::std_key::RootKey::$k;
+            type Id = fireflow_types::keys::raw_std::RootKey;
+            const STD: Self::Id = fireflow_types::keys::raw_std::RootKey::$k;
         }
     };
 }
@@ -2936,8 +2936,8 @@ macro_rules! kw_meas {
     ($t:ident, $sfx:ident) => {
         impl $crate::validated::keys::ValueToStdKey for $t {
             type Index = fireflow_types::index::MeasIndex;
-            type Id = fireflow_types::std_key::MeasKeyId;
-            const STD: Self::Id = fireflow_types::std_key::MeasKeyId::$sfx;
+            type Id = fireflow_types::keys::raw_std::MeasKeyId;
+            const STD: Self::Id = fireflow_types::keys::raw_std::MeasKeyId::$sfx;
         }
     };
 }
@@ -3051,8 +3051,8 @@ macro_rules! kw_opt_gate {
     ($t:ident, $sfx:ident, $outer:path) => {
         impl $crate::validated::keys::ValueToStdKey for $t {
             type Index = fireflow_types::index::GateIndex;
-            type Id = fireflow_types::std_key::GateKeyId;
-            const STD: Self::Id = fireflow_types::std_key::GateKeyId::$sfx;
+            type Id = fireflow_types::keys::raw_std::GateKeyId;
+            const STD: Self::Id = fireflow_types::keys::raw_std::GateKeyId::$sfx;
         }
         opt!($t, $outer);
     };
@@ -3328,8 +3328,8 @@ macro_rules! impl_region_index {
     ($t:ident) => {
         impl crate::validated::keys::ValueToStdKey for $t {
             type Index = fireflow_types::index::RegionIndex;
-            type Id = fireflow_types::std_key::RegionKeyId;
-            const STD: Self::Id = fireflow_types::std_key::RegionKeyId::I;
+            type Id = fireflow_types::keys::raw_std::RegionKeyId;
+            const STD: Self::Id = fireflow_types::keys::raw_std::RegionKeyId::I;
         }
         opt!($t, Option<Self>);
     };

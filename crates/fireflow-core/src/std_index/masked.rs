@@ -1,7 +1,7 @@
 use crate::std_index::nested_string::{Iter, NestedEnumString, NestedString, NestedVariableString};
 use crate::validated::dataframe::HasLen;
 
-use fireflow_types::std_key::{EnumIndex, NumericEnum, RawStdKey};
+use fireflow_types::keys::raw_std::{EnumIndex, NumericEnum, RawStdKey};
 use nonempty::{NEStr, NEString};
 
 use derive_new::new;

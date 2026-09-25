@@ -9,7 +9,7 @@ use crate::validated::shortname::Shortname;
 
 use fireflow_types::config::{ConfigFlag as _, SpilloverMeasurementMode, TrimIntraValueWhitespace};
 use fireflow_types::index::MeasIndex;
-use fireflow_types::nonstd_key::DollarWrap;
+use fireflow_types::keys::nonstd::DollarWrap;
 use fireflow_types::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 use nonempty::{
     IntoIteratorExt as _, NEConcat, NEConcat5, NEDelim, NESlice, NEStr, NEVec,

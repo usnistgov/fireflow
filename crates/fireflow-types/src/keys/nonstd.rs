@@ -1,7 +1,7 @@
-use crate::keystring::{EmptyKeyStringError, KeyString, KeyStringError};
-use crate::std_key::{DollarKeyString, RawStdKey, STD_PREFIX};
+use crate::keys::keystring::{EmptyKeyStringError, KeyString, KeyStringError};
+use crate::keys::{DollarKeyString, RawStdKey};
 
-use nonempty::{NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE};
+use nonempty::{NEConcat, NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE};
 
 use ambassador::Delegate;
 use derive_more::{AsRef, Display, From};
@@ -24,7 +24,7 @@ use {
 /// A non-standard key which does not start with a '$'.
 ///
 /// The internal value is guaranteed to not start with '$' in order to
-/// distinguish from [`crate::std_key::PseudoStdKey`].
+/// distinguish from [`crate::keys::PseudoStdKey`].
 #[derive(Clone, Debug, Display, PartialEq, Eq, Hash, PartialOrd, Ord, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
@@ -85,7 +85,24 @@ pub struct SingleDollarPrefixError;
 // does not start with '$'.
 pub struct NoDollarPrefixError(NEString);
 
+/// The prefix byte for a standard or pseudostandard keyword (a '$').
+pub const STD_PREFIX: u8 = 36;
+
 pub type NonStdKeyError = NoDollarWrapError<KeyStringError>;
+
+impl<'a, T: ToDisplayNE<'a>> ToDisplayNE<'a> for DollarWrap<true, T> {
+    type NE = NEConcat<char, T::NE>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEConcat::new(char::from(STD_PREFIX), self.0.to_ne())
+    }
+}
+
+impl<'a, T: ToDisplayNE<'a>> ToDisplayNE<'a> for DollarWrap<false, T> {
+    type NE = T::NE;
+    fn to_ne(&'a self) -> Self::NE {
+        self.0.to_ne()
+    }
+}
 
 impl AsRef<NEStr> for NonStdKey {
     fn as_ref(&self) -> &NEStr {
@@ -184,5 +201,15 @@ impl<T> DollarWrap<false, T> {
         } else {
             Err(NoDollarWrapError::Empty(EmptyKeyStringError))
         }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<const STD: bool, T: fmt::Display> Serialize for DollarWrap<STD, T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_str(self)
     }
 }

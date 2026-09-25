@@ -1,4 +1,4 @@
-use crate::std_key::RawStdKey;
+use crate::keys::raw_std::RawStdKey;
 use nonempty::{DisplayableNE as _, NESlice, NEStr, NEString, ToDisplayNE};
 
 use derive_more::{AsRef, Display, From};

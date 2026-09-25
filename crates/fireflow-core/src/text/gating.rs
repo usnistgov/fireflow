@@ -25,8 +25,8 @@ use crate::validated::keys::{DollarKey, ValueToStdKey};
 
 use fireflow_types::config::{AllowLoss, ProcessOptionalFailure, ReadDataKeywordsConfig};
 use fireflow_types::index::{GateIndex, MeasIndex, RegionIndex};
-use fireflow_types::nonstd_key::DollarWrap;
-use fireflow_types::std_key::{IndexedKey, RawStdKey, RegionKey, RegionKeyId};
+use fireflow_types::keys::nonstd::DollarWrap;
+use fireflow_types::keys::raw_std::{IndexedKey, RawStdKey, RegionKey, RegionKeyId};
 use nonempty::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 use type_families::{
     ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, impl_functor,

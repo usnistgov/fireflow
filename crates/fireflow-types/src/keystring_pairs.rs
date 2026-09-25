@@ -1,4 +1,4 @@
-use crate::std_key::AnyKey;
+use crate::keys::AnyKey;
 
 use nonempty::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 
@@ -96,7 +96,7 @@ pub struct KeyStringNonUniqueError(NEVec<AnyKey>);
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::std_key::AnyKey;
+    use crate::keys::AnyKey;
 
     use super::KeyStringPairs;
 

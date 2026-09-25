@@ -12,9 +12,10 @@ use crate::validated::keys::{DollarKey, DollarKey_, SpecificKey_, ValueToStdKey,
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::index::{MeasIndex, RegionIndex};
+use fireflow_types::keys::PseudoNonStdKey;
+use fireflow_types::keys::nonstd::{DollarWrap, NonStdKey};
+use fireflow_types::keys::raw_std::RawStdKey;
 use fireflow_types::keywords::{Version, VersionMembership};
-use fireflow_types::nonstd_key::{DollarWrap, NonStdKey};
-use fireflow_types::std_key::{PseudoNonStdKey, RawStdKey};
 use fireflow_types::textdelim::{
     DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim,
 };
@@ -30,7 +31,7 @@ use std::fmt::{self, Write as _};
 use std::num::NonZeroU32;
 
 #[cfg(feature = "serde")]
-use fireflow_types::std_key::BlankKeyword;
+use fireflow_types::keys::raw_std::BlankKeyword;
 
 #[cfg(feature = "python")]
 use {

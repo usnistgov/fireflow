@@ -1,21 +1,15 @@
 use crate::config::OpticalOnlyKey;
 use crate::index::{BiMeasIndex, GateIndex, MeasIndex, RegionIndex, SubsetIndex};
-use crate::keystring::{EmptyKeyStringError, KeyString, KeyStringError, PrintableAsciiStringError};
 use crate::keywords::{Version, VersionMembership};
-use crate::nonstd_key::{
-    DollarWrap, DollarWrapError, NoDollarWrapError, NonStdKey, SingleDollarPrefixError,
-};
 
 use nonempty::{
-    DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESlice, NEStr, NEString, NEVec,
-    ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE, ne_str, nev,
+    DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESlice, NEStr, NEString,
+    ToDisplayNE, ToNE, ne_str,
 };
 
-use ambassador::Delegate;
 use bytemuck::{NoUninit, must_cast_ref};
 use derive_more::{Display, From, TryInto};
 use derive_new::new;
-use hashbrown::HashMap;
 use strum::{EnumCount, VariantArray};
 use strum_macros::{EnumCount as EnumCount_, VariantArray};
 use thiserror::Error;
@@ -24,127 +18,12 @@ use std::iter;
 use std::marker::PhantomData;
 use std::ops;
 use std::slice::Iter;
-use std::str::FromStr;
 
 #[cfg(feature = "serde")]
-use {serde::Serialize, std::fmt};
+use serde::Serialize;
 
 #[cfg(feature = "python")]
-use {
-    crate::python as py,
-    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
-};
-
-#[derive(Clone, From, PartialEq, Eq, Hash, Debug, Display)]
-#[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum AnyKey {
-    Std(StdKey),
-    PseudoNonStd(PseudoNonStdKey),
-    PseudoStd(PseudoStdKey),
-    NonStd(NonStdKey),
-}
-
-/// A standard key which starts with a '$'.
-///
-/// The '$' is not stored internally. However using [`FromStr`] and [`Display`]
-/// will parse/prepend a '$' during conversion.
-pub type StdKey = DollarStdKey<true>;
-
-/// A standard key which does not start with a '$'.
-pub type PseudoNonStdKey = DollarStdKey<false>;
-
-/// A non-standard key which starts with a '$'.
-///
-/// The '$' is not stored internally. However using [`FromStr`] and [`Display`]
-/// will parse/prepend a '$' during conversion.
-///
-/// The string inside may start with '$'. For example, the value '$xya' would
-/// actually represent the key '$xyz'.
-#[derive(Clone, Debug, Display, PartialEq, Eq, Hash, PartialOrd, Ord, Delegate)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
-#[delegate(ToDisplayNE<'a>, generics = "'a")]
-// NOTE this can be pub because it has no additional restrictions on top of
-// what KeyString already has.
-pub struct PseudoStdKey(pub DollarKeyString<true>);
-
-impl PseudoStdKey {
-    /// Convert a pseudo-standard key into a nonstandard key.
-    ///
-    /// This has the effect of stripping the '$' from the key's string
-    /// representation. For instance, '$xxx' will become 'xxx'.
-    ///
-    /// However, keys like '$$xxx' (which is stored as '$xxx' internally)
-    /// will be converted to '$xxx' which is still a pseudo-standard key. This
-    /// is inconsistent, hence the optional return.
-    ///
-    /// The alternative is to strip the '$', but this leaves the possibility of
-    /// stripping the entire string which would still return an option.
-    pub fn demote(self) -> Result<NonStdKey, Self> {
-        self.0.0.try_into().map_err(DollarWrap).map_err(Self)
-    }
-}
-
-pub type DollarStdKey<const HAS_PRE: bool> = DollarWrap<HAS_PRE, RawStdKey>;
-
-pub type DollarKeyString<const HAS_PRE: bool> = DollarWrap<HAS_PRE, KeyString>;
-
-#[derive(From, PartialEq, Display, Debug, Error, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum AnyKeyError {
-    Ascii(PrintableAsciiStringError),
-    Empty(EmptyKeyStringError),
-    SingleDollar(SingleDollarPrefixError),
-}
-
-impl FromStr for AnyKey {
-    type Err = AnyKeyError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.parse::<PseudoStdKey>() {
-            Ok(k) => Ok(Self::PseudoStd(k)),
-            Err(e) => match e {
-                DollarWrapError::Empty(e0) => Err(e0.into()),
-                DollarWrapError::SingleDollar(e0) => Err(e0.into()),
-                DollarWrapError::Inner(e0) => match e0 {
-                    KeyStringError::Std(k) => Ok(Self::Std(DollarWrap(k.0))),
-                    KeyStringError::Ascii(e1) => Err(e1.into()),
-                },
-                DollarWrapError::Prefix(e0) => match e0.try_nonstd() {
-                    Ok(k) => Ok(Self::NonStd(k)),
-                    Err(e1) => match e1 {
-                        KeyStringError::Std(e2) => Ok(Self::PseudoNonStd(DollarWrap(e2.0))),
-                        KeyStringError::Ascii(e2) => Err(e2.into()),
-                    },
-                },
-            },
-        }
-    }
-}
-
-impl FromStr for StdKey {
-    type Err = StdKeyError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_dollar_str(s)
-    }
-}
-
-impl FromStr for PseudoNonStdKey {
-    type Err = PseudoNonStdKeyError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_no_dollar_str(s)
-    }
-}
-
-impl FromStr for PseudoStdKey {
-    type Err = PseudoStdKeyError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        DollarWrap::from_dollar_str(s).map(Self)
-    }
-}
+use {crate::python as py, fireflow_core_proc::DisplayAsPyErr};
 
 /// A key defined in the FCS standard.
 ///
@@ -158,16 +37,6 @@ pub enum RawStdKey {
     Region(RegionKey),
     CsvFlag(CsvFlagKey),
     Dfc(DfcKey),
-}
-
-/// A key that was parsed from a bytestring
-#[derive(Clone, Debug)]
-pub enum ParsedKey {
-    Std(StdKey),
-    PseudoStd(PseudoStdKey),
-    NonStd(NonStdKey),
-    PseudoNonStd(PseudoNonStdKey),
-    Bytes(NEVec<u8>),
 }
 
 /// An FCS key which does not use any indices.
@@ -364,12 +233,6 @@ pub enum RegionKeyId {
     W,
 }
 
-pub type StdKeyError = DollarWrapError<KeyNotStdError>;
-
-pub type PseudoNonStdKeyError = NoDollarWrapError<KeyNotStdError>;
-
-pub type PseudoStdKeyError = DollarWrapError<KeyStringError>;
-
 #[derive(PartialEq, Debug, Error, Clone)]
 #[error("could not make standard key from string, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -414,9 +277,6 @@ pub const N_GATE: usize = 8;
 /// The number of $Rn* keys (suffixes)
 pub const N_REGION: usize = 2;
 
-/// The prefix byte for a standard or pseudostandard keyword (a '$').
-pub const STD_PREFIX: u8 = 36;
-
 /// The unindexed name for the $PKn key
 pub const PKN: &NEStr = ne_str!("$PKn");
 
@@ -443,36 +303,6 @@ pub const REGION_W_KW_SUFFIX: &NEStr = ne_str!("W");
 
 // Include list of all keyword names/suffixes defined in build script
 include!(concat!(env!("OUT_DIR"), "/kw_strs.rs"));
-
-// Implement extension trait for processing nonstandard keywords in hash table.
-
-pub trait PseudoNonStdKeywordsExt {
-    fn insert_demoted(
-        &mut self,
-        nonstd: &mut HashMap<NonStdKey, NEString>,
-        key: RawStdKey,
-        value: NEString,
-    );
-}
-
-impl PseudoNonStdKeywordsExt for HashMap<PseudoNonStdKey, NEString> {
-    fn insert_demoted(
-        &mut self,
-        nonstd: &mut HashMap<NonStdKey, NEString>,
-        key: RawStdKey,
-        value: NEString,
-    ) {
-        if self.contains_key(&key) {
-            let mut k = NonStdKey::from(key);
-            while nonstd.contains_key(&k) {
-                k.disambiguate();
-            }
-            assert!(nonstd.insert(k, value).is_none(), "key not disambiguated");
-        } else {
-            let _ = self.insert(DollarWrap(key), value);
-        }
-    }
-}
 
 // Implement numeric mapping for key id enums
 
@@ -695,20 +525,6 @@ impl ToStd for DfcKeyMarker {
 
 // Implement non-empty display for std key types.
 
-impl<'a, T: ToDisplayNE<'a>> ToDisplayNE<'a> for DollarWrap<true, T> {
-    type NE = NEConcat<char, T::NE>;
-    fn to_ne(&'a self) -> Self::NE {
-        NEConcat::new(char::from(STD_PREFIX), self.0.to_ne())
-    }
-}
-
-impl<'a, T: ToDisplayNE<'a>> ToDisplayNE<'a> for DollarWrap<false, T> {
-    type NE = T::NE;
-    fn to_ne(&'a self) -> Self::NE {
-        self.0.to_ne()
-    }
-}
-
 type NEStdKey = NEAlt<
     NEAlt<ToNE<RootKey>, NEAlt<ToNE<MeasKey>, ToNE<GateKey>>>,
     NEAlt<ToNE<RegionKey>, NEAlt<ToNE<CsvFlagKey>, ToNE<DfcKey>>>,
@@ -810,7 +626,7 @@ impl RawStdKey {
         Self::from_bytes(s.as_ne_bytes())
     }
 
-    fn from_bytes(bytes: &NESlice<u8>) -> Option<Self> {
+    pub(crate) fn from_bytes(bytes: &NESlice<u8>) -> Option<Self> {
         let (b0, bs) = bytes.split_first();
         match b0.to_ascii_uppercase() {
             // Try to match $Pn*, $PKn, or $PKNn first based on the first letter
@@ -1433,16 +1249,6 @@ pub trait BlankKeyword {
 }
 
 #[cfg(feature = "serde")]
-impl<const STD: bool, T: fmt::Display> Serialize for DollarWrap<STD, T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.collect_str(self)
-    }
-}
-
-#[cfg(feature = "serde")]
 impl Serialize for RawStdKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -1478,38 +1284,6 @@ impl BlankKeyword for MeasKeyId {
             Self::Calibration => PNCALIBRATION,
             Self::Pk => PKN,
             Self::Pkn => PKNN,
-        }
-    }
-}
-
-// Implement methods on parsed key
-
-impl ParsedKey {
-    #[must_use]
-    pub fn from_bytes(bytes: &NESlice<u8>) -> Self {
-        // TODO we may wish to distinguish an error between non-ASCII and only a
-        // '$' keyword
-        if let Some((&STD_PREFIX, rest)) = bytes.as_ref().split_first() {
-            if let Some(ne) = NESlice::try_from_slice(rest) {
-                if let Some(sk) = RawStdKey::from_bytes(ne) {
-                    Self::Std(DollarWrap(sk))
-                } else if let Some(k) = KeyString::from_bytes(ne) {
-                    Self::PseudoStd(PseudoStdKey(DollarWrap(k)))
-                } else {
-                    Self::Bytes(bytes.to_ne_vec())
-                }
-            } else {
-                Self::Bytes(nev![STD_PREFIX])
-            }
-        } else if let Some(sk) = RawStdKey::from_bytes(bytes) {
-            Self::PseudoNonStd(DollarWrap(sk))
-        } else if let Some(k) = KeyString::from_bytes(bytes) {
-            match k.try_into() {
-                Ok(k0) => Self::NonStd(k0),
-                Err(k0) => Self::PseudoStd(PseudoStdKey(DollarWrap(k0))),
-            }
-        } else {
-            Self::Bytes(bytes.to_ne_vec())
         }
     }
 }
@@ -1664,37 +1438,3 @@ const fn is_zero_to_n_usize<X: NoUninit>(xs: &[X]) -> bool {
 //     assert_eq!(Err(NonStdKeyError::Ascii(NEAsciiStringError::Empty)), k);
 // }
 // }
-
-#[cfg(feature = "python")]
-mod python {
-    use super::{PseudoNonStdKey, StdKey};
-
-    use pyo3::prelude::*;
-    use pyo3::types::PyString;
-
-    use std::convert::Infallible;
-
-    macro_rules! impl_to_from_str {
-        ($t:ident) => {
-            impl<'py> FromPyObject<'_, 'py> for $t {
-                type Error = PyErr;
-                fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-                    Ok(obj.extract::<&str>()?.parse()?)
-                }
-            }
-
-            impl<'py> IntoPyObject<'py> for $t {
-                type Target = PyString;
-                type Output = Bound<'py, Self::Target>;
-                type Error = Infallible;
-
-                fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-                    self.to_string().into_pyobject(py)
-                }
-            }
-        };
-    }
-
-    impl_to_from_str!(StdKey);
-    impl_to_from_str!(PseudoNonStdKey);
-}

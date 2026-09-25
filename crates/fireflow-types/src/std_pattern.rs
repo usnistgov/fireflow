@@ -1,9 +1,10 @@
 use crate::index::{BiMeasIndex, IndexFromOne};
-use crate::nonstd_key::DollarWrap;
-use crate::std_key::{
-    CsvFlagKey, DfcKey, DollarStdKey, GateKeyId, IndexedKey, NonPeakMeasKeyId, PeakMeasKeyId,
-    PseudoNonStdKey, PseudoNonStdKeyError, RawStdKey, RegionKeyId, STD_PREFIX, StdKey, StdKeyError,
+use crate::keys::nonstd::{DollarWrap, STD_PREFIX};
+use crate::keys::raw_std::{
+    CsvFlagKey, DfcKey, GateKeyId, IndexedKey, NonPeakMeasKeyId, PeakMeasKeyId, RawStdKey,
+    RegionKeyId,
 };
+use crate::keys::{DollarStdKey, PseudoNonStdKey, PseudoNonStdKeyError, StdKey, StdKeyError};
 use crate::sub_pattern::SubPattern;
 
 use nonempty::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};

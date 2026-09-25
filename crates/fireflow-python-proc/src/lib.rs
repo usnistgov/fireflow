@@ -2,7 +2,8 @@ extern crate proc_macro;
 
 use fireflow_types::args::underscore as ta;
 use fireflow_types::config::{self as tc, EnumStrIter as _};
-use fireflow_types::{keywords as tk, python as tp, std_key as sk};
+use fireflow_types::keys::raw_std as sk;
+use fireflow_types::{keywords as tk, python as tp};
 
 use nonempty::{IntoNonEmptyIterator as _, NEStr, NEVec, NonEmptyIterator as _};
 
@@ -8965,7 +8966,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_pstd_keywords() -> Self {
-        let keypath: Path = parse_quote!(fireflow_types::std_key::PseudoStdKey);
+        let keypath: Path = parse_quote!(fireflow_types::keys::PseudoStdKey);
         let valpath: Path = parse_quote!(nonempty::NEString);
         // TODO the :: here is awkward
         Self::new_py(["typing"], "PseudoStdKeywords")
@@ -8974,7 +8975,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_pnonstd_keywords() -> Self {
-        let keypath: Path = parse_quote!(fireflow_types::std_key::PseudoNonStdKey);
+        let keypath: Path = parse_quote!(fireflow_types::keys::PseudoNonStdKey);
         let valpath: Path = parse_quote!(nonempty::NEString);
         // TODO the :: here is awkward
         Self::new_py(["typing"], "PseudoNonStdKeywords")
@@ -8983,7 +8984,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_nonstd_keywords() -> Self {
-        let keypath: Path = parse_quote!(fireflow_types::nonstd_key::NonStdKey);
+        let keypath: Path = parse_quote!(fireflow_types::keys::nonstd::NonStdKey);
         let valpath: Path = parse_quote!(nonempty::NEString);
         // TODO the :: here is awkward
         Self::new_py(["typing"], "NonStdKeywords")
@@ -8992,7 +8993,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_dropped_std_keywords() -> Self {
-        let keypath: Path = parse_quote!(fireflow_types::std_key::StdKey);
+        let keypath: Path = parse_quote!(fireflow_types::keys::StdKey);
         let valpath: Path = parse_quote!(nonempty::NEString);
         // TODO the :: here is awkward
         Self::new_py(["typing"], "DroppedStdKeywords")
@@ -9001,27 +9002,27 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_std_keyword() -> Self {
-        let path = parse_quote!(fireflow_types::std_key::StdKey);
+        let path = parse_quote!(fireflow_types::keys::StdKey);
         Self::new_py(["typing"], "StdKey").rstype(path)
     }
 
     fn new_pseudo_std_keyword() -> Self {
-        let path = parse_quote!(fireflow_types::std_key::PseudoStdKey);
+        let path = parse_quote!(fireflow_types::keys::PseudoStdKey);
         Self::new_py(["typing"], "DollarPseudoStdKey").rstype(path)
     }
 
     fn new_nonstd_keyword() -> Self {
-        let path = parse_quote!(fireflow_types::nonstd_key::NonStdKey);
+        let path = parse_quote!(fireflow_types::keys::nonstd::NonStdKey);
         Self::new_py(["typing"], "NonStdKey").rstype(path)
     }
 
     fn new_pseudo_non_std_keyword() -> Self {
-        let path = parse_quote!(fireflow_types::std_key::PseudoNonStdKey);
+        let path = parse_quote!(fireflow_types::keys::PseudoNonStdKey);
         Self::new_py(["typing"], "PseudoNonStdKey").rstype(path)
     }
 
     fn new_any_keyword() -> Self {
-        let path = parse_quote!(fireflow_types::std_key::AnyKey);
+        let path = parse_quote!(fireflow_types::keys::AnyKey);
         Self::new_py(["typing"], "AnyKey").rstype(path)
     }
 

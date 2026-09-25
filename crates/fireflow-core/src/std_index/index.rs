@@ -14,12 +14,15 @@ use fireflow_types::config::{
     TemporalHasOpticalKeyError, TriErrorFlag as _,
 };
 use fireflow_types::index::MeasIndex;
-use fireflow_types::keywords::Version;
-use fireflow_types::nonstd_key::DollarWrap;
-use fireflow_types::std_key::{
-    AnyKey, CsvFlagKey, DfcKey, EnumIndex as _, GateKey, MeasKey, N_ROOT, PseudoNonStdKey,
-    PseudoNonStdKeywordsExt as _, PseudoStdKey, RawStdKey, RegionKey, RootKey, StdKey, ToStd as _,
+use fireflow_types::keys::nonstd::DollarWrap;
+use fireflow_types::keys::raw_std::{
+    CsvFlagKey, DfcKey, EnumIndex as _, GateKey, MeasKey, N_ROOT, RawStdKey, RegionKey, RootKey,
+    ToStd as _,
 };
+use fireflow_types::keys::{
+    AnyKey, PseudoNonStdKey, PseudoNonStdKeywordsExt as _, PseudoStdKey, StdKey,
+};
+use fireflow_types::keywords::Version;
 use nonempty::{NEStr, NEString, NEVec};
 
 use derive_more::{Display, From};
@@ -1100,7 +1103,7 @@ impl Serialize for StdKeywords {
 mod python {
     use super::StdKeywords;
 
-    use fireflow_types::std_key::StdKey;
+    use fireflow_types::keys::StdKey;
     use nonempty::NEString;
 
     use pyo3::{prelude::*, types::PyDict};

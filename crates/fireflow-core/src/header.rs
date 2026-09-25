@@ -36,8 +36,8 @@ use fireflow_types::config::{
     AppendableFlag, ConfigFlag as _, EnumStrIter as _, ReadHeaderInnerConfig, ReadOffsetConfig,
     SelectVersionStrategy, VersionOverride,
 };
+use fireflow_types::keys::raw_std::{RootKey, ToStd as _};
 use fireflow_types::keywords::{Version, VersionFormatError};
-use fireflow_types::std_key::{RootKey, ToStd as _};
 use fireflow_types::textdelim::{DelimCollisionError, HasDelim as _};
 use nonempty::{IntoIteratorExt as _, NEString, NEVec, NonEmptyIterator as _};
 

@@ -3,10 +3,9 @@ use crate::std_index::index::StdKeywords;
 
 use fireflow_types::config::Encoding;
 use fireflow_types::index::{BiMeasIndex, MeasIndex};
-use fireflow_types::nonstd_key::{DollarWrap, NonStdKey};
-use fireflow_types::std_key::{
-    AnyKey, ParsedKey, PseudoNonStdKey, PseudoStdKey, RawStdKey, StdKey, ToStd,
-};
+use fireflow_types::keys::nonstd::{DollarWrap, NonStdKey};
+use fireflow_types::keys::raw_std::{RawStdKey, ToStd};
+use fireflow_types::keys::{AnyKey, PseudoNonStdKey, PseudoStdKey, StdKey};
 use nonempty::{HasNELen as _, NEAlt, NESlice, NEStr, NEString, NEVec, ToDisplayNE, ToNE};
 
 use derive_more::{Display, From, Into};
@@ -396,10 +395,11 @@ pub trait ValueToStdKey {
     }
 }
 
-// Implement methods for nonstd key wrappers
-
 // Implement methods for misc types
 
+// TODO clean this up once we decide what data structure to use for
+// std/pseudo-non-std keys. If we just use hash tables or something with owned
+// values this slice business is just extra complexity for no gain
 #[derive(Debug)]
 pub(crate) enum ParsedKeyword<'a> {
     // Valid std key value as a slice
@@ -414,7 +414,7 @@ pub(crate) enum ParsedKeyword<'a> {
     // Pseudo-non-std key and value
     PseudoNonStd(NonEmptyValue<PseudoNonStdKey, NEString>),
     // Key (any type or raw bytes) where value was trimmed to empty whitespace
-    TrimmedEmptyValue(ParsedKey, NEString),
+    TrimmedEmptyValue(DollarKeyOrBytes, NEString),
     // Valid key with invalid value
     NonUtf8Value(AnyKey, NEVec<u8>),
     // Invalid key with valid value
@@ -428,18 +428,6 @@ pub(crate) struct NonEmptyValue<K, V> {
     pub(crate) key: K,
     pub(crate) value: V,
     pub(crate) original: Option<NEString>,
-}
-
-impl From<ParsedKey> for DollarKeyOrBytes {
-    fn from(value: ParsedKey) -> Self {
-        match value {
-            ParsedKey::Bytes(x) => Self::Bytes(TruncatedNEBytes(x)),
-            ParsedKey::Std(x) => Self::Ascii(AnyKey::Std(x)),
-            ParsedKey::PseudoNonStd(x) => Self::Ascii(AnyKey::PseudoNonStd(x)),
-            ParsedKey::PseudoStd(x) => Self::Ascii(AnyKey::PseudoStd(x)),
-            ParsedKey::NonStd(x) => Self::Ascii(AnyKey::NonStd(x)),
-        }
-    }
 }
 
 pub(crate) enum ParsedValue<'a> {
@@ -561,54 +549,51 @@ impl<'a> ParsedKeyword<'a> {
     where
         V: ValueFromBytes<'a>,
     {
-        let pk = ParsedKey::from_bytes(key);
+        let pk = AnyKey::from_bytes(key);
         let pv = val.parse_from_bytes(trim, encoding);
         // This will throw away the trimmed value if it was computed in the case
         // of non-ascii keys. This is very rare so probably not worth
         // optimizing. The convenience of returning owned strings is worth it.
         match (pk, pv) {
-            (ParsedKey::Std(k), ParsedValue::Slice(v, original)) => {
+            (Ok(AnyKey::Std(k)), ParsedValue::Slice(v, original)) => {
                 Self::StdSlice(NonEmptyValue::new(k, v, original))
             }
-            (ParsedKey::Std(k), ParsedValue::Owned(v, original)) => {
+            (Ok(AnyKey::Std(k)), ParsedValue::Owned(v, original)) => {
                 Self::StdOwned(NonEmptyValue::new(k, v, original))
             }
-            (ParsedKey::PseudoStd(k), ParsedValue::Slice(v, original)) => {
+            (Ok(AnyKey::PseudoStd(k)), ParsedValue::Slice(v, original)) => {
                 Self::PseudoStd(NonEmptyValue::new(k, v.to_owned(), original))
             }
-            (ParsedKey::PseudoStd(k), ParsedValue::Owned(v, original)) => {
+            (Ok(AnyKey::PseudoStd(k)), ParsedValue::Owned(v, original)) => {
                 Self::PseudoStd(NonEmptyValue::new(k, v, original))
             }
-            (ParsedKey::NonStd(k), ParsedValue::Slice(v, original)) => {
+            (Ok(AnyKey::NonStd(k)), ParsedValue::Slice(v, original)) => {
                 Self::NonStd(NonEmptyValue::new(k, v.to_owned(), original))
             }
-            (ParsedKey::NonStd(k), ParsedValue::Owned(v, original)) => {
+            (Ok(AnyKey::NonStd(k)), ParsedValue::Owned(v, original)) => {
                 Self::NonStd(NonEmptyValue::new(k, v, original))
             }
-            (ParsedKey::PseudoNonStd(k), ParsedValue::Slice(v, original)) => {
+            (Ok(AnyKey::PseudoNonStd(k)), ParsedValue::Slice(v, original)) => {
                 Self::PseudoNonStd(NonEmptyValue::new(k, v.to_owned(), original))
             }
-            (ParsedKey::PseudoNonStd(k), ParsedValue::Owned(v, original)) => {
+            (Ok(AnyKey::PseudoNonStd(k)), ParsedValue::Owned(v, original)) => {
                 Self::PseudoNonStd(NonEmptyValue::new(k, v, original))
             }
-            (ParsedKey::Bytes(k), ParsedValue::Slice(v, original)) => {
+            (Err(k), ParsedValue::Slice(v, original)) => {
                 Self::NonAsciiKey(NonEmptyValue::new(k, v.to_owned(), original))
             }
-            (ParsedKey::Bytes(k), ParsedValue::Owned(v, original)) => {
+            (Err(k), ParsedValue::Owned(v, original)) => {
                 Self::NonAsciiKey(NonEmptyValue::new(k, v, original))
             }
-            (ParsedKey::Bytes(k), ParsedValue::Bytes(v)) => Self::BothInvalid(k, v),
-            (ParsedKey::Std(k), ParsedValue::Bytes(v)) => Self::NonUtf8Value(AnyKey::Std(k), v),
-            (ParsedKey::PseudoStd(k), ParsedValue::Bytes(v)) => {
-                Self::NonUtf8Value(AnyKey::PseudoStd(k), v)
+            (Err(k), ParsedValue::Bytes(v)) => Self::BothInvalid(k, v),
+            (Ok(k), ParsedValue::Bytes(v)) => Self::NonUtf8Value(k, v),
+            (k, ParsedValue::Empty(original)) => {
+                let kb = match k {
+                    Ok(x) => DollarKeyOrBytes::Ascii(x),
+                    Err(x) => DollarKeyOrBytes::Bytes(TruncatedNEBytes(x)),
+                };
+                Self::TrimmedEmptyValue(kb, original)
             }
-            (ParsedKey::NonStd(k), ParsedValue::Bytes(v)) => {
-                Self::NonUtf8Value(AnyKey::NonStd(k), v)
-            }
-            (ParsedKey::PseudoNonStd(k), ParsedValue::Bytes(v)) => {
-                Self::NonUtf8Value(AnyKey::PseudoNonStd(k), v)
-            }
-            (k, ParsedValue::Empty(original)) => Self::TrimmedEmptyValue(k, original),
         }
     }
 
@@ -705,8 +690,7 @@ impl<'a> ParsedKeyword<'a> {
                 }
             }
             Self::TrimmedEmptyValue(k, v) => {
-                diag.keys_with_empty_trimmed_values
-                    .push((k.into(), v.into()));
+                diag.keys_with_empty_trimmed_values.push((k, v.into()));
             }
             Self::NonUtf8Value(k, v) => diag.keys_with_non_utf8_values.push((k, v.into())),
             Self::NonAsciiKey(kv) => {

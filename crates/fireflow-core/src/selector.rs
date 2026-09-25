@@ -1,7 +1,8 @@
 use crate::validated::keys::ValidKeywords;
 
-use fireflow_types::nonstd_key::DollarWrap;
-use fireflow_types::std_key::{AnyKey, RootKey, ToStd as _};
+use fireflow_types::keys::AnyKey;
+use fireflow_types::keys::nonstd::DollarWrap;
+use fireflow_types::keys::raw_std::{RootKey, ToStd as _};
 use nonempty::{NEStr, NEString, NEVec, NonEmptyIterator as _, nev};
 
 use derive_more::Display;
@@ -393,7 +394,8 @@ impl FromStr for ValueRegex {
 mod python {
     use super::{AppendableSelector, Branch, Cond, Condition, If, KeyTest, Selector, ValueRegex};
 
-    use fireflow_types::{python as fp, std_key::AnyKey};
+    use fireflow_types::keys::AnyKey;
+    use fireflow_types::python as fp;
     use nonempty::{NEStr, NEString, NEVec};
 
     use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyTuple};

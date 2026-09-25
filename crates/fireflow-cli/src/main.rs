@@ -12,10 +12,11 @@ use fireflow_types::config::{
     self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, NumericByteWidth,
 };
 use fireflow_types::datepattern::DatePattern;
+use fireflow_types::keys::raw_std as sk;
+use fireflow_types::keys::{AnyKey, StdKey};
 use fireflow_types::keywords as tk;
 use fireflow_types::other_width::OtherWidth;
 use fireflow_types::segment::OffsetsCorrection;
-use fireflow_types::std_key::{self as sk, AnyKey, StdKey};
 use fireflow_types::std_pattern::PATTERN_DELIMITER;
 use fireflow_types::sub_pattern::SubPattern;
 use fireflow_types::textdelim::TEXTDelim;

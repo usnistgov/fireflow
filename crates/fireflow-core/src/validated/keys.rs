@@ -4,7 +4,7 @@ use crate::std_index::index::StdKeywords;
 use fireflow_types::config::Encoding;
 use fireflow_types::index::{BiMeasIndex, MeasIndex};
 use fireflow_types::std_key::{
-    AnyKey, DollarPseudoStdKey, DollarStdKey, DollarWrap, NonStdKey, ParsedKey, PseudoNonStdKey,
+    AnyKey, DollarPseudoStdKey, DollarStdKey, DollarWrap0, NonStdKey, ParsedKey, PseudoNonStdKey,
     StdKey, ToStd,
 };
 use nonempty::{HasNELen as _, NEAlt, NESlice, NEStr, NEString, NEVec, ToDisplayNE, ToNE};
@@ -276,7 +276,7 @@ impl<T> SpecificKey_<T, BiMeasIndex> {
 /// A [`SpecificKey`] which is prefixed with '$' when displayed.
 #[derive(Display, From)]
 #[derive_where(Clone, Copy, Default, PartialEq, Eq, Debug; I)]
-pub struct DollarKey_<T, I>(pub DollarWrap<SpecificKey_<T, I>>);
+pub struct DollarKey_<T, I>(pub DollarWrap0<true, SpecificKey_<T, I>>);
 
 pub type DollarKey<T> = DollarKey_<T, <T as ValueToStdKey>::Index>;
 
@@ -290,7 +290,7 @@ impl<K: ValueToStdKey> ToDisplayNE<'_> for DollarKey<K>
 where
     SpecificKey<K>: for<'b> ToDisplayNE<'b> + Copy,
 {
-    type NE = ToNE<DollarWrap<SpecificKey<K>>>;
+    type NE = ToNE<DollarWrap0<true, SpecificKey<K>>>;
     fn to_ne(&self) -> Self::NE {
         ToNE(self.0)
     }
@@ -298,7 +298,7 @@ where
 
 impl<T, I> DollarKey_<T, I> {
     pub(crate) fn new(i: I) -> Self {
-        Self(DollarWrap(SpecificKey_::new(i)))
+        Self(DollarWrap0(SpecificKey_::new(i)))
     }
 
     pub(crate) fn index(self) -> I {
@@ -308,7 +308,7 @@ impl<T, I> DollarKey_<T, I> {
 
 impl<T> DollarKey_<T, BiMeasIndex> {
     pub(crate) fn new_i2(i: MeasIndex, j: MeasIndex) -> Self {
-        Self(DollarWrap(SpecificKey_::new_i2(i, j)))
+        Self(DollarWrap0(SpecificKey_::new_i2(i, j)))
     }
 }
 

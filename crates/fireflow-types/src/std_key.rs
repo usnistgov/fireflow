@@ -11,14 +11,13 @@ use nonempty::{
 };
 
 use ambassador::Delegate;
-use bytemuck::{NoUninit, TransparentWrapper, must_cast_ref};
+use bytemuck::{NoUninit, must_cast_ref};
 use derive_more::{AsRef, Display, From, TryInto};
 use derive_new::new;
 use hashbrown::HashMap;
 use strum::{EnumCount, VariantArray};
 use strum_macros::{EnumCount as EnumCount_, VariantArray};
 use thiserror::Error;
-use type_families::{impl_functor_once, impl_kind1};
 
 use std::borrow::Borrow;
 use std::fmt;
@@ -47,9 +46,6 @@ pub enum AnyKey {
     PseudoStd(DollarPseudoStdKey),
     NonStd(NonStdKey),
 }
-
-// pub type DollarPseudoStdKey = DollarWrap<PseudoStdKey>;
-// pub type DollarAnyStdKey = DollarWrap<AnyStdKey>;
 
 /// A standard key which starts with a '$'.
 ///
@@ -187,71 +183,6 @@ impl FromStr for NonStdKey {
     }
 }
 
-// /// A key that starts with a '$' which may or may not be a real standard key.
-// ///
-// /// The leading '$' is not included internally or when displayed.
-// #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
-// #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
-// #[cfg_attr(feature = "serde", derive(Serialize))]
-// pub enum AnyStdKey {
-//     Real(StdKey),
-//     Pseudo(PseudoStdKey),
-// }
-
-// /// A key without '$' preifx which may or may not be a real standard key.
-// #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
-// #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
-// #[cfg_attr(feature = "serde", derive(Serialize))]
-// pub enum AnyNonStdKey {
-//     Real(NonStdKey),
-//     Pseudo(PseudoNonStdKey),
-// }
-
-// /// A key which does not start with a '$' but would be a standard key if it did.
-// ///
-// /// The leading '$' is not included internally or when displayed.
-// pub type PseudoNonStdKey = StdKey;
-
-// /// A key which starts with a '$' but is not defined in any FCS standard.
-// ///
-// /// The leading '$' is not included internally or when displayed.
-// #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, AsRef, Delegate, Into)]
-// #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
-// #[cfg_attr(feature = "serde", derive(Serialize))]
-// #[as_ref(KeyString)]
-// #[delegate(ToDisplayNE<'a>, generics = "'a")]
-// pub struct PseudoStdKey(KeyString);
-
-// /// A key from TEXT which is not codified by the FCS standard.
-// ///
-// /// This cannot start with `"$"` and may only contain ASCII characters.
-// #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord, Delegate)]
-// #[cfg_attr(feature = "serde", derive(Serialize))]
-// #[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
-// #[as_ref(KeyString, str, NEStr)]
-// #[delegate(ToDisplayNE<'a>, generics = "'a")]
-// pub struct NonStdKey(KeyString);
-
-/// Wrap a type so its display string is prefixed with '$'.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-    PartialOrd,
-    Ord,
-    Display,
-    From,
-    Default,
-    TransparentWrapper,
-)]
-#[display("{}", self.as_displayable())]
-#[display(bound(for<'a> T: ToDisplayNE<'a>))]
-#[repr(transparent)]
-pub struct DollarWrap<T>(pub T);
-
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From, Default, AsRef,
 )]
@@ -309,10 +240,6 @@ impl<const HAS_PRE: bool, T> Borrow<T> for DollarWrap0<HAS_PRE, T> {
         &self.0
     }
 }
-
-impl_kind1!(pub DollarWrapFamily, DollarWrap);
-
-impl_functor_once!(DollarWrap, self, mut f, DollarWrap(f(self.0)));
 
 /// A key defined in the FCS standard ('$' not included).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From, TryInto)]
@@ -960,13 +887,6 @@ impl ToStd for DfcKeyMarker {
 
 // Implement non-empty display for std key types.
 
-impl<'a, T: ToDisplayNE<'a>> ToDisplayNE<'a> for DollarWrap<T> {
-    type NE = NEConcat<char, T::NE>;
-    fn to_ne(&'a self) -> Self::NE {
-        NEConcat::new(char::from(STD_PREFIX), self.0.to_ne())
-    }
-}
-
 impl<'a, T: ToDisplayNE<'a>> ToDisplayNE<'a> for DollarWrap0<true, T> {
     type NE = NEConcat<char, T::NE>;
     fn to_ne(&'a self) -> Self::NE {
@@ -980,16 +900,6 @@ impl<'a, T: ToDisplayNE<'a>> ToDisplayNE<'a> for DollarWrap0<false, T> {
         self.0.to_ne()
     }
 }
-
-// impl<'a> ToDisplayNE<'a> for AnyStdKey {
-//     type NE = NEAlt<ToNE<StdKey>, ToNE<&'a PseudoStdKey>>;
-//     fn to_ne(&'a self) -> Self::NE {
-//         match self {
-//             Self::Real(x) => NEAlt::Left(ToNE(*x)),
-//             Self::Pseudo(x) => NEAlt::Right(ToNE(x)),
-//         }
-//     }
-// }
 
 type NEStdKey = NEAlt<
     NEAlt<ToNE<RootKey>, NEAlt<ToNE<MeasKey>, ToNE<GateKey>>>,

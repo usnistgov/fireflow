@@ -1390,15 +1390,6 @@ impl FCSFileReader {
             .map_commutative_warnings(ReadFlatDatasetWarning::from)
             .map_pure_errors(ReadFlatDatasetError::from)
             .and_then_commutative(|out| {
-                let version = out.this.flat_diagnostics.header_supp.header.version;
-                let oride = conf.flat.version_override.as_ref();
-                autodetect_version(version, &out.this.keywords.std, oride)
-                    .map_err(ReadFlatDatasetError::from)
-                    .map_err(IOErrorGroup::new_pure_one)
-                    .map(|(new_version, scores)| (new_version, out, scores))
-                    .into_log()
-            })
-            .and_then_commutative(|(new_ver, out, scores)| {
                 let st = &out.state;
                 eval_repair_conf(st.conf().as_ref(), &out.this.keywords)
                     .map_ok_value(|repair| {
@@ -1414,47 +1405,57 @@ impl FCSFileReader {
                     .nowarn_into_warn()
                     .group()
                     .map_error(IOErrorGroup::Pure)
-                    .and_then_commutative(|lst| {
-                        let mut flat = out.this;
-                        let mut kws = flat.keywords;
-                        let mut rtx = kws.std.as_transaction();
-                        let repair_res = rtx
-                            .repair(
-                                &mut kws.pstd,
-                                &mut kws.pnonstd,
-                                &mut kws.nonstd,
-                                &lst.conf().repair,
-                            )
-                            .map_commutative_warnings(ReadFlatDatasetWarning::from)
-                            .map_errors(ReadFlatDatasetError::from);
-                        let ltx = rtx.into_lookup_transaction();
-                        let hns = &mut flat.flat_diagnostics.header_supp;
+                    .map_ok_value(|x| (x, out.this, out.read_end))
+            })
+            .and_then_commutative(|(lst, mut flat, read_end)| {
+                let mut kws = flat.keywords;
+                let mut rtx = kws.std.as_transaction();
+                let repair_res = rtx
+                    .repair(
+                        &mut kws.pstd,
+                        &mut kws.pnonstd,
+                        &mut kws.nonstd,
+                        &lst.conf().repair,
+                    )
+                    .map_commutative_warnings(ReadFlatDatasetWarning::from)
+                    .map_errors(ReadFlatDatasetError::from);
+
+                let ltx = rtx.into_lookup_transaction();
+                let version = flat.flat_diagnostics.header_supp.header.version;
+                let hns = &mut flat.flat_diagnostics.header_supp;
+                let oride = conf.flat.version_override.as_ref();
+                autodetect_version(version, &kws.std, oride)
+                    .map_err(ReadFlatDatasetError::from)
+                    .map_err(IOErrorGroup::new_pure_one)
+                    .into_log()
+                    .and_then_commutative(|(new_version, scores)| {
                         FlatDatasetFromKwsOutput::h_read(
                             &mut self.buf_read,
-                            new_ver,
+                            new_version,
                             &ltx,
                             hns,
                             scan_next_dataset,
-                            out.read_end,
-                            &out.state,
+                            read_end,
+                            &lst,
                         )
                         .map_commutative_warnings(ReadFlatDatasetWarning::from)
                         .map_pure_errors(ReadFlatDatasetError::from)
-                        .zip_io_group_commutative(repair_res)
-                        .map_ok_value(|(dataset, repair_diag)| {
-                            let final_std = ltx.commit();
-                            // Rebuild final keywords object since we may have
-                            // repaired them to read DATA
-                            let final_kws =
-                                ValidKeywords::new(final_std, kws.pstd, kws.pnonstd, kws.nonstd);
-                            FlatDatasetOutput::new(
-                                final_kws,
-                                flat.flat_diagnostics,
-                                dataset,
-                                scores,
-                                repair_diag,
-                            )
-                        })
+                        .map_ok_value(|x| (x, scores))
+                    })
+                    .zip_io_group_commutative(repair_res)
+                    .map_ok_value(|((dataset, scores), repair_diag)| {
+                        let final_std = ltx.commit();
+                        // Rebuild final keywords object since we may have
+                        // repaired them to read DATA
+                        let final_kws =
+                            ValidKeywords::new(final_std, kws.pstd, kws.pnonstd, kws.nonstd);
+                        FlatDatasetOutput::new(
+                            final_kws,
+                            flat.flat_diagnostics,
+                            dataset,
+                            scores,
+                            repair_diag,
+                        )
                     })
             })
             .warnings_to_pure_errors(conf.shared, ReadFlatDatasetError::from)

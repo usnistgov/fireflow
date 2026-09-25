@@ -7118,6 +7118,7 @@ impl AnyCoreTEXT {
             .map_errors(AnyStdTEXTFromKeywordsError::from)
             .nowarn_into_warn()
             .and_then_commutative(|lst| {
+                // TODO repair before detecting version
                 match autodetect_version(version, &kws.std, sconf.version_override.as_ref()) {
                     Ok((ver, scores)) => match ver {
                         Version::FCS2_0 => go!(CoreTEXT2_0, scores, &lst),
@@ -7220,6 +7221,7 @@ impl AnyCoreDataset {
             .group()
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|lst| {
+                // TODO repair before detecting version
                 match autodetect_version(version, &kws.std, sconf.version_override.as_ref()) {
                     Ok((ver, scores)) => match ver {
                         Version::FCS2_0 => go!(CoreDataset2_0, scores, &lst),

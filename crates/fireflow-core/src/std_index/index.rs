@@ -1,8 +1,6 @@
 use crate::config::{EvaledReadRepairKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{DeferredWarningsAndErrors, LogResult, WarningsAndErrorsResult};
-use crate::std_index::masked::{
-    LookupMask, LookupStatus, MaskedEnumString, MaskedString, MaskedVariableString, RepairMask,
-};
+use crate::std_index::masked::{LookupMask, MaskedEnumString, MaskedString, MaskedVariableString};
 use crate::std_index::nested_string::{NestedEnumString, NestedStringSize, NestedVariableString};
 use crate::text::keywords::{Gate, Par};
 use crate::validated::keys::{
@@ -123,7 +121,7 @@ pub struct PseudoStdKeyError {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum LookupAction {
+pub enum LookupAction {
     None,
     Demote,
     Drop,
@@ -256,7 +254,7 @@ pub struct StdTransaction<'a, M> {
     dfc: MaskedVariableString<'a, DfcKey, usize, M>,
 }
 
-pub(crate) type StdRepairTx<'a> = StdTransaction<'a, RepairMask>;
+// pub(crate) type StdRepairTx<'a> = StdTransaction<'a, RepairMask>;
 pub type StdLookupTx<'a> = StdTransaction<'a, LookupMask>;
 
 type NestedRoot = NestedEnumString<N_ROOT, RootKey>;
@@ -287,6 +285,10 @@ impl StdKeywords {
             .chain(self.region.iter_std())
             .chain(self.csv_flag.iter_std())
             .chain(self.dfc.iter_std())
+    }
+
+    pub fn iter_keys(&self) -> impl Iterator<Item = RawStdKey> {
+        self.iter_keywords().map(|(k, _)| k)
     }
 
     #[must_use]
@@ -381,6 +383,77 @@ impl StdKeywords {
         NEStr::try_new(s)
     }
 
+    fn insert(&mut self, k: &RawStdKey, v: &NEStr) -> Option<&NEStr> {
+        match k {
+            RawStdKey::Root(rk) => self.root.insert_array(rk, v),
+            RawStdKey::Meas(mk) => self.meas.insert_var(mk, v),
+            RawStdKey::Gate(gk) => self.gate.insert_var(gk, v),
+            RawStdKey::Region(rk) => self.region.insert_var(rk, v),
+            RawStdKey::CsvFlag(ck) => self.csv_flag.insert_var(ck, v),
+            RawStdKey::Dfc(dk) => self.dfc.insert_var(dk, v),
+        }
+    }
+
+    fn delete(&mut self, k: &RawStdKey) -> Option<&NEStr> {
+        match k {
+            RawStdKey::Root(rk) => self.root.delete(rk),
+            RawStdKey::Meas(mk) => self.meas.delete(mk),
+            RawStdKey::Gate(gk) => self.gate.delete(gk),
+            RawStdKey::Region(rk) => self.region.delete(rk),
+            RawStdKey::CsvFlag(ck) => self.csv_flag.delete(ck),
+            RawStdKey::Dfc(dk) => self.dfc.delete(dk),
+        }
+    }
+
+    pub(crate) fn delete_when<Fwhen, Fwith>(&mut self, mut fwhen: Fwhen, mut fwith: Fwith)
+    where
+        Fwhen: FnMut(RawStdKey) -> bool,
+        Fwith: FnMut(RawStdKey, &NEStr),
+    {
+        macro_rules! go {
+            ($field:ident) => {
+                self.$field.replace_when::<&NEStr, _, _, ()>(
+                    |&k| {
+                        fwhen(k.into());
+                        Some(())
+                    },
+                    |&k, v, ()| {
+                        fwith(k.into(), v);
+                        None
+                    },
+                );
+            };
+        }
+
+        go!(root);
+        go!(meas);
+        go!(gate);
+        go!(region);
+        go!(csv_flag);
+        go!(dfc);
+    }
+
+    pub(crate) fn replace_when<V, Fwhen, Fwith, T>(&mut self, mut fwhen: Fwhen, mut fwith: Fwith)
+    where
+        V: AsRef<NEStr>,
+        Fwhen: FnMut(RawStdKey) -> Option<T>,
+        Fwith: FnMut(RawStdKey, &NEStr, T) -> Option<V>,
+    {
+        macro_rules! go {
+            ($field:ident) => {
+                self.$field
+                    .replace_when(|&k| fwhen(k.into()), |&k, v, flag| fwith(k.into(), v, flag));
+            };
+        }
+
+        go!(root);
+        go!(meas);
+        go!(gate);
+        go!(region);
+        go!(csv_flag);
+        go!(dfc);
+    }
+
     pub(crate) fn contains_key(&self, k: &RawStdKey) -> bool {
         self.get(k).is_some()
     }
@@ -418,18 +491,17 @@ impl StdKeywords {
             dfc: MaskedString::init_var(&self.dfc),
         }
     }
-}
 
-impl<'a> StdRepairTx<'a> {
-    pub(crate) fn into_lookup_transaction(self) -> StdLookupTx<'a> {
-        StdTransaction {
-            root: MaskedString::into_lookup_array(self.root),
-            meas: MaskedString::into_lookup_var(self.meas),
-            gate: MaskedString::into_lookup_var(self.gate),
-            region: MaskedString::into_lookup_var(self.region),
-            csv_flag: MaskedString::into_lookup_var(self.csv_flag),
-            dfc: MaskedString::into_lookup_var(self.dfc),
-        }
+    fn key_has_value(&self, k: &RawStdKey) -> bool {
+        let res = match k {
+            RawStdKey::Root(rk) => self.root.occupied(rk),
+            RawStdKey::Meas(mk) => self.meas.occupied(mk),
+            RawStdKey::Gate(gk) => self.gate.occupied(gk),
+            RawStdKey::Region(rk) => self.region.occupied(rk),
+            RawStdKey::CsvFlag(ck) => self.csv_flag.occupied(ck),
+            RawStdKey::Dfc(dk) => self.dfc.occupied(dk),
+        };
+        res == Some(true)
     }
 
     #[allow(clippy::too_many_lines)]
@@ -456,12 +528,10 @@ impl<'a> StdRepairTx<'a> {
         }
 
         if match_ignore.has_wildcards() {
-            for (k, v, m) in self.iter_ne_masked_mut() {
-                if match_ignore.is_wildcard_match(&k) {
-                    *m = RepairMask::Delete;
-                    ignored.push((DollarWrap(k), TruncatedNEString(v.to_owned())));
-                }
-            }
+            self.delete_when(
+                |k| match_ignore.is_wildcard_match(&k),
+                |k, v| ignored.push((DollarWrap(k), TruncatedNEString(v.to_owned()))),
+            );
         }
 
         // rename
@@ -496,7 +566,7 @@ impl<'a> StdRepairTx<'a> {
                         renamed_non_unique.push((k0.clone(), k1.clone()));
                     } else if let Some(v) = go!() {
                         // we checked above so this shouldn't return anything
-                        let _ = self.insert(&k1_.0, v);
+                        let _ = self.insert(&k1_.0, v.as_ne_str());
                     }
                 }
                 AnyKey::PseudoNonStd(k1_) => {
@@ -538,15 +608,13 @@ impl<'a> StdRepairTx<'a> {
         }
 
         if match_demote.has_wildcards() {
-            for (k, v, m) in self.iter_ne_masked_mut() {
-                if match_demote.is_wildcard_match(&k) {
-                    *m = RepairMask::Delete;
-                    // TODO this could be made more efficient by only moving once
-                    // the index queried for errors
+            self.delete_when(
+                |k| match_demote.is_wildcard_match(&k),
+                |k, v| {
                     pnonstd.insert_demoted(nonstd, k, v.to_owned());
                     demoted.push(DollarWrap(k));
-                }
-            }
+                },
+            );
         }
 
         // promote
@@ -556,8 +624,8 @@ impl<'a> StdRepairTx<'a> {
 
         for (k, ()) in &match_promote.literals {
             if let Some(v) = pnonstd.remove(k) {
-                if let Some(vf) = self.insert(&k.0, v) {
-                    promote_non_unique.push((*k, TruncatedNEString(vf)));
+                if let Some(vf) = self.insert(&k.0, v.as_ne_str()) {
+                    promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
                 } else {
                     promoted.push(*k);
                 }
@@ -567,8 +635,8 @@ impl<'a> StdRepairTx<'a> {
         if match_promote.has_wildcards() {
             pnonstd.retain(|k, v| {
                 if match_promote.is_wildcard_match(&k.0) {
-                    if let Some(vf) = self.insert(&k.0, v.to_owned()) {
-                        promote_non_unique.push((*k, TruncatedNEString(vf)));
+                    if let Some(vf) = self.insert(&k.0, v.as_ne_str()) {
+                        promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
                         true
                     } else {
                         promoted.push(*k);
@@ -587,7 +655,7 @@ impl<'a> StdRepairTx<'a> {
         for (dk, vf) in &conf.replace_standard_key_values {
             if let Some(v) = self.delete(&dk.0) {
                 replaced.push((*dk, TruncatedNEString(v.to_owned())));
-                let _ = self.insert(&dk.0, vf.to_owned());
+                let _ = self.insert(&dk.0, vf.as_ne_str());
             }
         }
 
@@ -600,7 +668,7 @@ impl<'a> StdRepairTx<'a> {
             if let Some(v) = self.delete(&k.0) {
                 if let Ok(vf) = NEString::try_from(subpat.sub(v.as_str())) {
                     subbed.push((*k, TruncatedNEString(v.to_owned())));
-                    let _ = self.insert(&k.0, vf);
+                    let _ = self.insert(&k.0, vf.as_ne_str());
                 } else {
                     removed.push((*k, TruncatedNEString(v.to_owned())));
                 }
@@ -608,18 +676,19 @@ impl<'a> StdRepairTx<'a> {
         }
 
         if match_subs.has_wildcards() {
-            for (k, v, m) in self.iter_ne_masked_mut() {
-                if let Some(subpat) = match_subs.get_wildcard(&k) {
+            self.replace_when(
+                |k| match_subs.get_wildcard(&k),
+                |k, v, subpat| {
                     let dk = DollarWrap(k);
                     if let Ok(vf) = NEString::try_from(subpat.sub(v.as_str())) {
                         subbed.push((dk, TruncatedNEString(v.to_owned())));
-                        *m = RepairMask::Insert(vf);
+                        Some(vf)
                     } else {
                         removed.push((dk, TruncatedNEString(v.to_owned())));
-                        *m = RepairMask::Delete;
+                        None
                     }
-                }
-            }
+                },
+            );
         }
 
         // append
@@ -629,8 +698,8 @@ impl<'a> StdRepairTx<'a> {
         // TODO this is easy to optimize since we know the length of the inputs
         // and there are no pesky regex expressions
         for (k, v) in &conf.append_standard_keywords {
-            if let Some(vf) = self.insert(&k.0, v.to_owned()) {
-                appended_non_unique.push((*k, TruncatedNEString(vf)));
+            if let Some(vf) = self.insert(&k.0, v.as_ne_str()) {
+                appended_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
             }
         }
 
@@ -670,49 +739,6 @@ impl<'a> StdRepairTx<'a> {
         LogResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .set_deferred_value(ret)
-    }
-
-    fn delete(&mut self, k: &RawStdKey) -> Option<&NEStr> {
-        match k {
-            RawStdKey::Root(rk) => self.root.delete(rk),
-            RawStdKey::Meas(mk) => self.meas.delete(mk),
-            RawStdKey::Gate(gk) => self.gate.delete(gk),
-            RawStdKey::Region(rk) => self.region.delete(rk),
-            RawStdKey::CsvFlag(ck) => self.csv_flag.delete(ck),
-            RawStdKey::Dfc(dk) => self.dfc.delete(dk),
-        }
-    }
-
-    fn insert(&mut self, k: &RawStdKey, v: NEString) -> Option<NEString> {
-        match k {
-            RawStdKey::Root(rk) => self.root.insert(rk, v),
-            RawStdKey::Meas(mk) => self.meas.insert(mk, v),
-            RawStdKey::Gate(gk) => self.gate.insert(gk, v),
-            RawStdKey::Region(rk) => self.region.insert(rk, v),
-            RawStdKey::CsvFlag(ck) => self.csv_flag.insert(ck, v),
-            RawStdKey::Dfc(dk) => self.dfc.insert(dk, v),
-        }
-    }
-
-    fn key_has_value(&self, k: &RawStdKey) -> bool {
-        match k {
-            RawStdKey::Root(rk) => self.root.key_has_value(rk),
-            RawStdKey::Meas(mk) => self.meas.key_has_value(mk),
-            RawStdKey::Gate(gk) => self.gate.key_has_value(gk),
-            RawStdKey::Region(rk) => self.region.key_has_value(rk),
-            RawStdKey::CsvFlag(ck) => self.csv_flag.key_has_value(ck),
-            RawStdKey::Dfc(dk) => self.dfc.key_has_value(dk),
-        }
-    }
-
-    fn iter_ne_masked_mut(&mut self) -> impl Iterator<Item = (RawStdKey, &NEStr, &mut RepairMask)> {
-        self.root
-            .iter_ne_masked_mut()
-            .chain(self.meas.iter_ne_masked_mut())
-            .chain(self.gate.iter_ne_masked_mut())
-            .chain(self.region.iter_ne_masked_mut())
-            .chain(self.csv_flag.iter_ne_masked_mut())
-            .chain(self.dfc.iter_ne_masked_mut())
     }
 }
 
@@ -764,7 +790,7 @@ impl StdLookupTx<'_> {
 
         for (k, v, m) in self.root.iter_masked() {
             match m {
-                LookupStatus::Unseen => {
+                LookupMask::Unseen => {
                     let vo = v.to_owned();
                     match k {
                         RootKey::Timestep if version > Version::FCS2_0 => {
@@ -780,7 +806,7 @@ impl StdLookupTx<'_> {
                         _ => other_version_.push((DollarWrap(k.into()), vo)),
                     }
                 }
-                LookupStatus::Seen(a) => match a {
+                LookupMask::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => go(k.into(), v, true),
                     LookupAction::Drop => go(k.into(), v, false),
@@ -796,8 +822,8 @@ impl StdLookupTx<'_> {
                 break;
             }
             match m {
-                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
-                LookupStatus::Seen(a) => match a {
+                LookupMask::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
+                LookupMask::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => go(k.into(), v, true),
                     LookupAction::Drop => go(k.into(), v, false),
@@ -815,8 +841,8 @@ impl StdLookupTx<'_> {
                 break;
             }
             match m {
-                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
-                LookupStatus::Seen(a) => match a {
+                LookupMask::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
+                LookupMask::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => go(k.into(), v, true),
                     LookupAction::Drop => go(k.into(), v, false),
@@ -830,8 +856,8 @@ impl StdLookupTx<'_> {
         // they are hardly used anyways and doing so would be complex
         for (k, v, m) in self.region.iter_masked() {
             match m {
-                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
-                LookupStatus::Seen(a) => match a {
+                LookupMask::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
+                LookupMask::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => go(k.into(), v, true),
                     LookupAction::Drop => go(k.into(), v, false),
@@ -842,8 +868,8 @@ impl StdLookupTx<'_> {
         // TODO ditto $CSMODE
         for (k, v, m) in self.csv_flag.iter_masked() {
             match m {
-                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
-                LookupStatus::Seen(a) => match a {
+                LookupMask::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
+                LookupMask::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => go(k.into(), v, true),
                     LookupAction::Drop => go(k.into(), v, false),
@@ -855,14 +881,14 @@ impl StdLookupTx<'_> {
             let is_hyper_par = usize::from(k.index.i0) > usize::from(par)
                 || usize::from(k.index.i1) > usize::from(par);
             match m {
-                LookupStatus::Unseen => {
+                LookupMask::Unseen => {
                     if is_hyper_par {
                         hyper_par_.push((DollarWrap(k.into()), v.to_owned()));
                     } else {
                         other_version_.push((DollarWrap(k.into()), v.to_owned()));
                     }
                 }
-                LookupStatus::Seen(a) => match a {
+                LookupMask::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => go(k.into(), v, true),
                     LookupAction::Drop => go(k.into(), v, false),

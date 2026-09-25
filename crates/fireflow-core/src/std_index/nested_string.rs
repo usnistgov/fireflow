@@ -60,33 +60,24 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
         }
     }
 
-    // pub(crate) unsafe fn set_keys<V>(&mut self, pairs: impl IntoIterator<Item = (K, V)>)
-    // where
-    //     K: NumericEnum<LEN>,
-    //     V: AsRef<NEStr>,
-    // {
-    //     let mut prev_i = 0;
-    //     for (k, v) in pairs {
-    //         let i = k.index();
-    //         // Pad the index vector with previous length up until the index
-    //         // to be added. These are blank strings that we skipped by not
-    //         // explicitly passing a pair for it.
-    //         for j in (prev_i + 1)..i {
-    //             self.offsets[j] = self.inner.len();
-    //         }
-    //         self.offsets[i] = self.inner.len();
-    //         self.inner.extend(v.as_ref().as_str().as_bytes());
-    //         prev_i = i;
-    //     }
-    //     // Extend the unfilled right tail of the offsets so that the last value
-    //     // added will end at the length of the inner buffer, and everything
-    //     // after will be empty.
-    //     if prev_i < self.offsets.len() && !self.inner.is_empty() {
-    //         for j in (prev_i + 1)..self.offsets.len() {
-    //             self.offsets[j] = self.inner.len();
-    //         }
-    //     }
-    // }
+    /// Insert new value into index.
+    ///
+    /// Return old value if it exists. The old data is not actually overwritten;
+    /// The old index is overwritten and the new data is appended to the string
+    /// pool.
+    ///
+    /// Return reference to old data if present, or nothing if old data was not
+    /// overwritten.
+    pub(crate) fn insert_array<V>(&mut self, k: &K, v: V) -> Option<&NEStr>
+    where
+        V: AsRef<NEStr>,
+        K: EnumIndex<SubDimension = ()>,
+    {
+        let i = k.offset0();
+        let rng = self.offsets[i].clone();
+        self.push_ne(i, v.as_ref());
+        NEStr::try_new(self.get_range_unchecked(&rng))
+    }
 }
 
 impl<K, S> NestedVariableString<K, S> {
@@ -101,25 +92,34 @@ impl<K, S> NestedVariableString<K, S> {
         }
     }
 
-    // /// # Safety
-    // ///
-    // /// - The index of each pair must be in order.
-    // /// - This must only be called once on a freshly init-ed object.
-    // pub(crate) unsafe fn extend_pairs<V>(&mut self, pairs: impl IntoIterator<Item = (usize, V)>)
-    // where
-    //     V: AsRef<NEStr>,
-    // {
-    //     for (i, v) in pairs {
-    //         // Pad the index vector with previous length up until the index
-    //         // to be added. These are blank strings that we skipped by not
-    //         // explicitly passing a pair for it.
-    //         for _ in self.offsets.len()..i {
-    //             self.offsets.push(self.inner.len());
-    //         }
-    //         self.offsets.push(self.inner.len());
-    //         self.inner.extend(v.as_ref().as_str().as_bytes());
-    //     }
-    // }
+    /// Insert new value into index.
+    ///
+    /// Return old value if it exists. The old data is not actually overwritten;
+    /// The old index is overwritten and the new data is appended to the string
+    /// pool.
+    ///
+    /// Return reference to old data if present, or nothing if old data was not
+    /// overwritten.
+    ///
+    /// Will never panic. If the index points outside the range of the
+    /// existing index entries, the index is extended to accommodate.
+    pub(crate) fn insert_var<V>(&mut self, k: &K, v: V) -> Option<&NEStr>
+    where
+        V: AsRef<NEStr>,
+        K: EnumIndex<SubDimension = S>,
+    {
+        let i = k.offset(&self.sub_dimension);
+        let n = self.offsets.len();
+        if i < n {
+            let rng = self.offsets[i].clone();
+            self.push_ne(i, v.as_ref());
+            NEStr::try_new(self.get_range_unchecked(&rng))
+        } else {
+            self.offsets.resize(i + 1, 0..0);
+            self.push_ne(i, v.as_ref());
+            None
+        }
+    }
 }
 
 impl<I, S, K> NestedString<I, S, K> {
@@ -154,14 +154,6 @@ impl<I, S, K> NestedString<I, S, K> {
         self.get(k).map(|v| !v.is_empty())
     }
 
-    // pub(crate) fn get_unchecked(&self, k: &K) -> &str
-    // where
-    //     I: HasLen + Index<usize, Output = usize>,
-    //     K: EnumIndex<SubDimension = S>,
-    // {
-    //     self.get_index_unchecked(k.offset(&self.sub_dimension))
-    // }
-
     pub(crate) fn get_index(&self, i: usize) -> Option<&str>
     where
         I: HasLen + Index<usize, Output = Range<usize>>,
@@ -171,11 +163,15 @@ impl<I, S, K> NestedString<I, S, K> {
 
     pub(crate) fn get_index_unchecked(&self, i: usize) -> &str
     where
-        I: HasLen + Index<usize, Output = Range<usize>>,
+        I: Index<usize, Output = Range<usize>>,
     {
-        let n = self.offsets.len();
-        assert!(i < n, "index out of bounds: {i}");
-        let rng = &self.offsets[i];
+        self.get_range_unchecked(&self.offsets[i])
+    }
+
+    pub(crate) fn get_range_unchecked(&self, rng: &Range<usize>) -> &str
+    where
+        I: Index<usize, Output = Range<usize>>,
+    {
         // SAFETY: this struct is validated such that each slice is a string
         unsafe { str::from_utf8_unchecked(&self.inner[rng.start..rng.end]) }
     }
@@ -201,6 +197,48 @@ impl<I, S, K> NestedString<I, S, K> {
         }
     }
 
+    pub(crate) fn replace_when<V, Fwhen, Fwith, T>(&mut self, mut fwhen: Fwhen, mut fwith: Fwith)
+    where
+        V: AsRef<NEStr>,
+        I: HasLen + IndexMut<usize, Output = Range<usize>>,
+        K: EnumIndex<SubDimension = S>,
+        Fwhen: FnMut(&K) -> Option<T>,
+        Fwith: FnMut(&K, &NEStr, T) -> Option<V>,
+    {
+        let s = &self.sub_dimension;
+        for k in K::generate(s).take(self.offsets.len()) {
+            if let Some(flag) = fwhen(&k)
+                && let Some(v) = self.delete(&k)
+                && let Some(new) = fwith(&k, v, flag)
+            {
+                let i = k.offset(&self.sub_dimension);
+                self.push_ne(i, new.as_ref());
+            }
+        }
+    }
+
+    /// Remove an entry from the index.
+    ///
+    /// The old data is not actually removed. Only the range that indexes
+    /// the string pool will be reset for the given index.
+    ///
+    /// Return old data if available. Return none if nothing was deleted.
+    pub(crate) fn delete(&mut self, k: &K) -> Option<&NEStr>
+    where
+        K: EnumIndex<SubDimension = S>,
+        I: HasLen + IndexMut<usize, Output = Range<usize>>,
+    {
+        let i = k.offset(&self.sub_dimension);
+        let n = self.offsets.len();
+        if i < n {
+            let rng = self.offsets[i].clone();
+            self.offsets[i] = 0..0;
+            NEStr::try_new(self.get_range_unchecked(&rng))
+        } else {
+            None
+        }
+    }
+
     /// Put a key/value pair into the index.
     ///
     /// Order does not matter. Duplicates will be tracked and returned with the
@@ -216,15 +254,12 @@ impl<I, S, K> NestedString<I, S, K> {
     where
         V: AsRef<NEStr>,
         K: EnumIndex<SubDimension = S>,
-        I: HasLen + Index<usize, Output = Range<usize>> + IndexMut<usize, Output = Range<usize>>,
+        I: IndexMut<usize, Output = Range<usize>>,
     {
         let i = k.offset(&self.sub_dimension);
         let rng = &self.offsets[i];
         if rng.is_empty() {
-            let start = self.inner.len();
-            self.inner.extend(v.as_ref().as_str().as_bytes());
-            let end = self.inner.len();
-            self.offsets[i] = start..end;
+            self.push_ne(i, v.as_ref());
             None
         } else {
             Some(v)
@@ -253,15 +288,22 @@ impl<I, S, K> NestedString<I, S, K> {
             let i = k.offset(&self.sub_dimension);
             let rng = &self.offsets[i];
             if rng.is_empty() {
-                let start = self.inner.len();
-                self.inner.extend(v.as_ref().as_str().as_bytes());
-                let end = self.inner.len();
-                self.offsets[i] = start..end;
+                self.push_ne(i, v.as_ref());
             } else {
                 duplicates.push((k, v));
             }
         }
         duplicates
+    }
+
+    fn push_ne(&mut self, i: usize, v: &NEStr)
+    where
+        I: IndexMut<usize, Output = Range<usize>>,
+    {
+        let start = self.inner.len();
+        self.inner.extend(v.as_str().as_bytes());
+        let end = self.inner.len();
+        self.offsets[i] = start..end;
     }
 }
 

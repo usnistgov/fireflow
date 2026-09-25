@@ -1409,8 +1409,8 @@ impl FCSFileReader {
             })
             .and_then_commutative(|(lst, mut flat, read_end)| {
                 let mut kws = flat.keywords;
-                let mut rtx = kws.std.as_transaction();
-                let repair_res = rtx
+                let repair_res = kws
+                    .std
                     .repair(
                         &mut kws.pstd,
                         &mut kws.pnonstd,
@@ -1420,7 +1420,7 @@ impl FCSFileReader {
                     .map_commutative_warnings(ReadFlatDatasetWarning::from)
                     .map_errors(ReadFlatDatasetError::from);
 
-                let ltx = rtx.into_lookup_transaction();
+                let ltx = kws.std.as_transaction();
                 let version = flat.flat_diagnostics.header_supp.header.version;
                 let hns = &mut flat.flat_diagnostics.header_supp;
                 let oride = conf.flat.version_override.as_ref();

@@ -5809,8 +5809,8 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadOffsetConfig>,
     {
-        let mut rtx = kws.std.as_transaction();
-        let repair_res = rtx
+        let repair_res = kws
+            .std
             .repair(
                 &mut kws.pstd,
                 &mut kws.pnonstd,
@@ -5819,7 +5819,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             )
             .map_commutative_warnings(StdTEXTFromKeywordsWithOffsetsWarning::from)
             .map_errors(StdTEXTFromKeywordsWithOffsetsError::from);
-        let ltx = rtx.into_lookup_transaction();
+        let ltx = kws.std.as_transaction();
         let mut pstd = kws.pstd;
         Self::new_from_transaction_with_offsets(
             ltx,
@@ -6424,8 +6424,8 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadDatasetConfig>,
     {
-        let mut rtx = kws.std.as_transaction();
-        let repair_res = rtx
+        let repair_res = kws
+            .std
             .repair(
                 &mut kws.pstd,
                 &mut kws.pnonstd,
@@ -6434,7 +6434,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             )
             .map_commutative_warnings(StdDatasetFromKeywordsWarningInner::from)
             .map_errors(StdDatasetFromKeywordsErrorInner::from);
-        let ltx = rtx.into_lookup_transaction();
+        let ltx = kws.std.as_transaction();
         let mut pstd = kws.pstd;
         let ns = kws.nonstd;
         let snd = scan_next_dataset;

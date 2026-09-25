@@ -16,9 +16,9 @@ use fireflow_types::config::{
 use fireflow_types::index::MeasIndex;
 use fireflow_types::keywords::Version;
 use fireflow_types::std_key::{
-    AnyKey, CsvFlagKey, DfcKey, DollarPseudoStdKey, DollarStdKey, DollarWrap0, EnumIndex as _,
-    GateKey, MeasKey, N_ROOT, NonStdKey, PseudoNonStdKey, PseudoNonStdKeywordsExt as _, RegionKey,
-    RootKey, StdKey, ToStd as _,
+    AnyKey, CsvFlagKey, DfcKey, DollarWrap, EnumIndex as _, GateKey, MeasKey, N_ROOT, NonStdKey,
+    PseudoNonStdKey, PseudoNonStdKeywordsExt as _, PseudoStdKey, RawStdKey, RegionKey, RootKey,
+    StdKey, ToStd as _,
 };
 use nonempty::{NEStr, NEString, NEVec};
 
@@ -38,13 +38,13 @@ use {
 };
 
 type OpticalOnlyResult = WarningsAndErrorsResult<
-    Vec<(DollarStdKey, TruncatedNEString)>,
+    Vec<(StdKey, TruncatedNEString)>,
     (),
     TemporalHasOpticalKeyError,
     TemporalHasOpticalKeyError,
 >;
 
-pub(crate) type DroppedStdKeywords = Vec<(DollarStdKey, NEString)>;
+pub(crate) type DroppedStdKeywords = Vec<(StdKey, NEString)>;
 
 /// Leftover standard keyword after parsing
 #[derive(Clone, new, PartialEq)]
@@ -75,7 +75,7 @@ pub enum ExtraStdKeywordError {
 #[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct HyperParError {
     pub par: Par,
-    pub key: DollarStdKey,
+    pub key: StdKey,
 }
 
 /// Error denoting that gating keyword within standard but above $GATE was found
@@ -85,7 +85,7 @@ pub struct HyperParError {
 #[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct HyperGateError {
     pub gate: Gate,
-    pub key: DollarStdKey,
+    pub key: StdKey,
 }
 
 /// Error denoting that keyword from different version was found
@@ -97,7 +97,7 @@ pub struct HyperGateError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct KeywordOtherVersionError {
-    pub key: DollarStdKey,
+    pub key: StdKey,
     pub current: Version,
 }
 
@@ -114,7 +114,7 @@ pub struct TimestepFoundError;
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct PseudoStdKeyError {
-    pub key: DollarPseudoStdKey,
+    pub key: PseudoStdKey,
     pub value: TruncatedNEString,
 }
 
@@ -176,7 +176,7 @@ pub struct PromoteNonUniqueError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct AppendNonUniqueError {
-    key: DollarStdKey,
+    key: StdKey,
     value: TruncatedNEString,
 }
 
@@ -186,7 +186,7 @@ pub struct AppendNonUniqueError {
 #[allow(clippy::too_many_arguments)]
 pub struct RepairDiagnostics {
     /// Standard keys which were demoted.
-    pub demoted: Vec<DollarStdKey>,
+    pub demoted: Vec<StdKey>,
 
     /// Non-standard keys which were promoted.
     pub promoted: Vec<PseudoNonStdKey>,
@@ -194,12 +194,12 @@ pub struct RepairDiagnostics {
     /// Standard keys which had values that were substituted.
     ///
     /// Values here are the original.
-    pub subbed: Vec<(DollarStdKey, TruncatedNEString)>,
+    pub subbed: Vec<(StdKey, TruncatedNEString)>,
 
     /// Standard keys which had values that were replaced.
     ///
     /// Values here are the original.
-    pub replaced: Vec<(DollarStdKey, TruncatedNEString)>,
+    pub replaced: Vec<(StdKey, TruncatedNEString)>,
 
     /// Keys which were renamed.
     ///
@@ -210,12 +210,12 @@ pub struct RepairDiagnostics {
     pub renamed_non_unique: Vec<(AnyKey, AnyKey)>,
 
     /// Standard keys which were ignored.
-    pub ignored: Vec<(DollarStdKey, TruncatedNEString)>,
+    pub ignored: Vec<(StdKey, TruncatedNEString)>,
 
     /// Standard keys which were removed.
     ///
     /// This only happens when a substitution pattern returns a blank.
-    pub removed: Vec<(DollarStdKey, TruncatedNEString)>,
+    pub removed: Vec<(StdKey, TruncatedNEString)>,
 
     /// Non-standard keys which collided with a standard key when promoted.
     ///
@@ -233,7 +233,7 @@ pub struct RepairDiagnostics {
     pub promoted_ignored_noop: Vec<NonStdKey>,
 
     /// Appended keys which collided with an existing standard key.
-    pub appended_non_unique: Vec<(DollarStdKey, TruncatedNEString)>,
+    pub appended_non_unique: Vec<(StdKey, TruncatedNEString)>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -281,11 +281,11 @@ impl Default for StdKeywords {
 }
 
 impl StdKeywords {
-    pub fn iter_dollar_keywords(&self) -> impl Iterator<Item = (DollarStdKey, &NEStr)> {
-        self.iter_keywords().map(|(k, v)| (DollarWrap0(k), v))
+    pub fn iter_dollar_keywords(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {
+        self.iter_keywords().map(|(k, v)| (DollarWrap(k), v))
     }
 
-    pub fn iter_keywords(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {
+    pub fn iter_keywords(&self) -> impl Iterator<Item = (RawStdKey, &NEStr)> {
         self.root
             .iter_std()
             .chain(self.meas.iter_std())
@@ -296,7 +296,7 @@ impl StdKeywords {
     }
 
     #[must_use]
-    pub fn from_vec<V>(pairs: Vec<(StdKey, V)>) -> (Self, Vec<(DollarStdKey, TruncatedNEString)>)
+    pub fn from_vec<V>(pairs: Vec<(RawStdKey, V)>) -> (Self, Vec<(StdKey, TruncatedNEString)>)
     where
         V: AsRef<NEStr>,
     {
@@ -311,26 +311,26 @@ impl StdKeywords {
         for (k, v) in &pairs {
             let n_bytes = v.as_ref().as_ne_bytes().len().get();
             match k {
-                StdKey::Root(_) => {
+                RawStdKey::Root(_) => {
                     root_n_bytes += n_bytes;
                 }
-                StdKey::Meas(i) => {
+                RawStdKey::Meas(i) => {
                     meas_size.n_offsets = meas_size.n_offsets.max(i.offset0() + 1);
                     meas_size.n_bytes += n_bytes;
                 }
-                StdKey::Gate(i) => {
+                RawStdKey::Gate(i) => {
                     gate_size.n_offsets = gate_size.n_offsets.max(i.offset0() + 1);
                     gate_size.n_bytes += n_bytes;
                 }
-                StdKey::Region(i) => {
+                RawStdKey::Region(i) => {
                     region_size.n_offsets = region_size.n_offsets.max(i.offset0() + 1);
                     region_size.n_bytes += n_bytes;
                 }
-                StdKey::CsvFlag(i) => {
+                RawStdKey::CsvFlag(i) => {
                     csv_flag_size.n_offsets = csv_flag_size.n_offsets.max(i.offset0() + 1);
                     csv_flag_size.n_bytes += n_bytes;
                 }
-                StdKey::Dfc(dk) => {
+                RawStdKey::Dfc(dk) => {
                     dfc_n_bytes += n_bytes;
                     let i0 = usize::from(dk.index.i0);
                     let i1 = usize::from(dk.index.i1);
@@ -352,14 +352,14 @@ impl StdKeywords {
 
         for (k, v) in pairs {
             if let Some(dup) = match k {
-                StdKey::Root(i) => root.push_dedup(&i, v),
-                StdKey::Meas(i) => meas.push_dedup(&i, v),
-                StdKey::Gate(i) => gate.push_dedup(&i, v),
-                StdKey::Region(i) => region.push_dedup(&i, v),
-                StdKey::CsvFlag(i) => csv_flag.push_dedup(&i, v),
-                StdKey::Dfc(i) => dfc.push_dedup(&i, v),
+                RawStdKey::Root(i) => root.push_dedup(&i, v),
+                RawStdKey::Meas(i) => meas.push_dedup(&i, v),
+                RawStdKey::Gate(i) => gate.push_dedup(&i, v),
+                RawStdKey::Region(i) => region.push_dedup(&i, v),
+                RawStdKey::CsvFlag(i) => csv_flag.push_dedup(&i, v),
+                RawStdKey::Dfc(i) => dfc.push_dedup(&i, v),
             } {
-                duplicates.push((DollarWrap0(k), dup.as_ref().to_owned().into()));
+                duplicates.push((DollarWrap(k), dup.as_ref().to_owned().into()));
             }
         }
 
@@ -375,19 +375,19 @@ impl StdKeywords {
     }
 
     #[must_use]
-    pub fn get(&self, k: &StdKey) -> Option<&NEStr> {
+    pub fn get(&self, k: &RawStdKey) -> Option<&NEStr> {
         let s = match k {
-            StdKey::Root(rk) => self.root.get(rk),
-            StdKey::Meas(mk) => self.meas.get(mk),
-            StdKey::Gate(gk) => self.gate.get(gk),
-            StdKey::Region(rk) => self.region.get(rk),
-            StdKey::CsvFlag(ck) => self.csv_flag.get(ck),
-            StdKey::Dfc(dk) => self.dfc.get(dk),
+            RawStdKey::Root(rk) => self.root.get(rk),
+            RawStdKey::Meas(mk) => self.meas.get(mk),
+            RawStdKey::Gate(gk) => self.gate.get(gk),
+            RawStdKey::Region(rk) => self.region.get(rk),
+            RawStdKey::CsvFlag(ck) => self.csv_flag.get(ck),
+            RawStdKey::Dfc(dk) => self.dfc.get(dk),
         }?;
         NEStr::try_new(s)
     }
 
-    pub(crate) fn contains_key(&self, k: &StdKey) -> bool {
+    pub(crate) fn contains_key(&self, k: &RawStdKey) -> bool {
         self.get(k).is_some()
     }
 
@@ -400,7 +400,7 @@ impl StdKeywords {
             + self.dfc.n_offsets()
     }
 
-    pub(crate) fn concat(self, other: Self) -> (Self, Vec<(DollarStdKey, TruncatedNEString)>) {
+    pub(crate) fn concat(self, other: Self) -> (Self, Vec<(StdKey, TruncatedNEString)>) {
         if self.n_offsets() == 0 {
             (other, vec![])
         } else if other.n_offsets() == 0 {
@@ -465,7 +465,7 @@ impl<'a> StdRepairTx<'a> {
             for (k, v, m) in self.iter_ne_masked_mut() {
                 if match_ignore.is_wildcard_match(&k) {
                     *m = RepairMask::Delete;
-                    ignored.push((DollarWrap0(k), TruncatedNEString(v.to_owned())));
+                    ignored.push((DollarWrap(k), TruncatedNEString(v.to_owned())));
                 }
             }
         }
@@ -488,7 +488,7 @@ impl<'a> StdRepairTx<'a> {
                     // TODO this could be made more efficient by only moving once
                     // the index queried for errors
                     pnonstd.insert_demoted(nonstd, k, v.to_owned());
-                    demoted.push(DollarWrap0(k));
+                    demoted.push(DollarWrap(k));
                 }
             }
         }
@@ -557,7 +557,7 @@ impl<'a> StdRepairTx<'a> {
         if match_subs.has_wildcards() {
             for (k, v, m) in self.iter_ne_masked_mut() {
                 if let Some(subpat) = match_subs.get_wildcard(&k) {
-                    let dk = DollarWrap0(k);
+                    let dk = DollarWrap(k);
                     if let Ok(vf) = NEString::try_from(subpat.sub(v.as_str())) {
                         subbed.push((dk, TruncatedNEString(v.to_owned())));
                         *m = RepairMask::Insert(vf);
@@ -821,40 +821,40 @@ impl<'a> StdRepairTx<'a> {
             .set_deferred_value(ret)
     }
 
-    fn delete(&mut self, k: &StdKey) -> Option<&NEStr> {
+    fn delete(&mut self, k: &RawStdKey) -> Option<&NEStr> {
         match k {
-            StdKey::Root(rk) => self.root.delete(rk),
-            StdKey::Meas(mk) => self.meas.delete(mk),
-            StdKey::Gate(gk) => self.gate.delete(gk),
-            StdKey::Region(rk) => self.region.delete(rk),
-            StdKey::CsvFlag(ck) => self.csv_flag.delete(ck),
-            StdKey::Dfc(dk) => self.dfc.delete(dk),
+            RawStdKey::Root(rk) => self.root.delete(rk),
+            RawStdKey::Meas(mk) => self.meas.delete(mk),
+            RawStdKey::Gate(gk) => self.gate.delete(gk),
+            RawStdKey::Region(rk) => self.region.delete(rk),
+            RawStdKey::CsvFlag(ck) => self.csv_flag.delete(ck),
+            RawStdKey::Dfc(dk) => self.dfc.delete(dk),
         }
     }
 
-    fn insert(&mut self, k: &StdKey, v: NEString) -> Option<NEString> {
+    fn insert(&mut self, k: &RawStdKey, v: NEString) -> Option<NEString> {
         match k {
-            StdKey::Root(rk) => self.root.insert(rk, v),
-            StdKey::Meas(mk) => self.meas.insert(mk, v),
-            StdKey::Gate(gk) => self.gate.insert(gk, v),
-            StdKey::Region(rk) => self.region.insert(rk, v),
-            StdKey::CsvFlag(ck) => self.csv_flag.insert(ck, v),
-            StdKey::Dfc(dk) => self.dfc.insert(dk, v),
+            RawStdKey::Root(rk) => self.root.insert(rk, v),
+            RawStdKey::Meas(mk) => self.meas.insert(mk, v),
+            RawStdKey::Gate(gk) => self.gate.insert(gk, v),
+            RawStdKey::Region(rk) => self.region.insert(rk, v),
+            RawStdKey::CsvFlag(ck) => self.csv_flag.insert(ck, v),
+            RawStdKey::Dfc(dk) => self.dfc.insert(dk, v),
         }
     }
 
-    fn key_has_value(&self, k: &StdKey) -> bool {
+    fn key_has_value(&self, k: &RawStdKey) -> bool {
         match k {
-            StdKey::Root(rk) => self.root.key_has_value(rk),
-            StdKey::Meas(mk) => self.meas.key_has_value(mk),
-            StdKey::Gate(gk) => self.gate.key_has_value(gk),
-            StdKey::Region(rk) => self.region.key_has_value(rk),
-            StdKey::CsvFlag(ck) => self.csv_flag.key_has_value(ck),
-            StdKey::Dfc(dk) => self.dfc.key_has_value(dk),
+            RawStdKey::Root(rk) => self.root.key_has_value(rk),
+            RawStdKey::Meas(mk) => self.meas.key_has_value(mk),
+            RawStdKey::Gate(gk) => self.gate.key_has_value(gk),
+            RawStdKey::Region(rk) => self.region.key_has_value(rk),
+            RawStdKey::CsvFlag(ck) => self.csv_flag.key_has_value(ck),
+            RawStdKey::Dfc(dk) => self.dfc.key_has_value(dk),
         }
     }
 
-    fn iter_ne_masked_mut(&mut self) -> impl Iterator<Item = (StdKey, &NEStr, &mut RepairMask)> {
+    fn iter_ne_masked_mut(&mut self) -> impl Iterator<Item = (RawStdKey, &NEStr, &mut RepairMask)> {
         self.root
             .iter_ne_masked_mut()
             .chain(self.meas.iter_ne_masked_mut())
@@ -907,7 +907,7 @@ impl StdLookupTx<'_> {
             if was_demoted {
                 pnonstd.insert_demoted(nonstd, k, v.to_owned());
             } else {
-                optional.push((DollarWrap0(k), v.to_owned()));
+                optional.push((DollarWrap(k), v.to_owned()));
             }
         };
 
@@ -926,7 +926,7 @@ impl StdLookupTx<'_> {
                         // another version or not.
                         RootKey::Nextdata => (),
                         RootKey::Beginstext | RootKey::Endstext if version > Version::FCS2_0 => (),
-                        _ => other_version_.push((DollarWrap0(k.into()), vo)),
+                        _ => other_version_.push((DollarWrap(k.into()), vo)),
                     }
                 }
                 LookupStatus::Seen(a) => match a {
@@ -941,11 +941,11 @@ impl StdLookupTx<'_> {
 
         for (k, v, m) in meas_it.by_ref() {
             if usize::from(k.index) >= usize::from(par) {
-                hyper_par_.push((DollarWrap0(k.into()), v.to_owned()));
+                hyper_par_.push((DollarWrap(k.into()), v.to_owned()));
                 break;
             }
             match m {
-                LookupStatus::Unseen => other_version_.push((DollarWrap0(k.into()), v.to_owned())),
+                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
                 LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => go(k.into(), v, true),
@@ -954,17 +954,17 @@ impl StdLookupTx<'_> {
             }
         }
 
-        hyper_par_.extend(meas_it.map(|(k, v, _)| (DollarWrap0(k.into()), v.to_owned())));
+        hyper_par_.extend(meas_it.map(|(k, v, _)| (DollarWrap(k.into()), v.to_owned())));
 
         let mut gate_it = self.gate.iter_masked();
 
         for (k, v, m) in gate_it.by_ref() {
             if usize::from(k.index) >= usize::from(gate) {
-                hyper_gate_.push((DollarWrap0(k.into()), v.to_owned()));
+                hyper_gate_.push((DollarWrap(k.into()), v.to_owned()));
                 break;
             }
             match m {
-                LookupStatus::Unseen => other_version_.push((DollarWrap0(k.into()), v.to_owned())),
+                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
                 LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => go(k.into(), v, true),
@@ -973,13 +973,13 @@ impl StdLookupTx<'_> {
             }
         }
 
-        hyper_gate_.extend(gate_it.map(|(k, v, _)| (DollarWrap0(k.into()), v.to_owned())));
+        hyper_gate_.extend(gate_it.map(|(k, v, _)| (DollarWrap(k.into()), v.to_owned())));
 
         // TODO we could also do something like hyper_par/gate with these but
         // they are hardly used anyways and doing so would be complex
         for (k, v, m) in self.region.iter_masked() {
             match m {
-                LookupStatus::Unseen => other_version_.push((DollarWrap0(k.into()), v.to_owned())),
+                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
                 LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => go(k.into(), v, true),
@@ -991,7 +991,7 @@ impl StdLookupTx<'_> {
         // TODO ditto $CSMODE
         for (k, v, m) in self.csv_flag.iter_masked() {
             match m {
-                LookupStatus::Unseen => other_version_.push((DollarWrap0(k.into()), v.to_owned())),
+                LookupStatus::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
                 LookupStatus::Seen(a) => match a {
                     LookupAction::None => (),
                     LookupAction::Demote => go(k.into(), v, true),
@@ -1006,9 +1006,9 @@ impl StdLookupTx<'_> {
             match m {
                 LookupStatus::Unseen => {
                     if is_hyper_par {
-                        hyper_par_.push((DollarWrap0(k.into()), v.to_owned()));
+                        hyper_par_.push((DollarWrap(k.into()), v.to_owned()));
                     } else {
-                        other_version_.push((DollarWrap0(k.into()), v.to_owned()));
+                        other_version_.push((DollarWrap(k.into()), v.to_owned()));
                     }
                 }
                 LookupStatus::Seen(a) => match a {
@@ -1133,7 +1133,7 @@ impl StdLookupTx<'_> {
         // it lazily in the index. Here we only care about the pair and if
         // it has a non-empty value.
         for t in targets {
-            let k = StdKey::from_optical_only_key(*t, i);
+            let k = RawStdKey::from_optical_only_key(*t, i);
             if let Some(v) = self.remove_unseen(&k) {
                 let err = || TemporalHasOpticalKeyError::new(i, *t);
                 if keys.0.contains(t) {
@@ -1142,7 +1142,7 @@ impl StdLookupTx<'_> {
                     if warn {
                         ws.push(err());
                     }
-                    pairs.push((DollarWrap0(k), vf.into()));
+                    pairs.push((DollarWrap(k), vf.into()));
                 } else {
                     es.push(err());
                 }
@@ -1172,56 +1172,56 @@ impl StdLookupTx<'_> {
         self.parse_unseen(&K::std(i), f)
     }
 
-    pub(crate) fn set_failure_flag<F: KeywordFailureFlag>(&mut self, k: &StdKey, f: F) {
+    pub(crate) fn set_failure_flag<F: KeywordFailureFlag>(&mut self, k: &RawStdKey, f: F) {
         if let Some(a) = LookupAction::from_flag(f) {
             self.set_lookup_action_seen(k, a);
         }
     }
 
-    pub(crate) fn set_lookup_action_seen(&mut self, k: &StdKey, a: LookupAction) {
+    pub(crate) fn set_lookup_action_seen(&mut self, k: &RawStdKey, a: LookupAction) {
         match k {
-            StdKey::Root(rk) => self.root.set_lookup_action_seen(rk, a),
-            StdKey::Meas(mk) => self.meas.set_lookup_action_seen(mk, a),
-            StdKey::Gate(gk) => self.gate.set_lookup_action_seen(gk, a),
-            StdKey::Region(rk) => self.region.set_lookup_action_seen(rk, a),
-            StdKey::CsvFlag(ck) => self.csv_flag.set_lookup_action_seen(ck, a),
-            StdKey::Dfc(dk) => self.dfc.set_lookup_action_seen(dk, a),
+            RawStdKey::Root(rk) => self.root.set_lookup_action_seen(rk, a),
+            RawStdKey::Meas(mk) => self.meas.set_lookup_action_seen(mk, a),
+            RawStdKey::Gate(gk) => self.gate.set_lookup_action_seen(gk, a),
+            RawStdKey::Region(rk) => self.region.set_lookup_action_seen(rk, a),
+            RawStdKey::CsvFlag(ck) => self.csv_flag.set_lookup_action_seen(ck, a),
+            RawStdKey::Dfc(dk) => self.dfc.set_lookup_action_seen(dk, a),
         }
     }
 
-    fn get_unseen(&self, k: &StdKey) -> Option<&NEStr> {
+    fn get_unseen(&self, k: &RawStdKey) -> Option<&NEStr> {
         match k {
-            StdKey::Root(rk) => self.root.get_unseen(rk),
-            StdKey::Meas(mk) => self.meas.get_unseen(mk),
-            StdKey::Gate(gk) => self.gate.get_unseen(gk),
-            StdKey::Region(rk) => self.region.get_unseen(rk),
-            StdKey::CsvFlag(ck) => self.csv_flag.get_unseen(ck),
-            StdKey::Dfc(dk) => self.dfc.get_unseen(dk),
+            RawStdKey::Root(rk) => self.root.get_unseen(rk),
+            RawStdKey::Meas(mk) => self.meas.get_unseen(mk),
+            RawStdKey::Gate(gk) => self.gate.get_unseen(gk),
+            RawStdKey::Region(rk) => self.region.get_unseen(rk),
+            RawStdKey::CsvFlag(ck) => self.csv_flag.get_unseen(ck),
+            RawStdKey::Dfc(dk) => self.dfc.get_unseen(dk),
         }
     }
 
-    fn remove_unseen(&mut self, k: &StdKey) -> Option<&NEStr> {
+    fn remove_unseen(&mut self, k: &RawStdKey) -> Option<&NEStr> {
         match k {
-            StdKey::Root(rk) => self.root.remove_unseen(rk),
-            StdKey::Meas(mk) => self.meas.remove_unseen(mk),
-            StdKey::Gate(gk) => self.gate.remove_unseen(gk),
-            StdKey::Region(rk) => self.region.remove_unseen(rk),
-            StdKey::CsvFlag(ck) => self.csv_flag.remove_unseen(ck),
-            StdKey::Dfc(dk) => self.dfc.remove_unseen(dk),
+            RawStdKey::Root(rk) => self.root.remove_unseen(rk),
+            RawStdKey::Meas(mk) => self.meas.remove_unseen(mk),
+            RawStdKey::Gate(gk) => self.gate.remove_unseen(gk),
+            RawStdKey::Region(rk) => self.region.remove_unseen(rk),
+            RawStdKey::CsvFlag(ck) => self.csv_flag.remove_unseen(ck),
+            RawStdKey::Dfc(dk) => self.dfc.remove_unseen(dk),
         }
     }
 
-    fn parse_unseen<F, X>(&mut self, k: &StdKey, f: F) -> Option<X>
+    fn parse_unseen<F, X>(&mut self, k: &RawStdKey, f: F) -> Option<X>
     where
         F: FnOnce(&NEStr) -> (Option<LookupAction>, X),
     {
         match k {
-            StdKey::Root(rk) => self.root.parse_unseen(rk, f),
-            StdKey::Meas(mk) => self.meas.parse_unseen(mk, f),
-            StdKey::Gate(gk) => self.gate.parse_unseen(gk, f),
-            StdKey::Region(rk) => self.region.parse_unseen(rk, f),
-            StdKey::CsvFlag(ck) => self.csv_flag.parse_unseen(ck, f),
-            StdKey::Dfc(dk) => self.dfc.parse_unseen(dk, f),
+            RawStdKey::Root(rk) => self.root.parse_unseen(rk, f),
+            RawStdKey::Meas(mk) => self.meas.parse_unseen(mk, f),
+            RawStdKey::Gate(gk) => self.gate.parse_unseen(gk, f),
+            RawStdKey::Region(rk) => self.region.parse_unseen(rk, f),
+            RawStdKey::CsvFlag(ck) => self.csv_flag.parse_unseen(ck, f),
+            RawStdKey::Dfc(dk) => self.dfc.parse_unseen(dk, f),
         }
     }
 }
@@ -1235,7 +1235,7 @@ impl Serialize for StdKeywords {
         let n = self.iter_keywords().count();
         let mut map = serializer.serialize_map(Some(n))?;
         for (k, v) in self.iter_keywords() {
-            map.serialize_entry(&DollarWrap0::<true, _>(k), v)?;
+            map.serialize_entry(&DollarWrap::<true, _>(k), v)?;
         }
         map.end()
     }
@@ -1245,7 +1245,7 @@ impl Serialize for StdKeywords {
 mod python {
     use super::StdKeywords;
 
-    use fireflow_types::std_key::DollarStdKey;
+    use fireflow_types::std_key::StdKey;
     use nonempty::NEString;
 
     use pyo3::{prelude::*, types::PyDict};
@@ -1262,7 +1262,7 @@ mod python {
             let tmp = obj
                 .cast::<PyDict>()?
                 .iter()
-                .map(|(k, v)| Ok((k.extract::<DollarStdKey>()?.0, v.extract::<NEString>()?)))
+                .map(|(k, v)| Ok((k.extract::<StdKey>()?.0, v.extract::<NEString>()?)))
                 .collect::<Result<Vec<_>, PyErr>>()?;
             // Ignore duplicates since the input dict should not have any
             Ok(Self::from_vec(tmp).0)

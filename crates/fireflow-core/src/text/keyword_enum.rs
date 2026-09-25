@@ -13,7 +13,7 @@ use crate::validated::shortname::Shortname;
 
 use fireflow_types::index::{MeasIndex, RegionIndex};
 use fireflow_types::keywords::{Version, VersionMembership};
-use fireflow_types::std_key::{DollarWrap0, NonStdKey, PseudoNonStdKey, StdKey};
+use fireflow_types::std_key::{DollarWrap, NonStdKey, PseudoNonStdKey, RawStdKey};
 use fireflow_types::textdelim::{
     DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim,
 };
@@ -596,9 +596,9 @@ pub(crate) trait AsHeader {
 
 #[delegatable_trait]
 pub(crate) trait AsStdKeywordPair: Sized {
-    fn as_std_key_pair(&self) -> (StdKey, NEString);
+    fn as_std_key_pair(&self) -> (RawStdKey, NEString);
 
-    fn as_std_key(&self) -> StdKey {
+    fn as_std_key(&self) -> RawStdKey {
         self.as_std_key_pair().0
     }
 }
@@ -714,9 +714,9 @@ where
     T: ValueToStdKey,
     for<'a> V: ToDisplayNE<'a>,
 {
-    fn as_std_key_pair(&self) -> (StdKey, NEString) {
+    fn as_std_key_pair(&self) -> (RawStdKey, NEString) {
         (
-            StdKey::from(&self.key.0.0),
+            RawStdKey::from(&self.key.0.0),
             ToNE(&self.value).to_ne_string(),
         )
     }
@@ -726,7 +726,7 @@ impl<V> AsStdKeywordPair for SplitKeyword_<PseudoNonStdKey, V>
 where
     for<'a> V: ToDisplayNE<'a>,
 {
-    fn as_std_key_pair(&self) -> (StdKey, NEString) {
+    fn as_std_key_pair(&self) -> (RawStdKey, NEString) {
         (self.key.0, ToNE(&self.value).to_ne_string())
     }
 }
@@ -738,7 +738,7 @@ where
 {
     fn as_key_pair(&self) -> (WritableKey, NEString) {
         let (k, v) = self.as_std_key_pair();
-        (WritableKey::Std(DollarWrap0(k)), v)
+        (WritableKey::Std(DollarWrap(k)), v)
     }
 }
 
@@ -748,7 +748,7 @@ where
 {
     fn as_key_pair(&self) -> (WritableKey, NEString) {
         let (k, v) = self.as_std_key_pair();
-        (WritableKey::PseudoNonStd(DollarWrap0(k)), v)
+        (WritableKey::PseudoNonStd(DollarWrap(k)), v)
     }
 }
 
@@ -763,7 +763,7 @@ impl AsKeywordPair for NonStdKeyword<'_> {
 
 impl<I, V, X> HasMembership for SplitKeyword_<DollarKey_<V, I>, X>
 where
-    SpecificKey_<V, I>: Into<StdKey> + Copy,
+    SpecificKey_<V, I>: Into<RawStdKey> + Copy,
 {
     fn membership(&self) -> VersionMembership {
         self.key.0.0.into().membership()

@@ -1,4 +1,4 @@
-use crate::std_key::StdKey;
+use crate::std_key::RawStdKey;
 use nonempty::{DisplayableNE as _, NESlice, NEStr, NEString, ToDisplayNE};
 
 use derive_more::{AsRef, Display, From};
@@ -75,7 +75,7 @@ pub enum NEAsciiStringError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 #[error("string should not be a valid standard key, found '{0}'")]
-pub struct InvalidStdKeyError(pub StdKey);
+pub struct InvalidStdKeyError(pub RawStdKey);
 
 #[derive(PartialEq, Debug, Error, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -117,7 +117,7 @@ impl FromStr for KeyString {
 impl TryFrom<NEString> for KeyString {
     type Error = KeyStringError;
     fn try_from(value: NEString) -> Result<Self, Self::Error> {
-        if let Some(k) = StdKey::from_ne_str(value.as_ne_str()) {
+        if let Some(k) = RawStdKey::from_ne_str(value.as_ne_str()) {
             Err(InvalidStdKeyError(k).into())
         } else {
             Self::from_bytes(value.as_ne_str().as_ne_bytes())
@@ -129,7 +129,7 @@ impl TryFrom<NEString> for KeyString {
 impl TryFrom<&NEStr> for KeyString {
     type Error = KeyStringError;
     fn try_from(value: &NEStr) -> Result<Self, Self::Error> {
-        if let Some(k) = StdKey::from_ne_str(value) {
+        if let Some(k) = RawStdKey::from_ne_str(value) {
             Err(InvalidStdKeyError(k).into())
         } else {
             Self::from_bytes(value.as_ne_bytes())
@@ -140,14 +140,14 @@ impl TryFrom<&NEStr> for KeyString {
 
 impl KeyString {
     #[must_use]
-    pub fn from_std_key(sk: &StdKey) -> Self {
+    pub fn from_std_key(sk: &RawStdKey) -> Self {
         let mut s = match sk {
-            StdKey::Root(k) => k.as_ne_str().to_owned(),
-            StdKey::Meas(k) => k.as_ne_string(),
-            StdKey::Gate(k) => k.as_ne_string(),
-            StdKey::Region(k) => k.as_ne_string(),
-            StdKey::Dfc(k) => k.as_ne_string(),
-            StdKey::CsvFlag(k) => k.as_ne_string(),
+            RawStdKey::Root(k) => k.as_ne_str().to_owned(),
+            RawStdKey::Meas(k) => k.as_ne_string(),
+            RawStdKey::Gate(k) => k.as_ne_string(),
+            RawStdKey::Region(k) => k.as_ne_string(),
+            RawStdKey::Dfc(k) => k.as_ne_string(),
+            RawStdKey::CsvFlag(k) => k.as_ne_string(),
         };
         // No key in the FCS standard ends with a '_', so this will never
         // produce an internally inconsistent keystring

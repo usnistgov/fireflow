@@ -63,7 +63,7 @@ use fireflow_types::config::{
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
 use fireflow_types::segment::{OffsetsFromTEXT, SupplementalTextSegmentId};
 use fireflow_types::std_key::{
-    AnyKey, DollarPseudoStdKey, DollarStdKey, NonStdKey, PseudoNonStdKey, RootKey, ToStd as _,
+    AnyKey, NonStdKey, PseudoNonStdKey, PseudoStdKey, RootKey, StdKey, ToStd as _,
 };
 use nonempty::{IntoIteratorExt as _, NESlice, NEVec, NonEmptyIterator as _};
 
@@ -690,10 +690,10 @@ pub struct SplitTEXTDiagnostics {
     pub byte_pairs: Vec<(TruncatedNEBytes, TruncatedNEBytes)>,
 
     /// Standard keys which appear more than once with their values.
-    pub non_unique_std_keywords: Vec<(DollarStdKey, TruncatedNEString)>,
+    pub non_unique_std_keywords: Vec<(StdKey, TruncatedNEString)>,
 
     /// Standard keys which appear more than once with their values.
-    pub non_unique_pstd_keywords: Vec<(DollarPseudoStdKey, TruncatedNEString)>,
+    pub non_unique_pstd_keywords: Vec<(PseudoStdKey, TruncatedNEString)>,
 
     /// Pseudo-nonstandard keys which appear more than once with their values.
     pub non_unique_pnonstd_keywords: Vec<(PseudoNonStdKey, TruncatedNEString)>,
@@ -1174,8 +1174,8 @@ pub struct KeyPresent<T> {
     value: TruncatedNEString,
 }
 
-pub type StdPresent = KeyPresent<DollarStdKey>;
-pub type PseudoStdPresent = KeyPresent<DollarPseudoStdKey>;
+pub type StdPresent = KeyPresent<StdKey>;
+pub type PseudoStdPresent = KeyPresent<PseudoStdKey>;
 pub type NonStdPresent = KeyPresent<NonStdKey>;
 
 /// Error when key or value with invalid UTF-8 characters is encountered

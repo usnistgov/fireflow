@@ -4,8 +4,8 @@ use crate::std_index::index::StdKeywords;
 use fireflow_types::config::Encoding;
 use fireflow_types::index::{BiMeasIndex, MeasIndex};
 use fireflow_types::std_key::{
-    AnyKey, DollarPseudoStdKey, DollarStdKey, DollarWrap0, NonStdKey, ParsedKey, PseudoNonStdKey,
-    StdKey, ToStd,
+    AnyKey, DollarWrap, NonStdKey, ParsedKey, PseudoNonStdKey, PseudoStdKey, RawStdKey, StdKey,
+    ToStd,
 };
 use nonempty::{HasNELen as _, NEAlt, NESlice, NEStr, NEString, NEVec, ToDisplayNE, ToNE};
 
@@ -30,13 +30,13 @@ use {fireflow_core_proc::FromInnerPyObject, pyo3::prelude::*};
 #[derive(Clone, PartialEq, From)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum WritableKey {
-    Std(DollarStdKey),
+    Std(StdKey),
     PseudoNonStd(PseudoNonStdKey),
     NonStd(NonStdKey),
 }
 
 impl<'a> ToDisplayNE<'a> for WritableKey {
-    type NE = NEAlt<ToNE<DollarStdKey>, NEAlt<ToNE<PseudoNonStdKey>, ToNE<&'a NonStdKey>>>;
+    type NE = NEAlt<ToNE<StdKey>, NEAlt<ToNE<PseudoNonStdKey>, ToNE<&'a NonStdKey>>>;
     fn to_ne(&'a self) -> Self::NE {
         match self {
             Self::Std(x) => NEAlt::Left(ToNE(*x)),
@@ -238,9 +238,9 @@ pub type SpecificKey<T> = SpecificKey_<T, <T as ValueToStdKey>::Index>;
 
 impl<T: ValueToStdKey> ToDisplayNE<'_> for SpecificKey<T>
 where
-    Self: Into<StdKey> + Copy,
+    Self: Into<RawStdKey> + Copy,
 {
-    type NE = ToNE<StdKey>;
+    type NE = ToNE<RawStdKey>;
     fn to_ne(&self) -> Self::NE {
         ToNE((*self).into())
     }
@@ -248,20 +248,20 @@ where
 
 impl<T: ValueToStdKey> fmt::Display for SpecificKey<T>
 where
-    for<'a> &'a Self: Into<StdKey>,
+    for<'a> &'a Self: Into<RawStdKey>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{}", self.into())
     }
 }
 
-impl<T: ValueToStdKey> From<SpecificKey<T>> for StdKey {
+impl<T: ValueToStdKey> From<SpecificKey<T>> for RawStdKey {
     fn from(value: SpecificKey<T>) -> Self {
         T::std(&value.index)
     }
 }
 
-impl<'a, T: ValueToStdKey> From<&'a SpecificKey<T>> for StdKey {
+impl<'a, T: ValueToStdKey> From<&'a SpecificKey<T>> for RawStdKey {
     fn from(value: &'a SpecificKey<T>) -> Self {
         T::std(&value.index)
     }
@@ -276,11 +276,11 @@ impl<T> SpecificKey_<T, BiMeasIndex> {
 /// A [`SpecificKey`] which is prefixed with '$' when displayed.
 #[derive(Display, From)]
 #[derive_where(Clone, Copy, Default, PartialEq, Eq, Debug; I)]
-pub struct DollarKey_<T, I>(pub DollarWrap0<true, SpecificKey_<T, I>>);
+pub struct DollarKey_<T, I>(pub DollarWrap<true, SpecificKey_<T, I>>);
 
 pub type DollarKey<T> = DollarKey_<T, <T as ValueToStdKey>::Index>;
 
-impl<T: ValueToStdKey> From<DollarKey<T>> for StdKey {
+impl<T: ValueToStdKey> From<DollarKey<T>> for RawStdKey {
     fn from(value: DollarKey<T>) -> Self {
         value.0.0.into()
     }
@@ -290,7 +290,7 @@ impl<K: ValueToStdKey> ToDisplayNE<'_> for DollarKey<K>
 where
     SpecificKey<K>: for<'b> ToDisplayNE<'b> + Copy,
 {
-    type NE = ToNE<DollarWrap0<true, SpecificKey<K>>>;
+    type NE = ToNE<DollarWrap<true, SpecificKey<K>>>;
     fn to_ne(&self) -> Self::NE {
         ToNE(self.0)
     }
@@ -298,7 +298,7 @@ where
 
 impl<T, I> DollarKey_<T, I> {
     pub(crate) fn new(i: I) -> Self {
-        Self(DollarWrap0(SpecificKey_::new(i)))
+        Self(DollarWrap(SpecificKey_::new(i)))
     }
 
     pub(crate) fn index(self) -> I {
@@ -308,13 +308,13 @@ impl<T, I> DollarKey_<T, I> {
 
 impl<T> DollarKey_<T, BiMeasIndex> {
     pub(crate) fn new_i2(i: MeasIndex, j: MeasIndex) -> Self {
-        Self(DollarWrap0(SpecificKey_::new_i2(i, j)))
+        Self(DollarWrap(SpecificKey_::new_i2(i, j)))
     }
 }
 
 pub type NonStdKeywords = HashMap<NonStdKey, NEString>;
 
-pub type PseudoStdKeywords = HashMap<DollarPseudoStdKey, NEString>;
+pub type PseudoStdKeywords = HashMap<PseudoStdKey, NEString>;
 
 pub type PseudoNonStdKeywords = HashMap<PseudoNonStdKey, NEString>;
 
@@ -330,10 +330,10 @@ pub(crate) struct ParsedKeywordsDiagnostic {
     pub(crate) byte_pairs: Vec<(TruncatedNEBytes, TruncatedNEBytes)>,
 
     /// Standard keys which appear more than once with their values.
-    pub(crate) non_unique_std_keywords: Vec<(DollarStdKey, TruncatedNEString)>,
+    pub(crate) non_unique_std_keywords: Vec<(StdKey, TruncatedNEString)>,
 
     /// Pseudo-standard keys which appear more than once with their values.
-    pub(crate) non_unique_pstd_keywords: Vec<(DollarPseudoStdKey, TruncatedNEString)>,
+    pub(crate) non_unique_pstd_keywords: Vec<(PseudoStdKey, TruncatedNEString)>,
 
     /// Pseudo-nonstandard keys which appear more than once with their values.
     pub(crate) non_unique_pnonstd_keywords: Vec<(PseudoNonStdKey, TruncatedNEString)>,
@@ -372,23 +372,23 @@ pub trait ValueToStdKey {
     type Id: ToStd<Index = Self::Index>;
     const STD: Self::Id;
 
-    fn std(index: &Self::Index) -> StdKey {
+    fn std(index: &Self::Index) -> RawStdKey {
         Self::STD.to_std(index)
     }
 
-    fn std_(&self, index: &Self::Index) -> StdKey {
+    fn std_(&self, index: &Self::Index) -> RawStdKey {
         Self::std(index)
     }
 
     #[must_use]
-    fn std0() -> StdKey
+    fn std0() -> RawStdKey
     where
         Self: ValueToStdKey<Index = ()>,
     {
         Self::std(&())
     }
 
-    fn std0_(&self) -> StdKey
+    fn std0_(&self) -> RawStdKey
     where
         Self: ValueToStdKey<Index = ()>,
     {
@@ -403,14 +403,14 @@ pub trait ValueToStdKey {
 #[derive(Debug)]
 pub(crate) enum ParsedKeyword<'a> {
     // Valid std key value as a slice
-    StdSlice(NonEmptyValue<DollarStdKey, &'a NEStr>),
+    StdSlice(NonEmptyValue<StdKey, &'a NEStr>),
     // Valid std key value as owned value (used for values with latin1
     // characters and escaped delimiters)
-    StdOwned(NonEmptyValue<DollarStdKey, NEString>),
+    StdOwned(NonEmptyValue<StdKey, NEString>),
     // Valid non-std key and valid
     NonStd(NonEmptyValue<NonStdKey, NEString>),
     // Pseudo-std key and value
-    PseudoStd(NonEmptyValue<DollarPseudoStdKey, NEString>),
+    PseudoStd(NonEmptyValue<PseudoStdKey, NEString>),
     // Pseudo-non-std key and value
     PseudoNonStd(NonEmptyValue<PseudoNonStdKey, NEString>),
     // Key (any type or raw bytes) where value was trimmed to empty whitespace
@@ -614,7 +614,7 @@ impl<'a> ParsedKeyword<'a> {
 
     pub(crate) fn dispatch_slice_only(
         self,
-        std: &mut Vec<(StdKey, &'a NEStr)>,
+        std: &mut Vec<(RawStdKey, &'a NEStr)>,
         nonstd: &mut ParsedNonStdKeywords,
         diag: &mut ParsedKeywordsDiagnostic,
     ) {
@@ -624,7 +624,7 @@ impl<'a> ParsedKeyword<'a> {
 
     pub(crate) fn dispatch_slice_or_owned(
         self,
-        std: &mut Vec<(StdKey, Cow<'a, NEStr>)>,
+        std: &mut Vec<(RawStdKey, Cow<'a, NEStr>)>,
         nonstd: &mut ParsedNonStdKeywords,
         diag: &mut ParsedKeywordsDiagnostic,
     ) {
@@ -633,7 +633,7 @@ impl<'a> ParsedKeyword<'a> {
 
     fn dispatch<F0, F1, V>(
         self,
-        std: &mut Vec<(StdKey, V)>,
+        std: &mut Vec<(RawStdKey, V)>,
         nonstd: &mut ParsedNonStdKeywords,
         diag: &mut ParsedKeywordsDiagnostic,
         f_slice: F0,
@@ -796,7 +796,7 @@ impl ValidKeywords {
         }
     }
 
-    pub(crate) fn get_std(&self, k: &DollarStdKey) -> Option<&NEStr> {
+    pub(crate) fn get_std(&self, k: &StdKey) -> Option<&NEStr> {
         self.std.get(&k.0)
     }
 
@@ -804,7 +804,7 @@ impl ValidKeywords {
         self.pnonstd.get(k).map(NEString::as_ne_str)
     }
 
-    pub(crate) fn get_pstd(&self, k: &DollarPseudoStdKey) -> Option<&NEStr> {
+    pub(crate) fn get_pstd(&self, k: &PseudoStdKey) -> Option<&NEStr> {
         self.pstd.get(k).map(NEString::as_ne_str)
     }
 

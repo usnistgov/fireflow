@@ -15,7 +15,7 @@ use fireflow_types::datepattern::DatePattern;
 use fireflow_types::keywords as tk;
 use fireflow_types::other_width::OtherWidth;
 use fireflow_types::segment::OffsetsCorrection;
-use fireflow_types::std_key::{self as sk, AnyKey, DollarStdKey};
+use fireflow_types::std_key::{self as sk, AnyKey, StdKey};
 use fireflow_types::std_pattern::PATTERN_DELIMITER;
 use fireflow_types::sub_pattern::SubPattern;
 use fireflow_types::textdelim::TEXTDelim;
@@ -1932,7 +1932,7 @@ fn parse_two_keystring_pair(s: &str) -> StrResult<Vec<BiKeyPair>> {
 }
 
 fn parse_keystring_string_pair(s: &str) -> StrResult<Vec<KeystringStringPair>> {
-    let go_k = |x: &str| x.parse::<DollarStdKey>().map_err(|e| e.to_string());
+    let go_k = |x: &str| x.parse::<StdKey>().map_err(|e| e.to_string());
     let go_v = |x: &str| x.parse::<NEString>().map_err(|e| e.to_string());
     parse_pairs(s, go_k, go_v)
 }
@@ -2126,7 +2126,7 @@ type StrResult<T> = Result<T, String>;
 
 type BiKeyPair = (AnyKey, AnyKey);
 
-type KeystringStringPair = (DollarStdKey, NEString);
+type KeystringStringPair = (StdKey, NEString);
 
 type SubPatternPair = (StdKeyOrPattern<true>, SubPattern);
 

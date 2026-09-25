@@ -56,7 +56,7 @@ use fireflow_types::keywords::{
     HasVersion, OpticalFeature, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use fireflow_types::ranged_float::PositiveFloat;
-use fireflow_types::std_key::{DollarStdKey, MeasKeyId, ToStd as _};
+use fireflow_types::std_key::{MeasKeyId, StdKey, ToStd as _};
 use nonempty::DisplayableNE as _;
 
 use type_families::{ApplyOnce as _, BifunctorOnce as _};
@@ -539,7 +539,7 @@ pub struct DiagnosedTemporal<M> {
     pub(crate) this: M,
     pub(crate) scale: TemporalScaleFix,
     pub(crate) trimmed: TrimmedKeywords,
-    pub(crate) tmp_opt_pairs: Vec<(DollarStdKey, TruncatedNEString)>,
+    pub(crate) tmp_opt_pairs: Vec<(StdKey, TruncatedNEString)>,
     pub(crate) timestep_added: TimestepAdded,
 }
 

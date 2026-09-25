@@ -1,7 +1,7 @@
 use crate::std_index::nested_string::{Iter, NestedEnumString, NestedString, NestedVariableString};
 use crate::validated::dataframe::HasLen;
 
-use fireflow_types::std_key::{EnumIndex, NumericEnum, StdKey};
+use fireflow_types::std_key::{EnumIndex, NumericEnum, RawStdKey};
 use nonempty::{NEStr, NEString};
 
 use derive_new::new;
@@ -265,10 +265,10 @@ impl<I, S, K, C, A> MaskedString<'_, I, S, K, C, A, RepairMask> {
 
     pub(crate) fn iter_ne_masked_mut<'b>(
         &'b mut self,
-    ) -> impl Iterator<Item = (StdKey, &'b NEStr, &'b mut RepairMask)>
+    ) -> impl Iterator<Item = (RawStdKey, &'b NEStr, &'b mut RepairMask)>
     where
         I: HasLen + Index<usize, Output = Range<usize>>,
-        K: EnumIndex<SubDimension = S> + Into<StdKey>,
+        K: EnumIndex<SubDimension = S> + Into<RawStdKey>,
         &'b mut C: IntoIterator<Item = &'b mut RepairMask>,
     {
         self.iter_masked_mut()
@@ -277,10 +277,10 @@ impl<I, S, K, C, A> MaskedString<'_, I, S, K, C, A, RepairMask> {
 
     pub(crate) fn iter_masked_mut<'b>(
         &'b mut self,
-    ) -> impl Iterator<Item = (StdKey, &'b str, &'b mut RepairMask)>
+    ) -> impl Iterator<Item = (RawStdKey, &'b str, &'b mut RepairMask)>
     where
         I: HasLen + Index<usize, Output = Range<usize>>,
-        K: EnumIndex<SubDimension = S> + Into<StdKey>,
+        K: EnumIndex<SubDimension = S> + Into<RawStdKey>,
         &'b mut C: IntoIterator<Item = &'b mut RepairMask>,
     {
         self.inner

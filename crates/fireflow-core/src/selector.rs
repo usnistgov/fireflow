@@ -1,6 +1,6 @@
 use crate::validated::keys::ValidKeywords;
 
-use fireflow_types::std_key::{AnyKey, DollarWrap0, RootKey, ToStd as _};
+use fireflow_types::std_key::{AnyKey, DollarWrap, RootKey, ToStd as _};
 use nonempty::{NEStr, NEString, NEVec, NonEmptyIterator as _, nev};
 
 use derive_more::Display;
@@ -349,14 +349,14 @@ impl KeyTest {
     #[must_use]
     pub fn cyt_is(cyt: &NEStr) -> Self {
         Self::KeyIs(
-            AnyKey::Std(DollarWrap0(RootKey::Cyt.to_std0())),
+            AnyKey::Std(DollarWrap(RootKey::Cyt.to_std0())),
             cyt.to_owned(),
         )
     }
 
     pub fn cyt_matches(pat: &str) -> Result<Self, ValueRegexError> {
         Ok(Self::KeyMatches(
-            AnyKey::Std(DollarWrap0(RootKey::Cyt.to_std0())),
+            AnyKey::Std(DollarWrap(RootKey::Cyt.to_std0())),
             pat.parse()?,
         ))
     }

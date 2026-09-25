@@ -25,7 +25,7 @@ use crate::validated::keys::{DollarKey, ValueToStdKey};
 
 use fireflow_types::config::{AllowLoss, ProcessOptionalFailure, ReadDataKeywordsConfig};
 use fireflow_types::index::{GateIndex, MeasIndex, RegionIndex};
-use fireflow_types::std_key::{DollarWrap0, IndexedKey, RegionKey, RegionKeyId, StdKey};
+use fireflow_types::std_key::{DollarWrap, IndexedKey, RawStdKey, RegionKey, RegionKeyId};
 use nonempty::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 use type_families::{
     ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, impl_functor,
@@ -608,8 +608,8 @@ impl<I> GatingScheme<I> {
                 .into_iter()
                 .filter(|ri| !regions.contains_key(ri))
                 .map(|ri| RegionKey::new(ri, RegionKeyId::I))
-                .map(StdKey::from)
-                .map(DollarWrap0)
+                .map(RawStdKey::from)
+                .map(DollarWrap)
                 .try_into_nonempty_iter()
         }) {
             Err(DependentKeyError::new1(ris.collect()))
@@ -1202,7 +1202,7 @@ impl<I> ConvertIndexForRegionError<I> {
     where
         I: fmt::Display,
     {
-        let region_key = StdKey::from(IndexedKey::new(self.0.index, RegionKeyId::I));
+        let region_key = RawStdKey::from(IndexedKey::new(self.0.index, RegionKeyId::I));
         let keys = |i: &I, is_plural: bool, is_gate: bool| {
             let prefix = if is_gate { "G" } else { "P" };
             let key = format!("{prefix}{i}*");

@@ -5,7 +5,7 @@ use crate::validated::keys::{DollarKey, DollarKey_, TruncatedNEString, ValueToSt
 use fireflow_types::config::{
     ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, TrimIntraValueWhitespace,
 };
-use fireflow_types::std_key::{DollarStdKey, DollarWrap0};
+use fireflow_types::std_key::{DollarWrap, StdKey};
 use nonempty::{NEStr, NEString};
 
 use type_families::{BifunctorOnce, Sibling2, impl_kind2};
@@ -112,47 +112,44 @@ pub struct Diagnosed<T, D> {
 // }
 
 impl<T> Diagnosed<T, Trimmed> {
-    pub(crate) fn into_root_pair(self) -> (T, Option<(DollarStdKey, TruncatedNEString)>)
+    pub(crate) fn into_root_pair(self) -> (T, Option<(StdKey, TruncatedNEString)>)
     where
         T: ValueToStdKey<Index = ()>,
     {
         let k = self.inner;
-        let s = self.diagnostic.map(|t| (DollarWrap0(T::std0()), t.into()));
+        let s = self.diagnostic.map(|t| (DollarWrap(T::std0()), t.into()));
         (k, s)
     }
 
-    pub(crate) fn into_indexed_pair(
-        self,
-        i: &T::Index,
-    ) -> (T, Option<(DollarStdKey, TruncatedNEString)>)
+    pub(crate) fn into_indexed_pair(self, i: &T::Index) -> (T, Option<(StdKey, TruncatedNEString)>)
     where
         T: ValueToStdKey,
     {
         let k = self.inner;
-        let s = self.diagnostic.map(|t| (DollarWrap0(T::std(i)), t.into()));
+        let s = self.diagnostic.map(|t| (DollarWrap(T::std(i)), t.into()));
         (k, s)
     }
 }
 
 impl<T> Diagnosed<Option<T>, Trimmed> {
-    pub(crate) fn into_opt_root_pair(self) -> (Option<T>, Option<(DollarStdKey, TruncatedNEString)>)
+    pub(crate) fn into_opt_root_pair(self) -> (Option<T>, Option<(StdKey, TruncatedNEString)>)
     where
         T: ValueToStdKey<Index = ()>,
     {
         let k = self.inner;
-        let s = self.diagnostic.map(|t| (DollarWrap0(T::std0()), t.into()));
+        let s = self.diagnostic.map(|t| (DollarWrap(T::std0()), t.into()));
         (k, s)
     }
 
     pub(crate) fn into_opt_indexed_pair(
         self,
         i: &T::Index,
-    ) -> (Option<T>, Option<(DollarStdKey, TruncatedNEString)>)
+    ) -> (Option<T>, Option<(StdKey, TruncatedNEString)>)
     where
         T: ValueToStdKey,
     {
         let k = self.inner;
-        let s = self.diagnostic.map(|t| (DollarWrap0(T::std(i)), t.into()));
+        let s = self.diagnostic.map(|t| (DollarWrap(T::std(i)), t.into()));
         (k, s)
     }
 }

@@ -1,8 +1,6 @@
 use crate::config::OpticalOnlyKey;
 use crate::index::{BiMeasIndex, GateIndex, MeasIndex, RegionIndex, SubsetIndex};
-use crate::keystring::{
-    EmptyKeyStringError, KeyString, KeyStringError, NEAsciiStringError, PrintableAsciiStringError,
-};
+use crate::keystring::{EmptyKeyStringError, KeyString, KeyStringError, PrintableAsciiStringError};
 use crate::keywords::{Version, VersionMembership};
 
 use nonempty::{
@@ -41,9 +39,9 @@ use {
 #[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyKey {
-    Std(DollarStdKey),
+    Std(StdKey),
     PseudoNonStd(PseudoNonStdKey),
-    PseudoStd(DollarPseudoStdKey),
+    PseudoStd(PseudoStdKey),
     NonStd(NonStdKey),
 }
 
@@ -51,7 +49,7 @@ pub enum AnyKey {
 ///
 /// The '$' is not stored internally. However using [`FromStr`] and [`Display`]
 /// will parse/prepend a '$' during conversion.
-pub type DollarStdKey = DollarStdKey_<true>;
+pub type StdKey = DollarStdKey_<true>;
 
 /// A standard key which does not start with a '$'.
 pub type PseudoNonStdKey = DollarStdKey_<false>;
@@ -67,7 +65,7 @@ pub type PseudoNonStdKey = DollarStdKey_<false>;
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
-pub struct DollarPseudoStdKey(DollarKeyString_<true>);
+pub struct PseudoStdKey(DollarKeyString_<true>);
 
 /// A non-standard key which does not start with a '$'.
 ///
@@ -85,7 +83,7 @@ impl AsRef<NEStr> for NonStdKey {
     }
 }
 
-impl DollarPseudoStdKey {
+impl PseudoStdKey {
     /// Convert a pseudo-standard key into a nonstandard key.
     ///
     /// This has the effect of stripping the '$' from the key's string
@@ -102,22 +100,14 @@ impl DollarPseudoStdKey {
         if ne.as_ne_bytes().first() == &STD_PREFIX {
             Err(self)
         } else {
-            Ok(NonStdKey(DollarWrap0(self.0.0)))
+            Ok(NonStdKey(DollarWrap(self.0.0)))
         }
     }
 }
 
-pub type DollarStdKey_<const HAS_PRE: bool> = DollarWrap0<HAS_PRE, StdKey>;
+pub type DollarStdKey_<const HAS_PRE: bool> = DollarWrap<HAS_PRE, RawStdKey>;
 
-pub type DollarKeyString_<const HAS_PRE: bool> = DollarWrap0<HAS_PRE, KeyString>;
-
-pub type StdKeyError0 = DollarWrapError<StdKeyError1>;
-
-pub type PseudoNonStdKeyError0 = NoDollarWrapError<StdKeyError1>;
-
-pub type PseudoStdKeyError0 = DollarWrapError<KeyStringError>;
-
-pub type NonStdKeyError0 = NoDollarWrapError<KeyStringError>;
+pub type DollarKeyString_<const HAS_PRE: bool> = DollarWrap<HAS_PRE, KeyString>;
 
 #[derive(From, PartialEq, Display, Debug, Error, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -130,19 +120,19 @@ pub enum AnyKeyError {
 impl FromStr for AnyKey {
     type Err = AnyKeyError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.parse::<DollarPseudoStdKey>() {
+        match s.parse::<PseudoStdKey>() {
             Ok(k) => Ok(Self::PseudoStd(k)),
             Err(e) => match e {
                 DollarWrapError::Empty(e0) => Err(e0.into()),
                 DollarWrapError::SingleDollar(e0) => Err(e0.into()),
                 DollarWrapError::Inner(e0) => match e0 {
-                    KeyStringError::Std(k) => Ok(Self::Std(DollarWrap0(k.0))),
+                    KeyStringError::Std(k) => Ok(Self::Std(DollarWrap(k.0))),
                     KeyStringError::Ascii(e1) => Err(e1.into()),
                 },
                 DollarWrapError::Prefix(e0) => match KeyString::try_from(e0.1) {
-                    Ok(k) => Ok(Self::NonStd(NonStdKey(DollarWrap0(k)))),
+                    Ok(k) => Ok(Self::NonStd(NonStdKey(DollarWrap(k)))),
                     Err(e1) => match e1 {
-                        KeyStringError::Std(e2) => Ok(Self::PseudoNonStd(DollarWrap0(e2.0))),
+                        KeyStringError::Std(e2) => Ok(Self::PseudoNonStd(DollarWrap(e2.0))),
                         KeyStringError::Ascii(e2) => Err(e2.into()),
                     },
                 },
@@ -151,8 +141,8 @@ impl FromStr for AnyKey {
     }
 }
 
-impl FromStr for DollarStdKey {
-    type Err = StdKeyError0;
+impl FromStr for StdKey {
+    type Err = StdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::from_dollar_str(s)
@@ -160,26 +150,26 @@ impl FromStr for DollarStdKey {
 }
 
 impl FromStr for PseudoNonStdKey {
-    type Err = PseudoNonStdKeyError0;
+    type Err = PseudoNonStdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::from_no_dollar_str(s)
     }
 }
 
-impl FromStr for DollarPseudoStdKey {
-    type Err = PseudoStdKeyError0;
+impl FromStr for PseudoStdKey {
+    type Err = PseudoStdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        DollarWrap0::from_dollar_str(s).map(Self)
+        DollarWrap::from_dollar_str(s).map(Self)
     }
 }
 
 impl FromStr for NonStdKey {
-    type Err = NonStdKeyError0;
+    type Err = NonStdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        DollarWrap0::from_no_dollar_str(s).map(Self)
+        DollarWrap::from_no_dollar_str(s).map(Self)
     }
 }
 
@@ -188,9 +178,9 @@ impl FromStr for NonStdKey {
 )]
 #[display("{}{_0}", if STD { char::from(STD_PREFIX).into() } else { String::new() })]
 #[display(bound(T: fmt::Display))]
-pub struct DollarWrap0<const STD: bool, T>(pub T);
+pub struct DollarWrap<const STD: bool, T>(pub T);
 
-impl<T> DollarWrap0<true, T> {
+impl<T> DollarWrap<true, T> {
     pub(crate) fn from_dollar_str<'a>(
         s: &'a str,
     ) -> Result<Self, DollarWrapError<<&'a NEStr as TryInto<T>>::Error>>
@@ -216,7 +206,7 @@ impl<T> DollarWrap0<true, T> {
     }
 }
 
-impl<T> DollarWrap0<false, T> {
+impl<T> DollarWrap<false, T> {
     pub(crate) fn from_no_dollar_str<'a>(
         s: &'a str,
     ) -> Result<Self, NoDollarWrapError<<&'a NEStr as TryInto<T>>::Error>>
@@ -235,17 +225,18 @@ impl<T> DollarWrap0<false, T> {
     }
 }
 
-impl<const HAS_PRE: bool, T> Borrow<T> for DollarWrap0<HAS_PRE, T> {
+impl<const HAS_PRE: bool, T> Borrow<T> for DollarWrap<HAS_PRE, T> {
     fn borrow(&self) -> &T {
         &self.0
     }
 }
 
-/// A key defined in the FCS standard ('$' not included).
+/// A key defined in the FCS standard.
+///
+/// The '$' is not included or implied by any string conversions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From, TryInto)]
-// #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 #[display("{}", self.as_displayable())]
-pub enum StdKey {
+pub enum RawStdKey {
     Root(RootKey),
     Meas(MeasKey),
     Gate(GateKey),
@@ -257,8 +248,8 @@ pub enum StdKey {
 /// A key that was parsed from a bytestring
 #[derive(Clone, Debug)]
 pub enum ParsedKey {
-    Std(DollarStdKey),
-    PseudoStd(DollarPseudoStdKey),
+    Std(StdKey),
+    PseudoStd(PseudoStdKey),
     NonStd(NonStdKey),
     PseudoNonStd(PseudoNonStdKey),
     Bytes(NEVec<u8>),
@@ -458,6 +449,14 @@ pub enum RegionKeyId {
     W,
 }
 
+pub type StdKeyError = DollarWrapError<KeyNotStdError>;
+
+pub type PseudoNonStdKeyError = NoDollarWrapError<KeyNotStdError>;
+
+pub type PseudoStdKeyError = DollarWrapError<KeyStringError>;
+
+pub type NonStdKeyError = NoDollarWrapError<KeyStringError>;
+
 #[derive(PartialEq, Display, Debug, Error, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(E: Into<PyErr>))]
@@ -475,56 +474,6 @@ pub enum DollarWrapError<E> {
     SingleDollar(SingleDollarPrefixError),
     Prefix(NoDollarPrefixError),
     Empty(EmptyKeyStringError),
-}
-
-/// Error when parsing [`DollarAnyStdKey`] from string.
-#[derive(PartialEq, Display, Debug, Error, Clone, From)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum DollarAnyStdKeyError {
-    KeyString(NEAsciiStringError),
-    SingleDollar(SingleDollarPrefixError),
-    Prefix(NoDollarPrefixError),
-}
-
-/// Error when parsing [`AnyNonStdKey`] from string.
-#[derive(PartialEq, Display, Debug, Error, Clone, From)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum AnyNonStdKeyError {
-    KeyString(NEAsciiStringError),
-    Prefix(DollarPrefixError),
-}
-
-/// Error when parsing [`DollarPseudoStdKey`] from string.
-#[derive(PartialEq, Display, Debug, Error, Clone, From)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum DollarPseudoStdKeyError {
-    Inner(DollarAnyStdKeyError),
-    Std(PseudoNonStdKeyError),
-}
-
-/// Error when parsing [`StdKey`] from string.
-#[derive(PartialEq, Display, Debug, Error, Clone, From)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum DollarStdKeyError {
-    Inner(StdKeyError),
-    SingleDollar(SingleDollarPrefixError),
-    Prefix(NoDollarPrefixError),
-}
-
-/// Error when parsing [`StdKey`] from string.
-#[derive(PartialEq, Display, Debug, Error, Clone, From)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdKeyError {
-    Pseudo(PseudoStdKeyError),
-    KeyString(NEAsciiStringError),
-}
-
-/// Error when parsing [`NonStdKey`] from string
-#[derive(PartialEq, Display, Debug, Error, Clone, From)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum NonStdKeyError {
-    Inner(AnyNonStdKeyError),
-    Std(PseudoNonStdKeyError),
 }
 
 /// Error when parsing key that should start with a '$' but does not.
@@ -548,25 +497,11 @@ pub struct DollarPrefixError(NEString);
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct SingleDollarPrefixError;
 
-/// Error when parsing a standard key that is actually a pseudostandard key.
-#[derive(PartialEq, Debug, Error, Clone)]
-#[error("key is non-standard when standard expected, got {0}")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct PseudoStdKeyError(DollarPseudoStdKey);
-
 #[derive(PartialEq, Debug, Error, Clone)]
 #[error("could not make standard key from string, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct StdKeyError1(NEString);
-
-/// Error when parsing a non-standard key that is actually a pseudo-nonstandard key.
-#[derive(PartialEq, Debug, Error, Clone)]
-#[error("key is standard when non-standard expected, got {0}")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct PseudoNonStdKeyError(StdKey);
+pub struct KeyNotStdError(NEString);
 
 /// Iterator for enums which map to numbers starting at 0
 pub type NumericEnumIter<T> = iter::Copied<Iter<'static, T>>;
@@ -642,7 +577,7 @@ pub trait PseudoNonStdKeywordsExt {
     fn insert_demoted(
         &mut self,
         nonstd: &mut HashMap<NonStdKey, NEString>,
-        key: StdKey,
+        key: RawStdKey,
         value: NEString,
     );
 }
@@ -651,17 +586,17 @@ impl PseudoNonStdKeywordsExt for HashMap<PseudoNonStdKey, NEString> {
     fn insert_demoted(
         &mut self,
         nonstd: &mut HashMap<NonStdKey, NEString>,
-        key: StdKey,
+        key: RawStdKey,
         value: NEString,
     ) {
         if self.contains_key(&key) {
-            let mut k = NonStdKey(DollarWrap0(KeyString::from_std_key(&key)));
+            let mut k = NonStdKey(DollarWrap(KeyString::from_std_key(&key)));
             while nonstd.contains_key(&k) {
                 k.0.0.disambiguate();
             }
             assert!(nonstd.insert(k, value).is_none(), "key not disambiguated");
         } else {
-            let _ = self.insert(DollarWrap0(key), value);
+            let _ = self.insert(DollarWrap(key), value);
         }
     }
 }
@@ -827,9 +762,9 @@ impl EnumIndex for DfcKey {
 pub trait ToStd {
     type Index;
 
-    fn to_std(&self, index: &Self::Index) -> StdKey;
+    fn to_std(&self, index: &Self::Index) -> RawStdKey;
 
-    fn to_std0(&self) -> StdKey
+    fn to_std0(&self) -> RawStdKey
     where
         Self: ToStd<Index = ()>,
     {
@@ -840,7 +775,7 @@ pub trait ToStd {
 impl ToStd for RootKey {
     type Index = ();
 
-    fn to_std(&self, (): &Self::Index) -> StdKey {
+    fn to_std(&self, (): &Self::Index) -> RawStdKey {
         (*self).into()
     }
 }
@@ -848,7 +783,7 @@ impl ToStd for RootKey {
 impl ToStd for MeasKeyId {
     type Index = MeasIndex;
 
-    fn to_std(&self, index: &Self::Index) -> StdKey {
+    fn to_std(&self, index: &Self::Index) -> RawStdKey {
         IndexedKey::new(*index, *self).into()
     }
 }
@@ -856,7 +791,7 @@ impl ToStd for MeasKeyId {
 impl ToStd for GateKeyId {
     type Index = GateIndex;
 
-    fn to_std(&self, index: &Self::Index) -> StdKey {
+    fn to_std(&self, index: &Self::Index) -> RawStdKey {
         IndexedKey::new(*index, *self).into()
     }
 }
@@ -864,7 +799,7 @@ impl ToStd for GateKeyId {
 impl ToStd for RegionKeyId {
     type Index = RegionIndex;
 
-    fn to_std(&self, index: &Self::Index) -> StdKey {
+    fn to_std(&self, index: &Self::Index) -> RawStdKey {
         IndexedKey::new(*index, *self).into()
     }
 }
@@ -872,7 +807,7 @@ impl ToStd for RegionKeyId {
 impl ToStd for CsvFlagKeyMarker {
     type Index = SubsetIndex;
 
-    fn to_std(&self, index: &Self::Index) -> StdKey {
+    fn to_std(&self, index: &Self::Index) -> RawStdKey {
         CsvFlagKey::new(*index).into()
     }
 }
@@ -880,21 +815,21 @@ impl ToStd for CsvFlagKeyMarker {
 impl ToStd for DfcKeyMarker {
     type Index = BiMeasIndex;
 
-    fn to_std(&self, index: &Self::Index) -> StdKey {
+    fn to_std(&self, index: &Self::Index) -> RawStdKey {
         DfcKey::new(*index).into()
     }
 }
 
 // Implement non-empty display for std key types.
 
-impl<'a, T: ToDisplayNE<'a>> ToDisplayNE<'a> for DollarWrap0<true, T> {
+impl<'a, T: ToDisplayNE<'a>> ToDisplayNE<'a> for DollarWrap<true, T> {
     type NE = NEConcat<char, T::NE>;
     fn to_ne(&'a self) -> Self::NE {
         NEConcat::new(char::from(STD_PREFIX), self.0.to_ne())
     }
 }
 
-impl<'a, T: ToDisplayNE<'a>> ToDisplayNE<'a> for DollarWrap0<false, T> {
+impl<'a, T: ToDisplayNE<'a>> ToDisplayNE<'a> for DollarWrap<false, T> {
     type NE = T::NE;
     fn to_ne(&'a self) -> Self::NE {
         self.0.to_ne()
@@ -906,7 +841,7 @@ type NEStdKey = NEAlt<
     NEAlt<ToNE<RegionKey>, NEAlt<ToNE<CsvFlagKey>, ToNE<DfcKey>>>,
 >;
 
-impl<'a> ToDisplayNE<'a> for StdKey {
+impl<'a> ToDisplayNE<'a> for RawStdKey {
     type NE = NEStdKey;
     fn to_ne(&'a self) -> Self::NE {
         match self {
@@ -997,7 +932,7 @@ macro_rules! match_bytes {
     }};
 }
 
-impl StdKey {
+impl RawStdKey {
     pub(crate) fn from_ne_str(s: &NEStr) -> Option<Self> {
         Self::from_bytes(s.as_ne_bytes())
     }
@@ -1093,52 +1028,21 @@ impl StdKey {
             Self::CsvFlag(_) => CsvFlagKey::membership(),
         }
     }
-
-    // fn from_str(s: &str) -> Result<Self, StdKeyError> {
-    //     if let Some(ne) = NEStr::try_new(s) {
-    //         if let Some(k) = AnyStdKey::from_ne_str(ne) {
-    //             match k {
-    //                 AnyStdKey::Pseudo(x) => Err(StdKeyError::Pseudo(PseudoStdKeyError(x))),
-    //                 AnyStdKey::Real(x) => Ok(x),
-    //             }
-    //         } else {
-    //             let e = NEAsciiStringError::Ascii(PrintableAsciiStringError(ne.to_owned()));
-    //             Err(StdKeyError::KeyString(e))
-    //         }
-    //     } else {
-    //         Err(StdKeyError::KeyString(NEAsciiStringError::Empty))
-    //     }
-    // }
 }
 
-impl TryFrom<NEString> for StdKey {
-    type Error = StdKeyError1;
+impl TryFrom<NEString> for RawStdKey {
+    type Error = KeyNotStdError;
     fn try_from(value: NEString) -> Result<Self, Self::Error> {
-        Self::from_ne_str(value.as_ne_str()).ok_or(StdKeyError1(value))
+        Self::from_ne_str(value.as_ne_str()).ok_or(KeyNotStdError(value))
     }
 }
 
-impl TryFrom<&NEStr> for StdKey {
-    type Error = StdKeyError1;
+impl TryFrom<&NEStr> for RawStdKey {
+    type Error = KeyNotStdError;
     fn try_from(value: &NEStr) -> Result<Self, Self::Error> {
-        Self::from_ne_str(value).ok_or_else(|| StdKeyError1(value.to_owned()))
+        Self::from_ne_str(value).ok_or_else(|| KeyNotStdError(value.to_owned()))
     }
 }
-
-// impl AnyStdKey {
-//     pub(crate) fn from_ne_str(s: &NEStr) -> Option<Self> {
-//         Self::from_bytes(s.as_ne_bytes())
-//     }
-
-//     fn from_bytes(bytes: &NESlice<u8>) -> Option<Self> {
-//         if let Some(sk) = StdKey::from_bytes(bytes) {
-//             Some(Self::Real(sk))
-//         } else {
-//             let p = KeyString::from_bytes(bytes)?;
-//             Some(Self::Pseudo(PseudoStdKey(p)))
-//         }
-//     }
-// }
 
 impl RootKey {
     #[must_use]
@@ -1656,7 +1560,7 @@ pub trait BlankKeyword {
 }
 
 #[cfg(feature = "serde")]
-impl<const STD: bool, T: fmt::Display> Serialize for DollarWrap0<STD, T> {
+impl<const STD: bool, T: fmt::Display> Serialize for DollarWrap<STD, T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -1665,39 +1569,8 @@ impl<const STD: bool, T: fmt::Display> Serialize for DollarWrap0<STD, T> {
     }
 }
 
-// // TODO serde_with does this more concisely
-// #[cfg(feature = "serde")]
-// impl Serialize for DollarAnyStdKey {
-//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         S: serde::Serializer,
-//     {
-//         serializer.collect_str(self)
-//     }
-// }
-
-// #[cfg(feature = "serde")]
-// impl Serialize for DollarPseudoStdKey {
-//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         S: serde::Serializer,
-//     {
-//         serializer.collect_str(self)
-//     }
-// }
-
-// #[cfg(feature = "serde")]
-// impl Serialize for DollarStdKey {
-//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         S: serde::Serializer,
-//     {
-//         serializer.collect_str(self)
-//     }
-// }
-
 #[cfg(feature = "serde")]
-impl Serialize for StdKey {
+impl Serialize for RawStdKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -1745,32 +1618,23 @@ impl ParsedKey {
         // '$' keyword
         if let Some((&STD_PREFIX, rest)) = bytes.as_ref().split_first() {
             if let Some(ne) = NESlice::try_from_slice(rest) {
-                if let Some(sk) = StdKey::from_bytes(ne) {
-                    Self::Std(DollarWrap0(sk))
+                if let Some(sk) = RawStdKey::from_bytes(ne) {
+                    Self::Std(DollarWrap(sk))
                 } else if let Some(k) = KeyString::from_bytes(ne) {
-                    Self::PseudoStd(DollarPseudoStdKey(DollarWrap0(k)))
+                    Self::PseudoStd(PseudoStdKey(DollarWrap(k)))
                 } else {
                     Self::Bytes(bytes.to_ne_vec())
                 }
             } else {
                 Self::Bytes(nev![STD_PREFIX])
             }
-        } else if let Some(sk) = StdKey::from_bytes(bytes) {
-            Self::PseudoNonStd(DollarWrap0(sk))
+        } else if let Some(sk) = RawStdKey::from_bytes(bytes) {
+            Self::PseudoNonStd(DollarWrap(sk))
         } else if let Some(k) = KeyString::from_bytes(bytes) {
-            Self::NonStd(NonStdKey(DollarWrap0(k)))
+            Self::NonStd(NonStdKey(DollarWrap(k)))
         } else {
             Self::Bytes(bytes.to_ne_vec())
         }
-
-        // } else if let Some(k) = AnyStdKey::from_bytes(bytes) {
-        //     match k {
-        //         AnyStdKey::Real(x) => Self::PseudoNonStd(x),
-        //         AnyStdKey::Pseudo(x) => Self::NonStd(NonStdKey(x.0)),
-        //     }
-        // } else {
-        //     Self::Bytes(bytes.to_ne_vec())
-        // }
     }
 }
 
@@ -1814,10 +1678,6 @@ const fn is_zero_to_n_usize<X: NoUninit>(xs: &[X]) -> bool {
 
     true
 }
-
-// fn has_no_std_prefix(xs: &[u8]) -> bool {
-//     xs.first().is_some_and(|x| *x != STD_PREFIX)
-// }
 
 // #[cfg(test)]
 // mod test {
@@ -1931,7 +1791,7 @@ const fn is_zero_to_n_usize<X: NoUninit>(xs: &[X]) -> bool {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{DollarStdKey, PseudoNonStdKey};
+    use super::{PseudoNonStdKey, StdKey};
 
     use pyo3::prelude::*;
     use pyo3::types::PyString;
@@ -1959,8 +1819,6 @@ mod python {
         };
     }
 
-    impl_to_from_str!(DollarStdKey);
+    impl_to_from_str!(StdKey);
     impl_to_from_str!(PseudoNonStdKey);
-    // impl_to_from_str!(PseudoStdKey0);
-    // impl_to_from_str!(DollarAnyStdKey);
 }

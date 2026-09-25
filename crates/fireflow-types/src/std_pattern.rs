@@ -1,8 +1,8 @@
 use crate::index::{BiMeasIndex, IndexFromOne};
 use crate::std_key::{
-    CsvFlagKey, DfcKey, DollarStdKey, DollarStdKey_, DollarWrap0, GateKeyId, IndexedKey,
-    NonPeakMeasKeyId, PeakMeasKeyId, PseudoNonStdKey, PseudoNonStdKeyError0, RegionKeyId,
-    STD_PREFIX, StdKey, StdKeyError0,
+    CsvFlagKey, DfcKey, DollarStdKey_, DollarWrap, GateKeyId, IndexedKey, NonPeakMeasKeyId,
+    PeakMeasKeyId, PseudoNonStdKey, PseudoNonStdKeyError, RawStdKey, RegionKeyId, STD_PREFIX,
+    StdKey, StdKeyError,
 };
 use crate::sub_pattern::SubPattern;
 
@@ -58,7 +58,7 @@ pub enum StdKeyOrPattern<const HAS_PRE: bool> {
     Pattern(StdIndexPattern<HAS_PRE>),
 }
 
-pub type StdIndexPattern<const HAS_PRE: bool> = DollarWrap0<HAS_PRE, StdIndexPattern_>;
+pub type StdIndexPattern<const HAS_PRE: bool> = DollarWrap<HAS_PRE, StdIndexPattern_>;
 
 #[derive(From, Clone, PartialEq, Eq, Hash, Display, Debug)]
 #[display("{PATTERN_DELIMITER}{_0}{PATTERN_DELIMITER}")]
@@ -128,8 +128,8 @@ pub struct NonUniqueKeyError<T>(NEVec<T>);
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdKeyOrPatternError {
     Pattern(StdIndexPatternError),
-    Literal(StdKeyError0),
-    DollarLiteral(PseudoNonStdKeyError0),
+    Literal(StdKeyError),
+    DollarLiteral(PseudoNonStdKeyError),
 }
 
 /// Error when parsing [`StdIndexPattern`] from [`String`].
@@ -172,8 +172,8 @@ impl StdIndexedKeys {
                 let it = js
                     .as_ref()
                     .into_nonempty_iter()
-                    .map(|j| StdKey::Meas(IndexedKey::new((*j).into(), (*i).into())))
-                    .map(DollarWrap0)
+                    .map(|j| RawStdKey::Meas(IndexedKey::new((*j).into(), (*i).into())))
+                    .map(DollarWrap)
                     .map(|k| (k, value));
                 keys.extend(it);
             }
@@ -181,8 +181,8 @@ impl StdIndexedKeys {
                 let it = js
                     .as_ref()
                     .into_nonempty_iter()
-                    .map(|j| StdKey::Meas(IndexedKey::new((*j).into(), (*i).into())))
-                    .map(DollarWrap0)
+                    .map(|j| RawStdKey::Meas(IndexedKey::new((*j).into(), (*i).into())))
+                    .map(DollarWrap)
                     .map(|k| (k, value));
                 keys.extend(it);
             }
@@ -190,8 +190,8 @@ impl StdIndexedKeys {
                 let it = js
                     .as_ref()
                     .into_nonempty_iter()
-                    .map(|j| StdKey::Gate(IndexedKey::new((*j).into(), *i)))
-                    .map(DollarWrap0)
+                    .map(|j| RawStdKey::Gate(IndexedKey::new((*j).into(), *i)))
+                    .map(DollarWrap)
                     .map(|k| (k, value));
                 keys.extend(it);
             }
@@ -199,8 +199,8 @@ impl StdIndexedKeys {
                 let it = js
                     .as_ref()
                     .into_nonempty_iter()
-                    .map(|j| StdKey::Region(IndexedKey::new((*j).into(), *i)))
-                    .map(DollarWrap0)
+                    .map(|j| RawStdKey::Region(IndexedKey::new((*j).into(), *i)))
+                    .map(DollarWrap)
                     .map(|k| (k, value));
                 keys.extend(it);
             }
@@ -208,8 +208,8 @@ impl StdIndexedKeys {
                 let it = js
                     .as_ref()
                     .into_nonempty_iter()
-                    .map(|j| StdKey::CsvFlag(CsvFlagKey::new((*j).into())))
-                    .map(DollarWrap0)
+                    .map(|j| RawStdKey::CsvFlag(CsvFlagKey::new((*j).into())))
+                    .map(DollarWrap)
                     .map(|k| (k, value));
                 keys.extend(it);
             }
@@ -223,8 +223,8 @@ impl StdIndexedKeys {
                             .map(|k| BiMeasIndex::new((*j).into(), (*k).into()))
                     })
                     .map(DfcKey::new)
-                    .map(StdKey::Dfc)
-                    .map(DollarWrap0)
+                    .map(RawStdKey::Dfc)
+                    .map(DollarWrap)
                     .map(|k| (k, value));
                 keys.extend(it);
             }
@@ -234,15 +234,15 @@ impl StdIndexedKeys {
 
 impl StdWildcard {
     #[must_use]
-    pub fn is_match(&self, key: &StdKey) -> bool {
+    pub fn is_match(&self, key: &RawStdKey) -> bool {
         match (self, key) {
-            (Self::AnyMeas(id), StdKey::Meas(k)) => k.id.split_peak().is_ok_and(|i| i == *id),
-            (Self::AnyPeak(id), StdKey::Meas(k)) => k.id.split_peak().is_err_and(|i| i == *id),
-            (Self::AnyGate(id), StdKey::Gate(k)) => k.id == *id,
-            (Self::AnyRegion(id), StdKey::Region(k)) => k.id == *id,
-            (Self::AnyCsvFlag, StdKey::CsvFlag(_)) | (Self::AnyDfc, StdKey::Dfc(_)) => true,
-            (Self::AnyDfc1(xs), StdKey::Dfc(k)) => xs.as_ref().contains(&k.index.i0.into()),
-            (Self::AnyDfc2(xs), StdKey::Dfc(k)) => xs.as_ref().contains(&k.index.i1.into()),
+            (Self::AnyMeas(id), RawStdKey::Meas(k)) => k.id.split_peak().is_ok_and(|i| i == *id),
+            (Self::AnyPeak(id), RawStdKey::Meas(k)) => k.id.split_peak().is_err_and(|i| i == *id),
+            (Self::AnyGate(id), RawStdKey::Gate(k)) => k.id == *id,
+            (Self::AnyRegion(id), RawStdKey::Region(k)) => k.id == *id,
+            (Self::AnyCsvFlag, RawStdKey::CsvFlag(_)) | (Self::AnyDfc, RawStdKey::Dfc(_)) => true,
+            (Self::AnyDfc1(xs), RawStdKey::Dfc(k)) => xs.as_ref().contains(&k.index.i0.into()),
+            (Self::AnyDfc2(xs), RawStdKey::Dfc(k)) => xs.as_ref().contains(&k.index.i1.into()),
             (_, _) => false,
         }
     }
@@ -273,14 +273,14 @@ impl<const HAS_PRE: bool, T> StdKeysOrPatterns<HAS_PRE, T> {
 
 impl<const HAS_PRE: bool> StdKeysMatcher<'_, HAS_PRE, ()> {
     #[must_use]
-    pub fn is_wildcard_match(&self, key: &StdKey) -> bool {
+    pub fn is_wildcard_match(&self, key: &RawStdKey) -> bool {
         self.get_wildcard(key).is_some()
     }
 }
 
 impl<'a, const HAS_PRE: bool, T> StdKeysMatcher<'a, HAS_PRE, T> {
     #[must_use]
-    pub fn get_wildcard(&self, key: &StdKey) -> Option<&'a T> {
+    pub fn get_wildcard(&self, key: &RawStdKey) -> Option<&'a T> {
         self.wildcards
             .iter()
             .find_map(|(w, v)| w.is_match(key).then_some(*v))
@@ -329,12 +329,12 @@ impl FromStr for StdKeyOrPattern<true> {
             {
                 let ss = str::from_utf8(bs).expect("stripping prefix shouldn't break utf8");
                 let p = StdIndexPattern_::from_str(ss).ok_or(StdIndexPatternError)?;
-                Ok(Self::Pattern(DollarWrap0(p)))
+                Ok(Self::Pattern(DollarWrap(p)))
             } else {
                 Err(StdIndexPatternError.into())
             }
         } else {
-            Ok(Self::Key(s.parse::<DollarStdKey>()?))
+            Ok(Self::Key(s.parse::<StdKey>()?))
         }
     }
 }
@@ -349,7 +349,7 @@ impl FromStr for StdKeyOrPattern<false> {
         {
             if inner.as_bytes().first().is_some_and(|b| STD_PREFIX != *b) {
                 let p = StdIndexPattern_::from_str(inner).ok_or(StdIndexPatternError)?;
-                Ok(Self::Pattern(DollarWrap0(p)))
+                Ok(Self::Pattern(DollarWrap(p)))
             } else {
                 Err(StdIndexPatternError.into())
             }

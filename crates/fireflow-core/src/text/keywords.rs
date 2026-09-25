@@ -44,7 +44,7 @@ use fireflow_types::keywords::{
 };
 use fireflow_types::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use fireflow_types::std_key::{
-    CsvFlagKeyMarker, DfcKey, DfcKeyMarker, MeasKeyId, RegionKeyId, RootKey, StdKey, ToStd as _,
+    CsvFlagKeyMarker, DfcKey, DfcKeyMarker, MeasKeyId, RawStdKey, RegionKeyId, RootKey, ToStd as _,
 };
 use fireflow_types::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 use nonempty::{
@@ -1469,7 +1469,7 @@ impl Compensation2_0 {
                             let row = i / ncols;
                             let col = i % ncols;
                             let bi = BiMeasIndex::new(col.into(), row.into());
-                            Some(StdKey::from(DfcKey::new(bi)))
+                            Some(RawStdKey::from(DfcKey::new(bi)))
                         }
                     });
                     for k in failed_kws {
@@ -2862,7 +2862,7 @@ impl_from_str_with_delim!(UnstainedCenters, ParseUnstainedCenterError);
 #[error("pseudostandard keyword found: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
-pub struct PseudostandardError(pub StdKey);
+pub struct PseudostandardError(pub RawStdKey);
 
 macro_rules! newtype_string {
     ($t:ident) => {
@@ -3686,7 +3686,7 @@ impl KeywordOptimizer {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn classify_keyword(&mut self, key: &StdKey, value: &NEStr, par: Par) {
+    pub(crate) fn classify_keyword(&mut self, key: &RawStdKey, value: &NEStr, par: Par) {
         let p = par.0;
         match AnyKeywordClass::classify_keyword(key) {
             AnyKeywordClass::Root(r) => match r {
@@ -3841,10 +3841,10 @@ enum AnyKeywordClass {
 }
 
 impl AnyKeywordClass {
-    fn classify_keyword(key: &StdKey) -> Self {
+    fn classify_keyword(key: &RawStdKey) -> Self {
         // TODO what about required?
         match key {
-            StdKey::Root(k) => {
+            RawStdKey::Root(k) => {
                 let c = match k {
                     RootKey::Mode => RootKeywordClass::Mode,
                     RootKey::Cyt => RootKeywordClass::Cyt,
@@ -3882,7 +3882,7 @@ impl AnyKeywordClass {
                 };
                 Self::Root(c)
             }
-            StdKey::Meas(k) => {
+            RawStdKey::Meas(k) => {
                 let i = k.index;
                 match k.id {
                     MeasKeyId::E => Self::Meas(i, MeasKeywordClass::Scale),
@@ -3903,13 +3903,13 @@ impl AnyKeywordClass {
                     _ => Self::Meas(i, MeasKeywordClass::OptAny),
                 }
             }
-            StdKey::Gate(k) => Self::GateOptLE3_1(k.index),
-            StdKey::Region(k) => match k.id {
+            RawStdKey::Gate(k) => Self::GateOptLE3_1(k.index),
+            RawStdKey::Region(k) => match k.id {
                 RegionKeyId::I => Self::RegionIndex,
                 RegionKeyId::W => Self::RegionWindow,
             },
-            StdKey::Dfc(k) => Self::Dfc(k.index),
-            StdKey::CsvFlag(k) => Self::CSVFlag(k.index),
+            RawStdKey::Dfc(k) => Self::Dfc(k.index),
+            RawStdKey::CsvFlag(k) => Self::CSVFlag(k.index),
         }
     }
 }

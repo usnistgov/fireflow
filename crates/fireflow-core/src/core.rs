@@ -135,7 +135,7 @@ use fireflow_types::keywords::{
     HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use fireflow_types::segment::{AnalysisSegmentId, DataSegmentId};
-use fireflow_types::std_key::DollarStdKey;
+use fireflow_types::std_key::StdKey;
 use fireflow_types::textdelim::TEXTDelim;
 use fireflow_types::timepattern::TimePattern;
 use nonempty::{IntoIteratorExt as _, NESlice, NEStr, NEString, NEVec, NonEmptyIterator as _};
@@ -1124,7 +1124,7 @@ pub struct StdTEXTDiagnostics {
     pub trimmed: TrimmedKeywords,
 
     /// Optical keys that were found in the temporal measurement.
-    pub temporal_optical_pairs: Vec<(DollarStdKey, TruncatedNEString)>,
+    pub temporal_optical_pairs: Vec<(StdKey, TruncatedNEString)>,
 
     /// $TIMESTEP was missing and was added via config
     pub timestep_added: TimestepAdded,
@@ -1163,7 +1163,7 @@ pub struct StdTEXTDiagnostics {
     pub schema_diagnostics: DataSchemaDiagnostics,
 }
 
-pub(crate) type TrimmedKeyword = (DollarStdKey, TruncatedNEString);
+pub(crate) type TrimmedKeyword = (StdKey, TruncatedNEString);
 pub(crate) type TrimmedKeywords = Vec<TrimmedKeyword>;
 
 impl StdTEXTDiagnostics {
@@ -1225,7 +1225,7 @@ type DiagnosedUnstainedData<U> = Diagnosed<U, Option<TrimmedKeyword>>;
 pub struct MeasurementDiagnostics {
     scale: Vec<AnyMeasScaleFix>,
     trimmed: TrimmedKeywords,
-    tmp_opt_pairs: Vec<(DollarStdKey, TruncatedNEString)>,
+    tmp_opt_pairs: Vec<(StdKey, TruncatedNEString)>,
     timestep_added: TimestepAdded,
 }
 

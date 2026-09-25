@@ -22,7 +22,7 @@ use fireflow_types::config::{
 };
 use fireflow_types::datepattern::DatePattern;
 use fireflow_types::keystring_pairs::{KeyStringPairs, KeyStringPairsError};
-use fireflow_types::std_key::{AnyKey, DollarStdKey};
+use fireflow_types::std_key::{AnyKey, StdKey};
 use fireflow_types::std_pattern::{
     NonUniqueKeyError, StdKeyOrPattern, StdKeyPatterns, StdKeysOrPatterns, SubPatterns,
     checked_iter_to_hashmap,
@@ -240,10 +240,10 @@ pub type EvaledReadRepairKeywordsConfig = ReadRepairKeywordsConfig_<
     SubPatterns,
 >;
 
-/// A map of [`DollarStdKey`]/[`String`] pairs.
+/// A map of [`StdKey`]/[`NEString`] pairs.
 ///
 /// The main use case for this is to replace or add key values.
-pub type StdKeyValues = HashMap<DollarStdKey, NEString>;
+pub type StdKeyValues = HashMap<StdKey, NEString>;
 
 pub(crate) fn eval_std_conf(
     conf: &ReadStdKeywordsConfig,
@@ -335,7 +335,7 @@ pub(crate) fn eval_repair_conf(
 pub enum AppendRepairFlagError {
     Std(NonUniqueKeyError<StdKeyOrPattern<true>>),
     PseudoNonStd(NonUniqueKeyError<StdKeyOrPattern<false>>),
-    NonUniqueStd(NonUniqueKeyError<DollarStdKey>),
+    NonUniqueStd(NonUniqueKeyError<StdKey>),
     NonUniqueMaybeStd(NonUniqueKeyError<AnyKey>),
     KeyStringPairsValid(KeyStringPairsError),
 }

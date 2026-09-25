@@ -41,9 +41,7 @@ use crate::validated::shortname::Shortname;
 
 use fireflow_types::config::ProcessOptionalFailure;
 use fireflow_types::index::{MeasIndex, RegionIndex};
-use fireflow_types::std_key::{
-    DfcKey, DollarStdKey, DollarWrap0, IndexedKey, RegionKeyId, ToStd as _,
-};
+use fireflow_types::std_key::{DfcKey, DollarWrap, IndexedKey, RegionKeyId, StdKey, ToStd as _};
 use nonempty::{IntoIteratorExt as _, IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
 
 use derive_more::{AsRef, Display, From};
@@ -309,7 +307,7 @@ pub type KeyToIndexLinkError<T> = KeyToIndexLinkError_<T, <T as ValueToStdKey>::
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 #[cfg_attr(feature = "python", bound(DollarKey_<T, I>: Display))]
 pub struct DependentKeyError_<T, I> {
-    deps: NEVec<DollarStdKey>,
+    deps: NEVec<StdKey>,
     key: DollarKey_<T, I>,
 }
 
@@ -334,13 +332,13 @@ impl<T> KeyToIndexLinkError_<T, ()> {
 }
 
 impl<T> DependentKeyError_<T, ()> {
-    pub(crate) fn new1(deps: NEVec<DollarStdKey>) -> Self {
+    pub(crate) fn new1(deps: NEVec<StdKey>) -> Self {
         Self::new(deps, DollarKey_::default())
     }
 }
 
 impl<T, I> DependentKeyError_<T, I> {
-    pub(crate) fn new2(i: I, deps: NEVec<DollarStdKey>) -> Self {
+    pub(crate) fn new2(i: I, deps: NEVec<StdKey>) -> Self {
         Self::new(deps, DollarKey_::new(i))
     }
 }
@@ -491,7 +489,7 @@ impl RemovedGateLink {
         BrokenIndexedLinkError: From<BrokenRegionLinkError>,
     {
         let ri = self.region_index;
-        let region_key = DollarWrap0(IndexedKey::new(ri, RegionKeyId::I).into());
+        let region_key = DollarWrap(IndexedKey::new(ri, RegionKeyId::I).into());
         let k = DollarKey::new(ri);
         let e0 = KeyToIndexLinkError::new(self.meas_indices.into(), k);
         let e1 = DependentKeyError::<RegionWindow>::new2(ri, NEVec::new(region_key));

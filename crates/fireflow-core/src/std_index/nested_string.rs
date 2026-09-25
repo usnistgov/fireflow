@@ -1,6 +1,6 @@
 use crate::validated::dataframe::HasLen;
 
-use fireflow_types::std_key::{EnumIndex, StdKey};
+use fireflow_types::std_key::{EnumIndex, RawStdKey};
 use nonempty::NEStr;
 
 use derive_new::new;
@@ -47,7 +47,7 @@ pub(crate) struct Iter<'a, I, K: EnumIndex> {
 }
 
 pub(crate) type IterStd<'a, I, K> =
-    iter::FilterMap<Iter<'a, I, K>, fn((K, &str)) -> Option<(StdKey, &NEStr)>>;
+    iter::FilterMap<Iter<'a, I, K>, fn((K, &str)) -> Option<(RawStdKey, &NEStr)>>;
 
 impl<const LEN: usize, K> NestedEnumString<LEN, K> {
     pub fn init_array(n_bytes: usize) -> Self {
@@ -183,7 +183,7 @@ impl<I, S, K> NestedString<I, S, K> {
     pub(crate) fn iter_std(&self) -> IterStd<'_, I, K>
     where
         I: HasLen + Index<usize, Output = Range<usize>>,
-        K: EnumIndex<SubDimension = S> + Into<StdKey>,
+        K: EnumIndex<SubDimension = S> + Into<RawStdKey>,
     {
         self.iter()
             .filter_map(|(k, v)| NEStr::try_new(v).map(|ne| (k.into(), ne)))

@@ -15,10 +15,10 @@ use fireflow_types::config::{
 };
 use fireflow_types::index::MeasIndex;
 use fireflow_types::keywords::Version;
+use fireflow_types::nonstd_key::DollarWrap;
 use fireflow_types::std_key::{
-    AnyKey, CsvFlagKey, DfcKey, DollarWrap, EnumIndex as _, GateKey, MeasKey, N_ROOT,
-    PseudoNonStdKey, PseudoNonStdKeywordsExt as _, PseudoStdKey, RawStdKey, RegionKey, RootKey,
-    StdKey, ToStd as _,
+    AnyKey, CsvFlagKey, DfcKey, EnumIndex as _, GateKey, MeasKey, N_ROOT, PseudoNonStdKey,
+    PseudoNonStdKeywordsExt as _, PseudoStdKey, RawStdKey, RegionKey, RootKey, StdKey, ToStd as _,
 };
 use nonempty::{NEStr, NEString, NEVec};
 

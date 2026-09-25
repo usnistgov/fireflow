@@ -8983,7 +8983,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_nonstd_keywords() -> Self {
-        let keypath: Path = parse_quote!(fireflow_types::std_key::NonStdKey);
+        let keypath: Path = parse_quote!(fireflow_types::nonstd_key::NonStdKey);
         let valpath: Path = parse_quote!(nonempty::NEString);
         // TODO the :: here is awkward
         Self::new_py(["typing"], "NonStdKeywords")
@@ -9011,7 +9011,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_nonstd_keyword() -> Self {
-        let path = parse_quote!(fireflow_types::std_key::NonStdKey);
+        let path = parse_quote!(fireflow_types::nonstd_key::NonStdKey);
         Self::new_py(["typing"], "NonStdKey").rstype(path)
     }
 

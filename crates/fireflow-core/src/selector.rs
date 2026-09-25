@@ -1,6 +1,7 @@
 use crate::validated::keys::ValidKeywords;
 
-use fireflow_types::std_key::{AnyKey, DollarWrap, RootKey, ToStd as _};
+use fireflow_types::nonstd_key::DollarWrap;
+use fireflow_types::std_key::{AnyKey, RootKey, ToStd as _};
 use nonempty::{NEStr, NEString, NEVec, NonEmptyIterator as _, nev};
 
 use derive_more::Display;

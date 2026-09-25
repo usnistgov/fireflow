@@ -13,7 +13,8 @@ use crate::validated::shortname::Shortname;
 
 use fireflow_types::index::{MeasIndex, RegionIndex};
 use fireflow_types::keywords::{Version, VersionMembership};
-use fireflow_types::std_key::{DollarWrap, NonStdKey, PseudoNonStdKey, RawStdKey};
+use fireflow_types::nonstd_key::{DollarWrap, NonStdKey};
+use fireflow_types::std_key::{PseudoNonStdKey, RawStdKey};
 use fireflow_types::textdelim::{
     DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim,
 };

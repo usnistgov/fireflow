@@ -41,7 +41,8 @@ use crate::validated::shortname::Shortname;
 
 use fireflow_types::config::ProcessOptionalFailure;
 use fireflow_types::index::{MeasIndex, RegionIndex};
-use fireflow_types::std_key::{DfcKey, DollarWrap, IndexedKey, RegionKeyId, StdKey, ToStd as _};
+use fireflow_types::nonstd_key::DollarWrap;
+use fireflow_types::std_key::{DfcKey, IndexedKey, RegionKeyId, StdKey, ToStd as _};
 use nonempty::{IntoIteratorExt as _, IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
 
 use derive_more::{AsRef, Display, From};

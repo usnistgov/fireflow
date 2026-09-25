@@ -1,8 +1,8 @@
 use crate::index::{BiMeasIndex, IndexFromOne};
+use crate::nonstd_key::DollarWrap;
 use crate::std_key::{
-    CsvFlagKey, DfcKey, DollarStdKey, DollarWrap, GateKeyId, IndexedKey, NonPeakMeasKeyId,
-    PeakMeasKeyId, PseudoNonStdKey, PseudoNonStdKeyError, RawStdKey, RegionKeyId, STD_PREFIX,
-    StdKey, StdKeyError,
+    CsvFlagKey, DfcKey, DollarStdKey, GateKeyId, IndexedKey, NonPeakMeasKeyId, PeakMeasKeyId,
+    PseudoNonStdKey, PseudoNonStdKeyError, RawStdKey, RegionKeyId, STD_PREFIX, StdKey, StdKeyError,
 };
 use crate::sub_pattern::SubPattern;
 

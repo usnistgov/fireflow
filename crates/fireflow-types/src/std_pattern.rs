@@ -1,6 +1,6 @@
 use crate::index::{BiMeasIndex, IndexFromOne};
 use crate::std_key::{
-    CsvFlagKey, DfcKey, DollarStdKey_, DollarWrap, GateKeyId, IndexedKey, NonPeakMeasKeyId,
+    CsvFlagKey, DfcKey, DollarStdKey, DollarWrap, GateKeyId, IndexedKey, NonPeakMeasKeyId,
     PeakMeasKeyId, PseudoNonStdKey, PseudoNonStdKeyError, RawStdKey, RegionKeyId, STD_PREFIX,
     StdKey, StdKeyError,
 };
@@ -40,21 +40,21 @@ impl<const DOLLAR: bool, T> Default for StdKeysOrPatterns<DOLLAR, T> {
 pub struct StdKeysMatcher<'a, const HAS_PRE: bool, T> {
     // use hashmap since we can make non-unique patterns that produce the same
     // literal keys
-    pub literals: HashMap<DollarStdKey_<HAS_PRE>, &'a T>,
+    pub literals: HashMap<DollarStdKey<HAS_PRE>, &'a T>,
     pub wildcards: Vec<(&'a StdWildcard, &'a T)>,
 }
 
-/// A list of patterns that match [`crate::validated::keys::StdKey`]s.
+/// A list of patterns that match [`StdKey`]s.
 pub type StdKeyPatterns<const HAS_PRE: bool> = StdKeysOrPatterns<HAS_PRE, ()>;
 
-/// A list of substitutions that match [`crate::validated::keys::StdKey`]s.
+/// A list of substitutions that match [`StdKey`]s.
 pub type SubPatterns = StdKeysOrPatterns<true, SubPattern>;
 
 #[derive(From, Clone, PartialEq, Eq, Hash, Display, Debug)]
 #[display(bound(DollarWrap0<HAS_PRE, StdKey>: fmt::Display))]
 #[display(bound(DollarWrap0<HAS_PRE, StdIndexPattern>: fmt::Display))]
 pub enum StdKeyOrPattern<const HAS_PRE: bool> {
-    Key(DollarStdKey_<HAS_PRE>),
+    Key(DollarStdKey<HAS_PRE>),
     Pattern(StdIndexPattern<HAS_PRE>),
 }
 
@@ -145,7 +145,7 @@ pub struct StdIndexPatternError;
 impl<const HAS_PRE: bool> StdKeyOrPattern<HAS_PRE> {
     pub fn put_keys<'a, T: Copy>(
         &'a self,
-        literals: &mut HashMap<DollarStdKey_<HAS_PRE>, T>,
+        literals: &mut HashMap<DollarStdKey<HAS_PRE>, T>,
         wildcards: &mut Vec<(&'a StdWildcard, T)>,
         value: T,
     ) {
@@ -164,7 +164,7 @@ impl<const HAS_PRE: bool> StdKeyOrPattern<HAS_PRE> {
 impl StdIndexedKeys {
     fn put_keys<const HAS_PRE: bool, T: Copy>(
         &self,
-        keys: &mut HashMap<DollarStdKey_<HAS_PRE>, T>,
+        keys: &mut HashMap<DollarStdKey<HAS_PRE>, T>,
         value: T,
     ) {
         match self {

@@ -552,7 +552,7 @@ pub struct ReadRepairKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
     /// try to match the leading "$" as this is implied.
     ///
     /// This will be applied before [`Self::rename_standard_keys`],
-    /// [`Self::promote_to_standard`], and [`Self::demote_from_standard`].
+    /// [`Self::promote_nonstandard_keys`], and [`Self::demote_standard_keys`].
     pub ignore_standard_keys: ISK,
 
     /// Rename standard keys in TEXT.
@@ -560,8 +560,8 @@ pub struct ReadRepairKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
     /// Keys matching the first part of the pair will be replaced by the second.
     /// Comparisons are case-insensitive.
     ///
-    /// Keys are renamed before [`Self::promote_to_standard`] and
-    /// [`Self::demote_from_standard`] are applied.
+    /// Keys are renamed before [`Self::promote_nonstandard_keys`] and
+    /// [`Self::demote_standard_keys`] are applied.
     pub rename_standard_keys: RSK,
 
     /// A list of nonstandard keywords to be "promoted" to standard.
@@ -582,7 +582,7 @@ pub struct ReadRepairKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
     /// processed downstream.
     ///
     /// Useful for surgically correcting "pseudostandard" keywords without using
-    /// [`ReadStdKeywordsConfig::process_pseudostandard`], which is a crude
+    /// [`ReadStdKeywordsConfig_::process_pseudostandard`], which is a crude
     /// sledgehammer.
     pub demote_standard_keys: DFS,
 
@@ -616,13 +616,12 @@ pub struct ReadRepairKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
     pub allow_repair_non_unique: AllowRepairNonUnique,
 }
 
-/// Specific instructions for reading a data layout.
+/// Specific instructions for reading a data schema.
 ///
 /// Note that some of these are also used when reading any keyword in standard
 /// mode. Since the layout keywords always need to be read, and the rest only
-/// need to be read specifically when building [`crate::core::CoreTEXT`] or
-/// [`crate::core::CoreDataset`], these options are here since the layout is the
-/// thing they have in common.
+/// need to be read specifically when standardizing, these options are here
+/// since the layout is the thing they have in common.
 #[derive(Default, Clone, AsRef)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -916,7 +915,7 @@ pub trait TriErrorFlag {
     }
 }
 
-/// Error when parsing a [`fireflow_types::config::TriFlag`] from `"true"` or `"silent"`.
+/// Error when parsing a [`TriFlag`] from `"true"` or `"silent"`.
 #[derive(Error, Debug)]
 #[error("Must be one of 'silent' or 'true'")]
 pub struct PartialTriErrorFlagError;
@@ -1338,7 +1337,7 @@ const MIN_ROW_BUFFER_SIZE: usize = 4096;
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub struct TimeMeasNamePattern(Option<Regex>);
 
-/// Error when parsing [`CaseInsRegex`] from [`String`].
+/// Error when parsing [`TimeMeasNamePattern`] from [`String`].
 #[derive(Debug, Error, PartialEq, Clone)]
 #[error("error when parsing time measurement name pattern: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

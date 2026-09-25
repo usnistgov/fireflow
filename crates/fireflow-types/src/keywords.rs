@@ -27,7 +27,7 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     pub Version,
-    /// Error when parsing [`TriFlag`] from [`String`]
+    /// Error when parsing [`Version`] from [`String`]
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
     pub VersionFormatError,
@@ -207,7 +207,7 @@ impl_str_enum_kw!(
     #[cfg_attr(feature = "python", derive(FromPyString))]
     #[cfg_attr(feature = "testutil", derive(Arbitrary))]
     pub OpticalFeature,
-    /// Error when parsing [`Feature`] (optical only)
+    /// Error when parsing value for $PnFEATURE.
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
     pub OpticalFeatureError,

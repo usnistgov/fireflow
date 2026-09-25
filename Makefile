@@ -38,6 +38,7 @@ rs-test:
 .PHONY: rs-docs
 rs-docs:
 	RUSTDOCFLAGS="-D warnings" cargo doc -p fireflow-core --no-deps
+	RUSTDOCFLAGS="-D warnings" cargo doc -p fireflow-types --no-deps
 
 # TODO make these depend on debug build
 .PHONY: py-lint

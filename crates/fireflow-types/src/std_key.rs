@@ -49,10 +49,10 @@ pub enum AnyKey {
 ///
 /// The '$' is not stored internally. However using [`FromStr`] and [`Display`]
 /// will parse/prepend a '$' during conversion.
-pub type StdKey = DollarStdKey_<true>;
+pub type StdKey = DollarStdKey<true>;
 
 /// A standard key which does not start with a '$'.
-pub type PseudoNonStdKey = DollarStdKey_<false>;
+pub type PseudoNonStdKey = DollarStdKey<false>;
 
 /// A non-standard key which starts with a '$'.
 ///
@@ -65,17 +65,17 @@ pub type PseudoNonStdKey = DollarStdKey_<false>;
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
-pub struct PseudoStdKey(DollarKeyString_<true>);
+pub struct PseudoStdKey(DollarKeyString<true>);
 
 /// A non-standard key which does not start with a '$'.
 ///
 /// The internal value is guaranteed to not start with '$' in order to
-/// distinguish from [`PseudoStdKey0`].
+/// distinguish from [`PseudoStdKey`].
 #[derive(Clone, Debug, Display, PartialEq, Eq, Hash, PartialOrd, Ord, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
-pub struct NonStdKey(DollarKeyString_<false>);
+pub struct NonStdKey(DollarKeyString<false>);
 
 impl AsRef<NEStr> for NonStdKey {
     fn as_ref(&self) -> &NEStr {
@@ -105,9 +105,9 @@ impl PseudoStdKey {
     }
 }
 
-pub type DollarStdKey_<const HAS_PRE: bool> = DollarWrap<HAS_PRE, RawStdKey>;
+pub type DollarStdKey<const HAS_PRE: bool> = DollarWrap<HAS_PRE, RawStdKey>;
 
-pub type DollarKeyString_<const HAS_PRE: bool> = DollarWrap<HAS_PRE, KeyString>;
+pub type DollarKeyString<const HAS_PRE: bool> = DollarWrap<HAS_PRE, KeyString>;
 
 #[derive(From, PartialEq, Display, Debug, Error, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]

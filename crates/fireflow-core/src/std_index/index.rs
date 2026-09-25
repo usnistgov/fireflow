@@ -461,60 +461,6 @@ impl<'a> StdRepairTx<'a> {
             }
         }
 
-        // demote
-
-        let mut demoted = vec![];
-
-        for (k, ()) in &match_demote.literals {
-            if let Some(v) = self.delete(&k.0) {
-                pnonstd.insert_demoted(nonstd, k.0, v.to_owned());
-                demoted.push(*k);
-            }
-        }
-
-        if match_demote.has_wildcards() {
-            for (k, v, m) in self.iter_ne_masked_mut() {
-                if match_demote.is_wildcard_match(&k) {
-                    *m = RepairMask::Delete;
-                    // TODO this could be made more efficient by only moving once
-                    // the index queried for errors
-                    pnonstd.insert_demoted(nonstd, k, v.to_owned());
-                    demoted.push(DollarWrap(k));
-                }
-            }
-        }
-
-        // promote
-
-        let mut promote_non_unique = vec![];
-        let mut promoted = vec![];
-
-        for (k, ()) in &match_promote.literals {
-            if let Some(v) = pnonstd.remove(k) {
-                if let Some(vf) = self.insert(&k.0, v) {
-                    promote_non_unique.push((*k, TruncatedNEString(vf)));
-                } else {
-                    promoted.push(*k);
-                }
-            }
-        }
-
-        if match_promote.has_wildcards() {
-            pnonstd.retain(|k, v| {
-                if match_promote.is_wildcard_match(&k.0) {
-                    if let Some(vf) = self.insert(&k.0, v.to_owned()) {
-                        promote_non_unique.push((*k, TruncatedNEString(vf)));
-                        true
-                    } else {
-                        promoted.push(*k);
-                        false
-                    }
-                } else {
-                    true
-                }
-            });
-        }
-
         // rename
 
         let mut renamed = vec![];
@@ -575,6 +521,60 @@ impl<'a> StdRepairTx<'a> {
                     }
                 }
             }
+        }
+
+        // demote
+
+        let mut demoted = vec![];
+
+        for (k, ()) in &match_demote.literals {
+            if let Some(v) = self.delete(&k.0) {
+                pnonstd.insert_demoted(nonstd, k.0, v.to_owned());
+                demoted.push(*k);
+            }
+        }
+
+        if match_demote.has_wildcards() {
+            for (k, v, m) in self.iter_ne_masked_mut() {
+                if match_demote.is_wildcard_match(&k) {
+                    *m = RepairMask::Delete;
+                    // TODO this could be made more efficient by only moving once
+                    // the index queried for errors
+                    pnonstd.insert_demoted(nonstd, k, v.to_owned());
+                    demoted.push(DollarWrap(k));
+                }
+            }
+        }
+
+        // promote
+
+        let mut promote_non_unique = vec![];
+        let mut promoted = vec![];
+
+        for (k, ()) in &match_promote.literals {
+            if let Some(v) = pnonstd.remove(k) {
+                if let Some(vf) = self.insert(&k.0, v) {
+                    promote_non_unique.push((*k, TruncatedNEString(vf)));
+                } else {
+                    promoted.push(*k);
+                }
+            }
+        }
+
+        if match_promote.has_wildcards() {
+            pnonstd.retain(|k, v| {
+                if match_promote.is_wildcard_match(&k.0) {
+                    if let Some(vf) = self.insert(&k.0, v.to_owned()) {
+                        promote_non_unique.push((*k, TruncatedNEString(vf)));
+                        true
+                    } else {
+                        promoted.push(*k);
+                        false
+                    }
+                } else {
+                    true
+                }
+            });
         }
 
         // replace

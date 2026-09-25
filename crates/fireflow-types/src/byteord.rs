@@ -78,7 +78,7 @@ pub enum NewConfigByteOrdError {
     NonUnique,
 }
 
-/// Error when parsing [`ByteOrd2_0`] from string
+/// Error when parsing [`ConfigByteOrd`] from string
 #[derive(Debug, Display, Error, PartialEq, Eq, Clone)]
 pub enum ParseNewConfigByteOrdError {
     Digit(ParseIntError),

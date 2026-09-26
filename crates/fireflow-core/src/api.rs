@@ -34,7 +34,7 @@ use crate::segment::read::{
     SuppTextOffsetsName, SuppToHeaderOffsetsOverlap, SupplementalTextOffsets, TEXTOffsets,
     TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
 };
-use crate::std_index::index::{RepairDiagnostics, RepairError, StdKeywords, StdLookupTx};
+use crate::std_index::index::{StdKeywords, StdLookupTx};
 use crate::text::keywords::{
     AlphaNumType, Beginstext, Endstext, LookupNextdataError, Nextdata, ReadNextdataError, Tot,
 };
@@ -46,8 +46,8 @@ use crate::validated::header_offsets::{
 };
 use crate::validated::keys::{
     DollarKeyOrBytes, NEDelimBytes, NEStringOrBytes, ParsedKeyword, ParsedKeywordCounts,
-    ParsedKeywordsDiagnostic, ParsedNonStdKeywords, PseudoStdKeywords, StringOrBytes,
-    TruncatedNEBytes, TruncatedNEString, ValidKeywords, ValueToStdKey,
+    ParsedKeywordsDiagnostic, ParsedNonStdKeywords, PseudoStdKeywords, RepairDiagnostics,
+    RepairError, StringOrBytes, TruncatedNEBytes, TruncatedNEString, ValidKeywords, ValueToStdKey,
 };
 use crate::validated::read_state::{
     CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError, FileLen,
@@ -1410,13 +1410,7 @@ impl FCSFileReader {
             .and_then_commutative(|(lst, mut flat, read_end)| {
                 let mut kws = flat.keywords;
                 let repair_res = kws
-                    .std
-                    .repair(
-                        &mut kws.pstd,
-                        &mut kws.pnonstd,
-                        &mut kws.nonstd,
-                        &lst.conf().repair,
-                    )
+                    .repair(&lst.conf().repair)
                     .map_commutative_warnings(ReadFlatDatasetWarning::from)
                     .map_errors(ReadFlatDatasetError::from);
 

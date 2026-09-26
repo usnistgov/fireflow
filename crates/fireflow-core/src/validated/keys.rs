@@ -1,11 +1,15 @@
+use crate::config::EvaledReadRepairKeywordsConfig;
 use crate::fixed_vec::OneOrTwo;
+use crate::logging::{DeferredWarningsAndErrors, LogResult};
 use crate::std_index::index::StdKeywords;
 
 use fireflow_types::config::Encoding;
 use fireflow_types::index::{BiMeasIndex, MeasIndex};
 use fireflow_types::keys::nonstd::{DollarWrap, NonStdKey};
 use fireflow_types::keys::raw_std::{RawStdKey, ToStd};
-use fireflow_types::keys::{AnyKey, PseudoNonStdKey, PseudoStdKey, StdKey};
+use fireflow_types::keys::{
+    AnyKey, PseudoNonStdKey, PseudoNonStdKeywordsExt as _, PseudoStdKey, StdKey,
+};
 use nonempty::{HasNELen as _, NEAlt, NESlice, NEStr, NEString, NEVec, ToDisplayNE, ToNE};
 
 use derive_more::{Display, From, Into};
@@ -13,6 +17,7 @@ use derive_new::new;
 use derive_where::derive_where;
 use hashbrown::HashMap;
 use hashbrown::hash_map::Entry;
+use thiserror::Error;
 
 use std::borrow::Cow;
 use std::fmt;
@@ -23,7 +28,11 @@ use std::num::NonZeroUsize;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use {fireflow_core_proc::FromInnerPyObject, pyo3::prelude::*};
+use {
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
+    fireflow_types::python as py,
+    pyo3::prelude::*,
+};
 
 /// A standard (non-pseudostandard) key or non-standard key.
 #[derive(Clone, PartialEq, From)]
@@ -362,6 +371,97 @@ pub(crate) struct ParsedNonStdKeywords {
 
     /// Pseudo-non-stdandard keywords (not with '$' but standard).
     pub(crate) pnonstd: PseudoNonStdKeywords,
+}
+
+/// Error when keyword repair process resulted in colliding non-unique keys.
+#[derive(Debug, Display, Error, PartialEq, Clone, From)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum RepairError {
+    RenameStd(RenameNonUniqueError),
+    PromoteNonUnique(PromoteNonUniqueError),
+    AppendNonUnique(AppendNonUniqueError),
+}
+
+/// Error when renaming standard keys which are not unique.
+#[derive(new, Debug, Error, PartialEq, Clone)]
+#[error("key {k0} could not be renamed to {k1} because {k1} already exists")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct RenameNonUniqueError {
+    k0: AnyKey,
+    k1: AnyKey,
+}
+
+/// Error when promoting keys which are not unique.
+#[derive(new, Debug, Error, PartialEq, Clone)]
+#[error(
+    "non-standard key {key} with value {value} could not be promoted because \
+     {key} already exists as a standard key."
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct PromoteNonUniqueError {
+    key: PseudoNonStdKey,
+    value: TruncatedNEString,
+}
+
+/// Error when appending keys which are not unique.
+#[derive(new, Debug, Error, PartialEq, Clone)]
+#[error(
+    "standard {key} with value {value} could not be appended because \
+     {key} already exists as a standard key."
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct AppendNonUniqueError {
+    key: StdKey,
+    value: TruncatedNEString,
+}
+
+/// Diagnostic output from repairing the keyword list.
+#[derive(Clone, PartialEq, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[allow(clippy::too_many_arguments)]
+pub struct RepairDiagnostics {
+    /// Standard keys which were demoted.
+    pub demoted: Vec<StdKey>,
+
+    /// Non-standard keys which were promoted.
+    pub promoted: Vec<PseudoNonStdKey>,
+
+    /// Standard keys which had values that were substituted.
+    ///
+    /// Values here are the original.
+    pub subbed: Vec<(StdKey, TruncatedNEString)>,
+
+    /// Standard keys which had values that were replaced.
+    ///
+    /// Values here are the original.
+    pub replaced: Vec<(StdKey, TruncatedNEString)>,
+
+    /// Keys which were renamed.
+    ///
+    /// First key in pair is the original.
+    pub renamed: Vec<(AnyKey, AnyKey)>,
+
+    /// Keys not renamed because they collided with an existing key.
+    pub renamed_non_unique: Vec<(AnyKey, AnyKey)>,
+
+    /// Standard keys which were ignored.
+    pub ignored: Vec<(StdKey, TruncatedNEString)>,
+
+    /// Standard keys which were removed.
+    ///
+    /// This only happens when a substitution pattern returns a blank.
+    pub removed: Vec<(StdKey, TruncatedNEString)>,
+
+    /// Non-standard keys which collided with a standard key when promoted.
+    ///
+    /// These keys were not moved.
+    pub promoted_non_unique: Vec<(PseudoNonStdKey, TruncatedNEString)>,
+
+    /// Appended keys which collided with an existing standard key.
+    pub appended_non_unique: Vec<(StdKey, TruncatedNEString)>,
 }
 
 // Declare traits which map rust values to standardized keywords.
@@ -771,6 +871,242 @@ impl ParsedKeywordsDiagnostic {
 }
 
 impl ValidKeywords {
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn repair(
+        &mut self,
+        conf: &EvaledReadRepairKeywordsConfig,
+    ) -> DeferredWarningsAndErrors<RepairDiagnostics, RepairError, RepairError> {
+        let match_promote = conf.promote_nonstandard_keys.as_matcher();
+        let match_demote = conf.demote_standard_keys.as_matcher();
+        let match_ignore = conf.ignore_standard_keys.as_matcher();
+        let match_subs = conf.substitute_standard_key_values.as_matcher();
+
+        // ignore
+
+        let mut ignored = vec![];
+
+        for (k, ()) in &match_ignore.literals {
+            if let Some(v) = self.std.delete(&k.0) {
+                ignored.push((*k, TruncatedNEString(v.to_owned())));
+            }
+        }
+
+        if match_ignore.has_wildcards() {
+            self.std.delete_when(
+                |k| match_ignore.is_wildcard_match(&k),
+                |k, v| ignored.push((DollarWrap(k), TruncatedNEString(v.to_owned()))),
+            );
+        }
+
+        // rename
+
+        let mut renamed = vec![];
+        let mut renamed_non_unique = vec![];
+
+        for (k0, k1) in &conf.rename_standard_keys {
+            macro_rules! go {
+                () => {
+                    match k0 {
+                        AnyKey::Std(k0_) => self.std.delete(&k0_.0).map(|v| {
+                            renamed.push((k0.clone(), k1.clone()));
+                            v.to_owned()
+                        }),
+                        AnyKey::PseudoNonStd(k0_) => self.pnonstd.remove(k0_).inspect(|_| {
+                            renamed.push((k0.clone(), k1.clone()));
+                        }),
+                        AnyKey::PseudoStd(k0_) => self.pstd.remove(k0_).inspect(|_| {
+                            renamed.push((k0.clone(), k1.clone()));
+                        }),
+                        AnyKey::NonStd(k0_) => self.nonstd.remove(k0_).inspect(|_| {
+                            renamed.push((k0.clone(), k1.clone()));
+                        }),
+                    }
+                };
+            }
+
+            match k1 {
+                AnyKey::Std(k1_) => {
+                    if self.std.key_has_value(&k1_.0) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = go!() {
+                        // we checked above so this shouldn't return anything
+                        let _ = self.std.insert(&k1_.0, v.as_ne_str());
+                    }
+                }
+                AnyKey::PseudoNonStd(k1_) => {
+                    if self.pnonstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = go!() {
+                        // we checked above so this shouldn't return anything
+                        let _ = self.pnonstd.insert(*k1_, v);
+                    }
+                }
+                AnyKey::PseudoStd(k1_) => {
+                    if self.pstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = go!() {
+                        // we checked above so this shouldn't return anything
+                        let _ = self.pstd.insert(k1_.clone(), v);
+                    }
+                }
+                AnyKey::NonStd(k1_) => {
+                    if self.nonstd.contains_key(k1_) {
+                        renamed_non_unique.push((k0.clone(), k1.clone()));
+                    } else if let Some(v) = go!() {
+                        // we checked above so this shouldn't return anything
+                        let _ = self.nonstd.insert(k1_.clone(), v);
+                    }
+                }
+            }
+        }
+
+        // demote
+
+        let mut demoted = vec![];
+
+        for (k, ()) in &match_demote.literals {
+            if let Some(v) = self.std.delete(&k.0) {
+                self.pnonstd
+                    .insert_demoted(&mut self.nonstd, k.0, v.to_owned());
+                demoted.push(*k);
+            }
+        }
+
+        if match_demote.has_wildcards() {
+            self.std.delete_when(
+                |k| match_demote.is_wildcard_match(&k),
+                |k, v| {
+                    self.pnonstd
+                        .insert_demoted(&mut self.nonstd, k, v.to_owned());
+                    demoted.push(DollarWrap(k));
+                },
+            );
+        }
+
+        // promote
+
+        let mut promote_non_unique = vec![];
+        let mut promoted = vec![];
+
+        for (k, ()) in &match_promote.literals {
+            if let Some(v) = self.pnonstd.remove(k) {
+                if let Some(vf) = self.std.insert(&k.0, v.as_ne_str()) {
+                    promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
+                } else {
+                    promoted.push(*k);
+                }
+            }
+        }
+
+        if match_promote.has_wildcards() {
+            self.pnonstd.retain(|k, v| {
+                if match_promote.is_wildcard_match(&k.0) {
+                    if let Some(vf) = self.std.insert(&k.0, v.as_ne_str()) {
+                        promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
+                        true
+                    } else {
+                        promoted.push(*k);
+                        false
+                    }
+                } else {
+                    true
+                }
+            });
+        }
+
+        // replace
+
+        let mut replaced = vec![];
+
+        for (dk, vf) in &conf.replace_standard_key_values {
+            if let Some(v) = self.std.delete(&dk.0) {
+                replaced.push((*dk, TruncatedNEString(v.to_owned())));
+                let _ = self.std.insert(&dk.0, vf.as_ne_str());
+            }
+        }
+
+        // sub
+
+        let mut removed = vec![];
+        let mut subbed = vec![];
+
+        for (k, subpat) in &match_subs.literals {
+            if let Some(v) = self.std.delete(&k.0) {
+                if let Ok(vf) = NEString::try_from(subpat.sub(v.as_str())) {
+                    subbed.push((*k, TruncatedNEString(v.to_owned())));
+                    let _ = self.std.insert(&k.0, vf.as_ne_str());
+                } else {
+                    removed.push((*k, TruncatedNEString(v.to_owned())));
+                }
+            }
+        }
+
+        if match_subs.has_wildcards() {
+            self.std.replace_when(
+                |k| match_subs.get_wildcard(&k),
+                |k, v, subpat| {
+                    let dk = DollarWrap(k);
+                    if let Ok(vf) = NEString::try_from(subpat.sub(v.as_str())) {
+                        subbed.push((dk, TruncatedNEString(v.to_owned())));
+                        Some(vf)
+                    } else {
+                        removed.push((dk, TruncatedNEString(v.to_owned())));
+                        None
+                    }
+                },
+            );
+        }
+
+        // append
+
+        let mut appended_non_unique = vec![];
+
+        // TODO this is easy to optimize since we know the length of the inputs
+        // and there are no pesky regex expressions
+        for (k, v) in &conf.append_standard_keywords {
+            if let Some(vf) = self.std.insert(&k.0, v.as_ne_str()) {
+                appended_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
+            }
+        }
+
+        // finalize
+
+        let ret = RepairDiagnostics {
+            demoted,
+            promoted,
+            subbed,
+            replaced,
+            renamed,
+            renamed_non_unique,
+            ignored,
+            removed,
+            promoted_non_unique: promote_non_unique,
+            appended_non_unique,
+        };
+
+        let e0 = ret
+            .renamed_non_unique
+            .iter()
+            .map(|(k0, k1)| RenameNonUniqueError::new(k0.clone(), k1.clone()))
+            .map(RepairError::from);
+        let e1 = ret
+            .promoted_non_unique
+            .iter()
+            .map(|(k, v)| PromoteNonUniqueError::new(*k, v.clone()))
+            .map(RepairError::from);
+        let e2 = ret
+            .appended_non_unique
+            .iter()
+            .map(|(k, v)| AppendNonUniqueError::new(*k, v.clone()))
+            .map(RepairError::from);
+        let es = e0.chain(e1).chain(e2);
+
+        let flag = conf.allow_repair_non_unique;
+        LogResult::new_deferred_switchable_iter3((), es, flag)
+            .switchable_into_commutative()
+            .set_deferred_value(ret)
+    }
+
     pub(crate) fn get_any(&self, k: &AnyKey) -> Option<&NEStr> {
         match k {
             AnyKey::Std(k0) => self.get_std(k0),

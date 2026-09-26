@@ -54,21 +54,22 @@
 //!   and can't cause compile errors. This is also almost-necessary since the
 //!   internal proc-macro code has rendering logic for sphinx rst syntax, which
 //!   would be a pain to keep in sync at the macro call level.
-use fireflow_core::{
-    api, config as cfg, core,
-    data::{self, LayoutByteOrder as _, LayoutDatatype as _, PhantomInto as _},
-    header, match_map_uint, meas, segment,
-    std_index::index::RepairDiagnostics,
-    text::{
-        byteord::{ArrayByteOrd, Endian},
-        gating::{self, Region},
-        keywords as kws,
-        named_vec::Element,
-    },
-    validated::{
-        dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame, PrimitiveSeries},
-        header_offsets, keys, shortname as sn,
-    },
+use fireflow_core::api;
+use fireflow_core::config as cfg;
+use fireflow_core::core;
+use fireflow_core::data::{self, LayoutByteOrder as _, LayoutDatatype as _, PhantomInto as _};
+use fireflow_core::header;
+use fireflow_core::match_map_uint;
+use fireflow_core::meas;
+use fireflow_core::segment;
+use fireflow_core::text::byteord::{ArrayByteOrd, Endian};
+use fireflow_core::text::gating::{self, Region};
+use fireflow_core::text::keywords as kws;
+use fireflow_core::text::named_vec::Element;
+use fireflow_core::validated::keys::RepairDiagnostics;
+use fireflow_core::validated::{
+    dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame, PrimitiveSeries},
+    header_offsets, keys, shortname as sn,
 };
 
 use fireflow_python_proc as fpp;

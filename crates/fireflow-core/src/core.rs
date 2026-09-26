@@ -59,8 +59,7 @@ use crate::segment::read::{
 };
 use crate::segment::read::{PrimaryTextOffsets, SupplementalTextOffsets};
 use crate::std_index::index::{
-    DroppedStdKeywords, ExtraStdKeywordError, ExtraStdKeywords, RepairDiagnostics, RepairError,
-    StdKeywords, StdLookupTx,
+    DroppedStdKeywords, ExtraStdKeywordError, ExtraStdKeywords, StdKeywords, StdLookupTx,
 };
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, DatetimesDiagnostics, EndDateTime, LookupDatetimesError,
@@ -113,8 +112,8 @@ use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
-    DollarKey, NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords, StringOrBytes,
-    TruncatedNEString, ValidKeywords, ValueToStdKey as _,
+    DollarKey, NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords, RepairDiagnostics,
+    RepairError, StringOrBytes, TruncatedNEString, ValidKeywords, ValueToStdKey as _,
 };
 use crate::validated::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
@@ -5810,13 +5809,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             + AsRef<ReadOffsetConfig>,
     {
         let repair_res = kws
-            .std
-            .repair(
-                &mut kws.pstd,
-                &mut kws.pnonstd,
-                &mut kws.nonstd,
-                st.conf().as_ref(),
-            )
+            .repair(st.conf().as_ref())
             .map_commutative_warnings(StdTEXTFromKeywordsWithOffsetsWarning::from)
             .map_errors(StdTEXTFromKeywordsWithOffsetsError::from);
         let ltx = kws.std.as_transaction();
@@ -6425,13 +6418,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             + AsRef<ReadDatasetConfig>,
     {
         let repair_res = kws
-            .std
-            .repair(
-                &mut kws.pstd,
-                &mut kws.pnonstd,
-                &mut kws.nonstd,
-                st.conf().as_ref(),
-            )
+            .repair(st.conf().as_ref())
             .map_commutative_warnings(StdDatasetFromKeywordsWarningInner::from)
             .map_errors(StdDatasetFromKeywordsErrorInner::from);
         let ltx = kws.std.as_transaction();

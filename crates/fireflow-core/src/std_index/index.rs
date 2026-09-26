@@ -12,12 +12,12 @@ use fireflow_types::config::{
     TemporalHasOpticalKeyError, TriErrorFlag as _,
 };
 use fireflow_types::index::MeasIndex;
-use fireflow_types::keys::nonstd::DollarWrap;
+use fireflow_types::keys::nonstd::{DollarWrap, NonStdKey};
 use fireflow_types::keys::raw_std::{
     CsvFlagKey, DfcKey, EnumIndex as _, GateKey, MeasKey, N_ROOT, RawStdKey, RegionKey, RootKey,
     ToStd as _,
 };
-use fireflow_types::keys::{PseudoNonStdKeywordsExt as _, PseudoStdKey, StdKey};
+use fireflow_types::keys::{DollarStdKey, PseudoStdKey, StdKey};
 use fireflow_types::keywords::Version;
 use nonempty::{NEStr, NEString, NEVec};
 
@@ -135,8 +135,8 @@ impl LookupAction {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct StdKeywords {
+#[derive(Clone, PartialEq, Debug)]
+pub struct RawStdKeyIndex<const HAS_PRE: bool> {
     root: NestedRoot,
     // TODO it might make sense to break this up into several sub-strings. As is
     // this will have many empty entries, which will make the index vector very
@@ -166,7 +166,7 @@ pub type StdLookupTx<'a> = StdTransaction<'a, LookupMask>;
 
 type NestedRoot = NestedEnumString<N_ROOT, RootKey>;
 
-impl Default for StdKeywords {
+impl<const HAS_PRE: bool> Default for RawStdKeyIndex<HAS_PRE> {
     fn default() -> Self {
         Self {
             root: NestedRoot::init_array(0),
@@ -179,12 +179,31 @@ impl Default for StdKeywords {
     }
 }
 
-impl StdKeywords {
-    pub fn iter_dollar_keywords(&self) -> impl Iterator<Item = (StdKey, &NEStr)> {
-        self.iter_keywords().map(|(k, v)| (DollarWrap(k), v))
+impl RawStdKeyIndex<false> {
+    pub(crate) fn insert_demoted(
+        &mut self,
+        nonstd: &mut NonStdKeywords,
+        key: &StdKey,
+        value: NEString,
+    ) {
+        if self.contains_key(key.rewrap_ref()) {
+            let mut k = NonStdKey::from(key);
+            while nonstd.contains_key(&k) {
+                k.disambiguate();
+            }
+            assert!(nonstd.insert(k, value).is_none(), "key not disambiguated");
+        } else {
+            let _ = self.insert(key.rewrap_ref(), value.as_ne_str());
+        }
+    }
+}
+
+impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
+    pub fn iter_keywords(&self) -> impl Iterator<Item = (DollarStdKey<HAS_PRE>, &NEStr)> {
+        self.iter_raw_keywords().map(|(k, v)| (DollarWrap(k), v))
     }
 
-    pub fn iter_keywords(&self) -> impl Iterator<Item = (RawStdKey, &NEStr)> {
+    pub fn iter_raw_keywords(&self) -> impl Iterator<Item = (RawStdKey, &NEStr)> {
         self.root
             .iter_std()
             .chain(self.meas.iter_std())
@@ -195,11 +214,13 @@ impl StdKeywords {
     }
 
     pub fn iter_keys(&self) -> impl Iterator<Item = RawStdKey> {
-        self.iter_keywords().map(|(k, _)| k)
+        self.iter_raw_keywords().map(|(k, _)| k)
     }
 
     #[must_use]
-    pub fn from_vec<V>(pairs: Vec<(RawStdKey, V)>) -> (Self, Vec<(StdKey, TruncatedNEString)>)
+    pub fn from_vec<V>(
+        pairs: Vec<(DollarStdKey<HAS_PRE>, V)>,
+    ) -> (Self, Vec<(DollarStdKey<HAS_PRE>, TruncatedNEString)>)
     where
         V: AsRef<NEStr>,
     {
@@ -213,7 +234,7 @@ impl StdKeywords {
 
         for (k, v) in &pairs {
             let n_bytes = v.as_ref().as_ne_bytes().len().get();
-            match k {
+            match &k.0 {
                 RawStdKey::Root(_) => {
                     root_n_bytes += n_bytes;
                 }
@@ -254,15 +275,15 @@ impl StdKeywords {
         let mut duplicates = vec![];
 
         for (k, v) in pairs {
-            if let Some(dup) = match k {
-                RawStdKey::Root(i) => root.push_dedup(&i, v),
-                RawStdKey::Meas(i) => meas.push_dedup(&i, v),
-                RawStdKey::Gate(i) => gate.push_dedup(&i, v),
-                RawStdKey::Region(i) => region.push_dedup(&i, v),
-                RawStdKey::CsvFlag(i) => csv_flag.push_dedup(&i, v),
-                RawStdKey::Dfc(i) => dfc.push_dedup(&i, v),
+            if let Some(dup) = match &k.0 {
+                RawStdKey::Root(i) => root.push_dedup(i, v),
+                RawStdKey::Meas(i) => meas.push_dedup(i, v),
+                RawStdKey::Gate(i) => gate.push_dedup(i, v),
+                RawStdKey::Region(i) => region.push_dedup(i, v),
+                RawStdKey::CsvFlag(i) => csv_flag.push_dedup(i, v),
+                RawStdKey::Dfc(i) => dfc.push_dedup(i, v),
             } {
-                duplicates.push((DollarWrap(k), dup.as_ref().to_owned().into()));
+                duplicates.push((k, dup.as_ref().to_owned().into()));
             }
         }
 
@@ -278,8 +299,8 @@ impl StdKeywords {
     }
 
     #[must_use]
-    pub fn get(&self, k: &RawStdKey) -> Option<&NEStr> {
-        let s = match k {
+    pub fn get(&self, k: &DollarStdKey<HAS_PRE>) -> Option<&NEStr> {
+        let s = match &k.0 {
             RawStdKey::Root(rk) => self.root.get(rk),
             RawStdKey::Meas(mk) => self.meas.get(mk),
             RawStdKey::Gate(gk) => self.gate.get(gk),
@@ -290,8 +311,8 @@ impl StdKeywords {
         NEStr::try_new(s)
     }
 
-    pub(crate) fn insert(&mut self, k: &RawStdKey, v: &NEStr) -> Option<&NEStr> {
-        match k {
+    pub(crate) fn insert(&mut self, k: &DollarStdKey<HAS_PRE>, v: &NEStr) -> Option<&NEStr> {
+        match &k.0 {
             RawStdKey::Root(rk) => self.root.insert_array(rk, v),
             RawStdKey::Meas(mk) => self.meas.insert_var(mk, v),
             RawStdKey::Gate(gk) => self.gate.insert_var(gk, v),
@@ -301,8 +322,8 @@ impl StdKeywords {
         }
     }
 
-    pub(crate) fn delete(&mut self, k: &RawStdKey) -> Option<&NEStr> {
-        match k {
+    pub(crate) fn delete(&mut self, k: &DollarStdKey<HAS_PRE>) -> Option<&NEStr> {
+        match &k.0 {
             RawStdKey::Root(rk) => self.root.delete(rk),
             RawStdKey::Meas(mk) => self.meas.delete(mk),
             RawStdKey::Gate(gk) => self.gate.delete(gk),
@@ -361,7 +382,7 @@ impl StdKeywords {
         go!(dfc);
     }
 
-    pub(crate) fn contains_key(&self, k: &RawStdKey) -> bool {
+    pub(crate) fn contains_key(&self, k: &DollarStdKey<HAS_PRE>) -> bool {
         self.get(k).is_some()
     }
 
@@ -374,7 +395,10 @@ impl StdKeywords {
             + self.dfc.n_offsets()
     }
 
-    pub(crate) fn concat(self, other: Self) -> (Self, Vec<(StdKey, TruncatedNEString)>) {
+    pub(crate) fn concat(
+        self,
+        other: Self,
+    ) -> (Self, Vec<(DollarStdKey<HAS_PRE>, TruncatedNEString)>) {
         if self.n_offsets() == 0 {
             (other, vec![])
         } else if other.n_offsets() == 0 {
@@ -399,8 +423,8 @@ impl StdKeywords {
         }
     }
 
-    pub(crate) fn key_has_value(&self, k: &RawStdKey) -> bool {
-        let res = match k {
+    pub(crate) fn key_has_value(&self, k: &DollarStdKey<HAS_PRE>) -> bool {
+        let res = match &k.0 {
             RawStdKey::Root(rk) => self.root.occupied(rk),
             RawStdKey::Meas(mk) => self.meas.occupied(mk),
             RawStdKey::Gate(gk) => self.gate.occupied(gk),
@@ -413,8 +437,8 @@ impl StdKeywords {
 }
 
 impl StdLookupTx<'_> {
-    pub(crate) fn commit(self) -> StdKeywords {
-        StdKeywords {
+    pub(crate) fn commit(self) -> RawStdKeyIndex<true> {
+        RawStdKeyIndex {
             root: self.root.commit_array(),
             meas: self.meas.commit_var(),
             gate: self.gate.commit_var(),
@@ -450,15 +474,11 @@ impl StdLookupTx<'_> {
         // speed and memory. It is more efficient (without some insane code
         // gymnastics) to not store the error as part of the mask, and instead
         // only store if it was dropped or not.
-        let mut go = |k, v: &NEStr, was_demoted| {
-            if was_demoted {
-                pnonstd.insert_demoted(nonstd, k, v.to_owned());
-            } else {
-                optional.push((DollarWrap(k), v.to_owned()));
-            }
-        };
+        let mut go_demote = |k: &_, v: &NEStr| pnonstd.insert_demoted(nonstd, k, v.to_owned());
+        let mut go_drop = |k, v: &NEStr| optional.push((k, v.to_owned()));
 
         for (k, v, m) in self.root.iter_masked() {
+            let dk = DollarWrap(k.into());
             match m {
                 LookupMask::Unseen => {
                     let vo = v.to_owned();
@@ -473,13 +493,13 @@ impl StdLookupTx<'_> {
                         // another version or not.
                         RootKey::Nextdata => (),
                         RootKey::Beginstext | RootKey::Endstext if version > Version::FCS2_0 => (),
-                        _ => other_version_.push((DollarWrap(k.into()), vo)),
+                        _ => other_version_.push((dk, vo)),
                     }
                 }
                 LookupMask::Seen(a) => match a {
                     LookupAction::None => (),
-                    LookupAction::Demote => go(k.into(), v, true),
-                    LookupAction::Drop => go(k.into(), v, false),
+                    LookupAction::Demote => go_demote(&dk, v),
+                    LookupAction::Drop => go_drop(dk, v),
                 },
             }
         }
@@ -487,16 +507,17 @@ impl StdLookupTx<'_> {
         let mut meas_it = self.meas.iter_masked();
 
         for (k, v, m) in meas_it.by_ref() {
+            let dk = DollarWrap(k.into());
             if usize::from(k.index) >= usize::from(par) {
-                hyper_par_.push((DollarWrap(k.into()), v.to_owned()));
+                hyper_par_.push((dk, v.to_owned()));
                 break;
             }
             match m {
-                LookupMask::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
+                LookupMask::Unseen => other_version_.push((dk, v.to_owned())),
                 LookupMask::Seen(a) => match a {
                     LookupAction::None => (),
-                    LookupAction::Demote => go(k.into(), v, true),
-                    LookupAction::Drop => go(k.into(), v, false),
+                    LookupAction::Demote => go_demote(&dk, v),
+                    LookupAction::Drop => go_drop(dk, v),
                 },
             }
         }
@@ -506,16 +527,17 @@ impl StdLookupTx<'_> {
         let mut gate_it = self.gate.iter_masked();
 
         for (k, v, m) in gate_it.by_ref() {
+            let dk = DollarWrap(k.into());
             if usize::from(k.index) >= usize::from(gate) {
-                hyper_gate_.push((DollarWrap(k.into()), v.to_owned()));
+                hyper_gate_.push((dk, v.to_owned()));
                 break;
             }
             match m {
-                LookupMask::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
+                LookupMask::Unseen => other_version_.push((dk, v.to_owned())),
                 LookupMask::Seen(a) => match a {
                     LookupAction::None => (),
-                    LookupAction::Demote => go(k.into(), v, true),
-                    LookupAction::Drop => go(k.into(), v, false),
+                    LookupAction::Demote => go_demote(&dk, v),
+                    LookupAction::Drop => go_drop(dk, v),
                 },
             }
         }
@@ -525,43 +547,46 @@ impl StdLookupTx<'_> {
         // TODO we could also do something like hyper_par/gate with these but
         // they are hardly used anyways and doing so would be complex
         for (k, v, m) in self.region.iter_masked() {
+            let dk = DollarWrap(k.into());
             match m {
-                LookupMask::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
+                LookupMask::Unseen => other_version_.push((dk, v.to_owned())),
                 LookupMask::Seen(a) => match a {
                     LookupAction::None => (),
-                    LookupAction::Demote => go(k.into(), v, true),
-                    LookupAction::Drop => go(k.into(), v, false),
+                    LookupAction::Demote => go_demote(&dk, v),
+                    LookupAction::Drop => go_drop(dk, v),
                 },
             }
         }
 
         // TODO ditto $CSMODE
         for (k, v, m) in self.csv_flag.iter_masked() {
+            let dk = DollarWrap(k.into());
             match m {
-                LookupMask::Unseen => other_version_.push((DollarWrap(k.into()), v.to_owned())),
+                LookupMask::Unseen => other_version_.push((dk, v.to_owned())),
                 LookupMask::Seen(a) => match a {
                     LookupAction::None => (),
-                    LookupAction::Demote => go(k.into(), v, true),
-                    LookupAction::Drop => go(k.into(), v, false),
+                    LookupAction::Demote => go_demote(&dk, v),
+                    LookupAction::Drop => go_drop(dk, v),
                 },
             }
         }
 
         for (k, v, m) in self.dfc.iter_masked() {
+            let dk = DollarWrap(k.into());
             let is_hyper_par = usize::from(k.index.i0) > usize::from(par)
                 || usize::from(k.index.i1) > usize::from(par);
             match m {
                 LookupMask::Unseen => {
                     if is_hyper_par {
-                        hyper_par_.push((DollarWrap(k.into()), v.to_owned()));
+                        hyper_par_.push((dk, v.to_owned()));
                     } else {
-                        other_version_.push((DollarWrap(k.into()), v.to_owned()));
+                        other_version_.push((dk, v.to_owned()));
                     }
                 }
                 LookupMask::Seen(a) => match a {
                     LookupAction::None => (),
-                    LookupAction::Demote => go(k.into(), v, true),
-                    LookupAction::Drop => go(k.into(), v, false),
+                    LookupAction::Demote => go_demote(&dk, v),
+                    LookupAction::Drop => go_drop(dk, v),
                 },
             }
         }
@@ -579,7 +604,7 @@ impl StdLookupTx<'_> {
                 }
                 if conf.$flag.is_demote() {
                     for (k, v) in $errors {
-                        pnonstd.insert_demoted(nonstd, k.0, v);
+                        pnonstd.insert_demoted(nonstd, &k, v);
                     }
                     Default::default()
                 } else {
@@ -608,7 +633,7 @@ impl StdLookupTx<'_> {
 
         let timestep = timestep_.and_then(|ts| {
             if conf.process_extra_timestep.is_demote() {
-                pnonstd.insert_demoted(nonstd, RootKey::Timestep.to_std0(), ts);
+                pnonstd.insert_demoted(nonstd, &RootKey::Timestep.to_std0(), ts);
                 None
             } else {
                 Some(ts)
@@ -687,7 +712,7 @@ impl StdLookupTx<'_> {
         // it lazily in the index. Here we only care about the pair and if
         // it has a non-empty value.
         for t in targets {
-            let k = RawStdKey::from_optical_only_key(*t, i);
+            let k = DollarWrap(RawStdKey::from_optical_only_key(*t, i));
             if let Some(v) = self.remove_unseen(&k) {
                 let err = || TemporalHasOpticalKeyError::new(i, *t);
                 if keys.0.contains(t) {
@@ -696,7 +721,7 @@ impl StdLookupTx<'_> {
                     if warn {
                         ws.push(err());
                     }
-                    pairs.push((DollarWrap(k), vf.into()));
+                    pairs.push((k, vf.into()));
                 } else {
                     es.push(err());
                 }
@@ -726,14 +751,14 @@ impl StdLookupTx<'_> {
         self.parse_unseen(&K::std(i), f)
     }
 
-    pub(crate) fn set_failure_flag<F: KeywordFailureFlag>(&mut self, k: &RawStdKey, f: F) {
+    pub(crate) fn set_failure_flag<F: KeywordFailureFlag>(&mut self, k: &StdKey, f: F) {
         if let Some(a) = LookupAction::from_flag(f) {
             self.set_lookup_action_seen(k, a);
         }
     }
 
-    pub(crate) fn set_lookup_action_seen(&mut self, k: &RawStdKey, a: LookupAction) {
-        match k {
+    pub(crate) fn set_lookup_action_seen(&mut self, k: &StdKey, a: LookupAction) {
+        match &k.0 {
             RawStdKey::Root(rk) => self.root.set_lookup_action_seen(rk, a),
             RawStdKey::Meas(mk) => self.meas.set_lookup_action_seen(mk, a),
             RawStdKey::Gate(gk) => self.gate.set_lookup_action_seen(gk, a),
@@ -743,8 +768,8 @@ impl StdLookupTx<'_> {
         }
     }
 
-    fn get_unseen(&self, k: &RawStdKey) -> Option<&NEStr> {
-        match k {
+    fn get_unseen(&self, k: &StdKey) -> Option<&NEStr> {
+        match &k.0 {
             RawStdKey::Root(rk) => self.root.get_unseen(rk),
             RawStdKey::Meas(mk) => self.meas.get_unseen(mk),
             RawStdKey::Gate(gk) => self.gate.get_unseen(gk),
@@ -754,8 +779,8 @@ impl StdLookupTx<'_> {
         }
     }
 
-    fn remove_unseen(&mut self, k: &RawStdKey) -> Option<&NEStr> {
-        match k {
+    fn remove_unseen(&mut self, k: &StdKey) -> Option<&NEStr> {
+        match &k.0 {
             RawStdKey::Root(rk) => self.root.remove_unseen(rk),
             RawStdKey::Meas(mk) => self.meas.remove_unseen(mk),
             RawStdKey::Gate(gk) => self.gate.remove_unseen(gk),
@@ -765,11 +790,11 @@ impl StdLookupTx<'_> {
         }
     }
 
-    fn parse_unseen<F, X>(&mut self, k: &RawStdKey, f: F) -> Option<X>
+    fn parse_unseen<F, X>(&mut self, k: &StdKey, f: F) -> Option<X>
     where
         F: FnOnce(&NEStr) -> (Option<LookupAction>, X),
     {
-        match k {
+        match &k.0 {
             RawStdKey::Root(rk) => self.root.parse_unseen(rk, f),
             RawStdKey::Meas(mk) => self.meas.parse_unseen(mk, f),
             RawStdKey::Gate(gk) => self.gate.parse_unseen(gk, f),
@@ -781,15 +806,15 @@ impl StdLookupTx<'_> {
 }
 
 #[cfg(feature = "serde")]
-impl Serialize for StdKeywords {
+impl<const HAS_PRE: bool> Serialize for RawStdKeyIndex<HAS_PRE> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let n = self.iter_keywords().count();
+        let n = self.iter_raw_keywords().count();
         let mut map = serializer.serialize_map(Some(n))?;
         for (k, v) in self.iter_keywords() {
-            map.serialize_entry(&DollarWrap::<true, _>(k), v)?;
+            map.serialize_entry(&k, v)?;
         }
         map.end()
     }
@@ -797,17 +822,23 @@ impl Serialize for StdKeywords {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::StdKeywords;
 
-    use fireflow_types::keys::StdKey;
+    use super::RawStdKeyIndex;
+
+    use fireflow_types::keys::DollarStdKey;
     use nonempty::NEString;
 
-    use pyo3::{prelude::*, types::PyDict};
+    use pyo3::{
+        prelude::*,
+        types::{PyDict, PyString},
+    };
 
-    // TODO this is inefficient. Whenever the user wants to use this object like
-    // a dict, we need to make a new dict. Gross. Turn this into a real python
-    // class with methods that make it act like a dict.
-    impl<'py> FromPyObject<'_, 'py> for StdKeywords {
+    use std::convert::Infallible;
+
+    impl<'py, const HAS_PRE: bool> FromPyObject<'_, 'py> for RawStdKeyIndex<HAS_PRE>
+    where
+        for<'a> DollarStdKey<HAS_PRE>: FromPyObject<'a, 'py, Error = PyErr>,
+    {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             // Cast to dict rather than going through rust hashmap to preserve
@@ -816,14 +847,22 @@ mod python {
             let tmp = obj
                 .cast::<PyDict>()?
                 .iter()
-                .map(|(k, v)| Ok((k.extract::<StdKey>()?.0, v.extract::<NEString>()?)))
+                .map(|(k, v)| {
+                    let k_ = k.extract::<DollarStdKey<HAS_PRE>>()?;
+                    let v_ = v.extract::<NEString>()?;
+                    Ok((k_, v_))
+                })
                 .collect::<Result<Vec<_>, PyErr>>()?;
             // Ignore duplicates since the input dict should not have any
             Ok(Self::from_vec(tmp).0)
         }
     }
 
-    impl<'py> IntoPyObject<'py> for StdKeywords {
+    impl<'py, const HAS_PRE: bool> IntoPyObject<'py> for RawStdKeyIndex<HAS_PRE>
+    where
+        DollarStdKey<HAS_PRE>:
+            IntoPyObject<'py, Error = Infallible, Target = PyString, Output = Bound<'py, PyString>>,
+    {
         type Target = PyDict;
         type Output = Bound<'py, Self::Target>;
         type Error = PyErr;
@@ -831,8 +870,8 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             // Use dict to preserve order
             let out = PyDict::new(py);
-            for (k, v) in self.iter_dollar_keywords() {
-                let k_ = k.into_pyobject(py)?;
+            for (k, v) in self.iter_keywords() {
+                let Ok(k_) = k.into_pyobject(py);
                 let v_ = v.to_owned().into_pyobject(py)?;
                 out.set_item(k_, v_)?;
             }

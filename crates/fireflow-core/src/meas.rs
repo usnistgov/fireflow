@@ -822,11 +822,11 @@ pub struct ScaleDatatypeMismatchError {
 impl fmt::Display for ScaleDatatypeMismatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let i = self.index;
-        let ekey = MeasKeyId::E.to_std(&i);
+        let ekey = MeasKeyId::E.to_std::<true>(&i);
         let dt = self.datatype.as_displayable();
         let s = self.scale.as_displayable();
         let g = if self.has_gain {
-            let gkey = MeasKeyId::G.to_std(&i);
+            let gkey = MeasKeyId::G.to_std::<true>(&i);
             format!(" and {gkey} 1.0 or not set")
         } else {
             String::new()
@@ -869,7 +869,10 @@ pub type OpticalToTemporalError = AnyOpticalToTemporalKeyLossError;
 
 /// Error when $PnE is not set on optical measurement and target version requires it
 #[derive(Debug, Error, PartialEq, Clone)]
-#[error("{} must be set before converting measurement", MeasKeyId::E.to_std(&self.0))]
+#[error(
+    "{} must be set before converting measurement",
+    MeasKeyId::E.to_std::<true>(&self.0)
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct NoScaleError(MeasIndex);

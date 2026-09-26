@@ -579,7 +579,7 @@ impl GatedMeasurement {
     fn set_failure_flag(self, i: GateIndex, kws: &mut StdLookupTx, flag: ProcessOptionalFailure) {
         for x in self.opt_keywords(i) {
             let k = x.as_std_key();
-            kws.set_failure_flag(&k, flag);
+            kws.set_failure_flag(&DollarWrap(k), flag);
         }
     }
 }
@@ -929,7 +929,7 @@ impl<I> Region<I> {
         RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         for r in self.opt_keywords(i) {
-            let k = r.as_std_key();
+            let k = DollarWrap(r.as_std_key());
             kws.set_failure_flag(&k, flag);
         }
     }

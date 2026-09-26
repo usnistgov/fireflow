@@ -1,15 +1,13 @@
 use crate::config::EvaledReadRepairKeywordsConfig;
 use crate::fixed_vec::OneOrTwo;
 use crate::logging::{DeferredWarningsAndErrors, LogResult};
-use crate::std_index::index::StdKeywords;
+use crate::std_index::index::RawStdKeyIndex;
 
 use fireflow_types::config::Encoding;
 use fireflow_types::index::{BiMeasIndex, MeasIndex};
 use fireflow_types::keys::nonstd::{DollarWrap, NonStdKey};
 use fireflow_types::keys::raw_std::{RawStdKey, ToStd};
-use fireflow_types::keys::{
-    AnyKey, PseudoNonStdKey, PseudoNonStdKeywordsExt as _, PseudoStdKey, StdKey,
-};
+use fireflow_types::keys::{AnyKey, PseudoNonStdKey, PseudoStdKey, StdKey};
 use nonempty::{HasNELen as _, NEAlt, NESlice, NEStr, NEString, NEVec, ToDisplayNE, ToNE};
 
 use derive_more::{Display, From, Into};
@@ -68,10 +66,9 @@ pub struct ValidKeywords {
     // classes of keywords can be put into different slots to avoid hashing and
     // also make it easier later when we standardize
     pub std: StdKeywords,
+    pub pnonstd: PseudoNonStdKeywords,
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize::ordered_map"))]
     pub pstd: PseudoStdKeywords,
-    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize::ordered_map"))]
-    pub pnonstd: PseudoNonStdKeywords,
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize::ordered_map"))]
     pub nonstd: NonStdKeywords,
 }
@@ -237,6 +234,9 @@ impl From<TruncatedNEString> for TruncatedString {
 /// [`ValueToStdKey`] trait.
 #[derive(new)]
 #[derive_where(Clone, Copy, Default, PartialEq, Eq, Debug; I)]
+// TODO clean this up with generic prefix DollarWrapper rather than buring the
+// wrapper underneath another wrapper. Or just always map it to a prefixed
+// standard key since that's how it will always be printed (I think)
 pub struct SpecificKey_<T, I> {
     index: I,
     _key: PhantomData<T>,
@@ -265,13 +265,13 @@ where
 
 impl<T: ValueToStdKey> From<SpecificKey<T>> for RawStdKey {
     fn from(value: SpecificKey<T>) -> Self {
-        T::std(&value.index)
+        T::std(&value.index).0
     }
 }
 
 impl<'a, T: ValueToStdKey> From<&'a SpecificKey<T>> for RawStdKey {
     fn from(value: &'a SpecificKey<T>) -> Self {
-        T::std(&value.index)
+        T::std(&value.index).0
     }
 }
 
@@ -288,9 +288,9 @@ pub struct DollarKey_<T, I>(pub DollarWrap<true, SpecificKey_<T, I>>);
 
 pub type DollarKey<T> = DollarKey_<T, <T as ValueToStdKey>::Index>;
 
-impl<T: ValueToStdKey> From<DollarKey<T>> for RawStdKey {
+impl<T: ValueToStdKey> From<DollarKey<T>> for StdKey {
     fn from(value: DollarKey<T>) -> Self {
-        value.0.0.into()
+        Self(value.0.0.into())
     }
 }
 
@@ -320,11 +320,13 @@ impl<T> DollarKey_<T, BiMeasIndex> {
     }
 }
 
+pub type StdKeywords = RawStdKeyIndex<true>;
+
+pub type PseudoNonStdKeywords = RawStdKeyIndex<false>;
+
 pub type NonStdKeywords = HashMap<NonStdKey, NEString>;
 
 pub type PseudoStdKeywords = HashMap<PseudoStdKey, NEString>;
-
-pub type PseudoNonStdKeywords = HashMap<PseudoNonStdKey, NEString>;
 
 #[derive(Default)]
 pub(crate) struct ParsedKeywordsDiagnostic {
@@ -368,9 +370,6 @@ pub(crate) struct ParsedNonStdKeywords {
 
     /// Pseudostdandard keywords (with '$' but still non-standard).
     pub(crate) pstd: PseudoStdKeywords,
-
-    /// Pseudo-non-stdandard keywords (not with '$' but standard).
-    pub(crate) pnonstd: PseudoNonStdKeywords,
 }
 
 /// Error when keyword repair process resulted in colliding non-unique keys.
@@ -471,23 +470,23 @@ pub trait ValueToStdKey {
     type Id: ToStd<Index = Self::Index>;
     const STD: Self::Id;
 
-    fn std(index: &Self::Index) -> RawStdKey {
+    fn std(index: &Self::Index) -> StdKey {
         Self::STD.to_std(index)
     }
 
-    fn std_(&self, index: &Self::Index) -> RawStdKey {
+    fn std_(&self, index: &Self::Index) -> StdKey {
         Self::std(index)
     }
 
     #[must_use]
-    fn std0() -> RawStdKey
+    fn std0() -> StdKey
     where
         Self: ValueToStdKey<Index = ()>,
     {
         Self::std(&())
     }
 
-    fn std0_(&self) -> RawStdKey
+    fn std0_(&self) -> StdKey
     where
         Self: ValueToStdKey<Index = ()>,
     {
@@ -507,12 +506,14 @@ pub(crate) enum ParsedKeyword<'a> {
     // Valid std key value as owned value (used for values with latin1
     // characters and escaped delimiters)
     StdOwned(NonEmptyValue<StdKey, NEString>),
+    // Pseudo-non-std key and value (slice)
+    PseudoNonStdSlice(NonEmptyValue<PseudoNonStdKey, &'a NEStr>),
+    // Pseudo-non-std key and value (owned)
+    PseudoNonStdOwned(NonEmptyValue<PseudoNonStdKey, NEString>),
     // Valid non-std key and valid
     NonStd(NonEmptyValue<NonStdKey, NEString>),
     // Pseudo-std key and value
     PseudoStd(NonEmptyValue<PseudoStdKey, NEString>),
-    // Pseudo-non-std key and value
-    PseudoNonStd(NonEmptyValue<PseudoNonStdKey, NEString>),
     // Key (any type or raw bytes) where value was trimmed to empty whitespace
     TrimmedEmptyValue(DollarKeyOrBytes, NEString),
     // Valid key with invalid value
@@ -674,10 +675,10 @@ impl<'a> ParsedKeyword<'a> {
                 Self::NonStd(NonEmptyValue::new(k, v, original))
             }
             (Ok(AnyKey::PseudoNonStd(k)), ParsedValue::Slice(v, original)) => {
-                Self::PseudoNonStd(NonEmptyValue::new(k, v.to_owned(), original))
+                Self::PseudoNonStdSlice(NonEmptyValue::new(k, v, original))
             }
             (Ok(AnyKey::PseudoNonStd(k)), ParsedValue::Owned(v, original)) => {
-                Self::PseudoNonStd(NonEmptyValue::new(k, v, original))
+                Self::PseudoNonStdOwned(NonEmptyValue::new(k, v, original))
             }
             (Err(k), ParsedValue::Slice(v, original)) => {
                 Self::NonAsciiKey(NonEmptyValue::new(k, v.to_owned(), original))
@@ -699,26 +700,29 @@ impl<'a> ParsedKeyword<'a> {
 
     pub(crate) fn dispatch_slice_only(
         self,
-        std: &mut Vec<(RawStdKey, &'a NEStr)>,
+        std: &mut Vec<(StdKey, &'a NEStr)>,
+        pnonstd: &mut Vec<(PseudoNonStdKey, &'a NEStr)>,
         nonstd: &mut ParsedNonStdKeywords,
         diag: &mut ParsedKeywordsDiagnostic,
     ) {
         let f_owned = |_| panic!("this should only be called when input is all slices");
-        self.dispatch(std, nonstd, diag, |v| v, f_owned);
+        self.dispatch(std, pnonstd, nonstd, diag, |v| v, f_owned);
     }
 
     pub(crate) fn dispatch_slice_or_owned(
         self,
-        std: &mut Vec<(RawStdKey, Cow<'a, NEStr>)>,
+        std: &mut Vec<(StdKey, Cow<'a, NEStr>)>,
+        pnonstd: &mut Vec<(PseudoNonStdKey, Cow<'a, NEStr>)>,
         nonstd: &mut ParsedNonStdKeywords,
         diag: &mut ParsedKeywordsDiagnostic,
     ) {
-        self.dispatch(std, nonstd, diag, Cow::Borrowed, Cow::Owned);
+        self.dispatch(std, pnonstd, nonstd, diag, Cow::Borrowed, Cow::Owned);
     }
 
     fn dispatch<F0, F1, V>(
         self,
-        std: &mut Vec<(RawStdKey, V)>,
+        std: &mut Vec<(StdKey, V)>,
+        pnonstd: &mut Vec<(PseudoNonStdKey, V)>,
         nonstd: &mut ParsedNonStdKeywords,
         diag: &mut ParsedKeywordsDiagnostic,
         f_slice: F0,
@@ -734,7 +738,7 @@ impl<'a> ParsedKeyword<'a> {
                     diag.keys_with_trimmed_values
                         .push((DollarKeyOrBytes::from(k), o.into()));
                 }
-                std.push((kv.key.0, f_slice(kv.value)));
+                std.push((kv.key, f_slice(kv.value)));
             }
             Self::StdOwned(kv) => {
                 if let Some(o) = kv.original {
@@ -742,7 +746,23 @@ impl<'a> ParsedKeyword<'a> {
                     diag.keys_with_trimmed_values
                         .push((DollarKeyOrBytes::from(k), o.into()));
                 }
-                std.push((kv.key.0, f_owned(kv.value)));
+                std.push((kv.key, f_owned(kv.value)));
+            }
+            Self::PseudoNonStdSlice(kv) => {
+                if let Some(o) = kv.original {
+                    let k = AnyKey::PseudoNonStd(kv.key);
+                    diag.keys_with_trimmed_values
+                        .push((DollarKeyOrBytes::from(k), o.into()));
+                }
+                pnonstd.push((kv.key, f_slice(kv.value)));
+            }
+            Self::PseudoNonStdOwned(kv) => {
+                if let Some(o) = kv.original {
+                    let k = AnyKey::PseudoNonStd(kv.key);
+                    diag.keys_with_trimmed_values
+                        .push((DollarKeyOrBytes::from(k), o.into()));
+                }
+                pnonstd.push((kv.key, f_owned(kv.value)));
             }
             Self::NonStd(kv) => {
                 if let Some(o) = kv.original {
@@ -774,21 +794,6 @@ impl<'a> ParsedKeyword<'a> {
                     }
                 }
             }
-            Self::PseudoNonStd(kv) => {
-                if let Some(o) = kv.original {
-                    let k = AnyKey::PseudoNonStd(kv.key);
-                    diag.keys_with_trimmed_values
-                        .push((DollarKeyOrBytes::from(k), o.into()));
-                }
-                match nonstd.pnonstd.entry(kv.key) {
-                    Entry::Occupied(e) => diag
-                        .non_unique_pnonstd_keywords
-                        .push((*e.key(), kv.value.into())),
-                    Entry::Vacant(e) => {
-                        let _ = e.insert(kv.value);
-                    }
-                }
-            }
             Self::TrimmedEmptyValue(k, v) => {
                 diag.keys_with_empty_trimmed_values.push((k, v.into()));
             }
@@ -812,6 +817,14 @@ impl<'a> ParsedKeyword<'a> {
                 counts.std_slice_kws += 1;
                 counts.trimmed += usize::from(kv.original.is_some());
             }
+            Self::PseudoNonStdSlice(kv) => {
+                counts.pnonstd_slice_kws += 1;
+                counts.trimmed += usize::from(kv.original.is_some());
+            }
+            Self::PseudoNonStdOwned(kv) => {
+                counts.pnonstd_owned_kws += 1;
+                counts.trimmed += usize::from(kv.original.is_some());
+            }
             Self::StdOwned(kv) => {
                 counts.std_owned_kws += 1;
                 counts.trimmed += usize::from(kv.original.is_some());
@@ -822,10 +835,6 @@ impl<'a> ParsedKeyword<'a> {
             }
             Self::PseudoStd(kv) => {
                 counts.pstd_keys += 1;
-                counts.trimmed += usize::from(kv.original.is_some());
-            }
-            Self::PseudoNonStd(kv) => {
-                counts.pnonstd_keys += 1;
                 counts.trimmed += usize::from(kv.original.is_some());
             }
             Self::TrimmedEmptyValue(_, _) => counts.trimmed_empty_values += 1,
@@ -840,9 +849,10 @@ impl<'a> ParsedKeyword<'a> {
 pub(crate) struct ParsedKeywordCounts {
     pub(crate) std_slice_kws: usize,
     pub(crate) std_owned_kws: usize,
+    pub(crate) pnonstd_slice_kws: usize,
+    pub(crate) pnonstd_owned_kws: usize,
     pub(crate) nonstd_keys: usize,
     pub(crate) pstd_keys: usize,
-    pub(crate) pnonstd_keys: usize,
     pub(crate) trimmed_empty_values: usize,
     pub(crate) non_utf8_values: usize,
     pub(crate) non_ascii_keys: usize,
@@ -886,7 +896,7 @@ impl ValidKeywords {
         let mut ignored = vec![];
 
         for (k, ()) in &match_ignore.literals {
-            if let Some(v) = self.std.delete(&k.0) {
+            if let Some(v) = self.std.delete(k) {
                 ignored.push((*k, TruncatedNEString(v.to_owned())));
             }
         }
@@ -907,18 +917,21 @@ impl ValidKeywords {
             macro_rules! go {
                 () => {
                     match k0 {
-                        AnyKey::Std(k0_) => self.std.delete(&k0_.0).map(|v| {
+                        AnyKey::Std(k0_) => self.std.delete(k0_).map(|v| {
                             renamed.push((k0.clone(), k1.clone()));
-                            v.to_owned()
+                            Cow::Borrowed(v)
                         }),
-                        AnyKey::PseudoNonStd(k0_) => self.pnonstd.remove(k0_).inspect(|_| {
+                        AnyKey::PseudoNonStd(k0_) => self.pnonstd.delete(k0_).map(|v| {
                             renamed.push((k0.clone(), k1.clone()));
+                            Cow::Borrowed(v)
                         }),
-                        AnyKey::PseudoStd(k0_) => self.pstd.remove(k0_).inspect(|_| {
+                        AnyKey::PseudoStd(k0_) => self.pstd.remove(k0_).map(|v| {
                             renamed.push((k0.clone(), k1.clone()));
+                            Cow::Owned(v)
                         }),
-                        AnyKey::NonStd(k0_) => self.nonstd.remove(k0_).inspect(|_| {
+                        AnyKey::NonStd(k0_) => self.nonstd.remove(k0_).map(|v| {
                             renamed.push((k0.clone(), k1.clone()));
+                            Cow::Owned(v)
                         }),
                     }
                 };
@@ -926,19 +939,21 @@ impl ValidKeywords {
 
             match k1 {
                 AnyKey::Std(k1_) => {
-                    if self.std.key_has_value(&k1_.0) {
+                    if self.std.key_has_value(k1_) {
                         renamed_non_unique.push((k0.clone(), k1.clone()));
                     } else if let Some(v) = go!() {
+                        let vf = v.into_owned();
                         // we checked above so this shouldn't return anything
-                        let _ = self.std.insert(&k1_.0, v.as_ne_str());
+                        let _ = self.std.insert(k1_, vf.as_ne_str());
                     }
                 }
                 AnyKey::PseudoNonStd(k1_) => {
-                    if self.pnonstd.contains_key(k1_) {
+                    if self.pnonstd.key_has_value(k1_) {
                         renamed_non_unique.push((k0.clone(), k1.clone()));
                     } else if let Some(v) = go!() {
+                        let vf = v.into_owned();
                         // we checked above so this shouldn't return anything
-                        let _ = self.pnonstd.insert(*k1_, v);
+                        let _ = self.pnonstd.insert(k1_, vf.as_ne_str());
                     }
                 }
                 AnyKey::PseudoStd(k1_) => {
@@ -946,7 +961,7 @@ impl ValidKeywords {
                         renamed_non_unique.push((k0.clone(), k1.clone()));
                     } else if let Some(v) = go!() {
                         // we checked above so this shouldn't return anything
-                        let _ = self.pstd.insert(k1_.clone(), v);
+                        let _ = self.pstd.insert(k1_.clone(), v.into_owned());
                     }
                 }
                 AnyKey::NonStd(k1_) => {
@@ -954,7 +969,7 @@ impl ValidKeywords {
                         renamed_non_unique.push((k0.clone(), k1.clone()));
                     } else if let Some(v) = go!() {
                         // we checked above so this shouldn't return anything
-                        let _ = self.nonstd.insert(k1_.clone(), v);
+                        let _ = self.nonstd.insert(k1_.clone(), v.into_owned());
                     }
                 }
             }
@@ -965,9 +980,9 @@ impl ValidKeywords {
         let mut demoted = vec![];
 
         for (k, ()) in &match_demote.literals {
-            if let Some(v) = self.std.delete(&k.0) {
+            if let Some(v) = self.std.delete(k) {
                 self.pnonstd
-                    .insert_demoted(&mut self.nonstd, k.0, v.to_owned());
+                    .insert_demoted(&mut self.nonstd, k, v.to_owned());
                 demoted.push(*k);
             }
         }
@@ -977,7 +992,7 @@ impl ValidKeywords {
                 |k| match_demote.is_wildcard_match(&k),
                 |k, v| {
                     self.pnonstd
-                        .insert_demoted(&mut self.nonstd, k, v.to_owned());
+                        .insert_demoted(&mut self.nonstd, &DollarWrap(k), v.to_owned());
                     demoted.push(DollarWrap(k));
                 },
             );
@@ -989,8 +1004,8 @@ impl ValidKeywords {
         let mut promoted = vec![];
 
         for (k, ()) in &match_promote.literals {
-            if let Some(v) = self.pnonstd.remove(k) {
-                if let Some(vf) = self.std.insert(&k.0, v.as_ne_str()) {
+            if let Some(v) = self.pnonstd.delete(k) {
+                if let Some(vf) = self.std.insert(k.rewrap_ref(), v) {
                     promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
                 } else {
                     promoted.push(*k);
@@ -999,29 +1014,41 @@ impl ValidKeywords {
         }
 
         if match_promote.has_wildcards() {
-            self.pnonstd.retain(|k, v| {
-                if match_promote.is_wildcard_match(&k.0) {
-                    if let Some(vf) = self.std.insert(&k.0, v.as_ne_str()) {
-                        promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
-                        true
-                    } else {
-                        promoted.push(*k);
-                        false
-                    }
-                } else {
-                    true
-                }
-            });
+            // self.pnonstd.replace_when(
+            //     |k| match_promote.is_wildcard_match(&k) && !self.std.insert(k),
+            //     |k, v| {
+            //         if let Some(vf) = self.std.insert(k, v) {
+            //             promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
+            //             true
+            //         } else {
+            //             promoted.push(*k);
+            //             false
+            //         }
+            //     },
+            // );
+            // self.pnonstd.retain(|k, v| {
+            //     if match_promote.is_wildcard_match(&k.0) {
+            //         if let Some(vf) = self.std.insert(&k.0, v.as_ne_str()) {
+            //             promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
+            //             true
+            //         } else {
+            //             promoted.push(*k);
+            //             false
+            //         }
+            //     } else {
+            //         true
+            //     }
+            // });
         }
 
         // replace
 
         let mut replaced = vec![];
 
-        for (dk, vf) in &conf.replace_standard_key_values {
-            if let Some(v) = self.std.delete(&dk.0) {
-                replaced.push((*dk, TruncatedNEString(v.to_owned())));
-                let _ = self.std.insert(&dk.0, vf.as_ne_str());
+        for (k, vf) in &conf.replace_standard_key_values {
+            if let Some(v) = self.std.delete(k) {
+                replaced.push((*k, TruncatedNEString(v.to_owned())));
+                let _ = self.std.insert(k, vf.as_ne_str());
             }
         }
 
@@ -1031,10 +1058,10 @@ impl ValidKeywords {
         let mut subbed = vec![];
 
         for (k, subpat) in &match_subs.literals {
-            if let Some(v) = self.std.delete(&k.0) {
+            if let Some(v) = self.std.delete(k) {
                 if let Ok(vf) = NEString::try_from(subpat.sub(v.as_str())) {
                     subbed.push((*k, TruncatedNEString(v.to_owned())));
-                    let _ = self.std.insert(&k.0, vf.as_ne_str());
+                    let _ = self.std.insert(k, vf.as_ne_str());
                 } else {
                     removed.push((*k, TruncatedNEString(v.to_owned())));
                 }
@@ -1064,7 +1091,7 @@ impl ValidKeywords {
         // TODO this is easy to optimize since we know the length of the inputs
         // and there are no pesky regex expressions
         for (k, v) in &conf.append_standard_keywords {
-            if let Some(vf) = self.std.insert(&k.0, v.as_ne_str()) {
+            if let Some(vf) = self.std.insert(k, v.as_ne_str()) {
                 appended_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
             }
         }
@@ -1117,11 +1144,11 @@ impl ValidKeywords {
     }
 
     pub(crate) fn get_std(&self, k: &StdKey) -> Option<&NEStr> {
-        self.std.get(&k.0)
+        self.std.get(k)
     }
 
     pub(crate) fn get_pnonstd(&self, k: &PseudoNonStdKey) -> Option<&NEStr> {
-        self.pnonstd.get(k).map(NEString::as_ne_str)
+        self.pnonstd.get(k)
     }
 
     pub(crate) fn get_pstd(&self, k: &PseudoStdKey) -> Option<&NEStr> {

@@ -871,21 +871,21 @@ pub fn impl_py_valid_keywords(input: TokenStream) -> TokenStream {
     let name = path.segments.last().unwrap().ident.clone();
 
     let std = DocArg::new_std_keywords_param().into_ro(|_, _| quote!(self.0.std.clone().into()));
-    let pstd =
-        DocArg::new_pstd_keywords_param("pstd").into_ro(|_, _| quote!(self.0.pstd.clone().into()));
     let pnonstd = DocArg::new_pnonstd_keywords_param("pnonstd")
         .into_ro(|_, _| quote!(self.0.pnonstd.clone().into()));
+    let pstd =
+        DocArg::new_pstd_keywords_param("pstd").into_ro(|_, _| quote!(self.0.pstd.clone().into()));
     let nonstd =
         DocArg::new_nonstd_keywords_param().into_ro(|_, _| quote!(self.0.nonstd.clone().into()));
 
-    let args = [std, pstd, pnonstd, nonstd];
+    let args = [std, pnonstd, pstd, nonstd];
 
     let doc = DocString::new_class("Standard and non-standard keywords.").args(args);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(std, pstd, pnonstd, nonstd).into()
+                #path::new(std, pnonstd, pstd, nonstd).into()
             }
 
             // /// Dump this class as a dictionary.
@@ -8959,8 +8959,16 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_std_keywords() -> Self {
-        let path = parse_quote!(fireflow_core::std_index::index::StdKeywords);
+        let path = parse_quote!(fireflow_core::validated::keys::StdKeywords);
         Self::new_py(["typing"], "StdKeywords")
+            .rstype(path)
+            .set_default(PyDict::new_dummy())
+    }
+
+    fn new_pnonstd_keywords() -> Self {
+        let path: Path = parse_quote!(fireflow_core::validated::keys::PseudoNonStdKeywords);
+        // TODO the :: here is awkward
+        Self::new_py(["typing"], "PseudoNonStdKeywords")
             .rstype(path)
             .set_default(PyDict::new_dummy())
     }
@@ -8970,15 +8978,6 @@ impl<E: From<PyException>> PyAlias<E> {
         let valpath: Path = parse_quote!(nonempty::NEString);
         // TODO the :: here is awkward
         Self::new_py(["typing"], "PseudoStdKeywords")
-            .rstype(parse_quote!(hashbrown::HashMap::<#keypath, #valpath>))
-            .set_default(PyDict::new_dummy())
-    }
-
-    fn new_pnonstd_keywords() -> Self {
-        let keypath: Path = parse_quote!(fireflow_types::keys::PseudoNonStdKey);
-        let valpath: Path = parse_quote!(nonempty::NEString);
-        // TODO the :: here is awkward
-        Self::new_py(["typing"], "PseudoNonStdKeywords")
             .rstype(parse_quote!(hashbrown::HashMap::<#keypath, #valpath>))
             .set_default(PyDict::new_dummy())
     }

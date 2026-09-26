@@ -717,10 +717,7 @@ where
     for<'a> V: ToDisplayNE<'a>,
 {
     fn as_std_key_pair(&self) -> (RawStdKey, NEString) {
-        (
-            RawStdKey::from(&self.key.0.0),
-            ToNE(&self.value).to_ne_string(),
-        )
+        ((&self.key.0.0).into(), ToNE(&self.value).to_ne_string())
     }
 }
 

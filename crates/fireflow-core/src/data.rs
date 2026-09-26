@@ -978,7 +978,7 @@ pub enum NewMixedRangeWarning {
 #[derive(From, Debug, Error, PartialEq, Clone)]
 #[error(
     "could not use {k} in float layout because {e}",
-    k = MeasKeyId::R.to_std(&_0.index),
+    k = MeasKeyId::R.to_std::<true>(&_0.index),
     e = _0.error
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

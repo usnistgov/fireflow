@@ -1,6 +1,7 @@
+use crate::keys::DollarKeyString;
 use crate::keys::keystring::{EmptyKeyStringError, KeyString, KeyStringError};
-use crate::keys::{DollarKeyString, RawStdKey};
 
+use bytemuck::TransparentWrapper;
 use nonempty::{NEConcat, NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE};
 
 use ambassador::Delegate;
@@ -13,6 +14,8 @@ use std::str::FromStr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
+
+use super::DollarStdKey;
 
 #[cfg(feature = "python")]
 use {
@@ -33,11 +36,24 @@ pub struct NonStdKey(DollarKeyString<false>);
 
 /// A wrapper for types that may or may not be prefixed with '$'.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From, Default, AsRef,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Display,
+    From,
+    Default,
+    AsRef,
+    TransparentWrapper,
 )]
-#[display("{}{_0}", if STD { char::from(STD_PREFIX).into() } else { String::new() })]
+#[display("{}{_0}", if HAS_PRE { char::from(STD_PREFIX).into() } else { String::new() })]
 #[display(bound(T: fmt::Display))]
-pub struct DollarWrap<const STD: bool, T>(pub T);
+#[repr(transparent)]
+pub struct DollarWrap<const HAS_PRE: bool, T>(pub T);
 
 #[derive(PartialEq, Display, Debug, Error, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -110,15 +126,15 @@ impl AsRef<NEStr> for NonStdKey {
     }
 }
 
-impl From<RawStdKey> for NonStdKey {
-    fn from(value: RawStdKey) -> Self {
+impl<const HAS_PRE: bool> From<DollarStdKey<HAS_PRE>> for NonStdKey {
+    fn from(value: DollarStdKey<HAS_PRE>) -> Self {
         (&value).into()
     }
 }
 
-impl From<&RawStdKey> for NonStdKey {
-    fn from(value: &RawStdKey) -> Self {
-        Self(DollarWrap(KeyString::from_std_key(value)))
+impl<const HAS_PRE: bool> From<&DollarStdKey<HAS_PRE>> for NonStdKey {
+    fn from(value: &DollarStdKey<HAS_PRE>) -> Self {
+        Self(DollarWrap(KeyString::from_std_key(&value.0)))
     }
 }
 
@@ -148,7 +164,7 @@ impl<const HAS_PRE: bool, T> Borrow<T> for DollarWrap<HAS_PRE, T> {
 }
 
 impl NonStdKey {
-    pub(crate) fn disambiguate(&mut self) {
+    pub fn disambiguate(&mut self) {
         self.0.0.disambiguate();
     }
 }
@@ -156,6 +172,16 @@ impl NonStdKey {
 impl NoDollarPrefixError {
     pub(crate) fn try_nonstd(self) -> Result<NonStdKey, KeyStringError> {
         KeyString::try_from(self.0).map(DollarWrap).map(NonStdKey)
+    }
+}
+
+impl<const HAS_PRE: bool, T> DollarWrap<HAS_PRE, T> {
+    pub fn rewrap<const NEW_PRE: bool>(self) -> DollarWrap<NEW_PRE, T> {
+        DollarWrap(self.0)
+    }
+
+    pub fn rewrap_ref<const NEW_PRE: bool>(&self) -> &DollarWrap<NEW_PRE, T> {
+        DollarWrap::wrap_ref(&self.0)
     }
 }
 
@@ -205,7 +231,7 @@ impl<T> DollarWrap<false, T> {
 }
 
 #[cfg(feature = "serde")]
-impl<const STD: bool, T: fmt::Display> Serialize for DollarWrap<STD, T> {
+impl<const HAS_PRE: bool, T: fmt::Display + fmt::Debug> Serialize for DollarWrap<HAS_PRE, T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,

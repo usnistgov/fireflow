@@ -9,11 +9,10 @@ use crate::keys::nonstd::{
     DollarWrap, DollarWrapError, NoDollarWrapError, NonStdKey, SingleDollarPrefixError,
 };
 
-use nonempty::{NESlice, NEString, NEVec, ToDisplayNE, ambassador_impl_ToDisplayNE, nev};
+use nonempty::{NESlice, NEVec, ToDisplayNE, ambassador_impl_ToDisplayNE, nev};
 
 use ambassador::Delegate;
 use derive_more::{Display, From};
-use hashbrown::HashMap;
 use nonstd::STD_PREFIX;
 use raw_std::{KeyNotStdError, RawStdKey};
 use thiserror::Error;
@@ -144,36 +143,6 @@ impl FromStr for PseudoStdKey {
     }
 }
 
-// Implement extension trait for processing nonstandard keywords in hash table.
-
-pub trait PseudoNonStdKeywordsExt {
-    fn insert_demoted(
-        &mut self,
-        nonstd: &mut HashMap<NonStdKey, NEString>,
-        key: RawStdKey,
-        value: NEString,
-    );
-}
-
-impl PseudoNonStdKeywordsExt for HashMap<PseudoNonStdKey, NEString> {
-    fn insert_demoted(
-        &mut self,
-        nonstd: &mut HashMap<NonStdKey, NEString>,
-        key: RawStdKey,
-        value: NEString,
-    ) {
-        if self.contains_key(&key) {
-            let mut k = NonStdKey::from(key);
-            while nonstd.contains_key(&k) {
-                k.disambiguate();
-            }
-            assert!(nonstd.insert(k, value).is_none(), "key not disambiguated");
-        } else {
-            let _ = self.insert(DollarWrap(key), value);
-        }
-    }
-}
-
 // Implement methods on AnyKey
 
 impl AnyKey {
@@ -225,7 +194,7 @@ mod python {
 
             impl<'py> IntoPyObject<'py> for $t {
                 type Target = PyString;
-                type Output = Bound<'py, Self::Target>;
+                type Output = Bound<'py, PyString>;
                 type Error = Infallible;
 
                 fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {

@@ -1,6 +1,7 @@
 use crate::validated::dataframe::HasLen;
 
 use fireflow_types::keys::raw_std::{EnumIndex, RawStdKey};
+use itertools::{EitherOrBoth, Itertools as _};
 use nonempty::NEStr;
 
 use derive_new::new;
@@ -15,12 +16,28 @@ pub type NestedEnumString<const LEN: usize, K> = NestedString<[Range<usize>; LEN
 
 pub type NestedVariableString<K, S> = NestedString<Vec<Range<usize>>, S, K>;
 
-#[derive_where(Default, Clone, Debug, PartialEq, Eq; I, S)]
+#[derive_where(Default, Clone, Debug; I, S)]
 pub struct NestedString<I, S, K> {
     inner: Vec<u8>,
     offsets: I,
     sub_dimension: S,
     _key: PhantomData<K>,
+}
+
+impl<I, S, K> PartialEq for NestedString<I, S, K>
+where
+    I: HasLen + Index<usize, Output = Range<usize>>,
+    K: EnumIndex<SubDimension = S> + PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().zip_longest(other.iter()).all(|e| {
+            if let EitherOrBoth::Both(x, y) = e {
+                x == y
+            } else {
+                false
+            }
+        })
+    }
 }
 
 #[derive(new, Clone, Copy, Default)]

@@ -4,7 +4,7 @@ use crate::logging::{
 };
 use crate::macros::impl_newtype_try_from;
 use crate::segment::read::{IsOffsetPair as _, PrimaryTextOffsets};
-use crate::std_index::index::{LookupAction, StdKeywords, StdLookupTx};
+use crate::std_index::index::{LookupAction, StdLookupTx};
 use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::lookup::{
@@ -25,7 +25,7 @@ use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
 use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
-use crate::validated::keys::{DollarKey, ValueToStdKey};
+use crate::validated::keys::{DollarKey, StdKeywords, ValueToStdKey};
 use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
 use crate::validated::unaligned::{U24, U40, U48, U56};
@@ -150,7 +150,7 @@ impl Nextdata {
         index: &StdKeywords,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningAndErrorResult<Option<Self>, (), ReadNextdataError, ReadNextdataError> {
-        let res = if let Some(s) = index.get(&RootKey::Nextdata.into()) {
+        let res = if let Some(s) = index.get(&RootKey::Nextdata.to_std0()) {
             match Self::parse(s, conf) {
                 Ok(x) => Ok(Some(x)),
                 Err(e) => {
@@ -493,7 +493,10 @@ pub enum LookupTemporalGainError {
 
 /// Error when time measurement has [`Gain`] ($PnG)
 #[derive(Debug, Error, PartialEq, Clone)]
-#[error("{} must be 1.0 or not set for temporal measurement", MeasKeyId::G.to_std(&self.0))]
+#[error(
+    "{} must be 1.0 or not set for temporal measurement",
+    MeasKeyId::G.to_std::<true>(&self.0)
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct TemporalGainError(MeasIndex);
@@ -1210,7 +1213,7 @@ impl Calibration3_2 {
 #[derive(Debug, Error, PartialEq, Clone)]
 #[error(
     "{k} has offset {o} which will be lost upon conversion",
-    k = MeasKeyId::Calibration.to_std(&self.0),
+    k = MeasKeyId::Calibration.to_std::<true>(&self.0),
     o = self.1,
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1469,7 +1472,7 @@ impl Compensation2_0 {
                             let row = i / ncols;
                             let col = i % ncols;
                             let bi = BiMeasIndex::new(col.into(), row.into());
-                            Some(RawStdKey::from(DfcKey::new(bi)))
+                            Some(DfcKeyMarker.to_std(&bi))
                         }
                     });
                     for k in failed_kws {

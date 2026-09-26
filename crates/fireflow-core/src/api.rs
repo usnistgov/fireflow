@@ -34,7 +34,7 @@ use crate::segment::read::{
     SuppTextOffsetsName, SuppToHeaderOffsetsOverlap, SupplementalTextOffsets, TEXTOffsets,
     TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
 };
-use crate::std_index::index::{StdKeywords, StdLookupTx};
+use crate::std_index::index::{RawStdKeyIndex, StdLookupTx};
 use crate::text::keywords::{
     AlphaNumType, Beginstext, Endstext, LookupNextdataError, Nextdata, ReadNextdataError, Tot,
 };
@@ -46,8 +46,9 @@ use crate::validated::header_offsets::{
 };
 use crate::validated::keys::{
     DollarKeyOrBytes, NEDelimBytes, NEStringOrBytes, ParsedKeyword, ParsedKeywordCounts,
-    ParsedKeywordsDiagnostic, ParsedNonStdKeywords, PseudoStdKeywords, RepairDiagnostics,
-    RepairError, StringOrBytes, TruncatedNEBytes, TruncatedNEString, ValidKeywords, ValueToStdKey,
+    ParsedKeywordsDiagnostic, ParsedNonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords,
+    RepairDiagnostics, RepairError, StdKeywords, StringOrBytes, TruncatedNEBytes,
+    TruncatedNEString, ValidKeywords, ValueToStdKey,
 };
 use crate::validated::read_state::{
     CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError, FileLen,
@@ -1442,7 +1443,7 @@ impl FCSFileReader {
                         // Rebuild final keywords object since we may have
                         // repaired them to read DATA
                         let final_kws =
-                            ValidKeywords::new(final_std, kws.pstd, kws.pnonstd, kws.nonstd);
+                            ValidKeywords::new(final_std, kws.pnonstd, kws.pstd, kws.nonstd);
                         FlatDatasetOutput::new(
                             final_kws,
                             flat.flat_diagnostics,
@@ -2018,51 +2019,48 @@ impl FlatTEXTOutput {
                     .map_errors(ParseFlatTEXTError::from)
                     .group()
                     .map_error(IOErrorGroup::Pure)
-                    .and_then_commutative(|(index, nonstd, diag)| {
-                        Nextdata::lookup_ro(&index, ptext_offsets, st)
+                    .and_then_commutative(|(idx, nonstd, diag)| {
+                        Nextdata::lookup_ro(&idx.std, ptext_offsets, st)
                             .map_commutative_warnings(ParseFlatTEXTWarning::from)
                             .map_errors(ParseFlatTEXTError::from)
                             .into_semigroup()
                             .map_ok_value(|(nextdata, txt_st)| {
-                                (delim, index, nonstd, diag, nextdata, txt_st)
+                                (delim, idx, nonstd, diag, nextdata, txt_st)
                             })
                             .group()
                             .map_error(IOErrorGroup::Pure)
                     })
             })
+            .and_then_commutative(|(delim, prim_idx, mut nonstd, pdiag, nextdata, txt_st)| {
+                SuppTEXTOffsetsOutput::lookup(&prim_idx.std, &mut header, &txt_st)
+                    .map_commutative_warnings(ParseFlatTEXTWarning::from)
+                    .map_errors(ParseFlatTEXTError::from)
+                    .group()
+                    .map_error(IOErrorGroup::Pure)
+                    .and_then_commutative(|supp_out| {
+                        let ne_offsets = supp_out.as_offset_pair().and_then(|p| p.as_nonempty());
+                        if let Some(ne) = ne_offsets {
+                            let c = txt_st.conf().as_ref();
+                            SplitTEXTDiagnostics::h_read_supp(h, delim, &ne, &mut nonstd, c)
+                                .map_commutative_warnings(ParseFlatTEXTWarning::from)
+                                .map_pure_errors(ParseFlatTEXTError::from)
+                                .map_ok_value(|(supp_index, mut supp_diag)| {
+                                    let (index, std_dups, pnonstd_dups) =
+                                        prim_idx.concat(supp_index);
+                                    supp_diag.non_unique_std_keywords.extend(std_dups);
+                                    supp_diag.non_unique_pnonstd_keywords.extend(pnonstd_dups);
+                                    (index, supp_out, Some(supp_diag))
+                                })
+                        } else {
+                            LogResult::new_ok((prim_idx, supp_out, None))
+                        }
+                    })
+                    .map_ok_value(|(idx, supp_out, sdiag)| {
+                        (idx, nonstd, nextdata, supp_out, pdiag, sdiag, txt_st)
+                    })
+            })
             .and_then_commutative(
-                |(delim, prim_index, mut nonstd, prim_diag, nextdata, txt_st)| {
-                    SuppTEXTOffsetsOutput::lookup(&prim_index, &mut header, &txt_st)
-                        .map_commutative_warnings(ParseFlatTEXTWarning::from)
-                        .map_errors(ParseFlatTEXTError::from)
-                        .group()
-                        .map_error(IOErrorGroup::Pure)
-                        .and_then_commutative(|supp_out| {
-                            let ne_offsets =
-                                supp_out.as_offset_pair().and_then(|p| p.as_nonempty());
-                            if let Some(ne) = ne_offsets {
-                                let c = txt_st.conf().as_ref();
-                                SplitTEXTDiagnostics::h_read_supp(h, delim, &ne, &mut nonstd, c)
-                                    .map_commutative_warnings(ParseFlatTEXTWarning::from)
-                                    .map_pure_errors(ParseFlatTEXTError::from)
-                                    .map_ok_value(|(supp_index, mut supp_diag)| {
-                                        let (index, non_unique_std) = prim_index.concat(supp_index);
-                                        supp_diag.non_unique_std_keywords.extend(non_unique_std);
-                                        (index, supp_out, Some(supp_diag))
-                                    })
-                            } else {
-                                LogResult::new_ok((prim_index, supp_out, None))
-                            }
-                        })
-                        .map_ok_value(|(index, supp_out, supp_diag)| {
-                            (
-                                index, nonstd, nextdata, supp_out, prim_diag, supp_diag, txt_st,
-                            )
-                        })
-                },
-            )
-            .and_then_commutative(
-                |(index, nonstd, nextdata, supp_text_offsets, prim_out, supp_out, txt_st)| {
+                |(idx, nonstd, nextdata, stext_offsets, pout, sout, txt_st)| {
                     // Check if any HEADER offsets exceed $NEXTDATA
                     let hdr_trunc_res = header
                         .final_offsets
@@ -2072,9 +2070,8 @@ impl FlatTEXTOutput {
                         .group()
                         .map_error(IOErrorGroup::Pure);
 
-                    let vk = ValidKeywords::new(index, nonstd.pstd, nonstd.pnonstd, nonstd.nonstd);
-                    let header_supp =
-                        HeaderAndSuppOffsets::new(header, supp_text_offsets, nextdata);
+                    let vk = ValidKeywords::new(idx.std, idx.pnonstd, nonstd.pstd, nonstd.nonstd);
+                    let header_supp = HeaderAndSuppOffsets::new(header, stext_offsets, nextdata);
 
                     hdr_trunc_res.map_ok_value(|header_overflows| {
                         let text_read_end = Instant::now();
@@ -2084,8 +2081,8 @@ impl FlatTEXTOutput {
                             primary_text_overflow: ptext_overflow,
                             header_overflows,
                             read_text_ns,
-                            primary_split: prim_out,
-                            supp_split: supp_out,
+                            primary_split: pout,
+                            supp_split: sout,
                         };
                         FlatTEXTOutputInner::new(Self::new(vk, diag), text_read_end, txt_st)
                     })
@@ -2173,6 +2170,28 @@ impl FlatTEXTOutput {
     }
 }
 
+#[derive(new, Default)]
+struct ParsedStdKeywords {
+    std: StdKeywords,
+    pnonstd: PseudoNonStdKeywords,
+}
+
+impl ParsedStdKeywords {
+    #[allow(clippy::type_complexity)]
+    fn concat(
+        self,
+        other: Self,
+    ) -> (
+        Self,
+        Vec<(StdKey, TruncatedNEString)>,
+        Vec<(PseudoNonStdKey, TruncatedNEString)>,
+    ) {
+        let (std, std_dups) = self.std.concat(other.std);
+        let (pnonstd, pnonstd_dups) = self.pnonstd.concat(other.pnonstd);
+        (Self::new(std, pnonstd), std_dups, pnonstd_dups)
+    }
+}
+
 impl SplitTEXTDiagnostics {
     fn build(inner: SplitTEXTDiagnosticsInner, parsed: ParsedKeywordsDiagnostic) -> Self {
         Self {
@@ -2206,7 +2225,7 @@ impl SplitTEXTDiagnostics {
         nonstd: &mut ParsedNonStdKeywords,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndIOGroupResult<
-        (StdKeywords, Self),
+        (ParsedStdKeywords, Self),
         ParseSupplementalTEXTError,
         ParseSupplementalTEXTError,
         (),
@@ -2226,7 +2245,7 @@ impl SplitTEXTDiagnostics {
         enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<
-        (StdKeywords, ParsedNonStdKeywords, Self),
+        (ParsedStdKeywords, ParsedNonStdKeywords, Self),
         (),
         ParseKeywordsIssue,
         ParseKeywordsIssue,
@@ -2247,7 +2266,7 @@ impl SplitTEXTDiagnostics {
         enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<
-        (StdKeywords, Self),
+        (ParsedStdKeywords, Self),
         (),
         ParseSupplementalTEXTError,
         ParseSupplementalTEXTError,
@@ -2281,8 +2300,12 @@ impl SplitTEXTDiagnostics {
         raw_tokens: &NESlice<&'_ [u8]>,
         enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningsAndErrorsResult<(StdKeywords, Self), (), ParseKeywordsIssue, ParseKeywordsIssue>
-    {
+    ) -> WarningsAndErrorsResult<
+        (ParsedStdKeywords, Self),
+        (),
+        ParseKeywordsIssue,
+        ParseKeywordsIssue,
+    > {
         let escaped = GuessedEscapeMode::is_escaped(raw_tokens, conf.delim_escape_mode);
         let trim = conf.trim_value_whitespace.is_trim();
         let (index, diag) = if escaped {
@@ -2416,7 +2439,7 @@ impl SplitTEXTDiagnostics {
         segs: &NESlice<&[u8]>,
         trim: bool,
         enc: Encoding,
-    ) -> (StdKeywords, Self) {
+    ) -> (ParsedStdKeywords, Self) {
         let mut diag = ParsedKeywordsDiagnostic::default();
         let mut extra_leading_delims = 0;
         let mut tokens_with_boundary_delims = vec![];
@@ -2472,7 +2495,7 @@ impl SplitTEXTDiagnostics {
                 extra_leading_delims,
                 diag,
             );
-            return (StdKeywords::default(), text_diag);
+            return (ParsedStdKeywords::default(), text_diag);
         };
 
         // Determine if the number of delimiters is even or odd, throw an error
@@ -2562,21 +2585,32 @@ impl SplitTEXTDiagnostics {
 
         nonstd.reserve(&counts);
 
-        let (index, non_unique_std) = if counts.std_owned_kws == 0 {
-            let mut std = Vec::with_capacity(counts.std_slice_kws);
-            for p in parsed {
-                p.dispatch_slice_only(&mut std, nonstd, &mut diag);
-            }
-            StdKeywords::from_vec(std)
-        } else {
-            let mut std = Vec::with_capacity(counts.std_slice_kws + counts.std_owned_kws);
-            for p in parsed {
-                p.dispatch_slice_or_owned(&mut std, nonstd, &mut diag);
-            }
-            StdKeywords::from_vec(std)
-        };
+        let ((std_index, non_unique_std), (pnonstd_index, non_unique_pnonstd)) =
+            if counts.std_owned_kws == 0 && counts.pnonstd_owned_kws == 0 {
+                let mut std = Vec::with_capacity(counts.std_slice_kws);
+                let mut pnonstd = Vec::with_capacity(counts.pnonstd_slice_kws);
+                for p in parsed {
+                    p.dispatch_slice_only(&mut std, &mut pnonstd, nonstd, &mut diag);
+                }
+                (
+                    RawStdKeyIndex::from_vec(std),
+                    RawStdKeyIndex::from_vec(pnonstd),
+                )
+            } else {
+                let mut std = Vec::with_capacity(counts.std_slice_kws + counts.std_owned_kws);
+                let mut pnonstd =
+                    Vec::with_capacity(counts.pnonstd_slice_kws + counts.pnonstd_owned_kws);
+                for p in parsed {
+                    p.dispatch_slice_or_owned(&mut std, &mut pnonstd, nonstd, &mut diag);
+                }
+                (
+                    RawStdKeyIndex::from_vec(std),
+                    RawStdKeyIndex::from_vec(pnonstd),
+                )
+            };
 
         diag.non_unique_std_keywords = non_unique_std;
+        diag.non_unique_pnonstd_keywords = non_unique_pnonstd;
 
         let text_diag = go(
             tokens_with_boundary_delims,
@@ -2586,7 +2620,7 @@ impl SplitTEXTDiagnostics {
             diag,
         );
 
-        (index, text_diag)
+        (ParsedStdKeywords::new(std_index, pnonstd_index), text_diag)
     }
 
     fn parse_unescaped(
@@ -2595,7 +2629,7 @@ impl SplitTEXTDiagnostics {
         segs: &NESlice<&[u8]>,
         trim: bool,
         enc: Encoding,
-    ) -> (StdKeywords, Self) {
+    ) -> (ParsedStdKeywords, Self) {
         #[derive(Debug)]
         enum Unescaped<'a> {
             Keyword(ParsedKeyword<'a>),
@@ -2652,31 +2686,47 @@ impl SplitTEXTDiagnostics {
         let mut values_with_blank_keys = Vec::with_capacity(n_empty_keys);
         let mut keys_with_blank_values = Vec::with_capacity(n_empty_values);
 
-        let (index, non_unique_std) = if counts.std_owned_kws == 0 {
-            let mut std = Vec::with_capacity(counts.std_slice_kws);
-            for p in parsed {
-                match p {
-                    Unescaped::Keyword(k) => k.dispatch_slice_only(&mut std, nonstd, &mut diag),
-                    Unescaped::EmptyKey(k) => values_with_blank_keys.push(k.into()),
-                    Unescaped::EmptyValue(v) => keys_with_blank_values.push(v.into()),
-                    Unescaped::EmptyPair => (),
+        // TODO sloppy optimization, this may not even be worth all that much
+        let ((std_index, non_unique_std), (pnonstd_index, non_unique_pnonstd)) =
+            if counts.std_owned_kws == 0 && counts.pnonstd_owned_kws == 0 {
+                let mut std = Vec::with_capacity(counts.std_slice_kws);
+                let mut pnonstd = Vec::with_capacity(counts.pnonstd_slice_kws);
+                for p in parsed {
+                    match p {
+                        Unescaped::Keyword(k) => {
+                            k.dispatch_slice_only(&mut std, &mut pnonstd, nonstd, &mut diag);
+                        }
+                        Unescaped::EmptyKey(k) => values_with_blank_keys.push(k.into()),
+                        Unescaped::EmptyValue(v) => keys_with_blank_values.push(v.into()),
+                        Unescaped::EmptyPair => (),
+                    }
                 }
-            }
-            StdKeywords::from_vec(std)
-        } else {
-            let mut std = Vec::with_capacity(counts.std_slice_kws + counts.std_owned_kws);
-            for p in parsed {
-                match p {
-                    Unescaped::Keyword(k) => k.dispatch_slice_or_owned(&mut std, nonstd, &mut diag),
-                    Unescaped::EmptyKey(k) => values_with_blank_keys.push(k.into()),
-                    Unescaped::EmptyValue(v) => keys_with_blank_values.push(v.into()),
-                    Unescaped::EmptyPair => (),
+                (
+                    RawStdKeyIndex::from_vec(std),
+                    RawStdKeyIndex::from_vec(pnonstd),
+                )
+            } else {
+                let mut std = Vec::with_capacity(counts.std_slice_kws + counts.std_owned_kws);
+                let mut pnonstd =
+                    Vec::with_capacity(counts.pnonstd_slice_kws + counts.pnonstd_owned_kws);
+                for p in parsed {
+                    match p {
+                        Unescaped::Keyword(k) => {
+                            k.dispatch_slice_or_owned(&mut std, &mut pnonstd, nonstd, &mut diag);
+                        }
+                        Unescaped::EmptyKey(k) => values_with_blank_keys.push(k.into()),
+                        Unescaped::EmptyValue(v) => keys_with_blank_values.push(v.into()),
+                        Unescaped::EmptyPair => (),
+                    }
                 }
-            }
-            StdKeywords::from_vec(std)
-        };
+                (
+                    RawStdKeyIndex::from_vec(std),
+                    RawStdKeyIndex::from_vec(pnonstd),
+                )
+            };
 
         diag.non_unique_std_keywords = non_unique_std;
+        diag.non_unique_pnonstd_keywords = non_unique_pnonstd;
 
         let inner = SplitTEXTDiagnosticsInner::new_unescaped(
             delim,
@@ -2688,7 +2738,10 @@ impl SplitTEXTDiagnostics {
             enc.is_multi(),
         );
 
-        (index, Self::build(inner, diag))
+        (
+            ParsedStdKeywords::new(std_index, pnonstd_index),
+            Self::build(inner, diag),
+        )
     }
 
     /// Maybe trim end off slice of tokens so that the length is even.

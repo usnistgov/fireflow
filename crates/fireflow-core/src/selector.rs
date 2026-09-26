@@ -1,7 +1,6 @@
 use crate::validated::keys::ValidKeywords;
 
 use fireflow_types::keys::AnyKey;
-use fireflow_types::keys::nonstd::DollarWrap;
 use fireflow_types::keys::raw_std::{RootKey, ToStd as _};
 use nonempty::{NEStr, NEString, NEVec, NonEmptyIterator as _, nev};
 
@@ -350,15 +349,12 @@ impl Condition {
 impl KeyTest {
     #[must_use]
     pub fn cyt_is(cyt: &NEStr) -> Self {
-        Self::KeyIs(
-            AnyKey::Std(DollarWrap(RootKey::Cyt.to_std0())),
-            cyt.to_owned(),
-        )
+        Self::KeyIs(AnyKey::Std(RootKey::Cyt.to_std0()), cyt.to_owned())
     }
 
     pub fn cyt_matches(pat: &str) -> Result<Self, ValueRegexError> {
         Ok(Self::KeyMatches(
-            AnyKey::Std(DollarWrap(RootKey::Cyt.to_std0())),
+            AnyKey::Std(RootKey::Cyt.to_std0()),
             pat.parse()?,
         ))
     }

@@ -59,7 +59,7 @@ use crate::segment::read::{
 };
 use crate::segment::read::{PrimaryTextOffsets, SupplementalTextOffsets};
 use crate::std_index::index::{
-    DroppedStdKeywords, ExtraStdKeywordError, ExtraStdKeywords, StdKeywords, StdLookupTx,
+    DroppedStdKeywords, ExtraStdKeywordError, ExtraStdKeywords, StdLookupTx,
 };
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, DatetimesDiagnostics, EndDateTime, LookupDatetimesError,
@@ -113,7 +113,7 @@ use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
     DollarKey, NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords, RepairDiagnostics,
-    RepairError, StringOrBytes, TruncatedNEString, ValidKeywords, ValueToStdKey as _,
+    RepairError, StdKeywords, StringOrBytes, TruncatedNEString, ValidKeywords, ValueToStdKey as _,
 };
 use crate::validated::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
@@ -5429,8 +5429,8 @@ where
     fn opt_std_and_nonstd_keywords(&self) -> impl Iterator<Item = StdOrNonStdOptRootKeyword<'_>> {
         let pns = self
             .pseudo_nonstandard_keywords
-            .iter()
-            .map(|(k, v)| PseudoNonStdKeyword::new(*k, v.as_ne_str()))
+            .iter_keywords()
+            .map(|(k, v)| PseudoNonStdKeyword::new(k, v))
             .map(StdOrNonStdOptRootKeyword::from);
         let ns = self
             .nonstandard_keywords

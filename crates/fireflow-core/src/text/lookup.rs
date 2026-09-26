@@ -6,7 +6,6 @@ use fireflow_types::config::{
     ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, TrimIntraValueWhitespace,
 };
 use fireflow_types::keys::StdKey;
-use fireflow_types::keys::nonstd::DollarWrap;
 use nonempty::{NEStr, NEString};
 
 use type_families::{BifunctorOnce, Sibling2, impl_kind2};
@@ -118,7 +117,7 @@ impl<T> Diagnosed<T, Trimmed> {
         T: ValueToStdKey<Index = ()>,
     {
         let k = self.inner;
-        let s = self.diagnostic.map(|t| (DollarWrap(T::std0()), t.into()));
+        let s = self.diagnostic.map(|t| (T::std0(), t.into()));
         (k, s)
     }
 
@@ -127,7 +126,7 @@ impl<T> Diagnosed<T, Trimmed> {
         T: ValueToStdKey,
     {
         let k = self.inner;
-        let s = self.diagnostic.map(|t| (DollarWrap(T::std(i)), t.into()));
+        let s = self.diagnostic.map(|t| (T::std(i), t.into()));
         (k, s)
     }
 }
@@ -138,7 +137,7 @@ impl<T> Diagnosed<Option<T>, Trimmed> {
         T: ValueToStdKey<Index = ()>,
     {
         let k = self.inner;
-        let s = self.diagnostic.map(|t| (DollarWrap(T::std0()), t.into()));
+        let s = self.diagnostic.map(|t| (T::std0(), t.into()));
         (k, s)
     }
 
@@ -150,7 +149,7 @@ impl<T> Diagnosed<Option<T>, Trimmed> {
         T: ValueToStdKey,
     {
         let k = self.inner;
-        let s = self.diagnostic.map(|t| (DollarWrap(T::std(i)), t.into()));
+        let s = self.diagnostic.map(|t| (T::std(i), t.into()));
         (k, s)
     }
 }

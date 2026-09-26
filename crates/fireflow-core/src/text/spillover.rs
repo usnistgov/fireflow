@@ -9,7 +9,6 @@ use crate::validated::shortname::Shortname;
 
 use fireflow_types::config::{ConfigFlag as _, SpilloverMeasurementMode, TrimIntraValueWhitespace};
 use fireflow_types::index::MeasIndex;
-use fireflow_types::keys::nonstd::DollarWrap;
 use fireflow_types::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 use nonempty::{
     IntoIteratorExt as _, NEConcat, NEConcat5, NEDelim, NESlice, NEStr, NEVec,
@@ -246,7 +245,7 @@ impl FromStrWith for Spillover {
     ) -> FromStrWithResult<Self> {
         let trim_flag = conf.trim_intra_value_whitespace;
         let (m, was_trimmed) = GenericSpillover::from_str(s.as_str(), trim_flag)?;
-        let trimmed = was_trimmed.then(|| (DollarWrap(Self::std0()), s.to_owned().into()));
+        let trimmed = was_trimmed.then(|| (Self::std0(), s.to_owned().into()));
         let use_indices = match conf.spillover_measurement_mode {
             SpilloverMeasurementMode::Guess => m.measurements.iter().all(|x| {
                 if let Ok(i) = x.parse::<MeasIndex>() {

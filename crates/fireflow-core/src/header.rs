@@ -16,7 +16,6 @@ use crate::segment::write::{
     PrimaryTextOffsetsToWrite, SupplementalTextOffsetsToWrite, TEXTAnalysisOffsetsToWrite,
     TEXTDataOffsetsToWrite,
 };
-use crate::std_index::index::StdKeywords;
 use crate::text::keyword_enum::{
     AnyKeyword, Escaped, Keyword0FromValue as _, NEStringKeyword, OffsetKeyword, OptKeyword,
     OptRootKeyword, ReqKeyword, StdOrNonStdOptRootKeyword,
@@ -29,7 +28,7 @@ use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZe
 use crate::validated::header_offsets::{
     FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
 };
-use crate::validated::keys::{DollarKey, ValueToStdKey as _};
+use crate::validated::keys::{DollarKey, StdKeywords, ValueToStdKey as _};
 use crate::validated::read_state::{DatasetOffset, HeaderReadState, WriteFCSDigest};
 
 use fireflow_types::config::{
@@ -339,7 +338,7 @@ pub(crate) fn autodetect_version(
                 .and_then(|s| s.as_str().parse::<Par>().ok())
                 .ok_or(GuessVersionError::NoPar)?;
             let mut opt = KeywordOptimizer::default();
-            for (k, v) in kws.iter_keywords() {
+            for (k, v) in kws.iter_raw_keywords() {
                 opt.classify_keyword(&k, v, par);
             }
             let scores = Version::ITEMS.map(|v| (v, opt.get_score(v, par)));

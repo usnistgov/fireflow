@@ -1,5 +1,7 @@
 use crate::config::OpticalOnlyKey;
 use crate::index::{BiMeasIndex, GateIndex, MeasIndex, RegionIndex, SubsetIndex};
+use crate::keys::DollarStdKey;
+use crate::keys::nonstd::DollarWrap;
 use crate::keywords::{Version, VersionMembership};
 
 use nonempty::{
@@ -18,9 +20,6 @@ use std::iter;
 use std::marker::PhantomData;
 use std::ops;
 use std::slice::Iter;
-
-#[cfg(feature = "serde")]
-use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {crate::python as py, fireflow_core_proc::DisplayAsPyErr};
@@ -465,20 +464,31 @@ impl EnumIndex for DfcKey {
 pub trait ToStd {
     type Index;
 
-    fn to_std(&self, index: &Self::Index) -> RawStdKey;
+    fn to_raw_std(&self, index: &Self::Index) -> RawStdKey;
 
-    fn to_std0(&self) -> RawStdKey
+    fn to_raw_std0(&self) -> RawStdKey
     where
         Self: ToStd<Index = ()>,
     {
-        self.to_std(&())
+        self.to_raw_std(&())
+    }
+
+    fn to_std<const HAS_PRE: bool>(&self, index: &Self::Index) -> DollarStdKey<HAS_PRE> {
+        DollarWrap(self.to_raw_std(index))
+    }
+
+    fn to_std0<const HAS_PRE: bool>(&self) -> DollarStdKey<HAS_PRE>
+    where
+        Self: ToStd<Index = ()>,
+    {
+        DollarWrap(self.to_raw_std0())
     }
 }
 
 impl ToStd for RootKey {
     type Index = ();
 
-    fn to_std(&self, (): &Self::Index) -> RawStdKey {
+    fn to_raw_std(&self, (): &Self::Index) -> RawStdKey {
         (*self).into()
     }
 }
@@ -486,7 +496,7 @@ impl ToStd for RootKey {
 impl ToStd for MeasKeyId {
     type Index = MeasIndex;
 
-    fn to_std(&self, index: &Self::Index) -> RawStdKey {
+    fn to_raw_std(&self, index: &Self::Index) -> RawStdKey {
         IndexedKey::new(*index, *self).into()
     }
 }
@@ -494,7 +504,7 @@ impl ToStd for MeasKeyId {
 impl ToStd for GateKeyId {
     type Index = GateIndex;
 
-    fn to_std(&self, index: &Self::Index) -> RawStdKey {
+    fn to_raw_std(&self, index: &Self::Index) -> RawStdKey {
         IndexedKey::new(*index, *self).into()
     }
 }
@@ -502,7 +512,7 @@ impl ToStd for GateKeyId {
 impl ToStd for RegionKeyId {
     type Index = RegionIndex;
 
-    fn to_std(&self, index: &Self::Index) -> RawStdKey {
+    fn to_raw_std(&self, index: &Self::Index) -> RawStdKey {
         IndexedKey::new(*index, *self).into()
     }
 }
@@ -510,7 +520,7 @@ impl ToStd for RegionKeyId {
 impl ToStd for CsvFlagKeyMarker {
     type Index = SubsetIndex;
 
-    fn to_std(&self, index: &Self::Index) -> RawStdKey {
+    fn to_raw_std(&self, index: &Self::Index) -> RawStdKey {
         CsvFlagKey::new(*index).into()
     }
 }
@@ -518,7 +528,7 @@ impl ToStd for CsvFlagKeyMarker {
 impl ToStd for DfcKeyMarker {
     type Index = BiMeasIndex;
 
-    fn to_std(&self, index: &Self::Index) -> RawStdKey {
+    fn to_raw_std(&self, index: &Self::Index) -> RawStdKey {
         DfcKey::new(*index).into()
     }
 }
@@ -1246,16 +1256,6 @@ impl CsvFlagKey {
 #[cfg(feature = "serde")]
 pub trait BlankKeyword {
     fn blank(&self) -> &'static NEStr;
-}
-
-#[cfg(feature = "serde")]
-impl Serialize for RawStdKey {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.collect_str(self)
-    }
 }
 
 #[cfg(feature = "serde")]

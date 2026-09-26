@@ -5069,6 +5069,7 @@ class TestConfig:
             promote_nonstandard_keys=["OP"],
             allow_missing_crc="silent",
         )
+        print(out.keywords.std)
         assert out.keywords.std["$OP"] == "Derek Sherinian"
 
     @all_versions
@@ -6696,6 +6697,9 @@ class TestReadWrite:
             warnings_are_errors=True,
         )
         self._assert_uncore_dataset_empty(un_core)
+        print(core.standard_keywords(req_or_opt="req_only", root_or_meas="both"))
+        print(nu_core.standard_keywords(req_or_opt="req_only", root_or_meas="both"))
+        assert core.cyt == nu_core.cyt
         assert core == nu_core
         # supp text should have non-zero offsets in new file
         assert un_core.flat_diagnostics.header_supp.supp_text is not None

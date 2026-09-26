@@ -362,7 +362,7 @@ impl RemovedLink {
             Self::Gating(_) => go::<Gating>(kws, flag),
             Self::Comp2_0(xs) => {
                 for k in xs {
-                    kws.set_failure_flag(&k.key.into(), flag);
+                    kws.set_failure_flag(&DollarWrap(k.key.into()), flag);
                 }
             }
             Self::Comp3_0(_) => go::<Compensation3_0>(kws, flag),
@@ -390,8 +390,8 @@ impl RemovedLink {
             }
             Self::Gating(indices) => {
                 let ks = indices.into_nonempty_iter().flat_map(|ri| {
-                    let k0 = RegionKeyId::I.to_std(&ri).into();
-                    let k1 = RegionKeyId::W.to_std(&ri).into();
+                    let k0 = RegionKeyId::I.to_std(&ri);
+                    let k1 = RegionKeyId::W.to_std(&ri);
                     [k0, k1]
                 });
                 let e = DependentKeyError::<Gating>::new1(ks.collect());

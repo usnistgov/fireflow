@@ -1014,31 +1014,19 @@ impl ValidKeywords {
         }
 
         if match_promote.has_wildcards() {
-            // self.pnonstd.replace_when(
-            //     |k| match_promote.is_wildcard_match(&k) && !self.std.insert(k),
-            //     |k, v| {
-            //         if let Some(vf) = self.std.insert(k, v) {
-            //             promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
-            //             true
-            //         } else {
-            //             promoted.push(*k);
-            //             false
-            //         }
-            //     },
-            // );
-            // self.pnonstd.retain(|k, v| {
-            //     if match_promote.is_wildcard_match(&k.0) {
-            //         if let Some(vf) = self.std.insert(&k.0, v.as_ne_str()) {
-            //             promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
-            //             true
-            //         } else {
-            //             promoted.push(*k);
-            //             false
-            //         }
-            //     } else {
-            //         true
-            //     }
-            // });
+            self.pnonstd.retain(|k, v| {
+                if match_promote.is_wildcard_match(&k.0) {
+                    if let Some(vf) = self.std.insert(k.rewrap_ref(), v) {
+                        promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
+                        true
+                    } else {
+                        promoted.push(*k);
+                        false
+                    }
+                } else {
+                    true
+                }
+            });
         }
 
         // replace

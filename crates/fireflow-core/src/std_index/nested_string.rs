@@ -234,6 +234,22 @@ impl<I, S, K> NestedString<I, S, K> {
         }
     }
 
+    pub(crate) fn retain<F>(&mut self, mut f: F)
+    where
+        I: HasLen + IndexMut<usize, Output = Range<usize>>,
+        K: EnumIndex<SubDimension = S>,
+        F: FnMut(&K, &NEStr) -> bool,
+    {
+        let s = &self.sub_dimension;
+        for k in K::generate(s).take(self.offsets.len()) {
+            if let Some(v) = self.get(&k).and_then(NEStr::try_new)
+                && !f(&k, v)
+            {
+                let _ = self.delete(&k);
+            }
+        }
+    }
+
     /// Remove an entry from the index.
     ///
     /// The old data is not actually removed. Only the range that indexes

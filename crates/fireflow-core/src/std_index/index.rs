@@ -333,6 +333,24 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
         }
     }
 
+    pub(crate) fn retain<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&DollarStdKey<HAS_PRE>, &NEStr) -> bool,
+    {
+        macro_rules! go {
+            ($field:ident) => {
+                self.$field.retain(|&k, v| f(&DollarWrap(k.into()), v));
+            };
+        }
+
+        go!(root);
+        go!(meas);
+        go!(gate);
+        go!(region);
+        go!(csv_flag);
+        go!(dfc);
+    }
+
     pub(crate) fn delete_when<Fwhen, Fwith>(&mut self, mut fwhen: Fwhen, mut fwith: Fwith)
     where
         Fwhen: FnMut(RawStdKey) -> bool,

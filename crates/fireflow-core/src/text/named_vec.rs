@@ -3,11 +3,11 @@ use crate::logging::{
     LogResult, ResultExt as _,
 };
 use crate::macros::def_summary;
+use crate::text::keywords::ValueToStdKey;
 use crate::text::optional::MightHave;
 use crate::text::relational::{
     KeyToNameLinkError, LinkName, OpticalNamedLinkError, TemporalNamedLinkError,
 };
-use crate::validated::keys::ValueToStdKey;
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};

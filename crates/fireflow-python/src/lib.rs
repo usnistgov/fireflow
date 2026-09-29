@@ -66,10 +66,9 @@ use fireflow_core::text::byteord::{ArrayByteOrd, Endian};
 use fireflow_core::text::gating::{self, Region};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::Element;
-use fireflow_core::validated::keys::RepairDiagnostics;
 use fireflow_core::validated::{
     dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame, PrimitiveSeries},
-    header_offsets, keys, shortname as sn,
+    header_offsets, shortname as sn,
 };
 
 use fireflow_python_proc as fpp;
@@ -119,7 +118,7 @@ fpp::impl_config_defaults!(cfg::NewCoreDatasetConfig);
 fpp::impl_py_header!(header::Header);
 fpp::impl_py_header_offsets!(header_offsets::FinalHeaderOffsets);
 fpp::impl_py_original_header_offsets!(header::OriginalHeaderOffsets);
-fpp::impl_py_valid_keywords!(keys::ValidKeywords);
+fpp::impl_py_valid_keywords!(api::ValidKeywords);
 fpp::impl_py_std_diagnostics!(core::StdTEXTDiagnostics);
 fpp::impl_py_data_schema_diagnostics!(data::DataSchemaDiagnostics);
 fpp::impl_py_dataset_offsets!(core::DatasetOffsets);
@@ -133,7 +132,7 @@ fpp::impl_py_flat_dataset_with_kws_output!(api::FlatDatasetFromKwsOutput);
 fpp::impl_py_new_flat_dataset_with_kws_output!(api::NewFlatDatasetFromKwsOutput);
 fpp::impl_py_supp_text_offsets_origin!(api::SuppTEXTOffsetsOutput);
 fpp::impl_py_text_offsets_origin!(core::TEXTOffsetsOrigin);
-fpp::impl_py_repair_diagnostics!(RepairDiagnostics);
+fpp::impl_py_repair_diagnostics!(api::RepairDiagnostics);
 fpp::impl_py_read_dataset_diagnostics!(core::DatasetDiagnostics);
 fpp::impl_py_intra_segment_dark_bytes!(core::IntraSegmentDarkBytes);
 fpp::impl_py_keyword_version_score!(kws::KeywordVersionScore);

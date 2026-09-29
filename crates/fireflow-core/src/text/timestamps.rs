@@ -2,8 +2,8 @@ use crate::config::EvaledReadStdKeywordsConfig;
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::std_index::index::StdLookupTx;
 use crate::text::keyword_enum::{Keyword0FromValue as _, OptRootKeyword, SplitKeyword};
+use crate::text::keywords::ValueToStdKey;
 use crate::text::lookup::{Diagnosed, FromStrWith, OptStKeyError, OptValue};
-use crate::validated::keys::ValueToStdKey;
 
 use fireflow_types::config::{
     BASE_TIME_FORMAT, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0, ReadDataKeywordsConfig,

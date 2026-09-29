@@ -1,9 +1,10 @@
 pub mod read;
 pub(crate) mod write;
 
-use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
+use crate::text::keywords::{
+    Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, ValueToStdKey,
+};
 use crate::validated::ascii_uint::UintZeroPad20;
-use crate::validated::keys::ValueToStdKey;
 
 use fireflow_types::segment::{AnalysisSegmentId, DataSegmentId, SupplementalTextSegmentId};
 

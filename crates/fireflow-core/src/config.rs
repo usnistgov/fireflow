@@ -10,9 +10,9 @@
 //! is an error. This will work in most cases with a few exceptions where the
 //! standard is unclear.
 
+use crate::api::ValidKeywords;
 use crate::logging::{ErrorsResult, ResultExt as _};
 use crate::selector::{AppendableSelector, Selector};
-use crate::validated::keys::ValidKeywords;
 
 use fireflow_types::config::{
     HasStrategy, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,

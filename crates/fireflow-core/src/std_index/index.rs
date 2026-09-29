@@ -1,11 +1,9 @@
+use crate::api::{NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords, TruncatedNEString};
 use crate::config::EvaledReadStdKeywordsConfig;
 use crate::logging::{LogResult, WarningsAndErrorsResult};
 use crate::std_index::masked::{LookupMask, MaskedEnumString, MaskedString, MaskedVariableString};
 use crate::std_index::nested_string::{NestedEnumString, NestedStringSize, NestedVariableString};
-use crate::text::keywords::{Gate, Par};
-use crate::validated::keys::{
-    NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords, TruncatedNEString, ValueToStdKey,
-};
+use crate::text::keywords::{Gate, Par, ValueToStdKey};
 
 use fireflow_types::config::{
     KeywordFailureFlag, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,

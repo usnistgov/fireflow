@@ -31,12 +31,12 @@ use crate::fixed_vec::OneOrTwo;
 use crate::logging::ErrorGroup;
 use crate::macros::def_summary;
 use crate::std_index::index::StdLookupTx;
+use crate::text::keyword_enum::{DollarKey, DollarKey_};
 use crate::text::keywords::{
     Compensation3_0, Dfc, Gating, MeasOrGateIndex, PrefixedMeasIndex, RegionGateIndex,
-    RegionWindow, Trigger, UnstainedCenters,
+    RegionWindow, Trigger, UnstainedCenters, ValueToStdKey,
 };
 use crate::text::spillover::Spillover;
-use crate::validated::keys::{DollarKey, DollarKey_, ValueToStdKey};
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::config::ProcessOptionalFailure;

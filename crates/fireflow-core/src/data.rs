@@ -131,7 +131,7 @@ use crate::text::keyword_enum::{
 };
 use crate::text::keywords::{
     AlphaNumType, ByteOrd2_0, ByteOrd3_1, LogScale, NumType, Par, RangeToIntError,
-    RangeToIntErrorKind, TextRange, Tot, Width,
+    RangeToIntErrorKind, TextRange, Tot, ValueToStdKey, Width,
 };
 use crate::text::lookup::{OptKeyError, OptValue as _, ReqKeyError, ReqValue as _};
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
@@ -152,7 +152,6 @@ use crate::validated::finite_float::{
     DecimalToFloatError, FiniteF32, FiniteF64, FiniteF64toF32Error, FiniteFloat,
     U64ToFiniteFloatError,
 };
-use crate::validated::keys::ValueToStdKey;
 use crate::validated::read_state::WriteFCSDigest;
 use crate::validated::row_buffer::{ReadBuffer, WriteBuffer};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};

@@ -2,7 +2,7 @@
 
 use super::KeyedOffsets;
 
-use crate::api::HeaderAndSuppOffsets;
+use crate::api::{HeaderAndSuppOffsets, NEStringOrBytes};
 use crate::convert::U64Ext as _;
 use crate::core::{DarkBytes, MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
 use crate::fixed_vec::OneOrTwo;
@@ -11,6 +11,7 @@ use crate::logging::{
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
 };
 use crate::std_index::index::StdLookupTx;
+use crate::text::keywords::ValueToStdKey;
 use crate::text::lookup::{
     MissingKeyError, OptValue, ParseKeyError, ParseKeyError_, ReqKeyErrorInner, ReqKeyErrorInner_,
     ReqValue,
@@ -19,7 +20,6 @@ use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_st
 use crate::validated::header_offsets::{
     FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
 };
-use crate::validated::keys::{NEStringOrBytes, ValueToStdKey};
 use crate::validated::read_state::{
     DatasetOffset, HeaderReadState, ReadDatasetState, TEXTReadState,
 };

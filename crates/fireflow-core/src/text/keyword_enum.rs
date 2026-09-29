@@ -6,38 +6,155 @@
 use crate::meas::GainLossError;
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::keywords as kws;
+use crate::text::keywords::ValueToStdKey;
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::FCSDate;
-use crate::validated::keys::{DollarKey, DollarKey_, SpecificKey_, ValueToStdKey, WritableKey};
 use crate::validated::shortname::Shortname;
 
-use fireflow_types::index::{MeasIndex, RegionIndex};
-use fireflow_types::keys::PseudoNonStdKey;
+use fireflow_types::index::{BiMeasIndex, MeasIndex, RegionIndex};
 use fireflow_types::keys::nonstd::{DollarWrap, NonStdKey};
 use fireflow_types::keys::raw_std::RawStdKey;
+use fireflow_types::keys::{PseudoNonStdKey, StdKey};
 use fireflow_types::keywords::{Version, VersionMembership};
 use fireflow_types::textdelim::{
     DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim,
 };
-use nonempty::{DisplayNE as _, DisplayableNE as _, NEStr, NEString, ToDisplayNE, ToNE};
+use nonempty::{DisplayNE as _, DisplayableNE as _, NEAlt, NEStr, NEString, ToDisplayNE, ToNE};
 
 use ambassador::{Delegate, delegatable_trait};
 use derive_more::{Display, From};
 use derive_new::new;
+use derive_where::derive_where;
 use num_traits::One as _;
 use thiserror::Error;
 
 use std::fmt::{self, Write as _};
+use std::marker::PhantomData;
 use std::num::NonZeroU32;
 
 #[cfg(feature = "serde")]
-use fireflow_types::keys::raw_std::BlankKeyword;
+use {fireflow_types::keys::raw_std::BlankKeyword, serde::Serialize};
 
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
     fireflow_types::python as py,
 };
+
+/// A standard (non-pseudostandard) key or non-standard key.
+#[derive(Clone, PartialEq, From)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum WritableKey {
+    Std(StdKey),
+    PseudoNonStd(PseudoNonStdKey),
+    NonStd(NonStdKey),
+}
+
+impl<'a> ToDisplayNE<'a> for WritableKey {
+    type NE = NEAlt<ToNE<StdKey>, NEAlt<ToNE<PseudoNonStdKey>, ToNE<&'a NonStdKey>>>;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Std(x) => NEAlt::Left(ToNE(*x)),
+            Self::PseudoNonStd(x) => NEAlt::Right(NEAlt::Left(ToNE(*x))),
+            Self::NonStd(x) => NEAlt::Right(NEAlt::Right(ToNE(x))),
+        }
+    }
+}
+
+/// A type representing a [`StdKey`].
+///
+/// This is useful because the value of the key is not actually stored, so this
+/// is very fast and memory-efficient. If we stored the value itself, it would
+/// be a [`String`] internally and allocated on the heap. We can get away with
+/// this because the value of each [`StdKey`] is entirely encoded by the
+/// [`ValueToStdKey`] trait.
+#[derive(new)]
+#[derive_where(Clone, Copy, Default, PartialEq, Eq, Debug; I)]
+// TODO clean this up with generic prefix DollarWrapper rather than buring the
+// wrapper underneath another wrapper. Or just always map it to a prefixed
+// standard key since that's how it will always be printed (I think)
+pub struct SpecificKey_<T, I> {
+    index: I,
+    _key: PhantomData<T>,
+}
+
+pub type SpecificKey<T> = SpecificKey_<T, <T as ValueToStdKey>::Index>;
+
+impl<T: ValueToStdKey> ToDisplayNE<'_> for SpecificKey<T>
+where
+    Self: Into<RawStdKey> + Copy,
+{
+    type NE = ToNE<RawStdKey>;
+    fn to_ne(&self) -> Self::NE {
+        ToNE((*self).into())
+    }
+}
+
+impl<T: ValueToStdKey> fmt::Display for SpecificKey<T>
+where
+    for<'a> &'a Self: Into<RawStdKey>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.into())
+    }
+}
+
+impl<T: ValueToStdKey> From<SpecificKey<T>> for RawStdKey {
+    fn from(value: SpecificKey<T>) -> Self {
+        T::std(&value.index).0
+    }
+}
+
+impl<'a, T: ValueToStdKey> From<&'a SpecificKey<T>> for RawStdKey {
+    fn from(value: &'a SpecificKey<T>) -> Self {
+        T::std(&value.index).0
+    }
+}
+
+impl<T> SpecificKey_<T, BiMeasIndex> {
+    pub(crate) fn new_i2(i: MeasIndex, j: MeasIndex) -> Self {
+        Self::new(BiMeasIndex::new(i, j))
+    }
+}
+
+/// A [`SpecificKey`] which is prefixed with '$' when displayed.
+#[derive(Display, From)]
+#[derive_where(Clone, Copy, Default, PartialEq, Eq, Debug; I)]
+pub struct DollarKey_<T, I>(pub DollarWrap<true, SpecificKey_<T, I>>);
+
+pub type DollarKey<T> = DollarKey_<T, <T as ValueToStdKey>::Index>;
+
+impl<T: ValueToStdKey> From<DollarKey<T>> for StdKey {
+    fn from(value: DollarKey<T>) -> Self {
+        Self(value.0.0.into())
+    }
+}
+
+impl<K: ValueToStdKey> ToDisplayNE<'_> for DollarKey<K>
+where
+    SpecificKey<K>: for<'b> ToDisplayNE<'b> + Copy,
+{
+    type NE = ToNE<DollarWrap<true, SpecificKey<K>>>;
+    fn to_ne(&self) -> Self::NE {
+        ToNE(self.0)
+    }
+}
+
+impl<T, I> DollarKey_<T, I> {
+    pub(crate) fn new(i: I) -> Self {
+        Self(DollarWrap(SpecificKey_::new(i)))
+    }
+
+    pub(crate) fn index(self) -> I {
+        self.0.0.index
+    }
+}
+
+impl<T> DollarKey_<T, BiMeasIndex> {
+    pub(crate) fn new_i2(i: MeasIndex, j: MeasIndex) -> Self {
+        Self(DollarWrap(SpecificKey_::new_i2(i, j)))
+    }
+}
 
 /// Any offset keyword type
 #[derive(Clone, From, Delegate)]

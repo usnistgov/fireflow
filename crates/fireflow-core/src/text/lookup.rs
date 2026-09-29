@@ -1,6 +1,8 @@
+use crate::api::TruncatedNEString;
 use crate::logging::{DeferredSwitchableError, ResultExt as _};
 use crate::std_index::index::{LookupAction, StdLookupTx};
-use crate::validated::keys::{DollarKey, DollarKey_, TruncatedNEString, ValueToStdKey};
+use crate::text::keyword_enum::{DollarKey, DollarKey_};
+use crate::text::keywords::ValueToStdKey;
 
 use fireflow_types::config::{
     ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, TrimIntraValueWhitespace,

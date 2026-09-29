@@ -1,5 +1,6 @@
 //! The DATA segment and metadata for measurements.
 
+use crate::api::TruncatedNEString;
 use crate::config::EvaledReadStdKeywordsConfig;
 use crate::core::{TrimmedKeywords, Versioned};
 use crate::data::{
@@ -22,7 +23,7 @@ use crate::segment::read::AnyDataOffsets;
 use crate::std_index::index::StdLookupTx;
 use crate::text::keyword_enum::{
     AnyOpticalKeyLossError, AnyOpticalToTemporalKeyLossError, AnyTemporalKeyLossError,
-    AnyTemporalToOpticalKeyLossError, HasMembership as _, Keyword1FromValue as _,
+    AnyTemporalToOpticalKeyLossError, DollarKey, HasMembership as _, Keyword1FromValue as _,
     OptMeasTemporalKeyword, OptOpticalKeyword, OptPeakKeyword, OptScaleKeyword,
     OptScaledOpticalKeyword, OptTemporalKeyword, ReqMeasKeyword,
 };
@@ -44,7 +45,6 @@ use crate::text::named_vec::{
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::dataframe::PrimitiveDataFrame;
-use crate::validated::keys::{DollarKey, TruncatedNEString};
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::config::{

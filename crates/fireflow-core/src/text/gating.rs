@@ -8,20 +8,20 @@ use crate::logging::{
 };
 use crate::std_index::index::StdLookupTx;
 use crate::text::keyword_enum::{
-    AsStdKeywordPair as _, GateMeasKeyword, Keyword0FromValue as _, Keyword1FromValue as _,
-    OptRootKeyword, RegionKeyword, SplitKeyword, SplitKeyword_,
+    AsStdKeywordPair as _, DollarKey, GateMeasKeyword, Keyword0FromValue as _,
+    Keyword1FromValue as _, OptRootKeyword, RegionKeyword, SplitKeyword, SplitKeyword_,
 };
 use crate::text::keywords::{
     Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
     GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
-    PrefixedMeasIndex, RegionGateIndex, RegionWindow, RegionWindowRef, ScaleFix, UniGate, Vertex,
+    PrefixedMeasIndex, RegionGateIndex, RegionWindow, RegionWindowRef, ScaleFix, UniGate,
+    ValueToStdKey, Vertex,
 };
 use crate::text::lookup::{Diagnosed, OptKeyError, OptStKeyError, OptValue};
 use crate::text::relational::{
     BrokenRegionLinkError, DependentKeyError, ExistingIndexedLinkError, IndicesToRemove,
     KeyToIndexLinkError, RemovedGateLink, RemovedLink,
 };
-use crate::validated::keys::{DollarKey, ValueToStdKey};
 
 use fireflow_types::config::{AllowLoss, ProcessOptionalFailure, ReadDataKeywordsConfig};
 use fireflow_types::index::{GateIndex, MeasIndex, RegionIndex};

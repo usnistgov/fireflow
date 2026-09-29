@@ -1,3 +1,4 @@
+use crate::api::StdKeywords;
 use crate::config::EvaledReadStdKeywordsConfig;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
@@ -7,6 +8,7 @@ use crate::segment::read::{IsOffsetPair as _, PrimaryTextOffsets};
 use crate::std_index::index::{LookupAction, StdLookupTx};
 use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
+use crate::text::keyword_enum::DollarKey;
 use crate::text::lookup::{
     Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, OptKeyError, OptValue as _,
     ParseKeyError, ReqKeyError, ReqKeyErrorInner, ReqValue as _, Trimmed, impl_from_str_with_delim,
@@ -25,7 +27,6 @@ use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
 use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
-use crate::validated::keys::{DollarKey, StdKeywords, ValueToStdKey};
 use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
 use crate::validated::unaligned::{U24, U40, U48, U56};
@@ -39,8 +40,9 @@ use fireflow_types::impl_str_enum_kw;
 use fireflow_types::index::{
     BiMeasIndex, GateIndex, IndexFromOne, MeasIndex, RegionIndex, SubsetIndex,
 };
+use fireflow_types::keys::StdKey;
 use fireflow_types::keys::raw_std::{
-    CsvFlagKeyMarker, DfcKey, DfcKeyMarker, MeasKeyId, RawStdKey, RegionKeyId, RootKey, ToStd as _,
+    CsvFlagKeyMarker, DfcKey, DfcKeyMarker, MeasKeyId, RawStdKey, RegionKeyId, RootKey, ToStd,
 };
 use fireflow_types::keywords::{
     MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version,
@@ -87,6 +89,36 @@ use {
 
 #[cfg(test)]
 use proptest_derive::Arbitrary;
+
+/// Map a keyword value to its standard key type.
+pub trait ValueToStdKey {
+    type Index;
+    type Id: ToStd<Index = Self::Index>;
+    const STD: Self::Id;
+
+    fn std(index: &Self::Index) -> StdKey {
+        Self::STD.to_std(index)
+    }
+
+    fn std_(&self, index: &Self::Index) -> StdKey {
+        Self::std(index)
+    }
+
+    #[must_use]
+    fn std0() -> StdKey
+    where
+        Self: ValueToStdKey<Index = ()>,
+    {
+        Self::std(&())
+    }
+
+    fn std0_(&self) -> StdKey
+    where
+        Self: ValueToStdKey<Index = ()>,
+    {
+        self.std_(&())
+    }
+}
 
 /// Value for $NEXTDATA (all versions)
 #[derive(From, Into, FromStr, Debug, Clone, Copy, PartialEq, Delegate)]
@@ -2927,7 +2959,7 @@ macro_rules! newtype_opt_bool {
 
 macro_rules! kw_meta {
     ($t:ident, $k:ident) => {
-        impl crate::validated::keys::ValueToStdKey for $t {
+        impl crate::text::keywords::ValueToStdKey for $t {
             type Index = ();
             type Id = fireflow_types::keys::raw_std::RootKey;
             const STD: Self::Id = fireflow_types::keys::raw_std::RootKey::$k;
@@ -2937,7 +2969,7 @@ macro_rules! kw_meta {
 
 macro_rules! kw_meas {
     ($t:ident, $sfx:ident) => {
-        impl $crate::validated::keys::ValueToStdKey for $t {
+        impl $crate::text::keywords::ValueToStdKey for $t {
             type Index = fireflow_types::index::MeasIndex;
             type Id = fireflow_types::keys::raw_std::MeasKeyId;
             const STD: Self::Id = fireflow_types::keys::raw_std::MeasKeyId::$sfx;
@@ -3052,7 +3084,7 @@ macro_rules! kw_time {
 
 macro_rules! kw_opt_gate {
     ($t:ident, $sfx:ident, $outer:path) => {
-        impl $crate::validated::keys::ValueToStdKey for $t {
+        impl $crate::text::keywords::ValueToStdKey for $t {
             type Index = fireflow_types::index::GateIndex;
             type Id = fireflow_types::keys::raw_std::GateKeyId;
             const STD: Self::Id = fireflow_types::keys::raw_std::GateKeyId::$sfx;
@@ -3329,7 +3361,7 @@ opt!(RegionWindow, Option<Self>);
 
 macro_rules! impl_region_index {
     ($t:ident) => {
-        impl crate::validated::keys::ValueToStdKey for $t {
+        impl crate::text::keywords::ValueToStdKey for $t {
             type Index = fireflow_types::index::RegionIndex;
             type Id = fireflow_types::keys::raw_std::RegionKeyId;
             const STD: Self::Id = fireflow_types::keys::raw_std::RegionKeyId::I;

@@ -8628,7 +8628,7 @@ impl<E: From<PyException>> PyUnion<E> {
     }
 
     fn new_string_or_bytes() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::StringOrBytes);
+        let path = parse_quote!(fireflow_core::api::StringOrBytes);
         Self::new2(PyStr::default(), PyBytes::default()).rstype(path)
     }
 }
@@ -8959,14 +8959,14 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_std_keywords() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::StdKeywords);
+        let path = parse_quote!(fireflow_core::api::StdKeywords);
         Self::new_py(["typing"], "StdKeywords")
             .rstype(path)
             .set_default(PyDict::new_dummy())
     }
 
     fn new_pnonstd_keywords() -> Self {
-        let path: Path = parse_quote!(fireflow_core::validated::keys::PseudoNonStdKeywords);
+        let path: Path = parse_quote!(fireflow_core::api::PseudoNonStdKeywords);
         // TODO the :: here is awkward
         Self::new_py(["typing"], "PseudoNonStdKeywords")
             .rstype(path)
@@ -9155,22 +9155,22 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_ne_truncated_str() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::TruncatedNEString);
+        let path = parse_quote!(fireflow_core::api::TruncatedNEString);
         Self::new_py(["typing"], "NEStr").rstype(path)
     }
 
     fn new_ne_truncated_bytes() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::TruncatedNEBytes);
+        let path = parse_quote!(fireflow_core::api::TruncatedNEBytes);
         Self::new_py(["typing"], "NEBytes").rstype(path)
     }
 
     fn new_ne_string_or_bytes() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::NEStringOrBytes);
+        let path = parse_quote!(fireflow_core::api::NEStringOrBytes);
         Self::new_py(["typing"], "NEStrOrBytes").rstype(path)
     }
 
     fn new_key_or_bytes() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::DollarKeyOrBytes);
+        let path = parse_quote!(fireflow_core::api::DollarKeyOrBytes);
         Self::new_py(["typing"], "DollarKeyOrBytes").rstype(path)
     }
 

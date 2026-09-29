@@ -1,6 +1,10 @@
 //! Data structures representing standardized TEXT segment
 
-use crate::api::{FCSFileReader, HeaderAndSuppOffsets, next_dataset_boundary};
+use crate::api::{
+    FCSFileReader, HeaderAndSuppOffsets, NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords,
+    RepairDiagnostics, RepairError, StdKeywords, StringOrBytes, TruncatedNEString, ValidKeywords,
+    next_dataset_boundary,
+};
 use crate::config::{
     AppendRepairFlagError, EvaledReadRepairKeywordsConfig, EvaledReadStdKeywordsConfig,
     ReadRepairKeywordsConfig, ReadStdKeywordsConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
@@ -72,8 +76,8 @@ use crate::text::gating::{
 };
 use crate::text::keyword_enum::{
     AnyKeyword, AnyMetarootKeyLossError, AnyTemporalToOpticalKeyLossError, AsKeywordPair as _,
-    HasMembership as _, Keyword0FromValue as _, Keyword1FromValue as _, NonStdKeyword, OptKeyword,
-    OptMeasKeyword, OptRootKeyword, PseudoNonStdKeyword, ReqKeyword, ReqMeasKeyword,
+    DollarKey, HasMembership as _, Keyword0FromValue as _, Keyword1FromValue as _, NonStdKeyword,
+    OptKeyword, OptMeasKeyword, OptRootKeyword, PseudoNonStdKeyword, ReqKeyword, ReqMeasKeyword,
     ReqRootKeyword, SplitKeyword, SplitKeyword_, StdOrNonStdOptRootKeyword,
 };
 use crate::text::keywords::{
@@ -82,7 +86,7 @@ use crate::text::keywords::{
     Gate, Inst, LastModified, LastModifier, Locationid, LookupComp2_0Error, Lost, Mode, Mode3_2,
     ModeUpgradeError, Nextdata, NoCytError, Op, Originality, Par, Plateid, Platename, Proj,
     ScaleFix, Smno, Src, Sys, Timestep, TimestepAdded, Tot, Trigger, Unicode, UnstainedCenters,
-    UnstainedInfo, Vol, Wellid,
+    UnstainedInfo, ValueToStdKey as _, Vol, Wellid,
 };
 use crate::text::lookup::{
     Diagnosed, OptKeyError, OptStKeyError, OptValue as _, ReqKeyError, ReqValue as _,
@@ -111,10 +115,6 @@ use crate::validated::ascii_uint::{
 use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
-use crate::validated::keys::{
-    DollarKey, NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords, RepairDiagnostics,
-    RepairError, StdKeywords, StringOrBytes, TruncatedNEString, ValidKeywords, ValueToStdKey as _,
-};
 use crate::validated::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
     TEXTReadState, WriteFCSDigest,
@@ -7886,6 +7886,7 @@ mod serialize {
 mod python {
     use super::{CRCOutput, DarkBytes, FlankingSegmentName};
 
+    use crate::api::StringOrBytes;
     use crate::data::{
         AnyDatatype, AnyUint, FullRange, MaybeTypedMixedRange, MaybeTypedRange,
         MaybeTypedVariableBitmask,
@@ -7895,7 +7896,6 @@ mod python {
     };
     use crate::text::byteord::ArgBytes;
     use crate::text::named_vec::Element;
-    use crate::validated::keys::StringOrBytes;
 
     use fireflow_types::python::{self as py, ColumnType, ConfigError};
 

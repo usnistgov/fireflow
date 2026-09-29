@@ -1,10 +1,13 @@
 use crate::config::EvaledReadStdKeywordsConfig;
 use crate::core::TrimmedKeyword;
+use crate::text::keyword_enum::DollarKey;
+use crate::text::keywords::ValueToStdKey as _;
 use crate::text::lookup::{Diagnosed, FromStrWith, FromStrWithResult};
 use crate::text::named_vec::{NameMapping, NamedSet};
-use crate::text::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
-use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
-use crate::validated::keys::{DollarKey, ValueToStdKey as _};
+use crate::text::relational::{
+    ExistingNamedLinkError, KeyToIndexLinkError, KeyToNameLinkError, OpticalNamesToRemove,
+    RemovedNamedLink,
+};
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::config::{ConfigFlag as _, SpilloverMeasurementMode, TrimIntraValueWhitespace};

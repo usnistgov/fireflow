@@ -1,5 +1,6 @@
 //! Reading and writing the HEADER segment
 
+use crate::api::StdKeywords;
 use crate::convert::InstantExt as _;
 use crate::core::{DarkBytes, Other, WriteHeaderAndTextConfig};
 use crate::logging::{
@@ -17,18 +18,17 @@ use crate::segment::write::{
     TEXTDataOffsetsToWrite,
 };
 use crate::text::keyword_enum::{
-    AnyKeyword, Escaped, Keyword0FromValue as _, NEStringKeyword, OffsetKeyword, OptKeyword,
-    OptRootKeyword, ReqKeyword, StdOrNonStdOptRootKeyword,
+    AnyKeyword, DollarKey, Escaped, Keyword0FromValue as _, NEStringKeyword, OffsetKeyword,
+    OptKeyword, OptRootKeyword, ReqKeyword, StdOrNonStdOptRootKeyword,
 };
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
-    KeywordVersionScore, Nextdata, Par,
+    KeywordVersionScore, Nextdata, Par, ValueToStdKey as _,
 };
 use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};
 use crate::validated::header_offsets::{
     FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
 };
-use crate::validated::keys::{DollarKey, StdKeywords, ValueToStdKey as _};
 use crate::validated::read_state::{DatasetOffset, HeaderReadState, WriteFCSDigest};
 
 use fireflow_types::config::{

@@ -1,10 +1,10 @@
-use crate::{
-    convert::InstantExt as _,
-    core::CRCOutput,
-    logging::{IOErrorGroup, LogResult, SwitchableErrorResult, WarningAndIOGroupResult, io_to_log},
-    text::keywords::Nextdata,
-    validated::keys::StringOrBytes,
+use crate::api::StringOrBytes;
+use crate::convert::InstantExt as _;
+use crate::core::CRCOutput;
+use crate::logging::{
+    IOErrorGroup, LogResult, SwitchableErrorResult, WarningAndIOGroupResult, io_to_log,
 };
+use crate::text::keywords::Nextdata;
 
 use fireflow_types::{
     config::{ComputeCRC, ComputeWriteCRC, ConfigFlag as _, ReadDatasetConfig},

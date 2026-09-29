@@ -8,10 +8,10 @@ use crate::config::{
 use crate::convert::{InstantExt as _, UsizeExt as _};
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, AnyStdDatasetFromKeywordsError,
-    AnyStdTEXTFromKeywordsError, CRCOutput, DatasetDiagnostics, DatasetOffsets,
-    LookupAndReadDataAnalysisError, LookupAndReadDataAnalysisWarning, Others, PrivVersionSet as _,
-    StdDatasetFromKeywordsWarningInner, StdDatasetFromKwsOutput, StdTEXTDiagnostics,
-    StdTEXTFromKeywordsWithOffsetsWarning, StdWriterError, WriteDatasetSummary,
+    AnyStdDatasetFromKeywordsWarning, AnyStdTEXTFromKeywordsError, AnyStdTEXTFromKeywordsWarning,
+    CRCOutput, DatasetDiagnostics, DatasetOffsets, LookupAndReadDataAnalysisError,
+    LookupAndReadDataAnalysisWarning, Others, PrivVersionSet as _, StdDatasetFromKwsOutput,
+    StdTEXTDiagnostics, StdWriterError, WriteDatasetSummary,
 };
 use crate::data::{DataSchemaDiagnostics, EventOverRangeError};
 use crate::fixed_vec::OneOrTwo;
@@ -832,7 +832,7 @@ pub enum ReadHeaderError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTWarning {
     Flat(HeaderOrFlatTEXTWarning),
-    Std(StdTEXTFromKeywordsWithOffsetsWarning),
+    Std(AnyStdTEXTFromKeywordsWarning),
 }
 
 /// Error when parsing TEXT in standard mode
@@ -849,7 +849,7 @@ pub enum StdTEXTError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetWarning {
     Flat(HeaderOrFlatTEXTWarning),
-    Std(StdDatasetFromKeywordsWarningInner),
+    Std(AnyStdDatasetFromKeywordsWarning),
 }
 
 /// Error when parsing TEXT+DATA in standard mode
@@ -2098,7 +2098,7 @@ impl FlatTEXTOutput {
     ) -> WarningsAndErrorsResult<
         (AnyCoreTEXT, StdTEXTOutput),
         (),
-        StdTEXTFromKeywordsWithOffsetsWarning,
+        AnyStdTEXTFromKeywordsWarning,
         AnyStdTEXTFromKeywordsError,
     >
     where
@@ -2110,7 +2110,7 @@ impl FlatTEXTOutput {
     {
         let hns = &mut self.flat_diagnostics.header_supp;
         let version = hns.header.version;
-        AnyCoreTEXT::parse_flat(version, self.keywords, hns, read_text_end, st).map_ok_value(
+        AnyCoreTEXT::from_keywords(version, self.keywords, hns, read_text_end, st).map_ok_value(
             |out| {
                 let std_out = StdTEXTOutput::new(
                     out.offsets.tot,
@@ -2135,7 +2135,7 @@ impl FlatTEXTOutput {
         st: &TEXTReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (AnyCoreDataset, StdDatasetOutput),
-        StdDatasetFromKeywordsWarningInner,
+        AnyStdDatasetFromKeywordsWarning,
         AnyStdDatasetFromKeywordsError,
         (),
     >

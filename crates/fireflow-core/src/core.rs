@@ -1373,20 +1373,6 @@ pub enum StdTEXTFromFlatTEXTWarning {
 
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdTEXTFromKeywordsWithOffsetsError {
-    Tx(StdTEXTFromTxWithOffsetsError),
-    Repair(RepairError),
-}
-
-#[derive(From, Display, Debug, Error, PartialEq, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdTEXTFromKeywordsWithOffsetsWarning {
-    Tx(StdTEXTFromTxWithOffsetsWarning),
-    Repair(RepairError),
-}
-
-#[derive(From, Display, Debug, Error, PartialEq, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromTxWithOffsetsError {
     Tx(StdTEXTFromTxErrorInner),
     Offsets(LookupTEXTOffsetsError),
@@ -1412,20 +1398,6 @@ pub enum NewStdDatasetFromKeywordsError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewStdDatasetFromKeywordsWarning {
     Inner(StdDatasetFromTxWarning),
-}
-
-#[derive(From, Display, Debug, Error, PartialEq, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdDatasetFromKeywordsErrorInner {
-    Tx(StdDatasetFromTxError),
-    Repair(RepairError),
-}
-
-#[derive(From, Display, Debug, Error, PartialEq, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdDatasetFromKeywordsWarningInner {
-    Tx(StdDatasetFromTxWarning),
-    Repair(RepairError),
 }
 
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
@@ -1473,18 +1445,48 @@ pub enum StdTEXTFromTxWarning {
 
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdTEXTFromKeywordsWithOffsetsError {
+    Tx(StdTEXTFromTxWithOffsetsError),
+    Repair(RepairError),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdTEXTFromKeywordsWithOffsetsWarning {
+    Tx(StdTEXTFromTxWithOffsetsWarning),
+    Repair(RepairError),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AnyStdTEXTFromKeywordsWarning {
+    Inner(StdTEXTFromTxWithOffsetsWarning),
+    Repair(RepairError),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyStdTEXTFromKeywordsError {
-    Inner(StdTEXTFromKeywordsWithOffsetsError),
+    Inner(StdTEXTFromTxWithOffsetsError),
     Version(GuessVersionError),
     AppendRepair(AppendRepairFlagError),
+    Repair(RepairError),
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AnyStdDatasetFromKeywordsWarning {
+    Tx(StdDatasetFromTxWarning),
+    Repair(RepairError),
 }
 
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyStdDatasetFromKeywordsError {
-    Inner(StdDatasetFromKeywordsErrorInner),
+    Tx(StdDatasetFromTxError),
     Version(GuessVersionError),
     AppendRepair(AppendRepairFlagError),
+    Repair(RepairError),
 }
 
 /// Warning when reading standardized DATA from keyword pairs
@@ -3664,14 +3666,6 @@ impl<M: VersionedRootMeta> RootMeta<M> {
 // Implement methods for Core*
 
 #[derive(new)]
-pub(crate) struct LookupCoreWithOffsetOutput<T, O> {
-    pub(crate) core: LookupCoreOutput<T>,
-    pub(crate) offsets: O,
-    pub(crate) repair_diag: RepairDiagnostics,
-    pub(crate) pseudostandard: PseudoStdKeywords,
-}
-
-#[derive(new)]
 pub(crate) struct LookupCoreOutput<T> {
     pub(crate) this: T,
     pub(crate) std_diag: StdTEXTDiagnostics,
@@ -5786,52 +5780,6 @@ where
 
 impl<V: VersionSet> VersionedCoreTEXT<V> {
     #[allow(clippy::type_complexity)]
-    pub(crate) fn new_from_keywords_with_offsets<C>(
-        mut kws: ValidKeywords,
-        offsets: &mut HeaderAndSuppOffsets,
-        start_time: Instant,
-        st: &TEXTReadState<C>,
-    ) -> WarningsAndErrorsResult<
-        LookupCoreWithOffsetOutput<Self, MetarootTEXTOffsets<V>>,
-        (),
-        StdTEXTFromKeywordsWithOffsetsWarning,
-        StdTEXTFromKeywordsWithOffsetsError,
-    >
-    where
-        V::RootMeta: LookupMetaroot<V::Name>,
-        V::Temporal: LookupTemporal,
-        V::Optical: LookupOptical,
-        V::Name: LookupShortname,
-        V::DataSchema: VersionedDataSchema,
-        C: AsRef<EvaledReadStdKeywordsConfig>
-            + AsRef<EvaledReadRepairKeywordsConfig>
-            + AsRef<ReadDataKeywordsConfig>
-            + AsRef<ReadOffsetConfig>,
-    {
-        let repair_res = kws
-            .repair(st.conf().as_ref())
-            .map_commutative_warnings(StdTEXTFromKeywordsWithOffsetsWarning::from)
-            .map_errors(StdTEXTFromKeywordsWithOffsetsError::from);
-        let ltx = kws.std.as_transaction();
-        let mut pstd = kws.pstd;
-        Self::new_from_transaction_with_offsets(
-            ltx,
-            &mut pstd,
-            kws.pnonstd,
-            kws.nonstd,
-            offsets,
-            start_time,
-            st,
-        )
-        .map_commutative_warnings(StdTEXTFromKeywordsWithOffsetsWarning::from)
-        .map_errors(StdTEXTFromKeywordsWithOffsetsError::from)
-        .zip_commutative(repair_res)
-        .map_ok_value(|((core, core_offsets), repair_diag)| {
-            LookupCoreWithOffsetOutput::new(core, core_offsets, repair_diag, pstd)
-        })
-    }
-
-    #[allow(clippy::type_complexity)]
     pub(crate) fn new_from_transaction_with_offsets<C>(
         mut tx: StdLookupTx,
         pstd: &mut PseudoStdKeywords,
@@ -6384,52 +6332,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             })
             .warnings_to_pure_errors(*conf.as_ref(), NewStdDatasetFromKeywordsError::from)
             .deanonymize()
-    }
-
-    pub(crate) fn new_from_keywords_inner<C, R>(
-        h: &mut BufReader<R>,
-        mut kws: ValidKeywords,
-        hns: &mut HeaderAndSuppOffsets,
-        scan_next_dataset: bool,
-        start_time: Instant,
-        st: &TEXTReadState<C>,
-    ) -> WarningsAndIOGroupResult<
-        (
-            Self,
-            StdDatasetFromKwsOutput,
-            RepairDiagnostics,
-            PseudoStdKeywords,
-        ),
-        StdDatasetFromKeywordsWarningInner,
-        StdDatasetFromKeywordsErrorInner,
-        (),
-    >
-    where
-        R: Read + Seek,
-        V::RootMeta: LookupMetaroot<V::Name>,
-        V::Temporal: LookupTemporal,
-        V::Optical: LookupOptical,
-        V::Name: LookupShortname,
-        V::DataSchema: DataSchemaToEmptyDataFrame<DfTarget = V::DataFrame>,
-        C: AsRef<EvaledReadStdKeywordsConfig>
-            + AsRef<EvaledReadRepairKeywordsConfig>
-            + AsRef<ReadOffsetConfig>
-            + AsRef<ReadDataKeywordsConfig>
-            + AsRef<ReadDatasetConfig>,
-    {
-        let repair_res = kws
-            .repair(st.conf().as_ref())
-            .map_commutative_warnings(StdDatasetFromKeywordsWarningInner::from)
-            .map_errors(StdDatasetFromKeywordsErrorInner::from);
-        let ltx = kws.std.as_transaction();
-        let mut pstd = kws.pstd;
-        let ns = kws.nonstd;
-        let snd = scan_next_dataset;
-        Self::new_from_transaction(h, ltx, &mut pstd, kws.pnonstd, ns, hns, snd, start_time, st)
-            .map_commutative_warnings(StdDatasetFromKeywordsWarningInner::from)
-            .map_pure_errors(StdDatasetFromKeywordsErrorInner::from)
-            .zip_io_group_commutative(repair_res)
-            .map_ok_value(|((new, out), repair)| (new, out, repair, pstd))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -7047,16 +6949,16 @@ impl<A, L2_0, L3_0, L3_1, L3_2, O> AnyCore<A, L2_0, L3_0, L3_1, L3_2, O> {
 
 impl AnyCoreTEXT {
     #[allow(clippy::type_complexity)]
-    pub(crate) fn parse_flat<C>(
+    pub(crate) fn from_keywords<C>(
         version: Version,
-        kws: ValidKeywords,
+        mut kws: ValidKeywords,
         offsets: &mut HeaderAndSuppOffsets,
         read_text_end: Instant,
         st: &TEXTReadState<C>,
     ) -> WarningsAndErrorsResult<
         AnyCoreOutput<Self>,
         (),
-        StdTEXTFromKeywordsWithOffsetsWarning,
+        AnyStdTEXTFromKeywordsWarning,
         AnyStdTEXTFromKeywordsError,
     >
     where
@@ -7079,20 +6981,30 @@ impl AnyCoreTEXT {
         }
 
         macro_rules! go {
-            ($t:ident, $s:expr, $st:expr) => {
-                $t::new_from_keywords_with_offsets(kws, offsets, read_text_end, $st)
-                    .map_ok_value(|std_out| {
-                        AnyCoreOutput::new(
-                            std_out.core.this.into(),
-                            std_out.core.std_diag,
-                            std_out.offsets.into_common(),
-                            std_out.repair_diag,
-                            $s,
-                            std_out.pseudostandard,
-                        )
-                    })
-                    .map_errors(AnyStdTEXTFromKeywordsError::from)
-            };
+            ($t:ident, $s:expr, $repair_diag:expr, $st:expr) => {{
+                let ltx = kws.std.as_transaction();
+                $t::new_from_transaction_with_offsets(
+                    ltx,
+                    &mut kws.pstd,
+                    kws.pnonstd,
+                    kws.nonstd,
+                    offsets,
+                    read_text_end,
+                    $st,
+                )
+                .map_ok_value(|(core_out, offsets)| {
+                    AnyCoreOutput::new(
+                        core_out.this.into(),
+                        core_out.std_diag,
+                        offsets.into_common(),
+                        $repair_diag,
+                        $s,
+                        kws.pstd,
+                    )
+                })
+                .map_commutative_warnings(AnyStdTEXTFromKeywordsWarning::from)
+                .map_errors(AnyStdTEXTFromKeywordsError::from)
+            }};
         }
 
         let sconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
@@ -7110,16 +7022,22 @@ impl AnyCoreTEXT {
             .map_errors(AnyStdTEXTFromKeywordsError::from)
             .nowarn_into_warn()
             .and_then_commutative(|lst| {
-                // TODO repair before detecting version
-                match autodetect_version(version, &kws.std, sconf.version_override.as_ref()) {
-                    Ok((ver, scores)) => match ver {
-                        Version::FCS2_0 => go!(CoreTEXT2_0, scores, &lst),
-                        Version::FCS3_0 => go!(CoreTEXT3_0, scores, &lst),
-                        Version::FCS3_1 => go!(CoreTEXT3_1, scores, &lst),
-                        Version::FCS3_2 => go!(CoreTEXT3_2, scores, &lst),
-                    },
-                    Err(e) => LogResult::new_err(AnyStdTEXTFromKeywordsError::from(e)),
-                }
+                kws.repair(lst.conf().as_ref())
+                    .map_commutative_warnings(AnyStdTEXTFromKeywordsWarning::from)
+                    .map_errors(AnyStdTEXTFromKeywordsError::from)
+                    .set_err_value(())
+                    .and_then_commutative(|repair_diag| {
+                        match autodetect_version(version, &kws.std, sconf.version_override.as_ref())
+                        {
+                            Ok((ver, scores)) => match ver {
+                                Version::FCS2_0 => go!(CoreTEXT2_0, scores, repair_diag, &lst),
+                                Version::FCS3_0 => go!(CoreTEXT3_0, scores, repair_diag, &lst),
+                                Version::FCS3_1 => go!(CoreTEXT3_1, scores, repair_diag, &lst),
+                                Version::FCS3_2 => go!(CoreTEXT3_2, scores, repair_diag, &lst),
+                            },
+                            Err(e) => LogResult::new_err(AnyStdTEXTFromKeywordsError::from(e)),
+                        }
+                    })
             })
     }
 }
@@ -7151,13 +7069,13 @@ impl AnyCoreDataset {
     pub(crate) fn new_from_keywords<C, R>(
         h: &mut BufReader<R>,
         hns: &mut HeaderAndSuppOffsets,
-        kws: ValidKeywords,
+        mut kws: ValidKeywords,
         scan_next_dataset: bool,
         start_time: Instant,
         st: &TEXTReadState<C>,
     ) -> WarningsAndIOGroupResult<
         StdDatasetFromKeywordsOutput<Self>,
-        StdDatasetFromKeywordsWarningInner,
+        AnyStdDatasetFromKeywordsWarning,
         AnyStdDatasetFromKeywordsError,
         (),
     >
@@ -7186,13 +7104,26 @@ impl AnyCoreDataset {
 
         let version = hns.header.version;
         macro_rules! go {
-            ($t:ident, $s:expr, $st:expr) => {
-                $t::new_from_keywords_inner(h, kws, hns, scan_next_dataset, start_time, $st)
-                    .map_ok_value(|(a, b, c, d)| {
-                        StdDatasetFromKeywordsOutput::new(a.into(), b, c, d, $s)
-                    })
-                    .map_pure_errors(AnyStdDatasetFromKeywordsError::from)
-            };
+            ($t:ident, $s:expr, $repair:expr, $st:expr) => {{
+                let ltx = kws.std.as_transaction();
+                $t::new_from_transaction(
+                    h,
+                    ltx,
+                    &mut kws.pstd,
+                    kws.pnonstd,
+                    kws.nonstd,
+                    hns,
+                    scan_next_dataset,
+                    start_time,
+                    $st,
+                )
+                .map_ok_value(|(core, data_out)| {
+                    let new = Self::from(core);
+                    StdDatasetFromKeywordsOutput::new(new, data_out, $repair, kws.pstd, $s)
+                })
+                .map_commutative_warnings(AnyStdDatasetFromKeywordsWarning::from)
+                .map_pure_errors(AnyStdDatasetFromKeywordsError::from)
+            }};
         }
 
         let sconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
@@ -7213,16 +7144,24 @@ impl AnyCoreDataset {
             .group()
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|lst| {
-                // TODO repair before detecting version
-                match autodetect_version(version, &kws.std, sconf.version_override.as_ref()) {
-                    Ok((ver, scores)) => match ver {
-                        Version::FCS2_0 => go!(CoreDataset2_0, scores, &lst),
-                        Version::FCS3_0 => go!(CoreDataset3_0, scores, &lst),
-                        Version::FCS3_1 => go!(CoreDataset3_1, scores, &lst),
-                        Version::FCS3_2 => go!(CoreDataset3_2, scores, &lst),
-                    },
-                    Err(e) => LogResult::new_err(IOErrorGroup::new_pure_one(e.into())),
-                }
+                kws.repair(lst.conf().as_ref())
+                    .map_commutative_warnings(AnyStdDatasetFromKeywordsWarning::from)
+                    .map_errors(AnyStdDatasetFromKeywordsError::from)
+                    .set_err_value(())
+                    .group()
+                    .map_error(IOErrorGroup::Pure)
+                    .and_then_commutative(|repair_diag| {
+                        let vo = sconf.version_override.as_ref();
+                        match autodetect_version(version, &kws.std, vo) {
+                            Ok((ver, scores)) => match ver {
+                                Version::FCS2_0 => go!(CoreDataset2_0, scores, repair_diag, &lst),
+                                Version::FCS3_0 => go!(CoreDataset3_0, scores, repair_diag, &lst),
+                                Version::FCS3_1 => go!(CoreDataset3_1, scores, repair_diag, &lst),
+                                Version::FCS3_2 => go!(CoreDataset3_2, scores, repair_diag, &lst),
+                            },
+                            Err(e) => LogResult::new_err(IOErrorGroup::new_pure_one(e.into())),
+                        }
+                    })
             })
     }
 }

@@ -72,6 +72,7 @@ use derive_new::new;
 use hashbrown::HashMap;
 use hashbrown::hash_map::Entry;
 use itertools::Itertools as _;
+use memchr::memchr_iter;
 use thiserror::Error;
 
 use std::borrow::Cow;
@@ -580,7 +581,6 @@ pub struct FlatDatasetFromKwsOutput {
     pub dataset_diagnostics: DatasetDiagnostics,
 }
 
-// TODO should all these std/nonstd keys just be keystrings since the $ is implied?
 /// Data pertaining to parsing the TEXT segment.
 #[allow(clippy::too_many_arguments)]
 #[derive(new, Clone, PartialEq)]
@@ -1933,10 +1933,15 @@ impl SplitTEXTDiagnostics {
     }
 
     fn split_bytes(delim: u8, xs: &[u8]) -> NEVec<&[u8]> {
-        xs.split(|&x| x == delim)
-            .try_into_nonempty_iter()
-            .expect("split should always give at least one element")
-            .collect()
+        let n = memchr_iter(delim, xs).count();
+        let mut ret = Vec::with_capacity(n + 1);
+        let mut start = 0;
+        for end in memchr_iter(delim, xs) {
+            ret.push(&xs[start..end]);
+            start = end + 1;
+        }
+        ret.push(&xs[start..]);
+        NEVec::try_from_vec(ret).unwrap()
     }
 
     /// Read TEXT segment (primary or supp) from bytes.

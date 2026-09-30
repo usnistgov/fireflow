@@ -31,6 +31,7 @@ bytemuck = "1.25.0"
 crc-fast = "1.10.0"
 strum = "0.28.0"
 strum_macros = "0.28.0"
+memchr = "2.8.3"
 
 # serde
 serde = "1.0.228"

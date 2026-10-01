@@ -344,7 +344,7 @@ Those wishing to know more should consult the full argument list for
        # The extra $TOT keyword was removed and recorded via diagnostic output.
        #
        # Extra keywords are simply dropped to create a valid file.
-       assert uncore.flat_diagnostics.non_unique_std_keywords == [("$TOT", "4")]
+       assert uncore.flat_diagnostics.primary_split.non_unique_std_keywords == [("$TOT", "4")]
 
        # The original $BYTEORD was also corrected and recorded.
        #

@@ -442,7 +442,7 @@ type NonStdKeywords = dict[NonStdKey, NEStr]
 """All non-standard keywords and their serialized values."""
 
 type DroppedStdKeywords = list[tuple[StdKey, NEStr]]
-"""All standard keywords and their serialized values."""
+"""All standard keywords and their serialized values which were dropped."""
 
 #
 # Standardized keyword values

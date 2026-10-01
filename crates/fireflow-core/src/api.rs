@@ -61,9 +61,7 @@ use fireflow_types::keys::raw_std::{RootKey, ToStd as _};
 use fireflow_types::keys::{AnyKey, PseudoNonStdKey, PseudoStdKey, StdKey};
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
 use fireflow_types::segment::{OffsetsFromTEXT, SupplementalTextSegmentId};
-use nonempty::{
-    HasNELen as _, IntoIteratorExt as _, NESlice, NEStr, NEString, NEVec, NonEmptyIterator as _,
-};
+use nonempty::{HasNELen as _, NESlice, NEStr, NEString, NEVec};
 
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
 
@@ -4475,6 +4473,7 @@ mod serialize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nonempty::{IntoIteratorExt as _, NonEmptyIterator as _};
 
     #[allow(clippy::needless_pass_by_value)]
     fn assert_guessed_mode(s: &str, comp: GuessedEscapeMode) {

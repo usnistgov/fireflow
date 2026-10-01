@@ -22,7 +22,7 @@ use fireflow_types::config::{
 };
 use fireflow_types::datepattern::DatePattern;
 use fireflow_types::keys::{AnyKey, StdKey};
-use fireflow_types::keystring_pairs::{KeyStringPairs, KeyStringPairsError};
+use fireflow_types::keystring_pairs::{KeyPairs, KeyStringPairsError};
 use fireflow_types::std_pattern::{
     NonUniqueKeyError, StdKeyOrPattern, StdKeyPatterns, StdKeysOrPatterns, SubPatterns,
     checked_iter_to_hashmap,
@@ -214,7 +214,7 @@ pub type ReadStdKeywordsConfig = ReadStdKeywordsConfig_<
 
 pub type ReadRepairKeywordsConfig = ReadRepairKeywordsConfig_<
     AppendableSelector<StdKeyPatterns<true>>,
-    AppendableSelector<KeyStringPairs>,
+    AppendableSelector<KeyPairs>,
     AppendableSelector<StdKeyPatterns<false>>,
     AppendableSelector<StdKeyPatterns<true>>,
     AppendableSelector<StdKeyValues>,
@@ -232,7 +232,7 @@ pub type EvaledReadStdKeywordsConfig = ReadStdKeywordsConfig_<
 
 pub type EvaledReadRepairKeywordsConfig = ReadRepairKeywordsConfig_<
     StdKeyPatterns<true>,
-    KeyStringPairs,
+    KeyPairs,
     StdKeyPatterns<false>,
     StdKeyPatterns<true>,
     StdKeyValues,
@@ -277,9 +277,9 @@ pub(crate) fn eval_repair_conf(
     conf: &ReadRepairKeywordsConfig,
     kws: &ValidKeywords,
 ) -> ErrorsResult<EvaledReadRepairKeywordsConfig, (), AppendRepairFlagError> {
-    let go_str_pairs = |xs: NEVec<KeyStringPairs>| {
-        let checked = checked_iter_to_hashmap(xs.into_iter().flat_map(KeyStringPairs::into_iter))?;
-        KeyStringPairs::try_from(checked).map_err(AppendRepairFlagError::KeyStringPairsValid)
+    let go_str_pairs = |xs: NEVec<KeyPairs>| {
+        let checked = checked_iter_to_hashmap(xs.into_iter().flat_map(KeyPairs::into_iter))?;
+        KeyPairs::try_from(checked).map_err(AppendRepairFlagError::KeyStringPairsValid)
     };
     let go_val = |xs: NEVec<StdKeyValues>| {
         let res = checked_iter_to_hashmap(xs.into_iter().flat_map(HashMap::into_iter))?;

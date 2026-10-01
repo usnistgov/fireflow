@@ -17,7 +17,7 @@ else:
 M = TypeVar("M", bound="BaseModel")
 
 _DEFAULT_CORRECTION = (0, 0)
-_DEFAULT_KEY_PATTERNS: pft.KeyPatterns = []
+_DEFAULT_KEY_PATTERNS: pft.StdKeyPatterns = []
 _DEFAULT_TRIFLAG: pft.TriFlag = "false"
 
 
@@ -97,16 +97,16 @@ class _ReadStdKeywordsConfig(BaseModel):
 
 
 class _ReadRepairKeywordsConfig(BaseModel):
-    ignore_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = (
+    ignore_standard_keys: pft.AppendableSelector[pft.StdKeyPatterns] = (
         _DEFAULT_KEY_PATTERNS
     )
-    promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = (
+    promote_nonstandard_keys: pft.AppendableSelector[pft.StdKeyPatterns] = (
         _DEFAULT_KEY_PATTERNS
     )
-    demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = (
+    demote_standard_keys: pft.AppendableSelector[pft.StdKeyPatterns] = (
         _DEFAULT_KEY_PATTERNS
     )
-    rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {}
+    rename_standard_keys: pft.AppendableSelector[pft.KeyPairs] = {}
     replace_standard_key_values: pft.AppendableSelector[pft.StdKeyValues] = {}
     append_standard_keywords: pft.AppendableSelector[pft.StdKeyValues] = {}
     substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {}

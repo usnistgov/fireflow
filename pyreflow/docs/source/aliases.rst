@@ -9,12 +9,12 @@ These are types used to controlled how ``pyreflow`` parses FCS files.
 .. autotype:: pyreflow.typing.OffsetCorrection
 .. autotype:: pyreflow.typing.VersionOverride
 .. autotype:: pyreflow.typing.DelimEscapeMode
-.. autotype:: pyreflow.typing.KeyPattern
+.. autotype:: pyreflow.typing.StdKeyOrPattern
+.. autotype:: pyreflow.typing.KeyPairs
 .. autotype:: pyreflow.typing.SubPattern
-.. autotype:: pyreflow.typing.KeyPatterns
+.. autotype:: pyreflow.typing.StdKeyPatterns
 .. autotype:: pyreflow.typing.SubPatterns
-.. autotype:: pyreflow.typing.KeyStringPairs
-.. autotype:: pyreflow.typing.KeyStringValues
+.. autotype:: pyreflow.typing.StdKeyValues
 .. autotype:: pyreflow.typing.ProcessKeywordFailure
 .. autotype:: pyreflow.typing.OpticalOnlyKey
 .. autotype:: pyreflow.typing.ProcessOpticalOnlyKeys
@@ -35,12 +35,20 @@ Keyword types
 
 Types to refer to keywords generally.
 
+.. autotype:: pyreflow.typing.AnyKey
 .. autotype:: pyreflow.typing.KeyOrBytes
-.. autotype:: pyreflow.typing.KeyString
+
 .. autotype:: pyreflow.typing.StdKey
 .. autotype:: pyreflow.typing.NonStdKey
+.. autotype:: pyreflow.typing.PseudoStdKey
+.. autotype:: pyreflow.typing.PseudoNonStdKey
+
 .. autotype:: pyreflow.typing.StdKeywords
 .. autotype:: pyreflow.typing.NonStdKeywords
+.. autotype:: pyreflow.typing.PseudoStdKeywords
+.. autotype:: pyreflow.typing.PseudoNonStdKeywords
+
+.. autotype:: pyreflow.typing.DroppedStdKeywords
 
 Standardized keyword values
 ---------------------------
@@ -151,8 +159,9 @@ Misc Types
 ----------
 
 .. autotype:: pyreflow.typing.MeasIndex
-.. autotype:: pyreflow.typing.FCSVersion
 .. autotype:: pyreflow.typing.NEStr
+.. autotype:: pyreflow.typing.NEBytes
 .. autotype:: pyreflow.typing.NEStrOrBytes
+.. autotype:: pyreflow.typing.FCSVersion
 .. autotype:: pyreflow.typing.ReqOrOpt
 .. autotype:: pyreflow.typing.RootOrMeas

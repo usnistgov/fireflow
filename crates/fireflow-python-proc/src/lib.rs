@@ -9007,7 +9007,7 @@ impl<E: From<PyException>> PyAlias<E> {
 
     fn new_pseudo_std_keyword() -> Self {
         let path = parse_quote!(fireflow_types::keys::PseudoStdKey);
-        Self::new_py(["typing"], "DollarPseudoStdKey").rstype(path)
+        Self::new_py(["typing"], "PseudoStdKey").rstype(path)
     }
 
     fn new_nonstd_keyword() -> Self {
@@ -9044,10 +9044,10 @@ impl<E: From<PyException>> PyAlias<E> {
             .set_default(PyList::new_dummy())
     }
 
-    fn new_keystring_pairs() -> Self {
-        let path: Path = parse_quote!(fireflow_types::keystring_pairs::KeyStringPairs);
+    fn new_key_pairs() -> Self {
+        let path: Path = parse_quote!(fireflow_types::keystring_pairs::KeyPairs);
         // TODO exception if dict keys are not unique
-        Self::new_py(["typing"], "KeyStringPairs")
+        Self::new_py(["typing"], "KeyPairs")
             .rstype(path)
             .set_default(PyDict::new_dummy())
     }
@@ -9170,8 +9170,8 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_key_or_bytes() -> Self {
-        let path = parse_quote!(fireflow_core::api::DollarKeyOrBytes);
-        Self::new_py(["typing"], "DollarKeyOrBytes").rstype(path)
+        let path = parse_quote!(fireflow_core::api::KeyOrBytes);
+        Self::new_py(["typing"], "KeyOrBytes").rstype(path)
     }
 
     fn new_version() -> Self {
@@ -11113,7 +11113,7 @@ impl DocArgParam {
     }
 
     fn new_rename_standard_keys() -> Self {
-        let inner = PyAlias::new_keystring_pairs();
+        let inner = PyAlias::new_key_pairs();
         let pt = PyAlias::new_appendable_selector(inner);
         let d = format!(
             "Rename standard keys in {TEXT}. Keys matching the first part of \

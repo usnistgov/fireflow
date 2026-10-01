@@ -15,13 +15,6 @@ Correction for segment offset pair.
 Each number will be added to the two offsets in the pair respectively.
 """
 
-type FCSVersion = Literal["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"]
-"""Any of the supported FCS version strings.
-
-One of these must always be in first six bytes of an FCS dataset.
-
-"""
-
 type VersionOverride = (
     FCSVersion
     | Literal[
@@ -87,18 +80,18 @@ unescaped mode respectively if the choice is ambiguous.
 
 """
 
-type KeyPattern = NEStr
+type StdKeyOrPattern = NEStr
 """A pattern which matches standard or nonstandard key values.
 
-This may be either a literal keyword value or a regular expression
-pattern.
+This may be either a literal keyword value or a pattern.
 
-A literal pattern must match the target keyword exactly (case insensitive). This
-is less flexible than a regular expression but is much faster.
+A literal must match the target keyword exactly (case insensitive). This
+is less flexible than a pattern but is much faster.
 
-A regular expression is denoted by prefixing and suffixing with ``"/"`` (ie like
-``"/<pattern>/"``). The value of ``"<pattern>"`` must follow the syntax outlined
-in `regexp-syntax <https://docs.rs/regex/latest/regex/#syntax>`__.
+A pattern is denoted by prefixing and suffixing with ``"/"`` (ie like
+``"/<pattern>/"``). A pattern may have a combination of ``[x-y]`` or ``[x,y,z]``
+to match keyword indices such as those for *$Pn\\** keywords. A special wildcard
+of ``[*]`` will match any index.
 
 """
 
@@ -121,24 +114,24 @@ replace the first.
 
 """
 
-type KeyPatterns = list[KeyPattern]
-"""A list of patterns which match standard or nonstandard key values."""
+type StdKeyPatterns = list[StdKeyOrPattern]
+"""A list of patterns which match standard key values."""
 
-type SubPatterns = dict[KeyPattern, SubPattern]
+type SubPatterns = dict[StdKeyOrPattern, SubPattern]
 """Substitution patterns which may be used to modify keywords.
 
-The key is matched using :py:type:`~pyreflow.typing.KeyPattern`, and the
+The key is matched using :py:type:`~pyreflow.typing.StdKeyOrPattern`, and the
 the value of the key is modified via :py:type:`~pyreflow.typing.SubPattern`.
 
 """
 
-type KeyStringPairs = dict[KeyString, KeyString]
+type KeyPairs = dict[AnyKey, AnyKey]
 """Mapping between names of keys from *TEXT*.
 
 All values must be unique and no value can match its own key.
 """
 
-type StdKeyValues = dict[KeyString, NEStr]
+type StdKeyValues = dict[StdKey, NEStr]
 """Mapping between a standard key from *TEXT* and a value."""
 
 type ProcessKeywordFailure = Literal[
@@ -398,39 +391,15 @@ Keys can either be standard (start with ``"$"``) or non-standard (no
 
 """
 
-type ReqOrOpt = Literal["req_only", "opt_only", "both"]
-"""A filter denoting required and/or optional keywords."""
-
-type RootOrMeas = Literal["root_only", "meas_only", "both"]
-"""A filter denoting root and/or measurement keywords."""
-
 #
 # Keyword value aliases
 #
-
-type NEStr = str
-"""A string which cannot be empty."""
-
-type NEBytes = bytes
-"""A bytestring which cannot be empty."""
-
-type NEStrOrBytes = str | bytes
-"""A string or bytestring which cannot be empty."""
 
 type AnyKey = StdKey | PseudoStdKey | NonStdKey
 """A valid key from *TEXT*."""
 
 type KeyOrBytes = AnyKey | bytes
 """A valid key from *TEXT* or a bytestring."""
-
-type KeyString = NEStr
-"""A standard or nonstandard key depending on context.
-
-If referring to a standard key, the leading ``"$"`` is implied.
-
-Only printable ASCII characters are allowed.
-
-"""
 
 type StdKey = NEStr
 """A standard key (starts with ``"$"``).
@@ -475,8 +444,10 @@ type NonStdKeywords = dict[NonStdKey, NEStr]
 type DroppedStdKeywords = list[tuple[StdKey, NEStr]]
 """All standard keywords and their serialized values."""
 
-type MeasIndex = int
-"""The index for a measurement in a dataset (starting at 0)."""
+#
+# Standardized keyword values
+#
+
 
 type Endian = Literal["big", "little"]
 """The endian-ness of values in the *DATA* segment.
@@ -1120,6 +1091,35 @@ If a :py:class:bytes, the region is an arbitrary sequence of non-UTF-8
 bytes.
 
 """
+
+#
+# Misc types
+#
+
+type MeasIndex = int
+"""The index for a measurement in a dataset (starting at 0)."""
+
+type NEStr = str
+"""A string which cannot be empty."""
+
+type NEBytes = bytes
+"""A bytestring which cannot be empty."""
+
+type NEStrOrBytes = str | bytes
+"""A string or bytestring which cannot be empty."""
+
+type FCSVersion = Literal["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"]
+"""Any of the supported FCS version strings.
+
+One of these must always be in first six bytes of an FCS dataset.
+
+"""
+
+type ReqOrOpt = Literal["req_only", "opt_only", "both"]
+"""A filter denoting required and/or optional keywords."""
+
+type RootOrMeas = Literal["root_only", "meas_only", "both"]
+"""A filter denoting root and/or measurement keywords."""
 
 #
 # Abstract classes for data schemas

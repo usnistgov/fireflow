@@ -26,15 +26,15 @@ use {
 #[derive(Clone, Debug, Default, AsRef, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct KeyStringPairs(HashMap<AnyKey, AnyKey>);
+pub struct KeyPairs(HashMap<AnyKey, AnyKey>);
 
-impl KeyStringPairs {
+impl KeyPairs {
     fn iter(&self) -> Iter<'_, AnyKey, AnyKey> {
         (&self.0).into_iter()
     }
 }
 
-impl IntoIterator for KeyStringPairs {
+impl IntoIterator for KeyPairs {
     type Item = (AnyKey, AnyKey);
     type IntoIter = IntoIter<AnyKey, AnyKey>;
 
@@ -43,7 +43,7 @@ impl IntoIterator for KeyStringPairs {
     }
 }
 
-impl<'a> IntoIterator for &'a KeyStringPairs {
+impl<'a> IntoIterator for &'a KeyPairs {
     type Item = (&'a AnyKey, &'a AnyKey);
     type IntoIter = Iter<'a, AnyKey, AnyKey>;
 
@@ -52,7 +52,7 @@ impl<'a> IntoIterator for &'a KeyStringPairs {
     }
 }
 
-impl TryFrom<HashMap<AnyKey, AnyKey>> for KeyStringPairs {
+impl TryFrom<HashMap<AnyKey, AnyKey>> for KeyPairs {
     type Error = KeyStringPairsError;
 
     fn try_from(value: HashMap<AnyKey, AnyKey>) -> Result<Self, Self::Error> {
@@ -98,12 +98,12 @@ pub struct KeyStringNonUniqueError(NEVec<AnyKey>);
 mod python {
     use crate::keys::AnyKey;
 
-    use super::KeyStringPairs;
+    use super::KeyPairs;
 
     use hashbrown::HashMap;
     use pyo3::prelude::*;
 
-    impl<'py> FromPyObject<'_, 'py> for KeyStringPairs {
+    impl<'py> FromPyObject<'_, 'py> for KeyPairs {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             let xs: HashMap<AnyKey, AnyKey> = obj.extract()?;

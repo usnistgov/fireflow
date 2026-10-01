@@ -701,12 +701,12 @@ pub struct SplitTEXTDiagnostics {
     pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedNEString)>,
 
     /// Keys with empty values as a result of trimming whitespace.
-    pub keys_with_empty_trimmed_values: Vec<(DollarKeyOrBytes, TruncatedNEString)>,
+    pub keys_with_empty_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
 
     /// Keys with values that are not empty after whitespace was trimmed off.
     ///
     /// Values included here are the original values before trimming.
-    pub keys_with_trimmed_values: Vec<(DollarKeyOrBytes, TruncatedNEString)>,
+    pub keys_with_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
 
     /// Keys that have blank values.
     ///
@@ -889,7 +889,7 @@ pub struct RepairDiagnostics {
 #[derive(Clone, Display, PartialEq, Debug, From)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum DollarKeyOrBytes {
+pub enum KeyOrBytes {
     Ascii(AnyKey),
     Bytes(TruncatedNEBytes),
 }
@@ -1189,7 +1189,7 @@ pub enum ParseKeywordsIssue {
 #[error("skipping key {0} with blank value")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct BlankValueError(pub DollarKeyOrBytes);
+pub struct BlankValueError(pub KeyOrBytes);
 
 /// Error when key has blank value
 #[derive(new, Debug, PartialEq, Error, Clone)]
@@ -1198,7 +1198,7 @@ pub struct BlankValueError(pub DollarKeyOrBytes);
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct TrimmedBlankValueError {
     kind: TEXTKind,
-    key: DollarKeyOrBytes,
+    key: KeyOrBytes,
     value: TruncatedNEString,
 }
 
@@ -3700,12 +3700,12 @@ struct SplitTEXTDiagnosticsCommon {
     ///
     /// The only way this can happen at this stage is if the value is entirely
     /// whitespace and is trimmed.
-    keys_with_empty_trimmed_values: Vec<(DollarKeyOrBytes, TruncatedNEString)>,
+    keys_with_empty_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
 
     /// Keys with values that were trimmed
     ///
     /// The value included here is the original value.
-    keys_with_trimmed_values: Vec<(DollarKeyOrBytes, TruncatedNEString)>,
+    keys_with_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
 }
 
 /// The number of keywords of various types.
@@ -3757,7 +3757,7 @@ enum ParsedKeyword<'a> {
     /// Pseudo-std key and value
     PseudoStd(NonEmptyKeyword<PseudoStdKey, NEString>),
     /// Key (any type or raw bytes) where value was trimmed to empty whitespace
-    TrimmedEmptyValue(DollarKeyOrBytes, NEString),
+    TrimmedEmptyValue(KeyOrBytes, NEString),
     /// Valid key with invalid value
     NonUtf8Value(AnyKey, NEVec<u8>),
     /// Invalid key with valid value
@@ -4093,8 +4093,8 @@ impl<'a> ParsedKeyword<'a> {
             (Ok(k), ParsedValue::Bytes(v)) => Self::NonUtf8Value(k, v),
             (k, ParsedValue::Empty(original)) => {
                 let kb = match k {
-                    Ok(x) => DollarKeyOrBytes::Ascii(x),
-                    Err(x) => DollarKeyOrBytes::Bytes(TruncatedNEBytes(x)),
+                    Ok(x) => KeyOrBytes::Ascii(x),
+                    Err(x) => KeyOrBytes::Bytes(TruncatedNEBytes(x)),
                 };
                 Self::TrimmedEmptyValue(kb, original)
             }
@@ -4139,7 +4139,7 @@ impl<'a> ParsedKeyword<'a> {
                 if let Some(o) = kv.original {
                     let k = AnyKey::Std(kv.key);
                     diag.keys_with_trimmed_values
-                        .push((DollarKeyOrBytes::from(k), o.into()));
+                        .push((KeyOrBytes::from(k), o.into()));
                 }
                 std.push((kv.key, f_slice(kv.value)));
             }
@@ -4147,7 +4147,7 @@ impl<'a> ParsedKeyword<'a> {
                 if let Some(o) = kv.original {
                     let k = AnyKey::Std(kv.key);
                     diag.keys_with_trimmed_values
-                        .push((DollarKeyOrBytes::from(k), o.into()));
+                        .push((KeyOrBytes::from(k), o.into()));
                 }
                 std.push((kv.key, f_owned(kv.value)));
             }
@@ -4155,7 +4155,7 @@ impl<'a> ParsedKeyword<'a> {
                 if let Some(o) = kv.original {
                     let k = AnyKey::PseudoNonStd(kv.key);
                     diag.keys_with_trimmed_values
-                        .push((DollarKeyOrBytes::from(k), o.into()));
+                        .push((KeyOrBytes::from(k), o.into()));
                 }
                 pnonstd.push((kv.key, f_slice(kv.value)));
             }
@@ -4163,7 +4163,7 @@ impl<'a> ParsedKeyword<'a> {
                 if let Some(o) = kv.original {
                     let k = AnyKey::PseudoNonStd(kv.key);
                     diag.keys_with_trimmed_values
-                        .push((DollarKeyOrBytes::from(k), o.into()));
+                        .push((KeyOrBytes::from(k), o.into()));
                 }
                 pnonstd.push((kv.key, f_owned(kv.value)));
             }
@@ -4171,7 +4171,7 @@ impl<'a> ParsedKeyword<'a> {
                 if let Some(o) = kv.original {
                     let k = AnyKey::NonStd(kv.key.clone());
                     diag.keys_with_trimmed_values
-                        .push((DollarKeyOrBytes::from(k), o.into()));
+                        .push((KeyOrBytes::from(k), o.into()));
                 }
                 match nonstd.nonstd.entry(kv.key) {
                     Entry::Occupied(e) => diag
@@ -4186,7 +4186,7 @@ impl<'a> ParsedKeyword<'a> {
                 if let Some(o) = kv.original {
                     let k = AnyKey::PseudoStd(kv.key.clone());
                     diag.keys_with_trimmed_values
-                        .push((DollarKeyOrBytes::from(k), o.into()));
+                        .push((KeyOrBytes::from(k), o.into()));
                 }
                 match nonstd.pstd.entry(kv.key) {
                     Entry::Occupied(e) => diag
@@ -4205,7 +4205,7 @@ impl<'a> ParsedKeyword<'a> {
                 if let Some(o) = kv.original {
                     let k = TruncatedNEBytes::from(kv.key.clone());
                     diag.keys_with_trimmed_values
-                        .push((DollarKeyOrBytes::from(k), o.into()));
+                        .push((KeyOrBytes::from(k), o.into()));
                 }
                 diag.values_with_non_ascii_keys
                     .push((kv.key.into(), kv.value.into()));

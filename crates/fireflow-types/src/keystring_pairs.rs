@@ -53,11 +53,11 @@ impl<'a> IntoIterator for &'a KeyPairs {
 }
 
 impl TryFrom<HashMap<AnyKey, AnyKey>> for KeyPairs {
-    type Error = KeyStringPairsError;
+    type Error = KeyPairsError;
 
     fn try_from(value: HashMap<AnyKey, AnyKey>) -> Result<Self, Self::Error> {
         if let Some(ne) = value.values().duplicates().try_into_nonempty_iter() {
-            return Err(KeyStringNonUniqueError(ne.cloned().collect()).into());
+            return Err(KeyNonUniqueError(ne.cloned().collect()).into());
         }
         if let Some(ne) = value
             .iter()
@@ -65,34 +65,34 @@ impl TryFrom<HashMap<AnyKey, AnyKey>> for KeyPairs {
             .map(|(k, _)| k.clone())
             .try_into_nonempty_iter()
         {
-            Err(KeyStringMatchingKeyValueError(ne.collect()).into())
+            Err(KeyMatchingKeyValueError(ne.collect()).into())
         } else {
             Ok(Self(value))
         }
     }
 }
 
-/// Error when building [`KeyStringPairs`] from configuration
+/// Error when building [`KeyPairs`] from configuration
 #[derive(Error, Display, Debug, PartialEq, Clone, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum KeyStringPairsError {
-    Matching(KeyStringMatchingKeyValueError),
-    NonUnique(KeyStringNonUniqueError),
+pub enum KeyPairsError {
+    Matching(KeyMatchingKeyValueError),
+    NonUnique(KeyNonUniqueError),
 }
 
-/// Error when key and value in [`KeyStringPairs`] matches
+/// Error when key and value in [`KeyPairs`] matches
 #[derive(Error, Debug, PartialEq, Clone)]
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-pub struct KeyStringMatchingKeyValueError(NEVec<AnyKey>);
+pub struct KeyMatchingKeyValueError(NEVec<AnyKey>);
 
-/// Error when values in [`KeyStringPairs`] are not unique
+/// Error when values in [`KeyPairs`] are not unique
 #[derive(Error, Debug, PartialEq, Clone)]
 #[error("the following values are not unique: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-pub struct KeyStringNonUniqueError(NEVec<AnyKey>);
+pub struct KeyNonUniqueError(NEVec<AnyKey>);
 
 #[cfg(feature = "python")]
 mod python {

@@ -22,7 +22,7 @@ use fireflow_types::config::{
 };
 use fireflow_types::datepattern::DatePattern;
 use fireflow_types::keys::{AnyKey, StdKey};
-use fireflow_types::keystring_pairs::{KeyPairs, KeyStringPairsError};
+use fireflow_types::keystring_pairs::{KeyPairs, KeyPairsError};
 use fireflow_types::std_pattern::{
     NonUniqueKeyError, StdKeyOrPattern, StdKeyPatterns, StdKeysOrPatterns, SubPatterns,
     checked_iter_to_hashmap,
@@ -337,7 +337,7 @@ pub enum AppendRepairFlagError {
     PseudoNonStd(NonUniqueKeyError<StdKeyOrPattern<false>>),
     NonUniqueStd(NonUniqueKeyError<StdKey>),
     NonUniqueMaybeStd(NonUniqueKeyError<AnyKey>),
-    KeyStringPairsValid(KeyStringPairsError),
+    KeyStringPairsValid(KeyPairsError),
 }
 
 impl HasStrategy for ReadHeaderConfig {

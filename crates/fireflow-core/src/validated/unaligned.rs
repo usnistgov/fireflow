@@ -91,12 +91,45 @@ pub trait FCSRepr {
 
     /// The primitive underlying this type (which may be the same).
     ///
-    /// This type must be aligned (ie power of 2 size in bytes).
+    /// This type must be power of 2 size in bytes.
     type Prim;
 
     #[must_use]
     fn file_len() -> usize {
         usize::from(u8::from(Self::FILE_BYTES))
+    }
+
+    #[must_use]
+    fn be_to_native(self) -> Self
+    where
+        Self: FromBytes<Bytes = Self::FileBuf> + ToBytes<Bytes = Self::FileBuf>,
+    {
+        let buf = self.to_ne_bytes();
+        Self::from_be_bytes(&buf)
+    }
+
+    #[must_use]
+    fn le_to_native(self) -> Self
+    where
+        Self: FromBytes<Bytes = Self::FileBuf> + ToBytes<Bytes = Self::FileBuf>,
+    {
+        let buf = self.to_ne_bytes();
+        Self::from_le_bytes(&buf)
+    }
+
+    #[must_use]
+    fn ordered_to_native(self, order: &Self::ByteOrd) -> Self
+    where
+        Self: FromBytes<Bytes = Self::FileBuf> + ToBytes<Bytes = Self::FileBuf>,
+        Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
+        Self::ByteOrd: AsRef<[u8]>,
+    {
+        let bytes = self.to_ne_bytes();
+        let mut buf = Self::FileBuf::default();
+        for (i, j) in order.as_ref().iter().enumerate() {
+            buf.as_mut()[usize::from(*j)] = bytes.as_ref()[i];
+        }
+        Self::from_le_bytes(&buf)
     }
 
     #[must_use]
@@ -198,7 +231,7 @@ pub trait FCSRepr {
 }
 
 macro_rules! impl_file_bytes {
-    ($t:ident, $prim:ident, $file_bytes:ident, $mem_bytes:ident, $file_len:expr, $mem_len:expr) => {
+    ($t:ident, $prim:ident, $file_bytes:ident, $mem_bytes:ident, $file_len:expr) => {
         impl FCSRepr for $t {
             const FILE_BYTES: Bytes = Bytes(NumericByteWidth::$file_bytes);
             type FileBuf = [u8; $file_len];
@@ -232,16 +265,16 @@ unsafe fn array_to_slice<const LEN: usize>(src: &[u8; LEN], dst: &mut [u8], i: &
     unsafe { copy_nonoverlapping(src.as_ptr(), p, LEN) }
 }
 
-impl_file_bytes!(u8, u8, B1, B1, 1, 1);
-impl_file_bytes!(u16, u16, B2, B2, 2, 2);
-impl_file_bytes!(U24, u32, B3, B4, 3, 4);
-impl_file_bytes!(u32, u32, B4, B4, 4, 4);
-impl_file_bytes!(U40, u64, B5, B8, 5, 8);
-impl_file_bytes!(U48, u64, B6, B8, 6, 8);
-impl_file_bytes!(U56, u64, B7, B8, 7, 8);
-impl_file_bytes!(u64, u64, B8, B8, 8, 8);
-impl_file_bytes!(f32, f32, B4, B4, 4, 4);
-impl_file_bytes!(f64, f64, B8, B8, 8, 8);
+impl_file_bytes!(u8, u8, B1, B1, 1);
+impl_file_bytes!(u16, u16, B2, B2, 2);
+impl_file_bytes!(U24, u32, B3, B4, 3);
+impl_file_bytes!(u32, u32, B4, B4, 4);
+impl_file_bytes!(U40, u64, B5, B8, 5);
+impl_file_bytes!(U48, u64, B6, B8, 6);
+impl_file_bytes!(U56, u64, B7, B8, 7);
+impl_file_bytes!(u64, u64, B8, B8, 8);
+impl_file_bytes!(f32, f32, B4, B4, 4);
+impl_file_bytes!(f64, f64, B8, B8, 8);
 
 macro_rules! impl_unaligned {
     ($inner:ident, $outer:ident, $n:expr) => {

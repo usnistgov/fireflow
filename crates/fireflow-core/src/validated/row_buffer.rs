@@ -260,7 +260,9 @@ impl ReadBuffer {
             for (ci, c) in columns.iter_mut().enumerate() {
                 // Within each column, write rows, striding the row buffer and
                 // indexing consecutively in the current column
-                let local_c = &mut c[start_row..end_row];
+                //
+                // SAFETY: each column length is less than total row number
+                let local_c = unsafe { c.get_unchecked_mut(start_row..end_row) };
                 let mut src_idx = ci;
                 for value in local_c.iter_mut() {
                     // SAFETY: src_idx given as row_width * R + C * LEN where R

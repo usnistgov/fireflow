@@ -48,9 +48,9 @@ use super::read_state::WriteFCSDigest;
 pub(crate) struct RowBuffer<const IS_READ: bool> {
     // all values are internally validated to be non-zero and consistent
     nrows: usize,
-    row_width: usize,
+    row_nbytes: usize,
     rows_per_buffer: usize,
-    buf_size: u64,
+    total_nbytes: u64,
     bytes: Vec<u8>,
 }
 
@@ -59,16 +59,16 @@ pub(crate) type ReadBuffer = RowBuffer<true>;
 pub(crate) type WriteBuffer = RowBuffer<false>;
 
 impl<const IS_READ: bool> RowBuffer<IS_READ> {
-    pub(crate) fn init(max_size: RowBufferSize, nrows: usize, row_width: usize) -> Option<Self> {
-        if nrows == 0 || row_width == 0 {
+    pub(crate) fn init(max_size: RowBufferSize, nrows: usize, row_nbytes: usize) -> Option<Self> {
+        if nrows == 0 || row_nbytes == 0 {
             return None;
         }
         // Max this to 1 here so that we always have at least one row we are
         // reading. If there are any machines that produce files with at least
         // 32KB rows (which would be ~1000 parameters at 32 bit column widths),
         // these will produce some lovely cache miss fireworks on most CPUs :/
-        let rows_per_buffer = (usize::from(max_size) / row_width).max(1);
-        let buf_size = rows_per_buffer * row_width;
+        let rows_per_buffer = (usize::from(max_size) / row_nbytes).max(1);
+        let buf_size = rows_per_buffer * row_nbytes;
         // When reading we will be pulling a stream from disk and clearing it
         // repeatedly, so it needs to start empty. When writing, we need to fill
         // the buffer with 0's up to capacity and then copy data to it, so it
@@ -81,8 +81,8 @@ impl<const IS_READ: bool> RowBuffer<IS_READ> {
         let new = Self {
             nrows,
             rows_per_buffer,
-            buf_size: buf_size.usize_to_u64(),
-            row_width,
+            total_nbytes: buf_size.usize_to_u64(),
+            row_nbytes,
             bytes,
         };
         Some(new)
@@ -98,7 +98,7 @@ impl<const IS_READ: bool> RowBuffer<IS_READ> {
 
     fn remainder_bytes(&self) -> usize {
         let remainder_rows = self.remainder_row_number();
-        remainder_rows * self.row_width
+        remainder_rows * self.row_nbytes
     }
 
     /// Test the input geometry to ensure that we won't read out of bounds.
@@ -123,9 +123,9 @@ impl<const IS_READ: bool> RowBuffer<IS_READ> {
 
         let computed_row_width = columns.len() * value_bytes;
         assert!(
-            computed_row_width == self.row_width,
+            computed_row_width == self.row_nbytes,
             "Computed row bytes ({computed_row_width}) not equal to assumed row bytes ({})",
-            self.row_width,
+            self.row_nbytes,
         );
 
         let whole_buffer_rows = self.rows_per_buffer * self.whole_row_number();
@@ -143,11 +143,11 @@ impl<const IS_READ: bool> RowBuffer<IS_READ> {
     /// therefore no jmp ops) in the main loop in release code.
     fn assert_in_bounds(&self, idx: usize, len: usize) {
         debug_assert!(
-            idx + len <= self.buf_size.u64_to_usize(),
+            idx + len <= self.total_nbytes.u64_to_usize(),
             "need to read [{}..{}] but buffer is only {} bytes long",
             idx,
             idx + len,
-            self.buf_size,
+            self.total_nbytes,
         );
     }
 }
@@ -155,12 +155,13 @@ impl<const IS_READ: bool> RowBuffer<IS_READ> {
 impl ReadBuffer {
     fn read_size<R: Read>(&mut self, h: &mut BufReader<R>, size: u64) -> io::Result<()> {
         self.bytes.clear();
-        h.take(size).read_to_end(&mut self.bytes)?;
+        let taken = h.take(size).read_to_end(&mut self.bytes)?;
+        assert_eq!(taken.usize_to_u64(), size, "could not read {size} bytes");
         Ok(())
     }
 
     fn read<R: Read>(&mut self, h: &mut BufReader<R>) -> io::Result<()> {
-        self.read_size(h, self.buf_size)
+        self.read_size(h, self.total_nbytes)
     }
 
     fn read_remainder<R: Read>(&mut self, h: &mut BufReader<R>) -> io::Result<()> {
@@ -192,7 +193,7 @@ impl ReadBuffer {
                 // indexing consecutively in the current column
                 let src_width = fwidth(c);
                 for row in 0..self.rows_per_buffer {
-                    let src_idx = SrcIndex(src_col_offset + self.row_width * row);
+                    let src_idx = SrcIndex(src_col_offset + self.row_nbytes * row);
                     let dst_idx = DstIndex(dst_row_offset + row);
                     fread(c, dst_idx, &self.bytes, src_idx).map_err(ImpureError::Pure)?;
                 }
@@ -206,7 +207,7 @@ impl ReadBuffer {
         src_col_offset = 0;
         for c in columns.iter_mut() {
             for row in 0..self.remainder_row_number() {
-                let src_idx = SrcIndex(src_col_offset + self.row_width * row);
+                let src_idx = SrcIndex(src_col_offset + self.row_nbytes * row);
                 let dst_idx = DstIndex(dst_row_offset + row);
                 fread(c, dst_idx, &self.bytes, src_idx).map_err(ImpureError::Pure)?;
             }
@@ -237,23 +238,26 @@ impl ReadBuffer {
         //
         // 1-3 above mean that that two inner loops have no jumps, which means
         // the compiler can unroll the loops and possibly autovectorize.
+        //
+        // NOTE: SIMD probably isn't worth it here because the bottleneck after
+        // the above optimizations is memory/cache bandwidth.
         let src_len = T::file_len();
         self.assert_matrix_assumptions(columns, src_len);
 
+        let stride = columns.len();
+        let rows_per_buffer = self.rows_per_buffer;
         // Read groups of rows in outer loop
-        for buf_idx in 0..self.whole_row_number() {
+        for start_row in (0..self.whole_row_number()).map(|r| r * rows_per_buffer) {
             self.read(h)?;
-            let start_row = buf_idx * self.rows_per_buffer;
+            let buffers = T::cast_buffers(&self.bytes);
+            let end_row = start_row + rows_per_buffer;
             // Once we have a buffer, iterate through each column and write data
             for (ci, c) in columns.iter_mut().enumerate() {
-                let src_col_offset = ci * src_len;
                 // Within each column, write rows, striding the row buffer and
                 // indexing consecutively in the current column
-                let end_row = start_row + self.rows_per_buffer;
                 let local_c = &mut c[start_row..end_row];
-                for (row, value) in local_c.iter_mut().enumerate() {
-                    let src_idx = SrcIndex(src_col_offset + self.row_width * row);
-                    self.assert_in_bounds(src_idx.0, src_len);
+                let mut src_idx = ci;
+                for value in local_c.iter_mut() {
                     // SAFETY: src_idx given as row_width * R + C * LEN where R
                     // is row index (within the buffer) and C is column index.
                     // Both R and C must be less than the number of rows per
@@ -267,8 +271,9 @@ impl ReadBuffer {
                     // NOTE using the safe version of this does not work because
                     // the compiler is not smart enough to figure out that the
                     // bounds check is unnecessary.
-                    let buf = unsafe { T::array_from_slice(&self.bytes, &src_idx) };
-                    *value = from_buf(&buf);
+                    let buf = unsafe { buffers.get_unchecked(src_idx) };
+                    *value = from_buf(buf);
+                    src_idx += stride;
                 }
             }
         }
@@ -277,15 +282,15 @@ impl ReadBuffer {
         self.read_remainder(h)?;
         let remainder_rows = self.remainder_row_number();
         let dst_row_offset = self.whole_row_number() * self.rows_per_buffer;
+        let buffers = T::cast_buffers(&self.bytes);
         for (ci, c) in columns.iter_mut().enumerate() {
-            let src_col_offset = ci * src_len;
             let local_c = &mut c[dst_row_offset..dst_row_offset + remainder_rows];
-            for (row, value) in local_c.iter_mut().enumerate() {
-                let src_idx = SrcIndex(src_col_offset + self.row_width * row);
-                self.assert_in_bounds(src_idx.0, src_len);
+            let mut src_idx = ci;
+            for value in local_c.iter_mut() {
                 // SAFETY: see above
-                let buf = unsafe { T::array_from_slice(&self.bytes, &src_idx) };
-                *value = from_buf(&buf);
+                let buf = unsafe { buffers.get_unchecked(src_idx) };
+                *value = from_buf(buf);
+                src_idx += stride;
             }
         }
 
@@ -443,7 +448,7 @@ impl WriteBuffer {
                 let src_width = fwidth(c);
                 for row in 0..self.rows_per_buffer {
                     let src_idx = SrcIndex(src_row_offset + row);
-                    let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
+                    let dst_idx = DstIndex(dst_col_offset + self.row_nbytes * row);
                     fpush(c, src_idx, &mut self.bytes, dst_idx);
                 }
                 dst_col_offset += src_width;
@@ -458,7 +463,7 @@ impl WriteBuffer {
         for c in columns {
             for row in 0..remainder_rows {
                 let src_idx = SrcIndex(src_row_offset + row);
-                let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
+                let dst_idx = DstIndex(dst_col_offset + self.row_nbytes * row);
                 fpush(c, src_idx, &mut self.bytes, dst_idx);
             }
             dst_col_offset += fwidth(c);
@@ -498,7 +503,7 @@ impl WriteBuffer {
                 let end_row = start_row + self.rows_per_buffer;
                 let local_c = &c[start_row..end_row];
                 for (row, value) in local_c.iter().enumerate() {
-                    let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
+                    let dst_idx = DstIndex(dst_col_offset + self.row_nbytes * row);
                     self.assert_in_bounds(dst_idx.0, dst_len);
                     let buf = to_buf(value);
                     // SAFETY: src_idx given as row_width * R + C * LEN where R
@@ -529,7 +534,7 @@ impl WriteBuffer {
             let dst_col_offset = ci * dst_len;
             let local_c = &c[dst_row_offset..dst_row_offset + remainder_rows];
             for (row, value) in local_c.iter().enumerate() {
-                let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
+                let dst_idx = DstIndex(dst_col_offset + self.row_nbytes * row);
                 self.assert_in_bounds(dst_idx.0, dst_len);
                 let buf = to_buf(value);
                 // SAFETY: see above

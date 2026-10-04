@@ -172,17 +172,7 @@ pub trait FCSRepr {
         buf
     }
 
-    /// Read an FCS value from a byte stream.
-    ///
-    /// # SAFETY
-    ///
-    /// Caller must ensure that the bytes to be read, starting at the index and
-    /// up to the last byte given by index + length of bytes to be read, are
-    /// within the slice. This will not check bounds. This is meant to be used
-    /// in very fast loops where performance is critical and adding a bounds
-    /// check would insert a jump op which would in tern prevent nice compiler
-    /// optimizations (unrolling, possibly vectorization, etc).
-    unsafe fn array_from_slice(src: &[u8], i: &SrcIndex) -> Self::FileBuf;
+    fn cast_buffers(src: &[u8]) -> &[Self::FileBuf];
 
     /// Write an FCS value to a byte stream.
     ///
@@ -205,9 +195,13 @@ macro_rules! impl_file_bytes {
             type ByteOrd = Self::FileBuf;
             type Prim = $prim;
 
-            unsafe fn array_from_slice(src: &[u8], i: &SrcIndex) -> Self::FileBuf {
-                // SAFETY: caller must ensure this is not out of bounds
-                unsafe { array_from_slice(src, i) }
+            fn cast_buffers(src: &[u8]) -> &[Self::FileBuf] {
+                let (ret, rem) = src.as_chunks::<$file_len>();
+                assert!(
+                    rem.is_empty(),
+                    "src was not evenly divided by buffer length"
+                );
+                ret
             }
 
             unsafe fn array_to_slice(src: &Self::FileBuf, dst: &mut [u8], i: &DstIndex) {
@@ -216,13 +210,6 @@ macro_rules! impl_file_bytes {
             }
         }
     };
-}
-
-unsafe fn array_from_slice<const LEN: usize>(src: &[u8], i: &SrcIndex) -> [u8; LEN] {
-    // SAFETY: caller should ensure this is not out of bounds
-    let xs = unsafe { src.get_unchecked(i.0..i.0 + LEN) };
-    // SAFETY: length of slice should match returned array
-    unsafe { *(xs.as_ptr().cast()) }
 }
 
 unsafe fn array_to_slice<const LEN: usize>(src: &[u8; LEN], dst: &mut [u8], i: &DstIndex) {

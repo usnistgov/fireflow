@@ -105,7 +105,7 @@ impl<const IS_READ: bool> RowBuffer<IS_READ> {
     ///
     /// This is important because we don't want to use range checks in the
     /// main loop.
-    fn assert_matrix_assumptions<C: HasLen>(&self, columns: &[C], value_bytes: usize) {
+    fn assert_matrix_assumptions<C: HasLen>(&self, columns: &[C], value_nbytes: usize) {
         let mismatch_col_lengths: Vec<_> = columns
             .iter()
             .map(HasLen::len)
@@ -121,7 +121,7 @@ impl<const IS_READ: bool> RowBuffer<IS_READ> {
             mismatch_col_lengths.into_iter().join(",")
         );
 
-        let computed_row_width = columns.len() * value_bytes;
+        let computed_row_width = columns.len() * value_nbytes;
         assert!(
             computed_row_width == self.row_nbytes,
             "Computed row bytes ({computed_row_width}) not equal to assumed row bytes ({})",

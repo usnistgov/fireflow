@@ -135,6 +135,11 @@ impl<const IS_READ: bool> RowBuffer<IS_READ> {
              must be less than total rows ({})",
             self.nrows
         );
+        assert_eq!(
+            self.total_nbytes.u64_to_usize(),
+            value_nbytes * self.rows_per_buffer * columns.len(),
+            "buffer size must be the same as columns * rows in buffer * value size in bytes"
+        );
     }
 
     /// Check that we won't read out of bounds.

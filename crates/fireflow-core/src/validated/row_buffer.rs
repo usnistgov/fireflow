@@ -223,16 +223,10 @@ impl ReadBuffer {
     }
 
     /// Read stream of bytes using buffer where each value is the same type
-    fn read_matrix<R, T, F>(
-        &mut self,
-        h: &mut BufReader<R>,
-        columns: &mut [Vec<T>],
-        from_buf: F,
-    ) -> io::Result<()>
+    fn read_matrix<R, T>(&mut self, h: &mut BufReader<R>, columns: &mut [Vec<T>]) -> io::Result<()>
     where
         R: Read,
-        F: Fn(&T::FileBuf) -> T,
-        T: FCSRepr,
+        T: FromBytes<Bytes = T::FileBuf> + FCSRepr,
     {
         // This method has several nice optimizations:
         // 1. No errors on the inner two loops
@@ -279,7 +273,7 @@ impl ReadBuffer {
                     // the compiler is not smart enough to figure out that the
                     // bounds check is unnecessary.
                     let buf = unsafe { buffers.get_unchecked(src_idx) };
-                    *value = from_buf(buf);
+                    *value = T::from_ne_bytes(buf);
                     src_idx += stride;
                 }
             }
@@ -296,7 +290,7 @@ impl ReadBuffer {
             for value in local_c.iter_mut() {
                 // SAFETY: see above
                 let buf = unsafe { buffers.get_unchecked(src_idx) };
-                *value = from_buf(buf);
+                *value = T::from_ne_bytes(buf);
                 src_idx += stride;
             }
         }
@@ -313,12 +307,26 @@ impl ReadBuffer {
     ) -> io::Result<()>
     where
         R: Read,
-        T: FromBytes<Bytes = T::FileBuf> + FCSRepr,
+        T: FromBytes<Bytes = T::FileBuf> + ToBytes<Bytes = T::FileBuf> + FCSRepr + Copy,
     {
+        self.read_matrix(h, cols)?;
         match endian {
-            Endian::Big => self.read_matrix(h, cols, T::from_be_bytes),
-            Endian::Little => self.read_matrix(h, cols, T::from_le_bytes),
+            Endian::Big => {
+                for col in cols {
+                    for x in col {
+                        *x = T::be_to_native(*x);
+                    }
+                }
+            }
+            Endian::Little => {
+                for col in cols {
+                    for x in col {
+                        *x = T::le_to_native(*x);
+                    }
+                }
+            }
         }
+        Ok(())
     }
 
     /// Read a matrix where type is an aligned big, little, or mixed endian value.
@@ -331,7 +339,10 @@ impl ReadBuffer {
     ) -> io::Result<()>
     where
         R: Read,
-        T: FromBytes<Bytes = T::FileBuf> + FCSRepr<ByteOrd = [u8; LEN]>,
+        T: FromBytes<Bytes = T::FileBuf>
+            + ToBytes<Bytes = T::FileBuf>
+            + FCSRepr<ByteOrd = [u8; LEN]>
+            + Copy,
         T::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
         T::ByteOrd: AsRef<[u8]>,
         ArrayByteOrd<LEN>: AsRef<T::ByteOrd>,
@@ -339,7 +350,13 @@ impl ReadBuffer {
         if let Some(e) = s.as_endian() {
             self.read_endian_matrix(h, cols, e)
         } else {
-            self.read_matrix(h, cols, |bs| T::from_ordered_bytes(bs, s.as_ref()))
+            self.read_matrix(h, cols)?;
+            for col in cols {
+                for x in col {
+                    *x = T::ordered_to_native(*x, s.as_ref());
+                }
+            }
+            Ok(())
         }
     }
 

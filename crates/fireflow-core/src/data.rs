@@ -4168,43 +4168,6 @@ where
     digest.update_and_write(h, &buffer[..])?;
 
     Ok(())
-
-    // // Write groups of rows in outer loop
-    // let mut dst_col_offset;
-    // let mut src_row_offset = 0;
-    // for _ in 0..self.whole_row_number() {
-    //     dst_col_offset = 0;
-    //     // Once we have a buffer, iterate through each column and write data
-    //     for c in columns {
-    //         // Within each column, write rows, striding the row buffer and
-    //         // indexing consecutively in the current column
-    //         let src_width = fwidth(c);
-    //         for row in 0..self.rows_per_buffer {
-    //             let src_idx = SrcIndex(src_row_offset + row);
-    //             let dst_idx = DstIndex(dst_col_offset + self.row_nbytes * row);
-    //             fpush(c, src_idx, &mut self.bytes, dst_idx);
-    //         }
-    //         dst_col_offset += src_width;
-    //     }
-    //     src_row_offset += self.rows_per_buffer;
-    //     self.write(h, digest)?;
-    // }
-
-    // // Read remaining rows if they exist
-    // let remainder_rows = self.remainder_row_number();
-    // dst_col_offset = 0;
-    // for c in columns {
-    //     for row in 0..remainder_rows {
-    //         let src_idx = SrcIndex(src_row_offset + row);
-    //         let dst_idx = DstIndex(dst_col_offset + self.row_nbytes * row);
-    //         fpush(c, src_idx, &mut self.bytes, dst_idx);
-    //     }
-    //     dst_col_offset += fwidth(c);
-    // }
-
-    // self.write_remainder(h, digest)?;
-
-    // Ok(())
 }
 
 /// Write a matrix where input bytes characters are to be read as u64

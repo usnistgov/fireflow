@@ -1532,6 +1532,10 @@ def run_checks(
             bench_files, input_root, tmpdir, py_to_r, r_to_py
         )
 
+        def check_always(a: pl.DataFrame, b: pl.DataFrame) -> bool:
+            assert_frame_equal(a, b)
+            return True
+
         def check(a: pl.DataFrame, b: pl.DataFrame) -> bool:
             try:
                 assert_frame_equal(a, b)
@@ -1539,8 +1543,12 @@ def run_checks(
             except AssertionError:
                 return False
 
+        # fireflow should always equal ground truth. There are valid reasons why
+        # the others might not be the same, but these should be documented
+        # rather than flat-out forbidden.
         ff_checks = [
-            check(v, ff_dfs[k]) if k in ff_dfs else None for k, v in gt_dfs.items()
+            check_always(v, ff_dfs[k]) if k in ff_dfs else None
+            for k, v in gt_dfs.items()
         ]
         fp_checks = [
             check(v, fp_dfs[k]) if k in fp_dfs else None for k, v in gt_dfs.items()

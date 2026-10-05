@@ -6,7 +6,6 @@ use bigdecimal::BigDecimal;
 use bytemuck::NoUninit;
 use derive_more::{Display, From, Into, Shr};
 use num_traits::{AsPrimitive, Bounded, FromBytes, ToBytes};
-use std::ptr::copy_nonoverlapping;
 use thiserror::Error;
 
 #[cfg(feature = "serde")]
@@ -206,18 +205,6 @@ pub trait FCSRepr {
     }
 
     fn cast_buffers(src: &[u8]) -> &[Self::FileBuf];
-
-    /// Write an FCS value to a byte stream.
-    ///
-    /// # SAFETY
-    ///
-    /// Caller must ensure that the bytes to be written, starting at the index
-    /// and up to the last byte given by index + length of bytes to be written,
-    /// are within the slice. This will not check bounds. This is meant to be
-    /// used in very fast loops where performance is critical and adding a
-    /// bounds check would insert a jump op which would in tern prevent nice
-    /// compiler optimizations (unrolling, possibly vectorization, etc).
-    unsafe fn array_to_slice(src: &Self::FileBuf, dst: &mut [u8], i: &DstIndex);
 }
 
 macro_rules! impl_file_bytes {
@@ -236,20 +223,8 @@ macro_rules! impl_file_bytes {
                 );
                 ret
             }
-
-            unsafe fn array_to_slice(src: &Self::FileBuf, dst: &mut [u8], i: &DstIndex) {
-                // SAFETY: caller must ensure this is not out of bounds
-                unsafe { array_to_slice(src, dst, i) }
-            }
         }
     };
-}
-
-unsafe fn array_to_slice<const LEN: usize>(src: &[u8; LEN], dst: &mut [u8], i: &DstIndex) {
-    // SAFETY: caller should ensure this is not out of bounds
-    let p = unsafe { dst.as_mut_ptr().add(i.0) };
-    // SAFETY: length of slice should match returned array
-    unsafe { copy_nonoverlapping(src.as_ptr(), p, LEN) }
 }
 
 impl_file_bytes!(u8, u8, B1, B1, 1);

@@ -66,12 +66,6 @@ pub struct U56(u64);
 #[cfg_attr(feature = "python", pyerr(PyOverflowError))]
 pub struct TryFromUnalignedIntError;
 
-/// Index in a slice from which bytes are to be copied.
-pub struct SrcIndex(pub(crate) usize);
-
-/// Index in a slice into which bytes are to be copied.
-pub struct DstIndex(pub(crate) usize);
-
 /// A type that can be converted from an FCS value to a memory value.
 ///
 /// This is used for the various data types present in an FCS file.
@@ -132,49 +126,49 @@ pub trait FCSRepr {
     }
 
     #[must_use]
-    fn from_be_slice(src: &[u8], index: SrcIndex) -> Self
+    fn from_be_slice(src: &[u8], index: usize) -> Self
     where
         Self: FromBytes<Bytes = Self::FileBuf>,
         Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
     {
         let n = Self::file_len();
         let mut buf = Self::FileBuf::default();
-        let tmp = &src[index.0..index.0 + n];
+        let tmp = &src[index..index + n];
         buf.as_mut().copy_from_slice(tmp);
         Self::from_be_bytes(&buf)
     }
 
     #[must_use]
-    fn from_le_slice(src: &[u8], index: SrcIndex) -> Self
+    fn from_le_slice(src: &[u8], index: usize) -> Self
     where
         Self: FromBytes<Bytes = Self::FileBuf>,
         Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
     {
         let n = Self::file_len();
         let mut buf = Self::FileBuf::default();
-        let tmp = &src[index.0..index.0 + n];
+        let tmp = &src[index..index + n];
         buf.as_mut().copy_from_slice(tmp);
         Self::from_le_bytes(&buf)
     }
 
-    fn to_be_slice(&self, dst: &mut [u8], index: DstIndex)
+    fn to_be_slice(&self, dst: &mut [u8], index: usize)
     where
         Self: ToBytes<Bytes = Self::FileBuf>,
         Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
     {
         let tmp = self.to_be_bytes();
         let n = Self::file_len();
-        dst[index.0..index.0 + n].copy_from_slice(tmp.as_ref());
+        dst[index..index + n].copy_from_slice(tmp.as_ref());
     }
 
-    fn to_le_slice(&self, dst: &mut [u8], index: DstIndex)
+    fn to_le_slice(&self, dst: &mut [u8], index: usize)
     where
         Self: ToBytes<Bytes = Self::FileBuf>,
         Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
     {
         let tmp = self.to_le_bytes();
         let n = Self::file_len();
-        dst[index.0..index.0 + n].copy_from_slice(tmp.as_ref());
+        dst[index..index + n].copy_from_slice(tmp.as_ref());
     }
 
     fn from_ordered_bytes(bytes: &Self::FileBuf, order: &Self::ByteOrd) -> Self

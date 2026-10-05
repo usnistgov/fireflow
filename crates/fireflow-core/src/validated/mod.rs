@@ -8,6 +8,5 @@ pub mod dataframe;
 pub mod finite_float;
 pub mod header_offsets;
 pub mod read_state;
-pub mod row_buffer;
 pub mod shortname;
 pub mod unaligned;

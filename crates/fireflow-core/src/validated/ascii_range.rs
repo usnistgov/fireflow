@@ -20,8 +20,6 @@ use std::num::{NonZero, NonZeroU8};
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use super::unaligned::DstIndex;
-
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
@@ -201,17 +199,16 @@ impl FixedAsciiRange {
         self.chars
     }
 
-    pub(crate) fn as_slice_unchecked(&self, value: u64, dst: &mut [u8], dst_index: &DstIndex) {
-        let i = dst_index.0;
+    pub(crate) fn as_slice_unchecked(&self, value: u64, dst: &mut [u8], index: usize) {
         let width = usize::from(u8::from(self.chars()));
         let str_value = value.to_string();
-        assert!(i + width <= dst.len(), "new value will overflow");
+        assert!(index + width <= dst.len(), "new value will overflow");
         assert!(str_value.len() <= width, "ASCII value will be truncated");
         let n_zero = width - str_value.len();
-        for d in &mut dst[i..i + n_zero] {
+        for d in &mut dst[index..index + n_zero] {
             *d = b'0';
         }
-        dst[i + n_zero..i + width].copy_from_slice(str_value.as_bytes());
+        dst[index + n_zero..index + width].copy_from_slice(str_value.as_bytes());
     }
 }
 

@@ -160,7 +160,7 @@ use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
 use fireflow_types::config::{
     AllowOverBitmask, AllowTotMismatch, ByteordOverride, DisallowOverRange, DisallowRangeTrunc,
     DummyTriFlag, IntWidthOverride, NumericByteWidth, OverBitmaskAction, OverLimitMode,
-    OverRangeAction, ReadDataKeywordsConfig, ReadDatasetConfig, TriErrorFlag as _,
+    OverRangeAction, ReadDataKeywordsConfig, ReadDatasetConfig, RowBufferSize, TriErrorFlag as _,
     WriteDatasetInnerConfig,
 };
 use fireflow_types::index::MeasIndex;
@@ -179,7 +179,7 @@ use bytemuck::{cast_slice, cast_vec};
 use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
 use itertools::Itertools as _;
-use num_traits::{Bounded, ToPrimitive as _};
+use num_traits::{Bounded, FromBytes, ToBytes, ToPrimitive as _};
 use thiserror::Error;
 
 use std::convert::Infallible;
@@ -3621,24 +3621,16 @@ where
         nrows: usize,
         conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError> {
-        let df = if let Some(mut row_buf) =
-            ReadBuffer::init(conf.row_buffer_size, nrows, self.event_width())
-        {
-            let ncols = self.columns().len();
-            let mut columns = vec![vec![C::Native::default(); nrows]; ncols];
-
-            self.byteord.read_matrix(h, &mut row_buf, &mut columns)?;
-
-            let data = columns
-                .into_iter()
-                .map(InternalSeries::from)
-                .zip(self.container.iter().cloned())
-                .map(|(data, range)| NativeSeries::new(range, data));
-            DataFrame::new_unchecked(data)
-        } else {
-            DataFrame::default()
-        };
-
+        let ncols = self.columns().len();
+        let columns = self
+            .byteord
+            .read_matrix(h, nrows, ncols, conf.row_buffer_size)?;
+        let data = columns
+            .into_iter()
+            .map(InternalSeries::from)
+            .zip(self.container.iter().cloned())
+            .map(|(data, range)| NativeSeries::new(range, data));
+        let df = DataFrame::new_unchecked(data);
         Ok(Layout::new(df, self.byteord))
     }
 }
@@ -3735,16 +3727,11 @@ impl<M> DataSchemaReadFixed for Layout<Vec<MixedRange>, VecFamily, MixedCol, End
         nrows: usize,
         conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError> {
-        let Some(mut buf) = ReadBuffer::init(conf.row_buffer_size, nrows, self.event_width())
-        else {
-            return Ok(Layout::new(DataFrame::default(), self.byteord));
-        };
         let en = self.byteord;
         let cs = &self.container[..];
+        let rs = conf.row_buffer_size;
 
-        let columns = if let Some(ret) =
-            try_read_single::<_, _, F32Range>(h, cs, nrows, en, &mut buf)?
-        {
+        let columns = if let Some(ret) = try_read_single::<_, _, F32Range>(h, cs, nrows, en, rs)? {
             // If the types are all the same width (but not necessary the same
             // type), we can "cheat" and read the layout all as one type and
             // cast to other types after the fact. This will dramatically speed
@@ -3752,10 +3739,12 @@ impl<M> DataSchemaReadFixed for Layout<Vec<MixedRange>, VecFamily, MixedCol, End
             //
             // This is for 32-bit float+int
             ret
-        } else if let Some(ret) = try_read_single::<_, _, F64Range>(h, cs, nrows, en, &mut buf)? {
+        } else if let Some(ret) = try_read_single::<_, _, F64Range>(h, cs, nrows, en, rs)? {
             // ditto 64-bit
             ret
-        } else {
+        } else if let Some(mut buf) =
+            ReadBuffer::init(conf.row_buffer_size, nrows, self.event_width())
+        {
             // Totally mixed layout, dispatch for each column. This will be
             // slower but is necessary to read each type correctly.
             let mut columns: Vec<_> = self
@@ -3763,6 +3752,7 @@ impl<M> DataSchemaReadFixed for Layout<Vec<MixedRange>, VecFamily, MixedCol, End
                 .iter()
                 .map(|c| c.init_column(nrows))
                 .collect();
+
             buf.read_mixed_df(h, &mut columns, self.byteord)
                 .map_err(|e| {
                     e.fmap_once(ReadFixedAsciiError::from)
@@ -3770,6 +3760,8 @@ impl<M> DataSchemaReadFixed for Layout<Vec<MixedRange>, VecFamily, MixedCol, End
                         .fmap_once(ReadDataframeError::from)
                 })?;
             columns
+        } else {
+            return Ok(Layout::new(DataFrame::default(), self.byteord));
         };
 
         let data = columns.into_iter().map(MixedSeries::from);
@@ -3820,7 +3812,7 @@ fn try_read_single<R, W, C>(
     ranges: &[MixedRange],
     nrows: usize,
     endian: Endian,
-    row_buf: &mut ReadBuffer,
+    buffer_nbytes: RowBufferSize,
 ) -> io::Result<Option<Vec<MixedVec>>>
 where
     R: Read,
@@ -3836,9 +3828,8 @@ where
         .map(W::try_from)
         .collect::<Result<Vec<_>, _>>()
     {
-        let zero = <C as ColumnHasNativeType>::Native::default();
-        let mut columns = vec![vec![zero; nrows]; cs.len()];
-        ByteOrderIO::<C>::read_matrix(&endian, h, row_buf, &mut columns)?;
+        let ncols = cs.len();
+        let columns = ByteOrderIO::<C>::read_matrix(&endian, h, nrows, ncols, buffer_nbytes)?;
         let ret = columns
             .into_iter()
             .zip(cs)
@@ -3880,14 +3871,9 @@ where
         digest: &mut WriteFCSDigest,
         conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()> {
-        let nrows = self.container.nrows();
-        if let Some(mut row_buf) =
-            WriteBuffer::init(conf.row_buffer_size, nrows, self.event_width())
-        {
-            let cols: Vec<_> = self.container.iter().map(AsRef::as_ref).collect();
-            self.byteord
-                .write_matrix(h, &mut row_buf, &cols[..], digest)?;
-        }
+        let cols: Vec<_> = self.container.iter().map(AsRef::as_ref).collect();
+        self.byteord
+            .write_matrix(h, &cols[..], digest, conf.row_buffer_size)?;
         Ok(())
     }
 }
@@ -3952,14 +3938,14 @@ impl<M> DataFrameWriteFixed
         conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()> {
         let nrows = self.container.nrows();
-        if let Some(mut buf) = WriteBuffer::init(conf.row_buffer_size, nrows, self.event_width()) {
-            let en = self.byteord;
-            let cols = self.container.as_ref();
-            if !(try_write_single::<_, Any4ByteColumn, F32Range>(h, cols, digest, en, &mut buf)?
-                || try_write_single::<_, Any8ByteColumn, F64Range>(h, cols, digest, en, &mut buf)?)
-            {
-                buf.write_mixed_df(h, cols, digest, self.byteord)?;
-            }
+        let en = self.byteord;
+        let cols = self.container.as_ref();
+        let rs = conf.row_buffer_size;
+        if !(try_write_single::<_, Any4ByteColumn, F32Range>(h, cols, digest, en, rs)?
+            || try_write_single::<_, Any8ByteColumn, F64Range>(h, cols, digest, en, rs)?)
+            && let Some(mut buf) = WriteBuffer::init(rs, nrows, self.event_width())
+        {
+            buf.write_mixed_df(h, cols, digest, self.byteord)?;
         }
         Ok(())
     }
@@ -4002,7 +3988,7 @@ fn try_write_single<W, T, C>(
     cols: &[MixedSeries],
     digest: &mut WriteFCSDigest,
     endian: Endian,
-    write_buf: &mut WriteBuffer,
+    buffer_nbytes: RowBufferSize,
 ) -> io::Result<bool>
 where
     W: Write,
@@ -4018,7 +4004,7 @@ where
         .collect::<Result<Vec<_>, _>>()
     {
         let columns: Vec<_> = cs.iter().map(AsRef::as_ref).collect();
-        ByteOrderIO::<C>::write_matrix(&endian, h, write_buf, &columns[..], digest)?;
+        ByteOrderIO::<C>::write_matrix(&endian, h, &columns[..], digest, buffer_nbytes)?;
         Ok(true)
     } else {
         Ok(false)
@@ -7093,11 +7079,28 @@ impl CheckRange for MixedSeries {
     }
 }
 
-// Implement read dispatch for byte layouts.
+// Implement read methods for "matrix" schemas where all data is the same width.
 //
-// For simple cases where DATA is all the same type (or can be read as the same
-// type and then cast to other types), each byte layout can be mapped to a
-// specialized loop which reads all bytes as a matrix.
+// For these cases, each byte layout can be mapped to a specialized loop which
+// reads all bytes as a matrix. Note that only the width is important since
+// types can be cast later (useful for S8 layouts with f32 and u32).
+//
+// Both the read and write loops have several optimizations:
+// 1. No errors on the inner two loops
+// 2. All values have the same byte layout, which means we don't need
+//    to dispatch different methods for different columns
+// 3. No bounds checks for indexing (with the help of some unsafe code).
+//
+// Collectively, these ensures the two inner loops have no jumps, which reduces
+// branch pressure and possibly allows the compiler to unroll the loops.
+//
+// In addition, use a buffer to read a fixed number of rows such that the buffer
+// can mostly fit in L1 cache. When accessing this buffer, loop over columns
+// first before rows, which ensures only one column will be live in the cache
+// at once.
+//
+// NOTE: SIMD probably isn't worth it here because the bottleneck after
+// the above optimizations is memory/cache bandwidth.
 
 trait ByteOrderIO<C: ColumnHasNativeType>
 where
@@ -7106,16 +7109,17 @@ where
     fn read_matrix<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        buf: &mut ReadBuffer,
-        cols: &mut Vec<Vec<C::Native>>,
-    ) -> io::Result<()>;
+        nrows: usize,
+        ncols: usize,
+        buffer_nbytes: RowBufferSize,
+    ) -> io::Result<Vec<Vec<<C as ColumnHasNativeType>::Native>>>;
 
     fn write_matrix<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        buf: &mut WriteBuffer,
         cols: &[&[<C as ColumnHasNativeType>::Native]],
         digest: &mut WriteFCSDigest,
+        buffer_nbytes: RowBufferSize,
     ) -> io::Result<()>;
 }
 
@@ -7125,20 +7129,21 @@ macro_rules! impl_byte_layout_io {
             fn read_matrix<R: Read>(
                 &self,
                 h: &mut BufReader<R>,
-                buf: &mut ReadBuffer,
-                cols: &mut Vec<Vec<<$inner as ColumnHasNativeType>::Native>>,
-            ) -> io::Result<()> {
-                buf.$read_fun(h, cols, *self)
+                nrows: usize,
+                ncols: usize,
+                buffer_nbytes: RowBufferSize,
+            ) -> io::Result<Vec<Vec<<$inner as ColumnHasNativeType>::Native>>> {
+                $read_fun(h, nrows, ncols, *self, buffer_nbytes)
             }
 
             fn write_matrix<W: Write>(
                 &self,
                 h: &mut BufWriter<W>,
-                buf: &mut WriteBuffer,
                 cols: &[&[<$inner as ColumnHasNativeType>::Native]],
                 digest: &mut WriteFCSDigest,
+                buffer_nbytes: RowBufferSize,
             ) -> io::Result<()> {
-                buf.$write_fun(h, cols, digest, *self)
+                $write_fun(h, cols, digest, *self, buffer_nbytes)
             }
         }
     };
@@ -7182,6 +7187,293 @@ impl_endian_layout_io!(Bitmask56);
 impl_endian_layout_io!(Bitmask64);
 impl_endian_layout_io!(F32Range);
 impl_endian_layout_io!(F64Range);
+
+/// Read stream of bytes using buffer where each value is the same type
+fn read_matrix<const LEN: usize, R, T>(
+    h: &mut BufReader<R>,
+    nrows: usize,
+    ncols: usize,
+    buffer_nbytes: RowBufferSize,
+) -> io::Result<Vec<Vec<T>>>
+where
+    R: Read,
+    T: FromBytes<Bytes = [u8; LEN]> + Default + Clone,
+{
+    fn copy_buffer<const LEN: usize, T>(
+        buffer: &[[u8; LEN]],
+        columns: &mut [Vec<T>],
+        start_row: usize,
+        end_row: usize,
+        stride: usize,
+    ) where
+        T: FromBytes<Bytes = [u8; LEN]>,
+    {
+        for (ci, c) in columns.iter_mut().enumerate() {
+            // Within each column, write rows, striding the row buffer and
+            // indexing consecutively in the current column
+            //
+            // SAFETY: each column length is less than total row number
+            let local_c = unsafe { c.get_unchecked_mut(start_row..end_row) };
+            let mut src_idx = ci;
+            for value in local_c.iter_mut() {
+                // Using the safe version of this does not work because the
+                // compiler is not smart enough to figure out that the bounds
+                // check is unnecessary.
+                //
+                // SAFETY: this will never be out of bounds because the loop
+                // indices represent (rows_per_buffer - 1) * ncols + ncols =
+                // rows_per_buffer * ncols = length of buffer
+                let src = unsafe { buffer.get_unchecked(src_idx) };
+                *value = T::from_ne_bytes(src);
+                src_idx += stride;
+            }
+        }
+    }
+
+    if nrows == 0 || ncols == 0 {
+        return Ok(vec![]);
+    }
+
+    let mut columns = vec![vec![T::default(); nrows]; ncols];
+
+    let row_nbytes = LEN * ncols;
+    let rows_per_buffer = (usize::from(buffer_nbytes) / row_nbytes).max(1);
+    let buffer_nvalues_optimal = rows_per_buffer * ncols;
+    let complete_buffer_passes = nrows / rows_per_buffer;
+
+    // A buffer of buffers where each sub-buffers is the exact size of one value
+    // in the matrix. Using sub-arrays like this is convenient for accessing
+    // them latter (otherwise we would need to split chunks and test for a
+    // remainder). As a bonus this will be aligned to the size of one value
+    // which makes this more cache-friendly.
+    let mut buffer = vec![[0_u8; LEN]; buffer_nvalues_optimal];
+
+    for start_row in (0..complete_buffer_passes).map(|i| i * rows_per_buffer) {
+        h.read_exact(buffer[..].as_flattened_mut())?;
+        let end_row = start_row + rows_per_buffer;
+        copy_buffer(&buffer, &mut columns, start_row, end_row, ncols);
+    }
+
+    let remainder_nrows = nrows % rows_per_buffer;
+    let remainder_nvalues = remainder_nrows * ncols;
+
+    // Read remaining rows if they exist
+    buffer.truncate(remainder_nvalues);
+    h.read_exact(buffer[..].as_flattened_mut())?;
+    let first_remainder_row = nrows - remainder_nrows;
+    copy_buffer(&buffer, &mut columns, first_remainder_row, nrows, ncols);
+
+    Ok(columns)
+}
+
+/// Read a matrix where type is an aligned big or little endian value.
+pub(crate) fn read_endian_matrix<const LEN: usize, R, T>(
+    h: &mut BufReader<R>,
+    nrows: usize,
+    ncols: usize,
+    endian: Endian,
+    buffer_nbytes: RowBufferSize,
+) -> io::Result<Vec<Vec<T>>>
+where
+    R: Read,
+    T: FromBytes<Bytes = [u8; LEN]>
+        + ToBytes<Bytes = [u8; LEN]>
+        + FCSRepr<FileBuf = [u8; LEN]>
+        + Copy
+        + Default,
+{
+    let mut columns = read_matrix(h, nrows, ncols, buffer_nbytes)?;
+    match endian {
+        Endian::Big => {
+            for col in &mut columns {
+                for x in col {
+                    *x = T::be_to_native(*x);
+                }
+            }
+        }
+        Endian::Little => {
+            for col in &mut columns {
+                for x in col {
+                    *x = T::le_to_native(*x);
+                }
+            }
+        }
+    }
+    Ok(columns)
+}
+
+/// Read a matrix where type is an aligned big, little, or mixed endian value.
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn read_ordered_matrix<R, T, const LEN: usize>(
+    h: &mut BufReader<R>,
+    nrows: usize,
+    ncols: usize,
+    s: ArrayByteOrd<LEN>,
+    buffer_nbytes: RowBufferSize,
+) -> io::Result<Vec<Vec<T>>>
+where
+    R: Read,
+    T: FromBytes<Bytes = [u8; LEN]>
+        + ToBytes<Bytes = [u8; LEN]>
+        + FCSRepr<FileBuf = [u8; LEN], ByteOrd = [u8; LEN]>
+        + Copy
+        + Default,
+    T::FileBuf: Default,
+    ArrayByteOrd<LEN>: AsRef<T::ByteOrd>,
+{
+    if let Some(e) = s.as_endian() {
+        read_endian_matrix(h, nrows, ncols, e, buffer_nbytes)
+    } else {
+        let mut columns = read_matrix(h, nrows, ncols, buffer_nbytes)?;
+        for col in &mut columns {
+            for x in col {
+                *x = T::ordered_to_native(*x, s.as_ref());
+            }
+        }
+        Ok(columns)
+    }
+}
+
+/// Read stream of bytes using buffer where each value is the same type
+fn write_matrix<const LEN: usize, W, T, F>(
+    h: &mut BufWriter<W>,
+    columns: &[&[T]],
+    digest: &mut WriteFCSDigest,
+    to_buf: F,
+    buffer_nbytes: RowBufferSize,
+) -> io::Result<()>
+where
+    W: Write,
+    F: Fn(&T) -> [u8; LEN],
+    T: ToBytes<Bytes = [u8; LEN]>,
+{
+    fn copy_buffer<const LEN: usize, T, F>(
+        buffer: &mut [[u8; LEN]],
+        columns: &[&[T]],
+        start_row: usize,
+        end_row: usize,
+        stride: usize,
+        to_buf: F,
+    ) where
+        T: ToBytes<Bytes = [u8; LEN]>,
+        F: Fn(&T) -> [u8; LEN],
+    {
+        for (ci, c) in columns.iter().enumerate() {
+            // Within each column, write rows, striding the row buffer and
+            // indexing consecutively in the current column
+            //
+            // SAFETY: each column length is less than total row number
+            let local_c = unsafe { c.get_unchecked(start_row..end_row) };
+            let mut dst_idx = ci;
+            for value in local_c {
+                // Using the safe version of this does not work because
+                // the compiler is not smart enough to figure out that the
+                // bounds check is unnecessary.
+                //
+                // SAFETY: this will never be out of bounds because the loop
+                // indices represent (rows_per_buffer - 1) * ncols + ncols =
+                // rows_per_buffer * ncols = length of buffer
+                let dst = unsafe { buffer.get_unchecked_mut(dst_idx) };
+                *dst = to_buf(value);
+                dst_idx += stride;
+            }
+        }
+    }
+
+    let ncols = columns.len();
+
+    if ncols == 0 {
+        return Ok(());
+    }
+
+    let nrows = columns[0].len();
+
+    if nrows == 0 {
+        return Ok(());
+    }
+
+    assert!(
+        columns[1..].iter().all(|c| c.len() == nrows),
+        "all columns are not the same length"
+    );
+
+    let row_nbytes = LEN * ncols;
+    let rows_per_buffer = (usize::from(buffer_nbytes) / row_nbytes).max(1);
+    let buffer_nvalues_optimal = rows_per_buffer * ncols;
+    let complete_buffer_passes = nrows / rows_per_buffer;
+
+    let mut buffer = vec![[0_u8; LEN]; buffer_nvalues_optimal];
+
+    for start_row in (0..complete_buffer_passes).map(|i| i * rows_per_buffer) {
+        let end_row = start_row + rows_per_buffer;
+        copy_buffer(&mut buffer[..], columns, start_row, end_row, ncols, &to_buf);
+        digest.update_and_write(h, buffer[..].as_flattened())?;
+    }
+
+    let remainder_nrows = nrows % rows_per_buffer;
+    let remainder_nvalues = remainder_nrows * ncols;
+
+    // Write remaining rows if they exist
+    buffer.truncate(remainder_nvalues);
+    let first_remainder_row = nrows - remainder_nrows;
+    copy_buffer(
+        &mut buffer[..],
+        columns,
+        first_remainder_row,
+        nrows,
+        ncols,
+        to_buf,
+    );
+    digest.update_and_write(h, buffer[..].as_flattened())?;
+
+    Ok(())
+}
+
+/// Write a matrix where type is an aligned big or little endian value.
+pub(crate) fn write_endian_matrix<const LEN: usize, W, T>(
+    h: &mut BufWriter<W>,
+    cols: &[&[T]],
+    digest: &mut WriteFCSDigest,
+    endian: Endian,
+    buffer_nbytes: RowBufferSize,
+) -> io::Result<()>
+where
+    W: Write,
+    T: ToBytes<Bytes = [u8; LEN]>,
+{
+    match endian {
+        Endian::Big => write_matrix(h, cols, digest, T::to_be_bytes, buffer_nbytes),
+        Endian::Little => write_matrix(h, cols, digest, T::to_le_bytes, buffer_nbytes),
+    }
+}
+
+/// Write a matrix where type is an aligned big, little, or mixed endian value.
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn write_ordered_matrix<W, T, const LEN: usize>(
+    h: &mut BufWriter<W>,
+    cols: &[&[T]],
+    digest: &mut WriteFCSDigest,
+    s: ArrayByteOrd<LEN>,
+    buffer_nbytes: RowBufferSize,
+) -> io::Result<()>
+where
+    W: Write,
+    T: ToBytes<Bytes = [u8; LEN]> + FCSRepr<FileBuf = [u8; LEN], ByteOrd = [u8; LEN]>,
+    T::FileBuf: Default,
+    ArrayByteOrd<LEN>: AsRef<T::ByteOrd>,
+{
+    if let Some(e) = s.as_endian() {
+        write_endian_matrix(h, cols, digest, e, buffer_nbytes)
+    } else {
+        write_matrix(
+            h,
+            cols,
+            digest,
+            |bs| T::to_ordered_bytes(bs, s.as_ref()),
+            buffer_nbytes,
+        )
+    }
+}
 
 // Implement default for layout types
 //

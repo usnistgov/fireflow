@@ -1,25 +1,21 @@
-use crate::convert::{U64Ext as _, UsizeExt as _};
+use crate::convert::UsizeExt as _;
 use crate::data::{
     AnyDatatype, AnyUint, AnyUintVec, AsciiNumToUintError, ColumnIsBinary as _,
     DataAsciiNumToUintError, MixedSeries, MixedVec, NativeSeries, RangedVec, VariableUintSeries,
     numeric_ascii_to_uint,
 };
 use crate::logging::{IOResult, ImpureError};
-use crate::text::byteord::{ArrayByteOrd, Endian};
+use crate::text::byteord::Endian;
 use crate::validated::ascii_range::FixedAsciiRange;
-use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex};
+use crate::validated::read_state::WriteFCSDigest;
+use crate::validated::unaligned::{DstIndex, SrcIndex};
 
 use fireflow_types::config::RowBufferSize;
 
 use derive_new::new;
-use itertools::Itertools as _;
-use num_traits::{FromBytes, ToBytes};
 
 use std::convert::Infallible;
 use std::io::{self, BufReader, BufWriter, Read, Write};
-
-use super::dataframe::HasLen;
-use super::read_state::WriteFCSDigest;
 
 /// A cache-friendly buffer for reading and writing DATA.
 ///
@@ -100,61 +96,6 @@ impl<const IS_READ: bool> RowBuffer<IS_READ> {
         let remainder_rows = self.remainder_row_number();
         remainder_rows * self.row_nbytes
     }
-
-    /// Test the input geometry to ensure that we won't read out of bounds.
-    ///
-    /// This is important because we don't want to use range checks in the
-    /// main loop.
-    fn assert_matrix_assumptions<C: HasLen>(&self, columns: &[C], value_nbytes: usize) {
-        let mismatch_col_lengths: Vec<_> = columns
-            .iter()
-            .map(HasLen::len)
-            .enumerate()
-            .filter(|(_, l)| *l != self.nrows)
-            .map(|(i, l)| format!("({i},{l})"))
-            .collect();
-        assert!(
-            mismatch_col_lengths.is_empty(),
-            "All column lengths should be equal to given row number ({}), \
-             non-equal column lengths were [{}] (index, length)",
-            self.nrows,
-            mismatch_col_lengths.into_iter().join(",")
-        );
-
-        let computed_row_width = columns.len() * value_nbytes;
-        assert!(
-            computed_row_width == self.row_nbytes,
-            "Computed row bytes ({computed_row_width}) not equal to assumed row bytes ({})",
-            self.row_nbytes,
-        );
-
-        let whole_buffer_rows = self.rows_per_buffer * self.whole_row_number();
-        assert!(
-            whole_buffer_rows <= self.nrows,
-            "number of rows in complete reads ({whole_buffer_rows}) \
-             must be less than total rows ({})",
-            self.nrows
-        );
-        assert_eq!(
-            self.total_nbytes.u64_to_usize(),
-            value_nbytes * self.rows_per_buffer * columns.len(),
-            "buffer size must be the same as columns * rows in buffer * value size in bytes"
-        );
-    }
-
-    /// Check that we won't read out of bounds.
-    ///
-    /// This must be a debug assert so that there are no bounds checks (and
-    /// therefore no jmp ops) in the main loop in release code.
-    fn assert_in_bounds(&self, idx: usize, len: usize) {
-        debug_assert!(
-            idx + len <= self.total_nbytes.u64_to_usize(),
-            "need to read [{}..{}] but buffer is only {} bytes long",
-            idx,
-            idx + len,
-            self.total_nbytes,
-        );
-    }
 }
 
 impl ReadBuffer {
@@ -220,144 +161,6 @@ impl ReadBuffer {
         }
 
         Ok(())
-    }
-
-    /// Read stream of bytes using buffer where each value is the same type
-    fn read_matrix<R, T>(&mut self, h: &mut BufReader<R>, columns: &mut [Vec<T>]) -> io::Result<()>
-    where
-        R: Read,
-        T: FromBytes<Bytes = T::FileBuf> + FCSRepr,
-    {
-        // This method has several nice optimizations:
-        // 1. No errors on the inner two loops
-        // 2. All values have the same byte layout, which means we don't need
-        //    to dispatch different methods for different columns
-        // 3. Using the assertions below and some unsafe code, we can remove
-        //    all bounds checks on the inner loop.
-        //
-        // 1-3 above mean that that two inner loops have no jumps, which means
-        // the compiler can unroll the loops and possibly autovectorize.
-        //
-        // NOTE: SIMD probably isn't worth it here because the bottleneck after
-        // the above optimizations is memory/cache bandwidth.
-        let src_len = T::file_len();
-        self.assert_matrix_assumptions(columns, src_len);
-
-        let stride = columns.len();
-        let rows_per_buffer = self.rows_per_buffer;
-        // Read groups of rows in outer loop
-        for start_row in (0..self.whole_row_number()).map(|r| r * rows_per_buffer) {
-            self.read(h)?;
-            let buffers = T::cast_buffers(&self.bytes);
-            let end_row = start_row + rows_per_buffer;
-            // Once we have a buffer, iterate through each column and write data
-            for (ci, c) in columns.iter_mut().enumerate() {
-                // Within each column, write rows, striding the row buffer and
-                // indexing consecutively in the current column
-                //
-                // SAFETY: each column length is less than total row number
-                let local_c = unsafe { c.get_unchecked_mut(start_row..end_row) };
-                let mut src_idx = ci;
-                for value in local_c.iter_mut() {
-                    // SAFETY: src_idx given as row_width * R + C * LEN where R
-                    // is row index (within the buffer) and C is column index.
-                    // Both R and C must be less than the number of rows per
-                    // buffer and the number of columns respectively since we
-                    // are getting these via enumerate(). Therefore, the maximum
-                    // that src_idx can ever be is row_width * (rows_per_buffer
-                    // - 1) + (column_number - 1) * LEN. Adding LEN to the end
-                    // of this exactly equals the size of the buffer itself in
-                    // bytes, which means what follows can never overflow.
-                    //
-                    // NOTE using the safe version of this does not work because
-                    // the compiler is not smart enough to figure out that the
-                    // bounds check is unnecessary.
-                    let buf = unsafe { buffers.get_unchecked(src_idx) };
-                    *value = T::from_ne_bytes(buf);
-                    src_idx += stride;
-                }
-            }
-        }
-
-        // Read remaining rows if they exist
-        self.read_remainder(h)?;
-        let remainder_rows = self.remainder_row_number();
-        let dst_row_offset = self.whole_row_number() * self.rows_per_buffer;
-        let buffers = T::cast_buffers(&self.bytes);
-        for (ci, c) in columns.iter_mut().enumerate() {
-            let local_c = &mut c[dst_row_offset..dst_row_offset + remainder_rows];
-            let mut src_idx = ci;
-            for value in local_c.iter_mut() {
-                // SAFETY: see above
-                let buf = unsafe { buffers.get_unchecked(src_idx) };
-                *value = T::from_ne_bytes(buf);
-                src_idx += stride;
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Read a matrix where type is an aligned big or little endian value.
-    pub(crate) fn read_endian_matrix<R, T>(
-        &mut self,
-        h: &mut BufReader<R>,
-        cols: &mut [Vec<T>],
-        endian: Endian,
-    ) -> io::Result<()>
-    where
-        R: Read,
-        T: FromBytes<Bytes = T::FileBuf> + ToBytes<Bytes = T::FileBuf> + FCSRepr + Copy,
-    {
-        self.read_matrix(h, cols)?;
-        match endian {
-            Endian::Big => {
-                for col in cols {
-                    for x in col {
-                        *x = T::be_to_native(*x);
-                    }
-                }
-            }
-            Endian::Little => {
-                for col in cols {
-                    for x in col {
-                        *x = T::le_to_native(*x);
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Read a matrix where type is an aligned big, little, or mixed endian value.
-    #[allow(clippy::needless_pass_by_value)]
-    pub(crate) fn read_ordered_matrix<R, T, const LEN: usize>(
-        &mut self,
-        h: &mut BufReader<R>,
-        cols: &mut [Vec<T>],
-        s: ArrayByteOrd<LEN>,
-    ) -> io::Result<()>
-    where
-        R: Read,
-        T: FromBytes<Bytes = T::FileBuf>
-            + ToBytes<Bytes = T::FileBuf>
-            + FCSRepr<ByteOrd = [u8; LEN]>
-            + Copy,
-        T::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
-        T::ByteOrd: AsRef<[u8]>,
-        ArrayByteOrd<LEN>: AsRef<T::ByteOrd>,
-    {
-        if let Some(e) = s.as_endian() {
-            self.read_endian_matrix(h, cols, e)
-        } else {
-            self.read_matrix(h, cols)?;
-            for col in cols {
-                for x in col {
-                    *x = T::ordered_to_native(*x, s.as_ref());
-                }
-            }
-            Ok(())
-        }
     }
 
     /// Read a matrix where input bytes characters to be read as u64
@@ -496,122 +299,6 @@ impl WriteBuffer {
         self.write_remainder(h, digest)?;
 
         Ok(())
-    }
-
-    /// Read stream of bytes using buffer where each value is the same type
-    fn write_matrix<W, T, F>(
-        &mut self,
-        h: &mut BufWriter<W>,
-        columns: &[&[T]],
-        digest: &mut WriteFCSDigest,
-        to_buf: F,
-    ) -> io::Result<()>
-    where
-        W: Write,
-        F: Fn(&T) -> T::FileBuf,
-        T: FCSRepr,
-    {
-        // This has similar analogous optimizations and assumptions as
-        // ReadBuffer::read_matrix
-        let dst_len = T::file_len();
-        self.assert_matrix_assumptions(columns, dst_len);
-
-        // Write groups of rows in outer loop
-        for buf_idx in 0..self.whole_row_number() {
-            let start_row = buf_idx * self.rows_per_buffer;
-            // Once we have a buffer, iterate through each column and write data
-            for (ci, c) in columns.iter().enumerate() {
-                let dst_col_offset = ci * dst_len;
-                // Within each column, write rows, striding the row buffer and
-                // indexing consecutively in the current column
-                let end_row = start_row + self.rows_per_buffer;
-                let local_c = &c[start_row..end_row];
-                for (row, value) in local_c.iter().enumerate() {
-                    let dst_idx = DstIndex(dst_col_offset + self.row_nbytes * row);
-                    self.assert_in_bounds(dst_idx.0, dst_len);
-                    let buf = to_buf(value);
-                    // SAFETY: src_idx given as row_width * R + C * LEN where R
-                    // is row index (within the buffer) and C is column index.
-                    // Both R and C must be less than the number of rows per
-                    // buffer and the number of columns respectively since we
-                    // are getting these via enumerate(). Therefore, the maximum
-                    // that src_idx can ever be is row_width * (rows_per_buffer
-                    // - 1) + (column_number - 1) * LEN. Adding LEN to the end
-                    // of this exactly equals the size of the buffer itself in
-                    // bytes, which means what follows can never overflow.
-                    //
-                    // NOTE using the safe version of this does not work because
-                    // the compiler is not smart enough to figure out that the
-                    // bounds check is unnecessary.
-                    unsafe {
-                        T::array_to_slice(&buf, &mut self.bytes, &dst_idx);
-                    };
-                }
-            }
-            self.write(h, digest)?;
-        }
-
-        // Write remaining rows if they exist
-        let remainder_rows = self.remainder_row_number();
-        let dst_row_offset = self.whole_row_number() * self.rows_per_buffer;
-        for (ci, c) in columns.iter().enumerate() {
-            let dst_col_offset = ci * dst_len;
-            let local_c = &c[dst_row_offset..dst_row_offset + remainder_rows];
-            for (row, value) in local_c.iter().enumerate() {
-                let dst_idx = DstIndex(dst_col_offset + self.row_nbytes * row);
-                self.assert_in_bounds(dst_idx.0, dst_len);
-                let buf = to_buf(value);
-                // SAFETY: see above
-                unsafe {
-                    T::array_to_slice(&buf, &mut self.bytes, &dst_idx);
-                };
-            }
-        }
-
-        self.write_remainder(h, digest)?;
-
-        Ok(())
-    }
-
-    /// Write a matrix where type is an aligned big or little endian value.
-    pub(crate) fn write_endian_matrix<W, T>(
-        &mut self,
-        h: &mut BufWriter<W>,
-        cols: &[&[T]],
-        digest: &mut WriteFCSDigest,
-        endian: Endian,
-    ) -> io::Result<()>
-    where
-        W: Write,
-        T: ToBytes<Bytes = T::FileBuf> + FCSRepr,
-    {
-        match endian {
-            Endian::Big => self.write_matrix(h, cols, digest, T::to_be_bytes),
-            Endian::Little => self.write_matrix(h, cols, digest, T::to_le_bytes),
-        }
-    }
-
-    /// Write a matrix where type is an aligned big, little, or mixed endian value.
-    #[allow(clippy::needless_pass_by_value)]
-    pub(crate) fn write_ordered_matrix<W, T, const LEN: usize>(
-        &mut self,
-        h: &mut BufWriter<W>,
-        cols: &[&[T]],
-        digest: &mut WriteFCSDigest,
-        s: ArrayByteOrd<LEN>,
-    ) -> io::Result<()>
-    where
-        W: Write,
-        T: ToBytes<Bytes = T::FileBuf> + FCSRepr<ByteOrd = [u8; LEN]>,
-        T::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
-        T::ByteOrd: AsRef<[u8]>,
-        ArrayByteOrd<LEN>: AsRef<T::ByteOrd>,
-    {
-        if let Some(e) = s.as_endian() {
-            self.write_endian_matrix(h, cols, digest, e)
-        } else {
-            self.write_matrix(h, cols, digest, |bs| T::to_ordered_bytes(bs, s.as_ref()))
-        }
     }
 
     /// Write a matrix where input bytes characters are to be read as u64

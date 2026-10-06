@@ -7079,17 +7079,16 @@ pub(crate) trait CheckRange {
     ) -> Option<TruncatedValueResult>;
 }
 
-// General strategy: Find the max value in series and compare to the range or
-// bitmask. Based on this, possibly skip the more expensive loops that search
-// for the first overrange index and/or truncate.
+// General strategy: Test if any values exceed range first, and only use
+// expensive loops to search for first overrange index if true.
 //
-// The max value subroutine should auto-vectorize on most machines, which makes
-// it very cheap. In practice this is ~3x faster than running one of the scan
-// loops with branching inside it that either flags an index or truncates. This
-// means that if a columns has at least a 33% chance of having no out of range
-// values, it is probabilistically worth using this max value shortcut. Even
-// within FCS files that have out of range values, in practice many of them will
-// be above this cutoff
+// The any > range subroutine should auto-vectorize on most machines, which
+// makes it very cheap. In practice this is ~6x faster (using only SSE) than
+// running one of the scan loops with branching inside it that either flags an
+// index or truncates. This means that if a column has at least a 16% chance of
+// having no out of range values, it is probabilistically worth using this
+// shortcut. Most FCS files will have ranges/columns above this cutoff in
+// practice.
 impl<C> CheckRange for NativeSeries<C>
 where
     C: Clone + ColumnHasNativeType + ColumnHasDatatype + ColumnSchemaAsRange,
@@ -7115,7 +7114,7 @@ where
                 .find_map(|(rowi, x)| (*x > limit).then_some((rowi, exceed)))
         };
         let check_scan = |limit, exceed| {
-            if self.series.max() > limit {
+            if self.series.any_gt(limit) {
                 scan(limit, exceed)
             } else {
                 None
@@ -7128,10 +7127,9 @@ where
             assert!(bitmask >= int_upper, "bitmask less than numeric range");
             match (bf, rf) {
                 (true, true) => {
-                    let m = self.series.max();
-                    if m > bitmask {
+                    if self.series.any_gt(bitmask) {
                         scan(bitmask, ExceededRange::RangeAndBitmask)
-                    } else if m > int_upper {
+                    } else if bitmask > int_upper && self.series.any_gt(int_upper) {
                         scan(int_upper, ExceededRange::Range)
                     } else {
                         None
@@ -7176,14 +7174,14 @@ where
                 .find_map(|(rowi, x)| (*x > limit).then_some((false, rowi, exceed)))
         };
         let check_trunc = |self_: &mut Self, limit, exceed| {
-            if self_.series.max() > limit {
+            if self_.series.any_gt(limit) {
                 trunc(self_, limit, exceed)
             } else {
                 None
             }
         };
         let check_scan = |self_: &Self, limit, exceed| {
-            if self_.series.max() > limit {
+            if self_.series.any_gt(limit) {
                 scan(self_, limit, exceed)
             } else {
                 None
@@ -7193,8 +7191,6 @@ where
         let dt = self.column_schema.col_datatype();
         let rng = self.column_schema.as_range();
 
-        // TODO there are additional shortcuts to be taken if bitmask and range
-        // are the same, which is most of the time.
         let res = if dt == AlphaNumType::Integer {
             let bitmask = rng.bitmask.expect("integer should have bitmask");
             let int_upper = rng.numeric_range;
@@ -7211,8 +7207,7 @@ where
                 // If higher than bitmask, truncate. If higher than range but
                 // lower than bitmask, emit msg to alert user.
                 (OverLimitMode::Truncate, OverLimitMode::ScanOnly) => {
-                    let m = self.series.max();
-                    if m > bitmask {
+                    if self.series.any_gt(bitmask) {
                         let ret = self.series.truncate_and_test(bitmask, int_upper);
                         ret.map(|(rowi, was_truncated)| {
                             let t = if was_truncated {
@@ -7222,7 +7217,7 @@ where
                             };
                             (true, rowi, t)
                         })
-                    } else if m > int_upper {
+                    } else if bitmask > int_upper && self.series.any_gt(int_upper) {
                         scan(self, int_upper, ExceededRange::Range)
                     } else {
                         None
@@ -7231,10 +7226,9 @@ where
                 // Do not perform truncation but emit different messages
                 // depending on if bitmask or range was exceeded.
                 (OverLimitMode::ScanOnly, OverLimitMode::ScanOnly) => {
-                    let m = self.series.max();
-                    if m > bitmask {
+                    if self.series.any_gt(bitmask) {
                         scan(self, bitmask, ExceededRange::RangeAndBitmask)
-                    } else if m > int_upper {
+                    } else if bitmask > int_upper && self.series.any_gt(int_upper) {
                         scan(self, int_upper, ExceededRange::Range)
                     } else {
                         None

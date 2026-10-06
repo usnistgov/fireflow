@@ -1231,14 +1231,22 @@ impl<T, Raw> InternalSeries<T, Raw> {
         unsafe { from_raw_parts(p, n) }
     }
 
-    /// Find max value in series.
-    pub(crate) fn max(&self) -> T
+    /// Return true if any value exceeds `limit`.
+    pub(crate) fn any_gt(&self, limit: T) -> bool
     where
-        T: Bounded + Copy + PartialOrd,
+        T: Copy + PartialOrd,
     {
+        // This is a very cheap function that will vectorize using plain SSE(2).
+        // In practice this is already fast enough that it will saturate memory
+        // bandwidth on most machines. If this ever changes, it might be worth
+        // using runtime dispatch here to use SSE4x or AVX2.
+        #[allow(
+            clippy::needless_bitwise_bool,
+            reason = "this is needed for vectorization"
+        )]
         self.as_ref()
             .iter()
-            .fold(T::min_value(), |x, y| if x > *y { x } else { *y })
+            .fold(false, |hit, x| hit | (*x > limit))
     }
 
     pub(crate) fn truncate(&mut self, limit: T) -> Option<usize>

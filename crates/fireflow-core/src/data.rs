@@ -184,6 +184,7 @@ use thiserror::Error;
 use std::convert::Infallible;
 use std::fmt;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::iter;
 use std::marker::PhantomData;
 use std::mem;
 use std::num::NonZeroU8;
@@ -7455,7 +7456,11 @@ where
         return Ok(vec![]);
     }
 
-    let mut columns = vec![vec![T::default(); nrows]; ncols];
+    // Create each vector from scratch which will allocate a vector of zeros
+    // N times rather than allocating zeros once and copying N - 1 times.
+    let mut columns: Vec<_> = iter::repeat_with(|| vec![T::default(); nrows])
+        .take(ncols)
+        .collect();
 
     let row_nbytes = LEN * ncols;
     let rows_per_buffer = (usize::from(buffer_nbytes) / row_nbytes).max(1);

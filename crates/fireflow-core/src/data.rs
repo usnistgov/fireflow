@@ -7419,16 +7419,18 @@ fn read_matrix<const LEN: usize, R, T, F>(
 where
     R: Read,
     T: FromBytes<Bytes = [u8; LEN]> + Default + Clone,
-    F: Fn(&mut [[u8; LEN]]),
+    F: Fn(&mut [u8; LEN]),
 {
-    fn copy_buffer<const LEN: usize, T>(
+    fn copy_buffer<const LEN: usize, T, F>(
         buffer: &[[u8; LEN]],
         columns: &mut [Vec<T>],
         start_row: usize,
         end_row: usize,
         ncols: usize,
+        byte_swap: F,
     ) where
         T: FromBytes<Bytes = [u8; LEN]>,
+        F: Fn(&mut [u8; LEN]),
     {
         for (ci, c) in columns.iter_mut().enumerate() {
             let mut src_idx = ci;
@@ -7436,7 +7438,8 @@ where
                 // SAFETY: this will never be out of bounds because the loop
                 // indices represent (rows_per_buffer - 1) * ncols + ncols =
                 // rows_per_buffer * ncols = length of buffer
-                let src = unsafe { buffer.get_unchecked(src_idx) };
+                let mut src = *unsafe { buffer.get_unchecked(src_idx) };
+                byte_swap(&mut src);
                 // SAFETY: each column length is less than total row number
                 let dst = unsafe { c.get_unchecked_mut(dst_idx) };
                 // By convention, read as little-endian bytes. Assume the buffer
@@ -7446,7 +7449,7 @@ where
                 // We do it this way to decouple the read and the byteswap
                 // operations. In theory, a byteswap can be done much faster by
                 // itself when looped over a vector since it can be vectorized.
-                *dst = T::from_le_bytes(src);
+                *dst = T::from_le_bytes(&src);
                 src_idx += ncols;
             }
         }
@@ -7478,16 +7481,21 @@ where
 
     for start_row in (0..first_remainder_row).step_by(rows_per_buffer) {
         h.read_exact(buffer[..].as_flattened_mut())?;
-        byte_swap(&mut buffer[..]);
         let end_row = start_row + rows_per_buffer;
-        copy_buffer(&buffer, &mut columns, start_row, end_row, ncols);
+        copy_buffer(&buffer, &mut columns, start_row, end_row, ncols, &byte_swap);
     }
 
     // Read remaining rows if they exist
     buffer.truncate(remainder_nvalues);
     h.read_exact(buffer[..].as_flattened_mut())?;
-    byte_swap(&mut buffer[..]);
-    copy_buffer(&buffer, &mut columns, first_remainder_row, nrows, ncols);
+    copy_buffer(
+        &buffer,
+        &mut columns,
+        first_remainder_row,
+        nrows,
+        ncols,
+        byte_swap,
+    );
 
     Ok(columns)
 }
@@ -7504,11 +7512,7 @@ where
     R: Read,
     T: FromBytes<Bytes = [u8; LEN]> + Copy + Default,
 {
-    let be_swap = |buffer: &mut [[u8; LEN]]| {
-        for b in buffer {
-            b.reverse();
-        }
-    };
+    let be_swap = |buf: &mut [u8; LEN]| buf.reverse();
     match endian {
         Endian::Big => read_matrix(h, nrows, ncols, be_swap, buffer_nbytes),
         Endian::Little => read_matrix(h, nrows, ncols, |_| {}, buffer_nbytes),
@@ -7536,11 +7540,7 @@ where
     if let Some(e) = s.as_endian() {
         read_endian_matrix(h, nrows, ncols, e, buffer_nbytes)
     } else {
-        let ord_swap = |buffer: &mut [[u8; LEN]]| {
-            for b in buffer {
-                T::ordered_to_le(b, s.as_ref());
-            }
-        };
+        let ord_swap = |buf: &mut [u8; LEN]| T::ordered_to_le(buf, s.as_ref());
         read_matrix(h, nrows, ncols, ord_swap, buffer_nbytes)
     }
 }
@@ -7555,17 +7555,19 @@ fn write_matrix<const LEN: usize, W, T, F>(
 ) -> io::Result<()>
 where
     W: Write,
-    F: Fn(&mut [[u8; LEN]]),
+    F: Fn(&mut [u8; LEN]),
     T: ToBytes<Bytes = [u8; LEN]>,
 {
-    fn copy_buffer<const LEN: usize, T>(
+    fn copy_buffer<const LEN: usize, T, F>(
         buffer: &mut [[u8; LEN]],
         columns: &[&[T]],
         start_row: usize,
         end_row: usize,
         stride: usize,
+        byte_swap: F,
     ) where
         T: ToBytes<Bytes = [u8; LEN]>,
+        F: Fn(&mut [u8; LEN]),
     {
         for (ci, c) in columns.iter().enumerate() {
             let mut dst_idx = ci;
@@ -7583,7 +7585,9 @@ where
                 // Use native here for analogous reasons to reading. See
                 // read_matrix for logic (the only difference here is that it
                 // is reversed).
-                *dst = T::to_le_bytes(value);
+                let mut tmp = T::to_le_bytes(value);
+                byte_swap(&mut tmp);
+                *dst = tmp;
                 dst_idx += stride;
             }
         }
@@ -7606,15 +7610,27 @@ where
 
     for start_row in (0..first_remainder_row).step_by(rows_per_buffer) {
         let end_row = start_row + rows_per_buffer;
-        copy_buffer(&mut buffer[..], columns, start_row, end_row, ncols);
-        byte_swap(&mut buffer[..]);
+        copy_buffer(
+            &mut buffer[..],
+            columns,
+            start_row,
+            end_row,
+            ncols,
+            &byte_swap,
+        );
         digest.update_and_write(h, buffer[..].as_flattened())?;
     }
 
     // Write remaining rows if they exist
     buffer.truncate(remainder_nvalues);
-    copy_buffer(&mut buffer[..], columns, first_remainder_row, nrows, ncols);
-    byte_swap(&mut buffer[..]);
+    copy_buffer(
+        &mut buffer[..],
+        columns,
+        first_remainder_row,
+        nrows,
+        ncols,
+        byte_swap,
+    );
     digest.update_and_write(h, buffer[..].as_flattened())?;
 
     Ok(())
@@ -7632,11 +7648,7 @@ where
     W: Write,
     T: ToBytes<Bytes = [u8; LEN]>,
 {
-    let be_swap = |buffer: &mut [[u8; LEN]]| {
-        for b in buffer {
-            b.reverse();
-        }
-    };
+    let be_swap = |buf: &mut [u8; LEN]| buf.reverse();
     match endian {
         Endian::Big => write_matrix(h, cols, digest, be_swap, buffer_nbytes),
         Endian::Little => write_matrix(h, cols, digest, |_| {}, buffer_nbytes),
@@ -7661,11 +7673,7 @@ where
     if let Some(e) = s.as_endian() {
         write_endian_matrix(h, cols, digest, e, buffer_nbytes)
     } else {
-        let ord_swap = |buffer: &mut [[u8; LEN]]| {
-            for b in buffer {
-                T::le_to_ordered(b, s.as_ref());
-            }
-        };
+        let ord_swap = |buf: &mut [u8; LEN]| T::le_to_ordered(buf, s.as_ref());
         write_matrix(h, cols, digest, ord_swap, buffer_nbytes)
     }
 }

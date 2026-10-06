@@ -3824,7 +3824,9 @@ where
 
     let rows_per_buffer = (usize::from(buffer_nbytes) / row_nbytes).max(1);
     let buffer_nvalues_optimal = rows_per_buffer * ncols;
-    let complete_buffer_passes = nrows / rows_per_buffer;
+    let remainder_nrows = nrows % rows_per_buffer;
+    let remainder_nbytes = remainder_nrows * row_nbytes;
+    let first_remainder_row = nrows - remainder_nrows;
 
     let mut go = |buffer: &[u8], dst_start_row: usize, dst_end_row: usize| -> IOResult<(), E> {
         for (c, col_offset) in columns.iter_mut().zip(&col_offsets) {
@@ -3839,14 +3841,10 @@ where
 
     let mut buffer = vec![0_u8; buffer_nvalues_optimal];
 
-    for dst_start_row in (0..complete_buffer_passes).map(|i| i * rows_per_buffer) {
+    for dst_start_row in (0..first_remainder_row).step_by(rows_per_buffer) {
         h.read_exact(&mut buffer[..])?;
         go(&buffer[..], dst_start_row, dst_start_row + rows_per_buffer)?;
     }
-
-    let remainder_nrows = nrows % rows_per_buffer;
-    let remainder_nbytes = remainder_nrows * row_nbytes;
-    let first_remainder_row = nrows - remainder_nrows;
 
     buffer.truncate(remainder_nbytes);
     h.read_exact(&mut buffer[..])?;
@@ -4139,7 +4137,9 @@ where
 
     let rows_per_buffer = (usize::from(buffer_nbytes) / row_nbytes).max(1);
     let buffer_nvalues_optimal = rows_per_buffer * ncols;
-    let complete_buffer_passes = nrows / rows_per_buffer;
+    let remainder_nrows = nrows % rows_per_buffer;
+    let remainder_nbytes = remainder_nrows * row_nbytes;
+    let first_remainder_row = nrows - remainder_nrows;
 
     let mut go = |buffer: &mut [u8], buf_start_row: usize, buf_end_row: usize| {
         for (c, col_offset) in columns.iter().zip(&col_offsets) {
@@ -4153,15 +4153,11 @@ where
 
     let mut buffer = vec![0_u8; buffer_nvalues_optimal];
 
-    for dst_start_row in (0..complete_buffer_passes).map(|i| i * rows_per_buffer) {
+    for dst_start_row in (0..first_remainder_row).step_by(rows_per_buffer) {
         let dst_end_row = dst_start_row + rows_per_buffer;
         go(&mut buffer[..], dst_start_row, dst_end_row);
         digest.update_and_write(h, &buffer[..])?;
     }
-
-    let remainder_nrows = nrows % rows_per_buffer;
-    let remainder_nbytes = remainder_nrows * row_nbytes;
-    let first_remainder_row = nrows - remainder_nrows;
 
     buffer.truncate(remainder_nbytes);
     go(&mut buffer[..], first_remainder_row, nrows);

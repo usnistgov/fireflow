@@ -4135,7 +4135,7 @@ where
     let (col_offsets, row_nbytes) = column_offsets(columns, fwidth);
 
     let rows_per_buffer = (usize::from(buffer_nbytes) / row_nbytes).max(1);
-    let buffer_nvalues_optimal = rows_per_buffer * ncols;
+    let buffer_nvalues_optimal = rows_per_buffer * row_nbytes;
     let remainder_nrows = nrows % rows_per_buffer;
     let remainder_nbytes = remainder_nrows * row_nbytes;
     let first_remainder_row = nrows - remainder_nrows;

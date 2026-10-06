@@ -7434,28 +7434,21 @@ where
         columns: &mut [Vec<T>],
         start_row: usize,
         end_row: usize,
-        stride: usize,
+        ncols: usize,
     ) where
         T: FromBytes<Bytes = [u8; LEN]>,
     {
         for (ci, c) in columns.iter_mut().enumerate() {
-            // Within each column, write rows, striding the row buffer and
-            // indexing consecutively in the current column
-            //
-            // SAFETY: each column length is less than total row number
-            let local_c = unsafe { c.get_unchecked_mut(start_row..end_row) };
             let mut src_idx = ci;
-            for value in local_c.iter_mut() {
-                // Using the safe version of this does not work because the
-                // compiler is not smart enough to figure out that the bounds
-                // check is unnecessary.
-                //
+            for dst_idx in start_row..end_row {
                 // SAFETY: this will never be out of bounds because the loop
                 // indices represent (rows_per_buffer - 1) * ncols + ncols =
                 // rows_per_buffer * ncols = length of buffer
                 let src = unsafe { buffer.get_unchecked(src_idx) };
-                *value = T::from_ne_bytes(src);
-                src_idx += stride;
+                // SAFETY: each column length is less than total row number
+                let dst = unsafe { c.get_unchecked_mut(dst_idx) };
+                *dst = T::from_ne_bytes(src);
+                src_idx += ncols;
             }
         }
     }
@@ -7587,13 +7580,10 @@ where
         F: Fn(&T) -> [u8; LEN],
     {
         for (ci, c) in columns.iter().enumerate() {
-            // Within each column, write rows, striding the row buffer and
-            // indexing consecutively in the current column
-            //
-            // SAFETY: each column length is less than total row number
-            let local_c = unsafe { c.get_unchecked(start_row..end_row) };
             let mut dst_idx = ci;
-            for value in local_c {
+            for src_idx in start_row..end_row {
+                // SAFETY: each column length is less than total row number
+                let value = unsafe { c.get_unchecked(src_idx) };
                 // Using the safe version of this does not work because
                 // the compiler is not smart enough to figure out that the
                 // bounds check is unnecessary.

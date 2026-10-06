@@ -6616,6 +6616,9 @@ class TestReadWrite:
         smry = conf.summarize(p)
         assert len(smry) == 3
 
+    # TODO test other layouts such as var uint and s8, and also make this ascii
+    # layout have variable width
+
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
     @pytest.mark.parametrize(
         "data_schema",

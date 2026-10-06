@@ -93,39 +93,6 @@ pub trait FCSRepr {
     }
 
     #[must_use]
-    fn be_to_native(self) -> Self
-    where
-        Self: FromBytes<Bytes = Self::FileBuf> + ToBytes<Bytes = Self::FileBuf>,
-    {
-        let buf = self.to_ne_bytes();
-        Self::from_be_bytes(&buf)
-    }
-
-    #[must_use]
-    fn le_to_native(self) -> Self
-    where
-        Self: FromBytes<Bytes = Self::FileBuf> + ToBytes<Bytes = Self::FileBuf>,
-    {
-        let buf = self.to_ne_bytes();
-        Self::from_le_bytes(&buf)
-    }
-
-    #[must_use]
-    fn ordered_to_native(self, order: &Self::ByteOrd) -> Self
-    where
-        Self: FromBytes<Bytes = Self::FileBuf> + ToBytes<Bytes = Self::FileBuf>,
-        Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
-        Self::ByteOrd: AsRef<[u8]>,
-    {
-        let bytes = self.to_ne_bytes();
-        let mut buf = Self::FileBuf::default();
-        for (i, j) in order.as_ref().iter().enumerate() {
-            buf.as_mut()[usize::from(*j)] = bytes.as_ref()[i];
-        }
-        Self::from_le_bytes(&buf)
-    }
-
-    #[must_use]
     fn from_be_slice(src: &[u8], index: usize) -> Self
     where
         Self: FromBytes<Bytes = Self::FileBuf>,
@@ -171,34 +138,29 @@ pub trait FCSRepr {
         dst[index..index + n].copy_from_slice(tmp.as_ref());
     }
 
-    fn from_ordered_bytes(bytes: &Self::FileBuf, order: &Self::ByteOrd) -> Self
+    /// Flip bytes from wonky file order to little-endian
+    fn ordered_to_le(buf: &mut Self::FileBuf, order: &Self::ByteOrd)
     where
-        Self: FromBytes<Bytes = Self::FileBuf>,
-        Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
+        Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Copy,
         Self::ByteOrd: AsRef<[u8]>,
     {
-        let mut buf = Self::FileBuf::default();
-        for (i, j) in order.as_ref().iter().enumerate() {
-            buf.as_mut()[usize::from(*j)] = bytes.as_ref()[i];
+        let tmp = *buf;
+        for (from, to) in order.as_ref().iter().enumerate() {
+            buf.as_mut()[usize::from(*to)] = tmp.as_ref()[from];
         }
-        Self::from_le_bytes(&buf)
     }
 
-    fn to_ordered_bytes(&self, order: &Self::ByteOrd) -> Self::FileBuf
+    /// Flip bytes from little endian to wonky file order
+    fn le_to_ordered(buf: &mut Self::FileBuf, order: &Self::ByteOrd)
     where
-        Self: ToBytes<Bytes = Self::FileBuf>,
-        Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
+        Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Copy,
         Self::ByteOrd: AsRef<[u8]>,
     {
-        let bytes = self.to_le_bytes();
-        let mut buf = Self::FileBuf::default();
-        for (i, j) in order.as_ref().iter().enumerate() {
-            buf.as_mut()[i] = bytes.as_ref()[usize::from(*j)];
+        let tmp = *buf;
+        for (to, from) in order.as_ref().iter().enumerate() {
+            buf.as_mut()[to] = tmp.as_ref()[usize::from(*from)];
         }
-        buf
     }
-
-    fn cast_buffers(src: &[u8]) -> &[Self::FileBuf];
 }
 
 macro_rules! impl_file_bytes {
@@ -208,15 +170,6 @@ macro_rules! impl_file_bytes {
             type FileBuf = [u8; $file_len];
             type ByteOrd = Self::FileBuf;
             type Prim = $prim;
-
-            fn cast_buffers(src: &[u8]) -> &[Self::FileBuf] {
-                let (ret, rem) = src.as_chunks::<$file_len>();
-                assert!(
-                    rem.is_empty(),
-                    "src was not evenly divided by buffer length"
-                );
-                ret
-            }
         }
     };
 }

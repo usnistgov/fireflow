@@ -7469,7 +7469,9 @@ where
     let row_nbytes = LEN * ncols;
     let rows_per_buffer = (usize::from(buffer_nbytes) / row_nbytes).max(1);
     let buffer_nvalues_optimal = rows_per_buffer * ncols;
-    let complete_buffer_passes = nrows / rows_per_buffer;
+    let remainder_nrows = nrows % rows_per_buffer;
+    let remainder_nvalues = remainder_nrows * ncols;
+    let first_remainder_row = nrows - remainder_nrows;
 
     // A buffer of buffers where each sub-buffers is the exact size of one value
     // in the matrix. Using sub-arrays like this is convenient for accessing
@@ -7478,15 +7480,11 @@ where
     // which makes this more cache-friendly.
     let mut buffer = vec![[0_u8; LEN]; buffer_nvalues_optimal];
 
-    for start_row in (0..complete_buffer_passes).map(|i| i * rows_per_buffer) {
+    for start_row in (0..first_remainder_row).step_by(rows_per_buffer) {
         h.read_exact(buffer[..].as_flattened_mut())?;
         let end_row = start_row + rows_per_buffer;
         copy_buffer(&buffer, &mut columns, start_row, end_row, ncols);
     }
-
-    let remainder_nrows = nrows % rows_per_buffer;
-    let remainder_nvalues = remainder_nrows * ncols;
-    let first_remainder_row = nrows - remainder_nrows;
 
     // Read remaining rows if they exist
     buffer.truncate(remainder_nvalues);
@@ -7619,22 +7617,20 @@ where
     let row_nbytes = LEN * ncols;
     let rows_per_buffer = (usize::from(buffer_nbytes) / row_nbytes).max(1);
     let buffer_nvalues_optimal = rows_per_buffer * ncols;
-    let complete_buffer_passes = nrows / rows_per_buffer;
+    let remainder_nrows = nrows % rows_per_buffer;
+    let remainder_nvalues = remainder_nrows * ncols;
+    let first_remainder_row = nrows - remainder_nrows;
 
     let mut buffer = vec![[0_u8; LEN]; buffer_nvalues_optimal];
 
-    for start_row in (0..complete_buffer_passes).map(|i| i * rows_per_buffer) {
+    for start_row in (0..first_remainder_row).step_by(rows_per_buffer) {
         let end_row = start_row + rows_per_buffer;
         copy_buffer(&mut buffer[..], columns, start_row, end_row, ncols, &to_buf);
         digest.update_and_write(h, buffer[..].as_flattened())?;
     }
 
-    let remainder_nrows = nrows % rows_per_buffer;
-    let remainder_nvalues = remainder_nrows * ncols;
-
     // Write remaining rows if they exist
     buffer.truncate(remainder_nvalues);
-    let first_remainder_row = nrows - remainder_nrows;
     copy_buffer(
         &mut buffer[..],
         columns,

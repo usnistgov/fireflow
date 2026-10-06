@@ -1240,6 +1240,11 @@ impl<T, Raw> InternalSeries<T, Raw> {
         // In practice this is already fast enough that it will saturate memory
         // bandwidth on most machines. If this ever changes, it might be worth
         // using runtime dispatch here to use SSE4x or AVX2.
+        //
+        // In theory, part of this memory bandwidth problem could be overcome by
+        // moving this to the read/write loops, with the tradeoff that said
+        // loops will become must more complex and probably slower. Not worth it
+        // given that these loops are the bulk of execution time anyways.
         #[allow(
             clippy::needless_bitwise_bool,
             reason = "this is needed for vectorization"

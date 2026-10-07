@@ -272,11 +272,11 @@ impl<C> TEXTReadState<C> {
     where
         R: Read + Seek,
     {
-        let abs_start = self.dataset_offset.0 + crc_start;
+        let abs_crc_start = self.dataset_offset.0 + crc_start;
         let remaining = next_dataset_abs_offset
-            .checked_sub(abs_start)
+            .checked_sub(abs_crc_start)
             .expect("CRC start should be within dataset boundaries");
-        h.seek(io::SeekFrom::Start(abs_start))?;
+        h.seek(io::SeekFrom::Start(abs_crc_start))?;
         let mut buf = vec![];
         h.take(remaining.min(CRC_LEN.into()))
             .read_to_end(&mut buf)?;
@@ -331,8 +331,17 @@ impl<C, D> ReadDatasetState<C, D> {
 
     pub(crate) fn remaining_bytes<R: Seek>(&self, h: &mut BufReader<R>) -> io::Result<u64> {
         let pos = h.stream_position()?;
-        let remaining = u64::from(self.file_len) - pos;
-        Ok(remaining)
+        if let Some(remaining) = u64::from(self.file_len).checked_sub(pos) {
+            Ok(remaining)
+        } else {
+            // This is a very obscure error that could in theory happen and will
+            // be very annoying to track down unless we have a helpful message
+            // like this.
+            let msg = "Current file length is less than cursor position; \
+                       this is either a bug or the file changed and the cursor \
+                       ran past the cached end of file.";
+            Err(io::Error::other(msg))
+        }
     }
 
     pub(crate) fn as_ref(&self) -> ReadDatasetState<&C, D>

@@ -1714,7 +1714,7 @@ impl NonEmptyOffsetsInner {
         // file. IO errors are not exactly pretty for the user, so this should
         // be checked elsewhere to give the user a more instructive message
         // about which segment failed, file length, etc.
-        read_n(h, self.nbytes().get())
+        read_exact_owned(h, self.nbytes().get())
     }
 }
 
@@ -2021,7 +2021,7 @@ impl OtherOffsets20 {
         // did not specify a width). In these cases, reading bytes like this
         // will result in the OTHER segments themselves being read twice (here
         // they will be read and ignored).
-        let buf = io_to_log!(read_n(h, u64::from(max_other_len)));
+        let buf = io_to_log!(read_exact_owned(h, u64::from(max_other_len)));
 
         // Get max desired number of segments; If zero, exit early.
         let Ok(max_other) = hconf
@@ -2419,17 +2419,18 @@ impl<I> HeaderOrTextOffsets<I> {
 
 // Misc functions
 
-/// A small utility function that reads bytes into an empty vector.
-///
-/// The primary problem this solves is using `read_to_end` by itself without
-/// checking the bytes that were actually read. `read_exact` also works but this
-/// is theoretically more efficient by a small margin since it doesn't require
-/// an already-zeroed buffer..
-pub(crate) fn read_n<R: Read>(h: &mut R, n: u64) -> io::Result<Vec<u8>> {
+/// Like [`Read::read_exact`] but returns an owned vector.
+pub(crate) fn read_exact_owned<R: Read>(h: &mut R, n: u64) -> io::Result<Vec<u8>> {
     let mut buf = Vec::with_capacity(n.u64_to_usize());
-    let taken = h.take(n).read_to_end(&mut buf)?;
-    if taken == n.u64_to_usize() {
-        Ok(buf)
+    read_to_end_checked(h, n, &mut buf)?;
+    Ok(buf)
+}
+
+/// Like [`Read::read_to_end`] but checks that we actually read the full amount.
+pub(crate) fn read_to_end_checked<R: Read>(h: &mut R, n: u64, buf: &mut Vec<u8>) -> io::Result<()> {
+    h.take(n).read_to_end(buf)?;
+    if buf.len() == n.u64_to_usize() {
+        Ok(())
     } else {
         Err(io::ErrorKind::UnexpectedEof.into())
     }

@@ -32,7 +32,7 @@ use crate::segment::read::{
     OffsetsOverlap, OptOffsetsError, OptSegmentKeyError, OriginalOffsets, PairResult,
     PrimaryTextOffsets, ReqOffsetsError, ReqSegmentKeyError, SuppOffsetsOverflow,
     SuppTextOffsetsName, SuppToHeaderOffsetsOverlap, SupplementalTextOffsets, TEXTOffsets,
-    TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
+    TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap, read_to_end_checked,
 };
 use crate::std_index::index::{RawStdKeyIndex, StdLookupTx};
 use crate::text::keywords::{
@@ -354,7 +354,7 @@ pub fn fcs_scan_dataset_boundaries(path: &PathBuf) -> io::Result<Vec<(Version, D
     let mut bounds = vec![];
     let mut buf = vec![];
     let mut file_pos = 0;
-    file.by_ref().take(BUF_SIZE).read_to_end(&mut buf)?;
+    read_to_end_checked(file.by_ref(), BUF_SIZE, &mut buf)?;
 
     while buf.len() >= BOUNDARY_MATCH_SIZE {
         for w in buf[..].array_windows() {
@@ -370,9 +370,8 @@ pub fn fcs_scan_dataset_boundaries(path: &PathBuf) -> io::Result<Vec<(Version, D
         tmp.copy_from_slice(&buf[buf.len() - OVERLAP_SIZE..]);
         buf.clear();
         buf.extend(tmp);
-        file.by_ref()
-            .take(BUF_SIZE - OVERLAP_SIZE.usize_to_u64())
-            .read_to_end(&mut buf)?;
+        let overlap_nbytes = BUF_SIZE - OVERLAP_SIZE.usize_to_u64();
+        read_to_end_checked(file.by_ref(), overlap_nbytes, &mut buf)?;
     }
 
     Ok(bounds)
@@ -398,7 +397,7 @@ pub(crate) fn next_dataset_boundary<R: Read + Seek>(
 
     let mut buf = vec![];
     let mut file_offset = h.stream_position()?;
-    h.by_ref().take(BUF_SIZE).read_to_end(&mut buf)?;
+    read_to_end_checked(h.by_ref(), BUF_SIZE, &mut buf)?;
 
     while buf.len() >= BOUNDARY_MATCH_SIZE {
         for w in buf[..].array_windows() {
@@ -411,9 +410,8 @@ pub(crate) fn next_dataset_boundary<R: Read + Seek>(
         tmp.copy_from_slice(&buf[buf.len() - OVERLAP_SIZE..]);
         buf.clear();
         buf.extend(tmp);
-        h.by_ref()
-            .take(BUF_SIZE - OVERLAP_SIZE.usize_to_u64())
-            .read_to_end(&mut buf)?;
+        let overlap_nbytes = BUF_SIZE - OVERLAP_SIZE.usize_to_u64();
+        read_to_end_checked(h.by_ref(), overlap_nbytes, &mut buf)?;
     }
 
     Ok(None)

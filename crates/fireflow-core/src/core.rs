@@ -59,7 +59,7 @@ use crate::segment::read::{
     IsOffsetPair as _, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
     OffsetPairsOverlapError, OffsetsMismatchError, OptOffsetsWithDefaultWarning, OriginalOffsets,
     ReqOffsetsWithDefaultError, ReqOffsetsWithDefaultWarning, TextOffsetsName, TextOffsetsOverflow,
-    TextToHeaderOrSuppOffsetsOverlap,
+    TextToHeaderOrSuppOffsetsOverlap, read_exact_owned, read_to_end_checked,
 };
 use crate::segment::read::{PrimaryTextOffsets, SupplementalTextOffsets};
 use crate::std_index::index::{
@@ -7496,7 +7496,7 @@ impl IntraSegmentDarkBytes {
                 continue;
             }
             h.seek(io::SeekFrom::Start(end0))?;
-            h.take(nbytes).read_to_end(&mut buf)?;
+            read_to_end_checked(h, nbytes, &mut buf)?;
             let bytes = DarkBytes::try_from_slice(&buf[..]).unwrap();
             let dark = Self {
                 prev: n0,
@@ -7665,9 +7665,8 @@ impl DatasetDiagnostics {
                 dataset_abs_end.checked_sub(post_dataset_abs_start)
                 && dconf.read_post_dataset_dark_bytes.is_set()
             {
-                let mut buf = vec![];
                 io_to_log!(h.seek(io::SeekFrom::Start(post_dataset_abs_start)));
-                io_to_log!(h.take(post_dataset_nbytes).read_to_end(&mut buf));
+                let buf = io_to_log!(read_exact_owned(h, post_dataset_nbytes));
                 (buf, Instant::now())
             } else {
                 (vec![], crc_out.read_end)

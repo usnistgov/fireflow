@@ -819,8 +819,7 @@ pub struct AnalysisReader {
 
 impl AnalysisReader {
     pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Analysis> {
-        let mut buf = vec![];
-        self.seg.h_read_contents(h, &mut buf)?;
+        let buf = self.seg.h_read_contents(h)?;
         Ok(Analysis(StringOrBytes::from(buf)))
     }
 }
@@ -833,12 +832,10 @@ pub struct OthersReader {
 
 impl OthersReader {
     pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Others> {
-        let mut buf = vec![];
         let mut others = vec![];
         for s in &self.offsets {
-            s.offsets.h_read_contents(h, &mut buf)?;
-            others.push(Other(StringOrBytes::from(buf.clone())));
-            buf.clear();
+            let buf = s.offsets.h_read_contents(h)?;
+            others.push(Other(StringOrBytes::from(buf)));
         }
         Ok(Others(others))
     }

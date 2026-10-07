@@ -1597,17 +1597,13 @@ impl<I, S> Offsets<I, S> {
     }
 
     /// Read bytes within this segment
-    pub(crate) fn h_read_contents<R>(
-        &self,
-        h: &mut BufReader<R>,
-        buf: &mut Vec<u8>,
-    ) -> io::Result<()>
+    pub(crate) fn h_read_contents<R>(&self, h: &mut BufReader<R>) -> io::Result<Vec<u8>>
     where
         R: Read + Seek,
     {
         match self.inner {
-            InnerOffsets::Empty => Ok(()),
-            InnerOffsets::NonEmpty(s) => s.h_read_contents(h, buf),
+            InnerOffsets::Empty => Ok(vec![]),
+            InnerOffsets::NonEmpty(s) => s.h_read_contents(h),
         }
     }
 
@@ -1707,32 +1703,18 @@ impl NonEmptyOffsetsInner {
             .unwrap_or_else(|| panic!("original length ({o}) should be >= length ({l})"))
     }
 
-    /// Read bytes within this segment
-    pub(crate) fn h_read_contents<R>(
-        &self,
-        h: &mut BufReader<R>,
-        buf: &mut Vec<u8>,
-    ) -> io::Result<()>
+    /// Read bytes within this segment.
+    pub(crate) fn h_read_contents<R>(&self, h: &mut BufReader<R>) -> io::Result<Vec<u8>>
     where
         R: Read + Seek,
     {
         let absolute_begin = self.begin + self.dataset_offset.0;
-        let nbytes = self.nbytes().get();
-
-        #[cfg(debug_assertions)]
-        {
-            let end = absolute_begin + nbytes;
-            let file_size = h.seek(SeekFrom::End(0))?;
-            h.seek(SeekFrom::Start(absolute_begin))?;
-            assert!(
-                end <= file_size,
-                "end of segment ({end}) exceeds file ({file_size})"
-            );
-        }
-
         h.seek(SeekFrom::Start(absolute_begin))?;
-        h.take(nbytes).read_to_end(buf)?;
-        Ok(())
+        // This will emit an IO error if the segment runs off the end of the
+        // file. IO errors are not exactly pretty for the user, so this should
+        // be checked elsewhere to give the user a more instructive message
+        // about which segment failed, file length, etc.
+        read_n(h, self.nbytes().get())
     }
 }
 
@@ -1752,8 +1734,7 @@ impl<I, S> NonEmptyOffsets<I, S> {
     where
         R: Read + Seek,
     {
-        let mut buf = vec![];
-        self.inner().h_read_contents(h, &mut buf)?;
+        let buf = self.inner().h_read_contents(h)?;
         Ok(NEVec::try_from_vec(buf)
             .expect("offsets are non-empty, therefore buffer should be non-empty"))
     }
@@ -2040,8 +2021,7 @@ impl OtherOffsets20 {
         // did not specify a width). In these cases, reading bytes like this
         // will result in the OTHER segments themselves being read twice (here
         // they will be read and ignored).
-        let mut buf = vec![];
-        io_to_log!(h.take(u64::from(max_other_len)).read_to_end(&mut buf));
+        let buf = io_to_log!(read_n(h, u64::from(max_other_len)));
 
         // Get max desired number of segments; If zero, exit early.
         let Ok(max_other) = hconf
@@ -2434,6 +2414,24 @@ impl<I> HeaderOrTextOffsets<I> {
             }
             Self::Text { seg, origin } => (seg.into_any(), TEXTOffsetsOrigin::MismatchTEXT(origin)),
         }
+    }
+}
+
+// Misc functions
+
+/// A small utility function that reads bytes into an empty vector.
+///
+/// The primary problem this solves is using `read_to_end` by itself without
+/// checking the bytes that were actually read. `read_exact` also works but this
+/// is theoretically more efficient by a small margin since it doesn't require
+/// an already-zeroed buffer..
+pub(crate) fn read_n<R: Read>(h: &mut R, n: u64) -> io::Result<Vec<u8>> {
+    let mut buf = Vec::with_capacity(n.u64_to_usize());
+    let taken = h.take(n).read_to_end(&mut buf)?;
+    if taken == n.u64_to_usize() {
+        Ok(buf)
+    } else {
+        Err(io::ErrorKind::UnexpectedEof.into())
     }
 }
 

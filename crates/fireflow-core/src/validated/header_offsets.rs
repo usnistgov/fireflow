@@ -10,7 +10,7 @@ use crate::segment::read::{
     OverlapResult, PrimaryTextOffsets, SuppTextOffsetsName, SuppToHeaderOffsetsOverlap,
     SupplementalTextOffsets, TEXTOffsets, TextOffsetsName, TextToHeaderOffsetsOverlap,
 };
-use crate::validated::read_state::{DatasetOffset, FileLen, HeaderReadState, TEXTReadState};
+use crate::validated::read_state::{DatasetOffset, FileLen, HeaderReader, TEXTReader};
 
 use fireflow_types::config::{OverlapCorrectionLimit, ReadOffsetConfig};
 use fireflow_types::other_width::OtherWidth;
@@ -210,15 +210,12 @@ impl FinalHeaderOffsets {
     ///
     /// Return the amount that was truncated (possibly none) on success, or
     /// return error if truncation would exceed limit set by user.
-    pub(crate) fn try_truncate_primary_text<C>(
+    pub(crate) fn try_truncate_primary_text(
         &mut self,
-        st: &HeaderReadState<C>,
-    ) -> Result<u64, PrimaryTEXTOverflowError>
-    where
-        C: AsRef<ReadOffsetConfig>,
-    {
-        let local_file_len = st.local_file_len();
-        let conf: &ReadOffsetConfig = st.conf().as_ref();
+        reader: &HeaderReader,
+        conf: &ReadOffsetConfig,
+    ) -> Result<u64, PrimaryTEXTOverflowError> {
+        let local_file_len = reader.local_file_len();
         let limit = conf.dataset_overflow_limit;
         if let Some(ne) = self.text.as_nonempty_mut() {
             if let Some(res) = ne.tail_overlap_offset_and_truncate(local_file_len, limit.0, ()) {
@@ -228,8 +225,8 @@ impl FinalHeaderOffsets {
                     let e = PrimaryTEXTOverflowError::new(
                         res.offsets.begin,
                         res.offsets.length,
-                        st.dataset_offset(),
-                        st.file_len(),
+                        reader.dataset_offset(),
+                        FileLen(reader.inner().file_len()),
                         res.overflow,
                     );
                     Err(e)
@@ -246,16 +243,13 @@ impl FinalHeaderOffsets {
     ///
     /// Return amount truncated for each offset pair or error if truncation
     /// amount is beyond limit.
-    pub(crate) fn try_truncate_non_primary_text<C>(
+    pub(crate) fn try_truncate_non_primary_text(
         &mut self,
-        st: &TEXTReadState<C>,
-    ) -> ErrorsResult<Vec<HeaderOffsetsOverflow>, (), DatasetOverflowError<HeaderOffsetsName>>
-    where
-        C: AsRef<ReadOffsetConfig>,
-    {
-        let bounds = st.dataset_bounds();
+        reader: &TEXTReader,
+        conf: &ReadOffsetConfig,
+    ) -> ErrorsResult<Vec<HeaderOffsetsOverflow>, (), DatasetOverflowError<HeaderOffsetsName>> {
+        let bounds = reader.dataset_bounds();
         let dataset_len = bounds.len.0;
-        let conf: &ReadOffsetConfig = st.conf().as_ref();
         let limit = conf.dataset_overflow_limit;
         let mut overlaps = vec![];
         let mut errors = vec![];

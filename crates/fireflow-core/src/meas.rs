@@ -71,7 +71,7 @@ use thiserror::Error;
 use std::borrow::Cow;
 use std::convert::Infallible;
 use std::fmt;
-use std::io::{BufReader, Read, Seek};
+use std::io::{Read, Seek};
 use std::iter::{empty, once, repeat};
 use std::marker::PhantomData;
 use std::mem;
@@ -3907,7 +3907,7 @@ where
 
     pub(crate) fn h_read_df<R>(
         mut self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         tot: <V::DataSchema as VersionedDataSchema>::Tot,
         seg: &mut AnyDataOffsets,
         start_time: Instant,

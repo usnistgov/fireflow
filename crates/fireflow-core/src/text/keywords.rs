@@ -27,7 +27,7 @@ use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
 use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
-use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
+use crate::validated::read_state::{HeaderReader, TEXTReader};
 use crate::validated::shortname::Shortname;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
@@ -132,12 +132,13 @@ impl Nextdata {
     // TODO unlike all other keyword lookup ops this won't demote a bad key on
     // failure since it is read-only. Not sure how to fix this without
     // destroying many other things
-    pub(crate) fn lookup_ro<C>(
+    pub(crate) fn lookup_ro<'a, C>(
         index: &StdKeywords,
         primary_text: &PrimaryTextOffsets,
-        st: HeaderReadState<C>,
+        reader: HeaderReader<'a>,
+        conf: &C,
     ) -> WarningAndErrorResult<
-        (Option<Self>, TEXTReadState<C>),
+        (Option<Self>, TEXTReader<'a>),
         (),
         ReadNextdataError,
         LookupNextdataError,
@@ -145,7 +146,7 @@ impl Nextdata {
     where
         C: AsRef<ReadHeaderAndTEXTConfig>,
     {
-        Self::lookup_ro_inner(index, st.conf().as_ref())
+        Self::lookup_ro_inner(index, conf.as_ref())
             .map_errors(LookupNextdataError::from)
             .and_then_nowarn_commutative(|nextdata| {
                 // If $NEXTDATA exists (almost all the time) validate that it is
@@ -154,9 +155,9 @@ impl Nextdata {
                 // was read.
                 let res = if let Some(nd) = nextdata {
                     let n = u64::from(nd);
-                    let f = st.file_len();
+                    let f = reader.inner().file_len();
                     if n == 0 {
-                        Ok(st.into_last_dataset())
+                        Ok(reader.into_last_dataset())
                     } else if let Some(ptext_end) = primary_text.as_nonempty().map(|t| t.end())
                         // TODO this should always be some since we know that
                         // the TEXT segment is non-empty (otherwise how did we
@@ -165,14 +166,14 @@ impl Nextdata {
                     {
                         let e = NextdataInPrimaryError(nd, ptext_end);
                         Err(LookupNextdataError::PrimaryTEXT(e))
-                    } else if n >= u64::from(f) {
+                    } else if n >= f {
                         let e = NextdataEOFError(nd, f);
                         Err(LookupNextdataError::FileLength(e))
                     } else {
-                        Ok(st.with_nextdata(nd))
+                        Ok(reader.with_nextdata(nd))
                     }
                 } else {
-                    Ok(st.into_last_dataset())
+                    Ok(reader.into_last_dataset())
                 };
                 res.map(|txt_st| (nextdata, txt_st)).into_nowarn1()
             })
@@ -239,7 +240,7 @@ pub enum ParseNextdataError {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct NextdataEOFError(Nextdata, FileLen);
+pub struct NextdataEOFError(Nextdata, u64);
 
 /// Error when $NEXTDATA exceeds EOF.
 #[derive(Debug, Error, PartialEq, Clone)]

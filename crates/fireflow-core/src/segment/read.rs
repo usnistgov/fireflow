@@ -20,9 +20,7 @@ use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_st
 use crate::validated::header_offsets::{
     FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
 };
-use crate::validated::read_state::{
-    DatasetOffset, HeaderReadState, ReadDatasetState, TEXTReadState,
-};
+use crate::validated::read_state::{DatasetOffset, DatasetReader, HeaderReader, TEXTReader};
 
 use fireflow_types::config::{
     AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
@@ -53,7 +51,7 @@ use itertools::Itertools as _;
 use thiserror::Error;
 
 use std::fmt::{self, Debug};
-use std::io::{self, BufReader, Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::iter::repeat;
 use std::marker::PhantomData;
 use std::mem;
@@ -279,12 +277,16 @@ pub struct NewOffsetsConfig<I, S> {
 }
 
 impl<I, S> NewOffsetsConfig<I, S> {
-    fn from_read_config<C, D>(corr: OffsetsCorrection<I, S>, st: &ReadDatasetState<C, D>) -> Self
+    fn from_read_config<R, C, D>(
+        corr: OffsetsCorrection<I, S>,
+        reader: &DatasetReader<R, D>,
+        conf: &C,
+    ) -> Self
     where
         C: AsRef<ReadOffsetConfig>,
     {
-        let oconf = st.conf().as_ref();
-        Self::new(corr, st.dataset_offset(), oconf.allow_pseudoempty)
+        let oconf = conf.as_ref();
+        Self::new(corr, reader.dataset_offset(), oconf.allow_pseudoempty)
     }
 }
 
@@ -835,11 +837,12 @@ impl HasOffsetPair for AnalysisSegmentId {
 pub(crate) trait KeyedSegmentInner: KeyedOffsets + HasRegion {
     #[allow(clippy::type_complexity)]
     #[allow(clippy::result_large_err)]
-    fn pair_to_offsets<C, D>(
+    fn pair_to_offsets<R, C, D>(
         x0: i128,
         x1: i128,
         corr: TEXTCorrection<Self>,
-        st: &ReadDatasetState<C, D>,
+        reader: &DatasetReader<R, D>,
+        conf: &C,
     ) -> (
         Result<Offsets<Self, OffsetsFromTEXT>, SegmentOffsetError>,
         OriginalOffsets,
@@ -850,7 +853,7 @@ pub(crate) trait KeyedSegmentInner: KeyedOffsets + HasRegion {
         Self::B: Copy,
         Self::E: Copy,
     {
-        let new_conf = NewOffsetsConfig::from_read_config(corr, st);
+        let new_conf = NewOffsetsConfig::from_read_config(corr, reader, conf);
         let raw = OriginalOffsets::new(x0, x1);
         (Offsets::try_new(x0, x1, &new_conf), raw)
     }
@@ -884,10 +887,11 @@ where
 {
     #[allow(clippy::type_complexity)]
     #[allow(clippy::result_large_err)]
-    fn with_req_pair<C, D>(
+    fn with_req_pair<R, C, D>(
         pair: ReqPair<Self::B, Self::E>,
         corr: TEXTCorrection<Self>,
-        st: &ReadDatasetState<C, D>,
+        reader: &DatasetReader<R, D>,
+        conf: &C,
     ) -> PairResult<Self, ReqSegmentKeyError<Self::B, Self::E>>
     where
         C: AsRef<ReadOffsetConfig>,
@@ -897,7 +901,7 @@ where
     {
         match pair {
             Ok((x0, x1)) => {
-                let (res, raw) = Self::pair_to_offsets(x0, x1, corr, st);
+                let (res, raw) = Self::pair_to_offsets(x0, x1, corr, reader, conf);
                 match res {
                     Ok(final_pair) => PairResult::Valid(final_pair, raw),
                     Err(e) => PairResult::Malformed(raw, e),
@@ -956,7 +960,8 @@ where
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> ReqSegResult<Self>
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
@@ -966,7 +971,7 @@ where
         Self::B: Copy,
         Self::E: Copy,
     {
-        Self::with_req_pair_default(Self::get_req_pair(kws), segs, corr, ignore, st)
+        Self::with_req_pair_default(Self::get_req_pair(kws), segs, corr, ignore, reader, conf)
     }
 
     fn remove_req_or<C>(
@@ -974,7 +979,8 @@ where
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> ReqSegResult<Self>
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
@@ -984,7 +990,7 @@ where
         Self::B: Copy,
         Self::E: Copy,
     {
-        Self::with_req_pair_default(Self::remove_req_pair(kws), segs, corr, ignore, st)
+        Self::with_req_pair_default(Self::remove_req_pair(kws), segs, corr, ignore, reader, conf)
     }
 
     #[allow(clippy::too_many_lines)]
@@ -993,7 +999,8 @@ where
         segs: &mut HeaderAndSuppOffsets,
         corr: TEXTCorrection<Self>,
         ignore: Self::IgnoreFlag,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> ReqSegResult<Self>
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
@@ -1003,8 +1010,8 @@ where
         Self::B: Copy,
         Self::E: Copy,
     {
-        let dconf: &ReadDataKeywordsConfig = st.conf().as_ref();
-        let oconf: &ReadOffsetConfig = st.conf().as_ref();
+        let dconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let oconf: &ReadOffsetConfig = conf.as_ref();
         let (header_seg, uncorr_hdr) = Self::offset_pair(segs);
         let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
@@ -1024,13 +1031,13 @@ where
         let mut pair_to_text = |txt_orig: OriginalOffsets, mismatch_warn, header_is_empty| {
             // mismatch_warn and header_is_empty need to be independent because we
             // may or may not throw a warning if a mismatch actually happened
-            let offsets_conf = NewOffsetsConfig::from_read_config(corr, st);
+            let offsets_conf = NewOffsetsConfig::from_read_config(corr, reader, conf);
             let offsets_res = Offsets::try_new(txt_orig.begin, txt_orig.end, &offsets_conf)
                 .map_err(ReqOffsetsError::Segment);
             match offsets_res {
                 Ok(mut offsets) => {
                     let overflow_res = if let Some(ne) = offsets.as_nonempty_mut() {
-                        ne.truncate_dataset_len((), st)
+                        ne.truncate_dataset_len((), reader, conf)
                             .map_err(ReqOffsetsWithDefaultErrorInner::from)
                             .into_deferred_switchable3(missing_flag)
                             .switchable_into_commutative()
@@ -1162,10 +1169,11 @@ where
 {
     #[allow(clippy::result_large_err)]
     #[allow(clippy::type_complexity)]
-    fn with_opt_pair<C, D>(
+    fn with_opt_pair<R, C, D>(
         pair: OptPair<Self::B, Self::E>,
         corr: TEXTCorrection<Self>,
-        st: &ReadDatasetState<C, D>,
+        reader: &DatasetReader<R, D>,
+        conf: &C,
     ) -> Option<PairResult<Self, OptSegmentKeyError<Self::B, Self::E>>>
     where
         C: AsRef<ReadOffsetConfig>,
@@ -1176,7 +1184,7 @@ where
         match pair {
             Ok(None) => None,
             Ok(Some((x0, x1))) => {
-                let (res, raw) = Self::pair_to_offsets(x0, x1, corr, st);
+                let (res, raw) = Self::pair_to_offsets(x0, x1, corr, reader, conf);
                 match res {
                     Ok(final_pair) => Some(PairResult::Valid(final_pair, raw)),
                     Err(e) => Some(PairResult::Malformed(raw, e)),
@@ -1235,7 +1243,8 @@ where
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> OptSegRes<Self>
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
@@ -1246,7 +1255,7 @@ where
         Self::E: Copy,
     {
         let pair = Self::get_opt_pair(kws);
-        Self::with_opt_pair_default(pair, segs, corr, ignore, st)
+        Self::with_opt_pair_default(pair, segs, corr, ignore, reader, conf)
     }
 
     fn remove_opt_or<C>(
@@ -1254,7 +1263,8 @@ where
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> OptSegRes<Self>
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
@@ -1265,7 +1275,7 @@ where
         Self::E: Copy,
     {
         let pair = Self::remove_opt_pair(kws);
-        Self::with_opt_pair_default(pair, segs, corr, ignore, st)
+        Self::with_opt_pair_default(pair, segs, corr, ignore, reader, conf)
     }
 
     fn with_opt_pair_default<C>(
@@ -1273,7 +1283,8 @@ where
         hdr_supp_offsets: &mut HeaderAndSuppOffsets,
         corr: TEXTCorrection<Self>,
         ignore: Self::IgnoreFlag,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> OptSegRes<Self>
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
@@ -1283,8 +1294,8 @@ where
         Self::B: Copy,
         Self::E: Copy,
     {
-        let dconf: &ReadDataKeywordsConfig = st.conf().as_ref();
-        let oconf: &ReadOffsetConfig = st.conf().as_ref();
+        let dconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let oconf: &ReadOffsetConfig = conf.as_ref();
         let (header_seg, uncorr_hdr) = Self::offset_pair(hdr_supp_offsets);
         let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);
         // TODO configure this
@@ -1295,13 +1306,13 @@ where
         let mut pair_to_text = |txt_orig: OriginalOffsets, mismatch_warn, header_is_empty| {
             // mismatch_warn and header_is_empty need to be independent because we
             // may or may not throw a warning if a mismatch actually happened
-            let offsets_conf = NewOffsetsConfig::from_read_config(corr, st);
+            let offsets_conf = NewOffsetsConfig::from_read_config(corr, reader, conf);
             let offsets_res = Offsets::try_new(txt_orig.begin, txt_orig.end, &offsets_conf)
                 .map_err(OptOffsetsError::Segment);
             match offsets_res {
                 Ok(mut offsets) => {
                     let overflow_res = if let Some(ne) = offsets.as_nonempty_mut() {
-                        ne.truncate_dataset_len((), st)
+                        ne.truncate_dataset_len((), reader, conf)
                             .map_err(OptOffsetsWithDefaultWarning::from)
                             .into_deferred_switchable3(drop_flag)
                             .switchable_into_commutative()
@@ -1597,13 +1608,13 @@ impl<I, S> Offsets<I, S> {
     }
 
     /// Read bytes within this segment
-    pub(crate) fn h_read_contents<R>(&self, h: &mut BufReader<R>) -> io::Result<Vec<u8>>
+    pub(crate) fn read_contents<R>(&self, reader: &mut R) -> io::Result<Vec<u8>>
     where
         R: Read + Seek,
     {
         match self.inner {
             InnerOffsets::Empty => Ok(vec![]),
-            InnerOffsets::NonEmpty(s) => s.h_read_contents(h),
+            InnerOffsets::NonEmpty(s) => s.read_contents(reader),
         }
     }
 
@@ -1704,17 +1715,17 @@ impl NonEmptyOffsetsInner {
     }
 
     /// Read bytes within this segment.
-    pub(crate) fn h_read_contents<R>(&self, h: &mut BufReader<R>) -> io::Result<Vec<u8>>
+    pub(crate) fn read_contents<R>(&self, reader: &mut R) -> io::Result<Vec<u8>>
     where
         R: Read + Seek,
     {
         let absolute_begin = self.begin + self.dataset_offset.0;
-        h.seek(SeekFrom::Start(absolute_begin))?;
+        reader.seek(SeekFrom::Start(absolute_begin))?;
         // This will emit an IO error if the segment runs off the end of the
         // file. IO errors are not exactly pretty for the user, so this should
         // be checked elsewhere to give the user a more instructive message
         // about which segment failed, file length, etc.
-        read_exact_owned(h, self.nbytes().get())
+        read_exact_owned(reader, self.nbytes().get())
     }
 }
 
@@ -1730,11 +1741,11 @@ impl<I, S> NonEmptyOffsets<I, S> {
     }
 
     /// Read bytes within this segment
-    pub(crate) fn h_read_contents<R>(&self, h: &mut BufReader<R>) -> io::Result<NEVec<u8>>
+    pub(crate) fn h_read_contents<R>(&self, h: &mut R) -> io::Result<NEVec<u8>>
     where
         R: Read + Seek,
     {
-        let buf = self.inner().h_read_contents(h)?;
+        let buf = self.inner().read_contents(h)?;
         Ok(NEVec::try_from_vec(buf)
             .expect("offsets are non-empty, therefore buffer should be non-empty"))
     }
@@ -1817,16 +1828,17 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
     pub(crate) fn truncate_dataset_len<C, N>(
         self,
         args: I::Params,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> Result<Option<OffsetsOverflow<N>>, DatasetOverflowError<N>>
     where
         C: AsRef<ReadOffsetConfig>,
         I: AreNamedOffsets<N>,
     {
-        let bounds = st.dataset_bounds();
+        let bounds = reader.dataset_bounds();
         let dataset_len = bounds.len.0;
-        let conf: &ReadOffsetConfig = st.conf().as_ref();
-        let limit = conf.dataset_overflow_limit;
+        let oconf: &ReadOffsetConfig = conf.as_ref();
+        let limit = oconf.dataset_overflow_limit;
         if let Some(res) = self.tail_overlap_offset_and_truncate(dataset_len, limit.0, args) {
             let o =
                 OffsetsOverflow::new(res.offsets, res.overflow, dataset_len, bounds.from_nextdata);
@@ -1913,14 +1925,15 @@ impl<I: Copy> HeaderOffsets<I> {
         is_text: bool,
         corr: HeaderCorrection<I>,
         version: Version,
-        st: &HeaderReadState<C>,
+        reader: &HeaderReader,
+        conf: &C,
     ) -> ErrorsResult<(Self, OriginalOffsets), (), HeaderOffsetsError>
     where
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
         I: HasRegion + Copy,
     {
-        let hconf: &ReadHeaderInnerConfig = st.conf().as_ref();
-        let seg_conf = NewOffsetsConfig::from_read_config(corr, st);
+        let hconf: &ReadHeaderInnerConfig = conf.as_ref();
+        let seg_conf = NewOffsetsConfig::from_read_config(corr, reader, conf);
 
         let parse_one = |bs: [u8; 8], is_begin| {
             // TEXT segment should never be blank
@@ -1979,16 +1992,15 @@ impl<I: Copy> HeaderOffsets<I> {
 
 impl OtherOffsets20 {
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn h_read_others<C, R>(
-        h: &mut BufReader<R>,
+    pub(crate) fn h_read_others<C>(
+        reader: &mut HeaderReader,
         first_seg_begin: u64,
-        st: &HeaderReadState<C>,
+        conf: &C,
     ) -> WarningsAndIOGroupResult<OtherOffsetOutput, GuessOtherWidthError, HeaderOffsetsError, ()>
     where
-        R: Read + Seek,
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
-        let hconf: &ReadHeaderInnerConfig = st.conf().as_ref();
+        let hconf: &ReadHeaderInnerConfig = conf.as_ref();
 
         // Get maximum length of OTHER offset region according to first required
         // offset. If zero, exit early.
@@ -2001,7 +2013,7 @@ impl OtherOffsets20 {
         };
 
         // Check that we have enough bytes left to read the offsets.
-        let remaining = io_to_log!(st.remaining_bytes(h));
+        let remaining = reader.inner().remaining_bytes();
         if remaining < u64::from(max_other_len) {
             // ASSUME this will always be at byte 58 (that's what the error says)
             let e = OtherOffsetsNoBytesError::new(remaining, max_other_len);
@@ -2021,7 +2033,10 @@ impl OtherOffsets20 {
         // did not specify a width). In these cases, reading bytes like this
         // will result in the OTHER segments themselves being read twice (here
         // they will be read and ignored).
-        let buf = io_to_log!(read_exact_owned(h, u64::from(max_other_len)));
+        let buf = io_to_log!(read_exact_owned(
+            reader.inner_mut(),
+            u64::from(max_other_len)
+        ));
 
         // Get max desired number of segments; If zero, exit early.
         let Ok(max_other) = hconf
@@ -2103,7 +2118,7 @@ impl OtherOffsets20 {
                     .take(limit)
                     .enumerate()
                     .filter_map(|(i, ((buf0, buf1), corr))| {
-                        let seg_conf = NewOffsetsConfig::from_read_config(corr, st);
+                        let seg_conf = NewOffsetsConfig::from_read_config(corr, reader, conf);
                         let all_are = |c| buf0.iter().chain(buf1.iter()).all(|&x| x == c);
                         (!(all_are(0) || all_are(32) || all_are(48))).then(|| {
                             Self::parse_other(buf0, buf1, &seg_conf)

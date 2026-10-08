@@ -19,9 +19,9 @@ use crate::header::{
     GuessVersionError, Header, HeaderError, KeywordVersionScores, autodetect_version,
 };
 use crate::logging::{
-    DeferredErrors, DeferredWarningsAndErrors, IOAnonErrorGroup, IOErrorGroup, IOResult,
-    ImpureError, LogResult, ResultExt as _, SuccessResultIter as _, SwitchableErrorResult,
-    SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
+    DeferredErrors, DeferredWarningsAndErrors, IOAnonErrorGroup, IOErrorGroup, LogResult,
+    ResultExt as _, SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult,
+    WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
     WarningsAndIOGroupResult, io_to_log, split_log,
 };
 use crate::macros::def_summary;
@@ -40,14 +40,15 @@ use crate::text::keywords::{
     ValueToStdKey,
 };
 use crate::text::lookup::{MissingKeyError, ParseKeyError, ReqKeyErrorInner_};
+use crate::validated::buf_file::BufFileReader;
 use crate::validated::dataframe::PrimitiveDataFrame;
 use crate::validated::header_offsets::{
     FinalHeaderOffsets, OffsetsValidationError, PrimaryTEXTOverflowError,
     SuppToHeaderOffsetsValidationError, TextToHeaderOrSuppOffsetsValidationError,
 };
 use crate::validated::read_state::{
-    CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError, FileLen,
-    HeaderReadState, TEXTReadState,
+    CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError, HeaderReader,
+    TEXTReader,
 };
 
 use fireflow_types::config::{
@@ -75,8 +76,8 @@ use thiserror::Error;
 
 use std::borrow::Cow;
 use std::fmt;
-use std::fs::{self, File};
-use std::io::{self, BufReader, Read, Seek};
+use std::fs::File;
+use std::io::{self, Read, Seek};
 use std::iter;
 use std::mem;
 use std::num::{NonZeroUsize, ParseIntError};
@@ -117,13 +118,13 @@ pub fn fcs_read_header(
     conf: &ReadHeaderConfig,
 ) -> WarningsAndIOGroupResult<Header, GuessOtherWidthError, ReadHeaderError, HeaderSummary> {
     let start_time = Instant::now();
-    let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.as_read_dataset_state(dataset_offset, start_time, conf)
+    let mut fr = io_to_log!(BufFileReader::open(path));
+    HeaderReader::try_new(&mut fr, dataset_offset, start_time)
         .map_err(ReadHeaderError::from)
         .map_err(IOAnonErrorGroup::new_pure_one)
         .into_log()
-        .and_then_commutative(|mut st| {
-            Header::h_read(&mut fr.buf_read, &mut st)
+        .and_then_commutative(|mut hreader| {
+            Header::read(&mut hreader, conf)
                 .map_error(|e| e.fmap(ReadHeaderError::from))
                 .map_ok_value(|out| out.header)
             // .warnings_to_pure_errors(&conf.shared, ReadHeaderError::from)
@@ -144,8 +145,8 @@ pub fn fcs_read_flat_text(
     FlatTEXTSummary,
 > {
     let start_time = Instant::now();
-    let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_flat_text(dataset_offset, start_time, conf)
+    let mut fr = io_to_log!(BufFileReader::open(path));
+    read_flat_text(&mut fr, dataset_offset, start_time, conf)
 }
 
 /// Read HEADER and standardized TEXT at a given position from an FCS file.
@@ -161,8 +162,8 @@ pub fn fcs_read_std_text(
     StdTEXTSummary,
 > {
     let start_time = Instant::now();
-    let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_std_text(dataset_offset, start_time, conf)
+    let mut fr = io_to_log!(BufFileReader::open(path));
+    read_std_text(&mut fr, dataset_offset, start_time, conf)
 }
 
 /// Read dataset from FCS at given position file using flat TEXT.
@@ -179,8 +180,8 @@ pub fn fcs_read_flat_dataset(
     FlatDatasetSummary,
 > {
     let start_time = Instant::now();
-    let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_flat_dataset(dataset_offset, scan_next_dataset, start_time, conf)
+    let mut fr = io_to_log!(BufFileReader::open(path));
+    read_flat_dataset(&mut fr, dataset_offset, scan_next_dataset, start_time, conf)
 }
 
 /// Read dataset from FCS file at given position using standardized TEXT.
@@ -197,8 +198,8 @@ pub fn fcs_read_std_dataset(
     StdDatasetSummary,
 > {
     let start_time = Instant::now();
-    let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_std_dataset(dataset_offset, scan_next_dataset, start_time, conf)
+    let mut fr = io_to_log!(BufFileReader::open(path));
+    read_std_dataset(&mut fr, dataset_offset, scan_next_dataset, start_time, conf)
 }
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords.
@@ -218,22 +219,20 @@ pub fn fcs_read_flat_dataset_with_keywords(
     FlatDatasetWithKwsSummary,
 > {
     let start_time = Instant::now();
-    FCSFileReader::open_with_state(path, dataset_offset, start_time, conf)
-        .map_err(|e| e.fmap_once(ReadFlatDatasetWithKwsError::from))
-        .and_then(|(fr, st)| {
-            st.maybe_with_dataset_length(dataset_len)
-                .map(|txt_st| (txt_st, fr))
+    let mut fr = io_to_log!(BufFileReader::open(path));
+    HeaderReader::try_new(&mut fr, dataset_offset, start_time)
+        .map_err(ReadFlatDatasetWithKwsError::from)
+        .and_then(|fr_| {
+            fr_.maybe_with_dataset_length(dataset_len)
                 .map_err(ReadFlatDatasetWithKwsError::from)
-                .map_err(ImpureError::Pure)
         })
-        .map_err(IOErrorGroup::from)
+        .map_err(IOErrorGroup::new_pure_one)
         .into_log()
-        .and_then_commutative(|(txt_st, mut fr)| {
-            let br = &mut fr.buf_read;
+        .and_then_commutative(|mut treader| {
             let v = hns.header.version;
             let tx = std.as_transaction();
-            let st = txt_st.start_time();
-            FlatDatasetFromKwsOutput::h_read(br, v, &tx, &mut hns, false, st, &txt_st)
+            let st = treader.start_time();
+            FlatDatasetFromKwsOutput::read(&mut treader, v, &tx, &mut hns, false, st, &conf)
                 .map_pure_errors(ReadFlatDatasetWithKwsError::from)
         })
         .map_ok_value(|dataset| NewFlatDatasetFromKwsOutput::new(dataset, hns.header.final_offsets))
@@ -256,8 +255,8 @@ pub fn fcs_read_flat_texts(
     FlatTEXTSummary,
 > {
     let start_time = Instant::now();
-    let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_flat_texts(skip, limit, scan, start_time, conf)
+    let mut fr = io_to_log!(BufFileReader::open(path));
+    read_flat_texts(&mut fr, skip, limit, scan, start_time, conf)
 }
 
 /// Read HEADER and TEXT from multiple datasets in standardized mode.
@@ -275,8 +274,8 @@ pub fn fcs_read_std_texts(
     StdTEXTSummary,
 > {
     let start_time = Instant::now();
-    let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_std_texts(skip, limit, scan, start_time, conf)
+    let mut fr = io_to_log!(BufFileReader::open(path));
+    read_std_texts(&mut fr, skip, limit, scan, start_time, conf)
 }
 
 /// Read multiple datasets from FCS file in flat mode.
@@ -294,8 +293,8 @@ pub fn fcs_read_flat_datasets(
     FlatDatasetSummary,
 > {
     let start_time = Instant::now();
-    let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_flat_datasets(skip, limit, scan, start_time, conf)
+    let mut fr = io_to_log!(BufFileReader::open(path));
+    read_flat_datasets(&mut fr, skip, limit, scan, start_time, conf)
 }
 
 /// Read multiple datasets from FCS file
@@ -313,8 +312,8 @@ pub fn fcs_read_std_datasets(
     StdDatasetSummary,
 > {
     let start_time = Instant::now();
-    let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_std_datasets(skip, limit, scan, start_time, conf)
+    let mut fr = io_to_log!(BufFileReader::open(path));
+    read_std_datasets(&mut fr, skip, limit, scan, start_time, conf)
 }
 
 /// Summarize the contents of an FCS file
@@ -350,7 +349,7 @@ pub fn fcs_scan_dataset_boundaries(path: &PathBuf) -> io::Result<Vec<(Version, D
     const OVERLAP_SIZE: usize = BOUNDARY_MATCH_SIZE - 1;
     const BUF_SIZE: u64 = 32000;
 
-    let mut file = fs::File::options().read(true).open(path)?;
+    let mut file = File::options().read(true).open(path)?;
     let mut bounds = vec![];
     let mut buf = vec![];
     let mut file_pos = 0;
@@ -389,15 +388,16 @@ fn match_bytes_version(xs: &[u8; BOUNDARY_MATCH_SIZE]) -> Option<Version> {
     }
 }
 
-pub(crate) fn next_dataset_boundary<R: Read + Seek>(
-    h: &mut BufReader<R>,
+// TODO make this a method on the reader
+pub(crate) fn next_dataset_boundary(
+    reader: &mut BufFileReader,
 ) -> io::Result<Option<DatasetOffset>> {
     const OVERLAP_SIZE: usize = BOUNDARY_MATCH_SIZE - 1;
     const BUF_SIZE: u64 = 32000;
 
     let mut buf = vec![];
-    let mut file_offset = h.stream_position()?;
-    read_to_end_checked(h.by_ref(), BUF_SIZE, &mut buf)?;
+    let mut file_offset = reader.pos();
+    read_to_end_checked(reader, BUF_SIZE, &mut buf)?;
 
     while buf.len() >= BOUNDARY_MATCH_SIZE {
         for w in buf[..].array_windows() {
@@ -411,7 +411,7 @@ pub(crate) fn next_dataset_boundary<R: Read + Seek>(
         buf.clear();
         buf.extend(tmp);
         let overlap_nbytes = BUF_SIZE - OVERLAP_SIZE.usize_to_u64();
-        read_to_end_checked(h.by_ref(), overlap_nbytes, &mut buf)?;
+        read_to_end_checked(reader, overlap_nbytes, &mut buf)?;
     }
 
     Ok(None)
@@ -1549,14 +1549,14 @@ impl FlatDatasetOutput {
 
 impl FlatDatasetFromKwsOutput {
     /// Read from handle with offsets/version from HEADER and parsed TEXT keywords.
-    fn h_read<C, R>(
-        h: &mut BufReader<R>,
+    fn read<C>(
+        reader: &mut TEXTReader,
         new_version: Version,
         tx: &StdLookupTx,
         hns: &mut HeaderAndSuppOffsets,
         scan_next_dataset: bool,
         start_time: Instant,
-        st: &TEXTReadState<C>,
+        conf: &C,
     ) -> WarningsAndIOGroupResult<
         Self,
         ReadFlatDatasetFromKwsOutputWarning,
@@ -1564,14 +1564,13 @@ impl FlatDatasetFromKwsOutput {
         (),
     >
     where
-        R: Read + Seek,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadDatasetConfig>,
     {
         let lookup_res = match new_version {
-            Version::FCS2_0 => Version2_0::h_lookup_and_read(h, tx, hns, start_time, st),
-            Version::FCS3_0 => Version3_0::h_lookup_and_read(h, tx, hns, start_time, st),
-            Version::FCS3_1 => Version3_1::h_lookup_and_read(h, tx, hns, start_time, st),
-            Version::FCS3_2 => Version3_2::h_lookup_and_read(h, tx, hns, start_time, st),
+            Version::FCS2_0 => Version2_0::h_lookup_and_read(reader, tx, hns, start_time, conf),
+            Version::FCS3_0 => Version3_0::h_lookup_and_read(reader, tx, hns, start_time, conf),
+            Version::FCS3_1 => Version3_1::h_lookup_and_read(reader, tx, hns, start_time, conf),
+            Version::FCS3_2 => Version3_2::h_lookup_and_read(reader, tx, hns, start_time, conf),
         };
 
         lookup_res
@@ -1583,7 +1582,7 @@ impl FlatDatasetFromKwsOutput {
                 let d = &out.ds_offsets;
                 let ed = out.event_diag;
                 let t = &out.timings;
-                DatasetDiagnostics::from_parts(h, v, ed, hns, d, snd, t, st)
+                DatasetDiagnostics::from_parts(reader, v, ed, hns, d, snd, t, conf)
                     .map_commutative_warnings(ReadFlatDatasetFromKwsOutputWarning::from)
                     .map_pure_errors(ReadFlatDatasetFromKwsOutputError::from)
                     .repack_warnings()
@@ -1603,48 +1602,50 @@ impl FlatDatasetFromKwsOutput {
 
 impl FlatTEXTOutput {
     /// Read flat TEXT from file handle.
-    fn h_read<C, R>(
-        h: &mut BufReader<R>,
-        mut st: HeaderReadState<C>,
+    fn read<'a, C>(
+        mut reader: HeaderReader<'a>,
+        conf: &C,
     ) -> WarningsAndErrorResult<
-        FlatTEXTOutputInner<Self, C>,
+        FlatTEXTOutputInner<'a, Self>,
         (),
         HeaderOrFlatTEXTWarning,
         IOErrorGroup<HeaderOrFlatTextError, ()>,
     >
     where
-        R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
-        Header::h_read(h, &mut st)
+        Header::read(&mut reader, conf)
             .map_commutative_warnings(HeaderOrFlatTEXTWarning::from)
             .map_pure_errors(HeaderOrFlatTextError::from)
             .and_then_commutative(|out| {
-                Self::h_read_from_header(h, out.header, out.read_end, st)
+                Self::read_from_header(reader, out.header, out.read_end, conf)
                     .map_commutative_warnings(HeaderOrFlatTEXTWarning::from)
                     .map_pure_errors(HeaderOrFlatTextError::from)
             })
     }
 
     /// Read flat TEXT from file handle with offsets from HEADER.
-    fn h_read_from_header<C, R>(
-        h: &mut BufReader<R>,
+    #[allow(clippy::too_many_lines)]
+    fn read_from_header<'a, C>(
+        mut reader: HeaderReader<'a>,
         mut header: Header,
         start_time: Instant,
-        st: HeaderReadState<C>,
+        conf: &C,
     ) -> WarningsAndIOGroupResult<
-        FlatTEXTOutputInner<Self, C>,
+        FlatTEXTOutputInner<'a, Self>,
         ParseFlatTEXTWarning,
         ParseFlatTEXTError,
         (),
     >
     where
-        R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadOffsetConfig>,
     {
-        let conf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
+        let hconf: &ReadHeaderAndTEXTConfig = conf.as_ref();
         // Clip the primary TEXT offsets if they exceed EOF.
-        let ptext_overflow = match header.final_offsets.try_truncate_primary_text(&st) {
+        let ptext_overflow = match header
+            .final_offsets
+            .try_truncate_primary_text(&reader, conf.as_ref())
+        {
             Ok(overflow) => overflow,
             Err(e) => {
                 let pure = IOErrorGroup::new_pure_one(ParseFlatTEXTError::from(e));
@@ -1659,11 +1660,11 @@ impl FlatTEXTOutput {
             return LogResult::new_err(e);
         };
 
-        let ptext_bytes = io_to_log!(ne_ptext_offsets.h_read_contents(h));
-        let penc = conf.use_encoding.choose(ptext_bytes.as_ref());
+        let ptext_bytes = io_to_log!(ne_ptext_offsets.h_read_contents(reader.inner_mut()));
+        let penc = hconf.use_encoding.choose(ptext_bytes.as_ref());
 
         let ptext_ne_slice = ptext_bytes.as_nonempty_slice();
-        let delim_res = split_first_delim(ptext_ne_slice, conf)
+        let delim_res = split_first_delim(ptext_ne_slice, hconf)
             .map_errors(ParseFlatTEXTError::from)
             .map_commutative_warnings(ParseFlatTEXTWarning::from)
             .into_semigroup();
@@ -1678,58 +1679,69 @@ impl FlatTEXTOutput {
             .group()
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(delim, bytes)| {
-                let c = st.conf().as_ref();
+                let c = conf.as_ref();
                 SplitTEXTDiagnostics::primary_from_bytes(delim, bytes, penc, c)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
                     .group()
                     .map_error(IOErrorGroup::Pure)
                     .and_then_commutative(|(idx, nonstd, diag)| {
-                        Nextdata::lookup_ro(&idx.std, ptext_offsets, st)
+                        Nextdata::lookup_ro(&idx.std, ptext_offsets, reader, conf)
                             .map_commutative_warnings(ParseFlatTEXTWarning::from)
                             .map_errors(ParseFlatTEXTError::from)
                             .into_semigroup()
-                            .map_ok_value(|(nextdata, txt_st)| {
-                                (delim, idx, nonstd, diag, nextdata, txt_st)
+                            .map_ok_value(|(nextdata, treader)| {
+                                (delim, idx, nonstd, diag, nextdata, treader)
                             })
                             .group()
                             .map_error(IOErrorGroup::Pure)
                     })
             })
-            .and_then_commutative(|(delim, prim_idx, mut nonstd, pdiag, nextdata, txt_st)| {
-                SuppTEXTOffsetsOutput::lookup(&prim_idx.std, &mut header, &txt_st)
-                    .map_commutative_warnings(ParseFlatTEXTWarning::from)
-                    .map_errors(ParseFlatTEXTError::from)
-                    .group()
-                    .map_error(IOErrorGroup::Pure)
-                    .and_then_commutative(|supp_out| {
-                        let ne_offsets = supp_out.as_offset_pair().and_then(|p| p.as_nonempty());
-                        if let Some(ne) = ne_offsets {
-                            let c = txt_st.conf().as_ref();
-                            SplitTEXTDiagnostics::h_read_supp(h, delim, &ne, &mut nonstd, c)
+            .and_then_commutative(
+                |(delim, prim_idx, mut nonstd, pdiag, nextdata, mut treader)| {
+                    SuppTEXTOffsetsOutput::lookup(&prim_idx.std, &mut header, &treader, conf)
+                        .map_commutative_warnings(ParseFlatTEXTWarning::from)
+                        .map_errors(ParseFlatTEXTError::from)
+                        .group()
+                        .map_error(IOErrorGroup::Pure)
+                        .and_then_commutative(|supp_out| {
+                            let ne_offsets =
+                                supp_out.as_offset_pair().and_then(|p| p.as_nonempty());
+                            if let Some(ne) = ne_offsets {
+                                let c = conf.as_ref();
+                                SplitTEXTDiagnostics::h_read_supp(
+                                    treader.inner_mut(),
+                                    delim,
+                                    &ne,
+                                    &mut nonstd,
+                                    c,
+                                )
                                 .map_commutative_warnings(ParseFlatTEXTWarning::from)
                                 .map_pure_errors(ParseFlatTEXTError::from)
-                                .map_ok_value(|(supp_index, mut supp_diag)| {
-                                    let (index, std_dups, pnonstd_dups) =
-                                        prim_idx.concat(supp_index);
-                                    supp_diag.non_unique_std_keywords.extend(std_dups);
-                                    supp_diag.non_unique_pnonstd_keywords.extend(pnonstd_dups);
-                                    (index, supp_out, Some(supp_diag))
-                                })
-                        } else {
-                            LogResult::new_ok((prim_idx, supp_out, None))
-                        }
-                    })
-                    .map_ok_value(|(idx, supp_out, sdiag)| {
-                        (idx, nonstd, nextdata, supp_out, pdiag, sdiag, txt_st)
-                    })
-            })
+                                .map_ok_value(
+                                    |(supp_index, mut supp_diag)| {
+                                        let (index, std_dups, pnonstd_dups) =
+                                            prim_idx.concat(supp_index);
+                                        supp_diag.non_unique_std_keywords.extend(std_dups);
+                                        supp_diag.non_unique_pnonstd_keywords.extend(pnonstd_dups);
+                                        (index, supp_out, Some(supp_diag))
+                                    },
+                                )
+                            } else {
+                                LogResult::new_ok((prim_idx, supp_out, None))
+                            }
+                        })
+                        .map_ok_value(|(idx, supp_out, sdiag)| {
+                            (idx, nonstd, nextdata, supp_out, pdiag, sdiag, treader)
+                        })
+                },
+            )
             .and_then_commutative(
-                |(idx, nonstd, nextdata, stext_offsets, pout, sout, txt_st)| {
+                |(idx, nonstd, nextdata, stext_offsets, pout, sout, tread)| {
                     // Check if any HEADER offsets exceed $NEXTDATA
                     let hdr_trunc_res = header
                         .final_offsets
-                        .try_truncate_non_primary_text(&txt_st)
+                        .try_truncate_non_primary_text(&tread, conf.as_ref())
                         .nowarn_into_warn()
                         .map_errors(ParseFlatTEXTError::from)
                         .group()
@@ -1749,7 +1761,7 @@ impl FlatTEXTOutput {
                             primary_split: pout,
                             supp_split: sout,
                         };
-                        FlatTEXTOutputInner::new(Self::new(vk, diag), text_read_end, txt_st)
+                        FlatTEXTOutputInner::new(Self::new(vk, diag), text_read_end, tread)
                     })
                 },
             )
@@ -1759,7 +1771,8 @@ impl FlatTEXTOutput {
     fn into_std_text<C>(
         mut self,
         read_text_end: Instant,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> WarningsAndErrorsResult<
         (AnyCoreTEXT, StdTEXTOutput),
         (),
@@ -1775,8 +1788,8 @@ impl FlatTEXTOutput {
     {
         let hns = &mut self.flat_diagnostics.header_supp;
         let version = hns.header.version;
-        AnyCoreTEXT::from_keywords(version, self.keywords, hns, read_text_end, st).map_ok_value(
-            |out| {
+        AnyCoreTEXT::from_keywords(version, self.keywords, hns, read_text_end, reader, conf)
+            .map_ok_value(|out| {
                 let std_out = StdTEXTOutput::new(
                     out.offsets.tot,
                     out.offsets.offsets,
@@ -1787,17 +1800,16 @@ impl FlatTEXTOutput {
                     out.pseudostandard,
                 );
                 (out.inner, std_out)
-            },
-        )
+            })
     }
 
     /// Convert into standardized dataset, reading data as necessary.
-    fn into_std_dataset<C, R>(
+    fn into_std_dataset<C>(
         mut self,
-        h: &mut BufReader<R>,
+        reader: &mut TEXTReader,
         scan_next_dataset: bool,
         read_text_end: Instant,
-        st: &TEXTReadState<C>,
+        conf: &C,
     ) -> WarningsAndIOGroupResult<
         (AnyCoreDataset, StdDatasetOutput),
         AnyStdDatasetFromKeywordsWarning,
@@ -1805,7 +1817,6 @@ impl FlatTEXTOutput {
         (),
     >
     where
-        R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig>
             + AsRef<ReadRepairKeywordsConfig>
             + AsRef<ReadOffsetConfig>
@@ -1815,12 +1826,12 @@ impl FlatTEXTOutput {
     {
         let hdr = &mut self.flat_diagnostics.header_supp;
         AnyCoreDataset::new_from_keywords(
-            h,
+            reader,
             hdr,
             self.keywords,
             scan_next_dataset,
             read_text_end,
-            st,
+            conf,
         )
         .map_ok_value(|out| {
             let dx = StdDatasetOutput::new(
@@ -1862,7 +1873,7 @@ impl SplitTEXTDiagnostics {
 
     /// Read supp TEXT from file handle and store keywords in hash table.
     fn h_read_supp<R: Read + Seek>(
-        h: &mut BufReader<R>,
+        h: &mut R,
         delim: u8,
         offsets: &NonEmptyOffsets<SupplementalTextSegmentId, OffsetsFromTEXT>,
         nonstd: &mut ParsedNonStdKeywords,
@@ -2408,7 +2419,8 @@ impl SuppTEXTOffsetsOutput {
     fn lookup<C>(
         index: &StdKeywords,
         header: &mut Header,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> WarningsAndErrorsResult<Self, (), STextOffsetsWarning, STextOffsetsError>
     where
         C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadOffsetConfig>,
@@ -2447,15 +2459,15 @@ impl SuppTEXTOffsetsOutput {
                 .transpose()
         }
 
-        let hconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
-        let oconf: &ReadOffsetConfig = st.conf().as_ref();
+        let hconf: &ReadHeaderAndTEXTConfig = conf.as_ref();
+        let oconf: &ReadOffsetConfig = conf.as_ref();
         let config_corr = hconf.supp_text_correction;
 
         let validate_offsets =
             |hdr: &mut Header, mut final_supp: SupplementalTextOffsets, orig_supp, other_index| {
                 let overlap_limit = oconf.overlap_correction_limit;
                 let overflow_res = if let Some(ne) = final_supp.as_nonempty_mut() {
-                    ne.truncate_dataset_len((), st)
+                    ne.truncate_dataset_len((), reader, conf)
                         .map_err(STextOffsetsError::from)
                         .into_log()
                 } else {
@@ -2514,16 +2526,18 @@ impl SuppTEXTOffsetsOutput {
                 let x0 = get_req::<Beginstext>(index).map_err(ReqSegmentKeyError::Begin);
                 let x1 = get_req::<Endstext>(index).map_err(ReqSegmentKeyError::End);
                 let pair = OneOrTwo::from_results(x0, x1);
-                let res = match SupplementalTextSegmentId::with_req_pair(pair, config_corr, st) {
-                    PairResult::Valid(final_, orig) => Ok(OffsetResult::Valid(final_, orig)),
-                    PairResult::Malformed(orig, e) => {
-                        let r = OffsetResult::Malformed(orig);
-                        Err((r, OneOrTwo::One(ReqOffsetsError::Segment(e))))
-                    }
-                    PairResult::Unparsed(es) => {
-                        Err((OffsetResult::Missing, es.fmap(ReqOffsetsError::Key)))
-                    }
-                };
+                let res =
+                    match SupplementalTextSegmentId::with_req_pair(pair, config_corr, reader, conf)
+                    {
+                        PairResult::Valid(final_, orig) => Ok(OffsetResult::Valid(final_, orig)),
+                        PairResult::Malformed(orig, e) => {
+                            let r = OffsetResult::Malformed(orig);
+                            Err((r, OneOrTwo::One(ReqOffsetsError::Segment(e))))
+                        }
+                        PairResult::Unparsed(es) => {
+                            Err((OffsetResult::Missing, es.fmap(ReqOffsetsError::Key)))
+                        }
+                    };
                 match res {
                     Ok(x) => LogResult::new_ok(x),
                     Err((x, es)) => {
@@ -2543,17 +2557,21 @@ impl SuppTEXTOffsetsOutput {
                 let x0 = get_opt::<Beginstext>(index).map_err(OptSegmentKeyError::Begin);
                 let x1 = get_opt::<Endstext>(index).map_err(OptSegmentKeyError::End);
                 let pair = OneOrTwo::from_results(x0, x1).map(|(x, y)| x.zip(y));
-                let res = match SupplementalTextSegmentId::with_opt_pair(pair, config_corr, st) {
-                    None => Ok(OffsetResult::Empty),
-                    Some(PairResult::Valid(final_, orig)) => Ok(OffsetResult::Valid(final_, orig)),
-                    Some(PairResult::Malformed(orig, e)) => {
-                        let r = OffsetResult::Malformed(orig);
-                        Err((r, OneOrTwo::One(OptOffsetsError::Segment(e))))
-                    }
-                    Some(PairResult::Unparsed(es)) => {
-                        Err((OffsetResult::Missing, es.fmap(OptOffsetsError::Key)))
-                    }
-                };
+                let res =
+                    match SupplementalTextSegmentId::with_opt_pair(pair, config_corr, reader, conf)
+                    {
+                        None => Ok(OffsetResult::Empty),
+                        Some(PairResult::Valid(final_, orig)) => {
+                            Ok(OffsetResult::Valid(final_, orig))
+                        }
+                        Some(PairResult::Malformed(orig, e)) => {
+                            let r = OffsetResult::Malformed(orig);
+                            Err((r, OneOrTwo::One(OptOffsetsError::Segment(e))))
+                        }
+                        Some(PairResult::Unparsed(es)) => {
+                            Err((OffsetResult::Missing, es.fmap(OptOffsetsError::Key)))
+                        }
+                    };
                 match res {
                     Ok(x) => LogResult::new_ok(x),
                     Err((x, es)) => {
@@ -3156,502 +3174,495 @@ impl TruncatedString {
 
 // Implement local reader for FCS files.
 
-/// A reader for an FCS file which includes its handle and length.
-pub(crate) struct FCSFileReader {
-    pub(crate) file_len: FileLen,
-    pub(crate) buf_read: BufReader<File>,
-}
+// /// A reader for an FCS file which includes its handle and length.
+// pub(crate) struct FCSFileReader {
+//     pub(crate) file_len: FileLen,
+//     pub(crate) buf_read: BufReader<File>,
+// }
 
 #[derive(new)]
-struct FlatTEXTOutputInner<T, C> {
+struct FlatTEXTOutputInner<'a, T> {
     this: T,
     read_end: Instant,
-    state: TEXTReadState<C>,
+    reader: TEXTReader<'a>,
 }
 
-impl FCSFileReader {
-    pub(crate) fn open_with_state<C>(
-        p: &PathBuf,
-        dataset_offset: DatasetOffset,
-        start_time: Instant,
-        conf: C,
-    ) -> IOResult<(Self, HeaderReadState<C>), DatasetOffsetError> {
-        let fr = Self::open(p)?;
-        let st = fr
-            .as_read_dataset_state(dataset_offset, start_time, conf)
-            .map_err(ImpureError::Pure)?;
-        Ok((fr, st))
-    }
+// impl FCSFileReader {
+//     pub(crate) fn open_with_state<C>(
+//         p: &PathBuf,
+//         dataset_offset: DatasetOffset,
+//         start_time: Instant,
+//         conf: C,
+//     ) -> IOResult<(Self, HeaderReadState<C>), DatasetOffsetError> {
+//         let fr = Self::open(p)?;
+//         let st = fr
+//             .as_read_dataset_state(dataset_offset, start_time, conf)
+//             .map_err(ImpureError::Pure)?;
+//         Ok((fr, st))
+//     }
 
-    fn open(p: &PathBuf) -> io::Result<Self> {
-        let file = File::options().read(true).open(p)?;
-        let m = file.metadata()?;
-        let file_len = m.len().into();
-        let handle = BufReader::new(file);
-        Ok(Self {
-            file_len,
-            buf_read: handle,
+//     fn open(p: &PathBuf) -> io::Result<Self> {
+//         let file = File::options().read(true).open(p)?;
+//         let m = file.metadata()?;
+//         let file_len = m.len().into();
+//         let handle = BufReader::new(file);
+//         Ok(Self {
+//             file_len,
+//             buf_read: handle,
+//         })
+//     }
+
+//     fn as_read_dataset_state<C>(
+//         &self,
+//         dataset_offset: DatasetOffset,
+//         start_time: Instant,
+//         conf: C,
+//     ) -> Result<HeaderReadState<C>, DatasetOffsetError> {
+//         HeaderReadState::init(self.file_len, dataset_offset, start_time, conf)
+//     }
+
+fn read_flat_text(
+    reader: &mut BufFileReader,
+    dataset_offset: DatasetOffset,
+    start_time: Instant,
+    conf: &ReadFlatTEXTConfig,
+) -> WarningsAndIOGroupResult<
+    FlatTEXTOutput,
+    HeaderOrFlatTEXTWarning,
+    HeaderOrFlatTextError,
+    FlatTEXTSummary,
+> {
+    read_flat_text_inner(reader, dataset_offset, start_time, conf)
+        .map_ok_value(|out| out.this)
+        .warnings_to_pure_errors(conf.shared, HeaderOrFlatTextError::from)
+        .deanonymize()
+}
+
+fn read_std_text(
+    fr: &mut BufFileReader,
+    dataset_offset: DatasetOffset,
+    start_time: Instant,
+    conf: &ReadStdTEXTConfig,
+) -> WarningsAndIOGroupResult<
+    (AnyCoreTEXT, StdTEXTOutput),
+    StdTEXTWarning,
+    StdTEXTError,
+    StdTEXTSummary,
+> {
+    read_flat_text_inner(fr, dataset_offset, start_time, conf)
+        .map_pure_errors(StdTEXTError::from)
+        .map_commutative_warnings(StdTEXTWarning::from)
+        .and_then_commutative(|out| {
+            out.this
+                .into_std_text(out.read_end, &out.reader, conf)
+                .map_commutative_warnings(StdTEXTWarning::from)
+                .map_errors(StdTEXTError::from)
+                .group()
+                .map_errors(IOErrorGroup::Pure)
         })
+        .warnings_to_pure_errors(conf.shared, StdTEXTError::from)
+        .deanonymize()
+}
+
+fn read_flat_dataset(
+    reader: &mut BufFileReader,
+    dataset_offset: DatasetOffset,
+    scan_next_dataset: bool,
+    start_time: Instant,
+    conf: &ReadFlatDatasetConfig,
+) -> WarningsAndIOGroupResult<
+    FlatDatasetOutput,
+    ReadFlatDatasetWarning,
+    ReadFlatDatasetError,
+    FlatDatasetSummary,
+> {
+    #[derive(AsRef)]
+    struct LookupConfig {
+        #[as_ref(EvaledReadRepairKeywordsConfig)]
+        repair: EvaledReadRepairKeywordsConfig,
+        #[as_ref(ReadDataKeywordsConfig)]
+        data_kws: ReadDataKeywordsConfig,
+        #[as_ref(ReadDatasetConfig)]
+        dataset: ReadDatasetConfig,
+        #[as_ref(ReadOffsetConfig)]
+        offsets: ReadOffsetConfig,
     }
 
-    fn as_read_dataset_state<C>(
-        &self,
-        dataset_offset: DatasetOffset,
-        start_time: Instant,
-        conf: C,
-    ) -> Result<HeaderReadState<C>, DatasetOffsetError> {
-        HeaderReadState::init(self.file_len, dataset_offset, start_time, conf)
-    }
+    read_flat_text_inner(reader, dataset_offset, start_time, conf)
+        .map_commutative_warnings(ReadFlatDatasetWarning::from)
+        .map_pure_errors(ReadFlatDatasetError::from)
+        .and_then_commutative(|out| {
+            eval_repair_conf(conf.as_ref(), &out.this.keywords)
+                .map_ok_value(|repair| {
+                    LookupConfig {
+                        repair,
+                        // TODO useless clone
+                        data_kws: AsRef::<ReadDataKeywordsConfig>::as_ref(&conf).clone(),
+                        dataset: *AsRef::<ReadDatasetConfig>::as_ref(&conf),
+                        offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf),
+                    }
+                })
+                .map_errors(ReadFlatDatasetError::from)
+                .nowarn_into_warn()
+                .group()
+                .map_error(IOErrorGroup::Pure)
+                .map_ok_value(|x| (x, out.reader, out.this, out.read_end))
+        })
+        .and_then_commutative(|(lconf, mut treader, mut flat, read_end)| {
+            let mut kws = flat.keywords;
+            let repair_res = kws
+                .repair(&lconf.repair)
+                .map_commutative_warnings(ReadFlatDatasetWarning::from)
+                .map_errors(ReadFlatDatasetError::from);
 
-    fn read_flat_text(
-        &mut self,
-        dataset_offset: DatasetOffset,
-        start_time: Instant,
-        conf: &ReadFlatTEXTConfig,
-    ) -> WarningsAndIOGroupResult<
-        FlatTEXTOutput,
-        HeaderOrFlatTEXTWarning,
-        HeaderOrFlatTextError,
-        FlatTEXTSummary,
-    > {
-        self.read_flat_text_inner(dataset_offset, start_time, conf)
-            .map_ok_value(|out| out.this)
-            .warnings_to_pure_errors(conf.shared, HeaderOrFlatTextError::from)
-            .deanonymize()
-    }
-
-    fn read_std_text(
-        &mut self,
-        dataset_offset: DatasetOffset,
-        start_time: Instant,
-        conf: &ReadStdTEXTConfig,
-    ) -> WarningsAndIOGroupResult<
-        (AnyCoreTEXT, StdTEXTOutput),
-        StdTEXTWarning,
-        StdTEXTError,
-        StdTEXTSummary,
-    > {
-        self.read_flat_text_inner(dataset_offset, start_time, conf)
-            .map_pure_errors(StdTEXTError::from)
-            .map_commutative_warnings(StdTEXTWarning::from)
-            .and_then_commutative(|out| {
-                out.this
-                    .into_std_text(out.read_end, &out.state)
-                    .map_commutative_warnings(StdTEXTWarning::from)
-                    .map_errors(StdTEXTError::from)
-                    .group()
-                    .map_errors(IOErrorGroup::Pure)
-            })
-            .warnings_to_pure_errors(conf.shared, StdTEXTError::from)
-            .deanonymize()
-    }
-
-    fn read_flat_dataset(
-        &mut self,
-        dataset_offset: DatasetOffset,
-        scan_next_dataset: bool,
-        start_time: Instant,
-        conf: &ReadFlatDatasetConfig,
-    ) -> WarningsAndIOGroupResult<
-        FlatDatasetOutput,
-        ReadFlatDatasetWarning,
-        ReadFlatDatasetError,
-        FlatDatasetSummary,
-    > {
-        #[derive(AsRef)]
-        struct LookupConfig {
-            #[as_ref(EvaledReadRepairKeywordsConfig)]
-            repair: EvaledReadRepairKeywordsConfig,
-            #[as_ref(ReadDataKeywordsConfig)]
-            data_kws: ReadDataKeywordsConfig,
-            #[as_ref(ReadDatasetConfig)]
-            dataset: ReadDatasetConfig,
-            #[as_ref(ReadOffsetConfig)]
-            offsets: ReadOffsetConfig,
-        }
-
-        self.read_flat_text_inner(dataset_offset, start_time, conf)
-            .map_commutative_warnings(ReadFlatDatasetWarning::from)
-            .map_pure_errors(ReadFlatDatasetError::from)
-            .and_then_commutative(|out| {
-                let st = &out.state;
-                eval_repair_conf(st.conf().as_ref(), &out.this.keywords)
-                    .map_ok_value(|repair| {
-                        st.as_ref().first_once(|conf_| LookupConfig {
-                            repair,
-                            // TODO useless clone
-                            data_kws: AsRef::<ReadDataKeywordsConfig>::as_ref(&conf_).clone(),
-                            dataset: *AsRef::<ReadDatasetConfig>::as_ref(&conf_),
-                            offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf_),
-                        })
-                    })
-                    .map_errors(ReadFlatDatasetError::from)
-                    .nowarn_into_warn()
-                    .group()
-                    .map_error(IOErrorGroup::Pure)
-                    .map_ok_value(|x| (x, out.this, out.read_end))
-            })
-            .and_then_commutative(|(lst, mut flat, read_end)| {
-                let mut kws = flat.keywords;
-                let repair_res = kws
-                    .repair(&lst.conf().repair)
-                    .map_commutative_warnings(ReadFlatDatasetWarning::from)
-                    .map_errors(ReadFlatDatasetError::from);
-
-                let ltx = kws.std.as_transaction();
-                let version = flat.flat_diagnostics.header_supp.header.version;
-                let hns = &mut flat.flat_diagnostics.header_supp;
-                let oride = conf.flat.version_override.as_ref();
-                autodetect_version(version, &kws.std, oride)
-                    .map_err(ReadFlatDatasetError::from)
-                    .map_err(IOErrorGroup::new_pure_one)
-                    .into_log()
-                    .and_then_commutative(|(new_version, scores)| {
-                        FlatDatasetFromKwsOutput::h_read(
-                            &mut self.buf_read,
-                            new_version,
-                            &ltx,
-                            hns,
-                            scan_next_dataset,
-                            read_end,
-                            &lst,
-                        )
-                        .map_commutative_warnings(ReadFlatDatasetWarning::from)
-                        .map_pure_errors(ReadFlatDatasetError::from)
-                        .map_ok_value(|x| (x, scores))
-                    })
-                    .zip_io_group_commutative(repair_res)
-                    .map_ok_value(|((dataset, scores), repair_diag)| {
-                        let final_std = ltx.commit();
-                        // Rebuild final keywords object since we may have
-                        // repaired them to read DATA
-                        let final_kws =
-                            ValidKeywords::new(final_std, kws.pnonstd, kws.pstd, kws.nonstd);
-                        FlatDatasetOutput::new(
-                            final_kws,
-                            flat.flat_diagnostics,
-                            dataset,
-                            scores,
-                            repair_diag,
-                        )
-                    })
-            })
-            .warnings_to_pure_errors(conf.shared, ReadFlatDatasetError::from)
-            .deanonymize()
-    }
-
-    fn read_std_dataset(
-        &mut self,
-        dataset_offset: DatasetOffset,
-        scan_next_dataset: bool,
-        start_time: Instant,
-        conf: &ReadStdDatasetConfig,
-    ) -> WarningsAndIOGroupResult<
-        (AnyCoreDataset, StdDatasetOutput),
-        StdDatasetWarning,
-        StdDatasetError,
-        StdDatasetSummary,
-    > {
-        self.read_flat_text_inner(dataset_offset, start_time, conf)
-            .map_pure_errors(StdDatasetError::from)
-            .map_commutative_warnings(StdDatasetWarning::from)
-            .and_then_commutative(|out| {
-                out.this
-                    .into_std_dataset(
-                        &mut self.buf_read,
+            let ltx = kws.std.as_transaction();
+            let version = flat.flat_diagnostics.header_supp.header.version;
+            let hns = &mut flat.flat_diagnostics.header_supp;
+            let oride = conf.flat.version_override.as_ref();
+            autodetect_version(version, &kws.std, oride)
+                .map_err(ReadFlatDatasetError::from)
+                .map_err(IOErrorGroup::new_pure_one)
+                .into_log()
+                .and_then_commutative(|(new_version, scores)| {
+                    FlatDatasetFromKwsOutput::read(
+                        &mut treader,
+                        new_version,
+                        &ltx,
+                        hns,
                         scan_next_dataset,
-                        out.read_end,
-                        &out.state,
+                        read_end,
+                        &lconf,
                     )
-                    .map_commutative_warnings(StdDatasetWarning::from)
-                    .map_pure_errors(StdDatasetError::from)
-            })
-            .warnings_to_pure_errors(conf.shared, StdDatasetError::from)
-            .deanonymize()
-    }
+                    .map_commutative_warnings(ReadFlatDatasetWarning::from)
+                    .map_pure_errors(ReadFlatDatasetError::from)
+                    .map_ok_value(|x| (x, scores))
+                })
+                .zip_io_group_commutative(repair_res)
+                .map_ok_value(|((dataset, scores), repair_diag)| {
+                    let final_std = ltx.commit();
+                    // Rebuild final keywords object since we may have
+                    // repaired them to read DATA
+                    let final_kws =
+                        ValidKeywords::new(final_std, kws.pnonstd, kws.pstd, kws.nonstd);
+                    FlatDatasetOutput::new(
+                        final_kws,
+                        flat.flat_diagnostics,
+                        dataset,
+                        scores,
+                        repair_diag,
+                    )
+                })
+        })
+        .warnings_to_pure_errors(conf.shared, ReadFlatDatasetError::from)
+        .deanonymize()
+}
 
-    fn read_flat_texts(
-        &mut self,
-        skip: Option<usize>,
-        limit: Option<usize>,
-        scan_next_dataset: bool,
-        mut start_time: Instant,
-        conf: &ReadFlatTEXTConfig,
-    ) -> WarningsAndIOGroupResult<
-        Vec<FlatTEXTOutput>,
-        HeaderOrFlatTEXTWarning,
-        HeaderOrFlatTextError,
-        FlatTEXTSummary,
-    > {
-        let mut dataset_offset = Some(DatasetOffset::default());
-        let mut count = 0_usize;
-        let mut results = vec![];
-        while let Some(dso) = dataset_offset
-            && limit.is_none_or(|x| count <= x)
-        {
-            let res = self.read_flat_text(dso, start_time, conf);
-            let succ = split_log!(res);
-            let scanned_dataset_offset = if scan_next_dataset {
-                io_to_log!(next_dataset_boundary(&mut self.buf_read))
+fn read_std_dataset(
+    fr: &mut BufFileReader,
+    dataset_offset: DatasetOffset,
+    scan_next_dataset: bool,
+    start_time: Instant,
+    conf: &ReadStdDatasetConfig,
+) -> WarningsAndIOGroupResult<
+    (AnyCoreDataset, StdDatasetOutput),
+    StdDatasetWarning,
+    StdDatasetError,
+    StdDatasetSummary,
+> {
+    read_flat_text_inner(fr, dataset_offset, start_time, conf)
+        .map_pure_errors(StdDatasetError::from)
+        .map_commutative_warnings(StdDatasetWarning::from)
+        .and_then_commutative(|mut out| {
+            out.this
+                .into_std_dataset(&mut out.reader, scan_next_dataset, out.read_end, conf)
+                .map_commutative_warnings(StdDatasetWarning::from)
+                .map_pure_errors(StdDatasetError::from)
+        })
+        .warnings_to_pure_errors(conf.shared, StdDatasetError::from)
+        .deanonymize()
+}
+
+fn read_flat_texts(
+    fr: &mut BufFileReader,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    scan_next_dataset: bool,
+    mut start_time: Instant,
+    conf: &ReadFlatTEXTConfig,
+) -> WarningsAndIOGroupResult<
+    Vec<FlatTEXTOutput>,
+    HeaderOrFlatTEXTWarning,
+    HeaderOrFlatTextError,
+    FlatTEXTSummary,
+> {
+    let mut dataset_offset = Some(DatasetOffset::default());
+    let mut count = 0_usize;
+    let mut results = vec![];
+    while let Some(dso) = dataset_offset
+        && limit.is_none_or(|x| count <= x)
+    {
+        let res = read_flat_text(fr, dso, start_time, conf);
+        let succ = split_log!(res);
+        let scanned_dataset_offset = if scan_next_dataset {
+            io_to_log!(next_dataset_boundary(fr))
+        } else {
+            None
+        };
+        let nextdata_res = succ.fmap_once(|ret| {
+            let hns = &ret.flat_diagnostics.header_supp;
+            let nd = hns.nextdata.map(u64::from);
+            dataset_offset = scanned_dataset_offset.or_else(|| {
+                let n = nd?;
+                (n > 0).then_some(DatasetOffset(dso.0 + n))
+            });
+            ret
+        });
+        results.push(nextdata_res);
+        count += 1;
+        // Subsequent start times will be a bit shorter because the file is
+        // already open.
+        start_time = Instant::now();
+    }
+    results
+        .into_iter()
+        .sequence_success()
+        .fmap_once(|xs| xs.into_iter().skip(skip.unwrap_or_default()).collect())
+        .into_log()
+}
+
+fn read_std_texts(
+    fr: &mut BufFileReader,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    scan_next_dataset: bool,
+    mut start_time: Instant,
+    conf: &ReadStdTEXTConfig,
+) -> WarningsAndIOGroupResult<
+    Vec<(AnyCoreTEXT, StdTEXTOutput)>,
+    MultiStdTEXTWarning,
+    MultiStdTEXTError,
+    StdTEXTSummary,
+> {
+    let mut dataset_offset = Some(DatasetOffset::default());
+    let mut count = 0_usize;
+    let mut results = vec![];
+    let rconf = ReadFlatTEXTConfig {
+        header: AsRef::<ReadHeaderInnerConfig>::as_ref(conf).clone(),
+        flat: AsRef::<ReadHeaderAndTEXTConfig>::as_ref(conf).clone(),
+        offset: *conf.as_ref(),
+        shared: *conf.as_ref(),
+    };
+    macro_rules! get_scanned {
+        () => {
+            if scan_next_dataset {
+                io_to_log!(next_dataset_boundary(fr))
             } else {
                 None
-            };
-            let nextdata_res = succ.fmap_once(|ret| {
-                let hns = &ret.flat_diagnostics.header_supp;
+            }
+        };
+    }
+    while let Some(dso) = dataset_offset
+        && limit.is_none_or(|x| count < x)
+    {
+        let nextdata_res = if skip.is_some_and(|s| count < s) {
+            let res = read_flat_text(fr, dso, start_time, &rconf)
+                .map_commutative_warnings(MultiStdTEXTWarning::from)
+                .map_pure_errors(MultiStdTEXTError::from)
+                .map_error(|e| e.set_group(StdTEXTSummary));
+            let succ = split_log!(res);
+            let scanned_dataset_offset = get_scanned!();
+            succ.fmap_once(|ret| {
+                let hns = ret.flat_diagnostics.header_supp;
                 let nd = hns.nextdata.map(u64::from);
                 dataset_offset = scanned_dataset_offset.or_else(|| {
                     let n = nd?;
                     (n > 0).then_some(DatasetOffset(dso.0 + n))
                 });
-                ret
-            });
-            results.push(nextdata_res);
-            count += 1;
-            // Subsequent start times will be a bit shorter because the file is
-            // already open.
-            start_time = Instant::now();
-        }
-        results
-            .into_iter()
-            .sequence_success()
-            .fmap_once(|xs| xs.into_iter().skip(skip.unwrap_or_default()).collect())
-            .into_log()
-    }
-
-    fn read_std_texts(
-        &mut self,
-        skip: Option<usize>,
-        limit: Option<usize>,
-        scan_next_dataset: bool,
-        mut start_time: Instant,
-        conf: &ReadStdTEXTConfig,
-    ) -> WarningsAndIOGroupResult<
-        Vec<(AnyCoreTEXT, StdTEXTOutput)>,
-        MultiStdTEXTWarning,
-        MultiStdTEXTError,
-        StdTEXTSummary,
-    > {
-        let mut dataset_offset = Some(DatasetOffset::default());
-        let mut count = 0_usize;
-        let mut results = vec![];
-        let rconf = ReadFlatTEXTConfig {
-            header: AsRef::<ReadHeaderInnerConfig>::as_ref(conf).clone(),
-            flat: AsRef::<ReadHeaderAndTEXTConfig>::as_ref(conf).clone(),
-            offset: *conf.as_ref(),
-            shared: *conf.as_ref(),
+                None
+            })
+        } else {
+            let res = read_std_text(fr, dso, start_time, conf)
+                .map_commutative_warnings(MultiStdTEXTWarning::from)
+                .map_pure_errors(MultiStdTEXTError::from);
+            let succ = split_log!(res);
+            let scanned_dataset_offset = get_scanned!();
+            succ.fmap_once(|ret| {
+                dataset_offset = scanned_dataset_offset.or_else(|| {
+                    let nd = u64::from(ret.1.flat_diagnostics.header_supp.nextdata?);
+                    (nd > 0).then_some(DatasetOffset(dso.0 + nd))
+                });
+                Some(ret)
+            })
         };
-        macro_rules! get_scanned {
-            () => {
-                if scan_next_dataset {
-                    io_to_log!(next_dataset_boundary(&mut self.buf_read))
-                } else {
-                    None
-                }
-            };
-        }
-        while let Some(dso) = dataset_offset
-            && limit.is_none_or(|x| count < x)
-        {
-            let nextdata_res = if skip.is_some_and(|s| count < s) {
-                let res = self
-                    .read_flat_text(dso, start_time, &rconf)
-                    .map_commutative_warnings(MultiStdTEXTWarning::from)
-                    .map_pure_errors(MultiStdTEXTError::from)
-                    .map_error(|e| e.set_group(StdTEXTSummary));
-                let succ = split_log!(res);
-                let scanned_dataset_offset = get_scanned!();
-                succ.fmap_once(|ret| {
-                    let hns = ret.flat_diagnostics.header_supp;
-                    let nd = hns.nextdata.map(u64::from);
-                    dataset_offset = scanned_dataset_offset.or_else(|| {
-                        let n = nd?;
-                        (n > 0).then_some(DatasetOffset(dso.0 + n))
-                    });
-                    None
-                })
-            } else {
-                let res = Self::read_std_text(self, dso, start_time, conf)
-                    .map_commutative_warnings(MultiStdTEXTWarning::from)
-                    .map_pure_errors(MultiStdTEXTError::from);
-                let succ = split_log!(res);
-                let scanned_dataset_offset = get_scanned!();
-                succ.fmap_once(|ret| {
-                    dataset_offset = scanned_dataset_offset.or_else(|| {
-                        let nd = u64::from(ret.1.flat_diagnostics.header_supp.nextdata?);
-                        (nd > 0).then_some(DatasetOffset(dso.0 + nd))
-                    });
-                    Some(ret)
-                })
-            };
-            results.push(nextdata_res);
-            count += 1;
-            // Subsequent start times will be a bit shorter because the file is
-            // already open.
-            start_time = Instant::now();
-        }
-        results
-            .into_iter()
-            .sequence_success()
-            .fmap_once(|xs| xs.into_iter().flatten().collect())
-            .into_log()
+        results.push(nextdata_res);
+        count += 1;
+        // Subsequent start times will be a bit shorter because the file is
+        // already open.
+        start_time = Instant::now();
     }
+    results
+        .into_iter()
+        .sequence_success()
+        .fmap_once(|xs| xs.into_iter().flatten().collect())
+        .into_log()
+}
 
-    fn read_flat_datasets(
-        &mut self,
-        skip: Option<usize>,
-        limit: Option<usize>,
-        scan_next_dataset: bool,
-        start_time: Instant,
-        conf: &ReadFlatDatasetConfig,
-    ) -> WarningsAndIOGroupResult<
-        Vec<FlatDatasetOutput>,
-        MultiFlatDatasetWarning,
-        MultiFlatDatasetError,
+fn read_flat_datasets(
+    fr: &mut BufFileReader,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    scan_next_dataset: bool,
+    start_time: Instant,
+    conf: &ReadFlatDatasetConfig,
+) -> WarningsAndIOGroupResult<
+    Vec<FlatDatasetOutput>,
+    MultiFlatDatasetWarning,
+    MultiFlatDatasetError,
+    FlatDatasetSummary,
+> {
+    read_nextdata_loop(
+        fr,
+        skip,
+        limit,
+        scan_next_dataset,
+        start_time,
+        conf,
         FlatDatasetSummary,
-    > {
-        self.read_nextdata_loop(
-            skip,
-            limit,
-            scan_next_dataset,
-            start_time,
-            conf,
-            FlatDatasetSummary,
-            Self::read_flat_dataset,
-            |ret| ret.dataset.dataset_diagnostics.next_dataset_offset,
-        )
-    }
+        read_flat_dataset,
+        |ret| ret.dataset.dataset_diagnostics.next_dataset_offset,
+    )
+}
 
-    fn read_std_datasets(
-        &mut self,
-        skip: Option<usize>,
-        limit: Option<usize>,
-        scan_next_dataset: bool,
-        start_time: Instant,
-        conf: &ReadStdDatasetConfig,
-    ) -> WarningsAndIOGroupResult<
-        Vec<(AnyCoreDataset, StdDatasetOutput)>,
-        MultiStdDatasetWarning,
-        MultiStdDatasetError,
+fn read_std_datasets(
+    fr: &mut BufFileReader,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    scan_next_dataset: bool,
+    start_time: Instant,
+    conf: &ReadStdDatasetConfig,
+) -> WarningsAndIOGroupResult<
+    Vec<(AnyCoreDataset, StdDatasetOutput)>,
+    MultiStdDatasetWarning,
+    MultiStdDatasetError,
+    StdDatasetSummary,
+> {
+    read_nextdata_loop(
+        fr,
+        skip,
+        limit,
+        scan_next_dataset,
+        start_time,
+        conf,
         StdDatasetSummary,
-    > {
-        self.read_nextdata_loop(
-            skip,
-            limit,
-            scan_next_dataset,
-            start_time,
-            conf,
-            StdDatasetSummary,
-            Self::read_std_dataset,
-            |ret| ret.1.dataset.dataset_diagnostics.next_dataset_offset,
-        )
-    }
+        read_std_dataset,
+        |ret| ret.1.dataset.dataset_diagnostics.next_dataset_offset,
+    )
+}
 
-    fn read_flat_text_inner<C>(
-        &mut self,
-        dataset_offset: DatasetOffset,
-        start_time: Instant,
-        conf: C,
-    ) -> WarningsAndIOGroupResult<
-        FlatTEXTOutputInner<FlatTEXTOutput, C>,
-        HeaderOrFlatTEXTWarning,
-        HeaderOrFlatTextError,
-        (),
-    >
-    where
-        C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
-    {
-        self.as_read_dataset_state(dataset_offset, start_time, conf)
-            .map_err(HeaderOrFlatTextError::from)
-            .map_err(IOAnonErrorGroup::new_pure_one)
-            .into_log()
-            .and_then_commutative(|st| FlatTEXTOutput::h_read(&mut self.buf_read, st))
-    }
+fn read_flat_text_inner<'a, C>(
+    fr: &'a mut BufFileReader,
+    dataset_offset: DatasetOffset,
+    start_time: Instant,
+    conf: &C,
+) -> WarningsAndIOGroupResult<
+    FlatTEXTOutputInner<'a, FlatTEXTOutput>,
+    HeaderOrFlatTEXTWarning,
+    HeaderOrFlatTextError,
+    (),
+>
+where
+    C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
+{
+    HeaderReader::try_new(fr, dataset_offset, start_time)
+        .map_err(HeaderOrFlatTextError::from)
+        .map_err(IOAnonErrorGroup::new_pure_one)
+        .into_log()
+        .and_then_commutative(|hreader| FlatTEXTOutput::read(hreader, conf))
+}
 
-    #[allow(clippy::too_many_arguments)]
-    fn read_nextdata_loop<X, W, E, Wi, Ei, G, C, Fsucc, Fnext>(
-        &mut self,
-        skip: Option<usize>,
-        limit: Option<usize>,
-        scan_next_dataset: bool,
-        mut start_time: Instant,
-        conf: &C,
-        g: G,
-        mut f0: Fsucc,
-        mut fnext: Fnext,
-    ) -> WarningsAndIOGroupResult<Vec<X>, W, E, G>
-    where
-        Fsucc: FnMut(
-            &mut Self,
-            DatasetOffset,
-            bool,
-            Instant,
-            &C,
-        ) -> WarningsAndIOGroupResult<X, Wi, Ei, G>,
-        Fnext: FnMut(&X) -> Option<DatasetOffset>,
-        E: From<HeaderOrFlatTextError> + From<Ei>,
-        W: From<HeaderOrFlatTEXTWarning> + From<Wi>,
-        C: AsRef<ReadHeaderInnerConfig>
-            + AsRef<ReadHeaderAndTEXTConfig>
-            + AsRef<ReadOffsetConfig>
-            + AsRef<ReadSharedConfig>,
-        G: Copy,
+#[allow(clippy::too_many_arguments)]
+fn read_nextdata_loop<X, W, E, Wi, Ei, G, C, Fsucc, Fnext>(
+    reader: &mut BufFileReader,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    scan_next_dataset: bool,
+    mut start_time: Instant,
+    conf: &C,
+    g: G,
+    mut f0: Fsucc,
+    mut fnext: Fnext,
+) -> WarningsAndIOGroupResult<Vec<X>, W, E, G>
+where
+    Fsucc: FnMut(
+        &mut BufFileReader,
+        DatasetOffset,
+        bool,
+        Instant,
+        &C,
+    ) -> WarningsAndIOGroupResult<X, Wi, Ei, G>,
+    Fnext: FnMut(&X) -> Option<DatasetOffset>,
+    E: From<HeaderOrFlatTextError> + From<Ei>,
+    W: From<HeaderOrFlatTEXTWarning> + From<Wi>,
+    C: AsRef<ReadHeaderInnerConfig>
+        + AsRef<ReadHeaderAndTEXTConfig>
+        + AsRef<ReadOffsetConfig>
+        + AsRef<ReadSharedConfig>,
+    G: Copy,
+{
+    let mut dataset_offset = Some(DatasetOffset::default());
+    let mut count = 0_usize;
+    let mut results = vec![];
+    let rconf = ReadFlatTEXTConfig {
+        header: AsRef::<ReadHeaderInnerConfig>::as_ref(conf).clone(),
+        flat: AsRef::<ReadHeaderAndTEXTConfig>::as_ref(conf).clone(),
+        offset: *conf.as_ref(),
+        shared: *conf.as_ref(),
+    };
+    while let Some(dso) = dataset_offset
+        && limit.is_none_or(|x| count < x)
     {
-        let mut dataset_offset = Some(DatasetOffset::default());
-        let mut count = 0_usize;
-        let mut results = vec![];
-        let rconf = ReadFlatTEXTConfig {
-            header: AsRef::<ReadHeaderInnerConfig>::as_ref(conf).clone(),
-            flat: AsRef::<ReadHeaderAndTEXTConfig>::as_ref(conf).clone(),
-            offset: *conf.as_ref(),
-            shared: *conf.as_ref(),
-        };
-        while let Some(dso) = dataset_offset
-            && limit.is_none_or(|x| count < x)
-        {
-            let nextdata_res = if skip.is_some_and(|s| count < s) {
-                let res = self
-                    .read_flat_text(dso, start_time, &rconf)
-                    .map_commutative_warnings(W::from)
-                    .map_pure_errors(E::from)
-                    .map_error(|e| e.set_group(g));
-                let succ = split_log!(res);
-                let scanned_dataset_offset = if scan_next_dataset {
-                    io_to_log!(next_dataset_boundary(&mut self.buf_read))
-                } else {
-                    None
-                };
-                succ.fmap_once(|ret| {
-                    let hns = ret.flat_diagnostics.header_supp;
-                    let nd = hns.nextdata.map(u64::from);
-                    dataset_offset = scanned_dataset_offset.or_else(|| {
-                        let n = nd?;
-                        (n > 0).then_some(DatasetOffset(dso.0 + n))
-                    });
-                    None
-                })
+        let nextdata_res = if skip.is_some_and(|s| count < s) {
+            let res = read_flat_text(reader, dso, start_time, &rconf)
+                .map_commutative_warnings(W::from)
+                .map_pure_errors(E::from)
+                .map_error(|e| e.set_group(g));
+            let succ = split_log!(res);
+            let scanned_dataset_offset = if scan_next_dataset {
+                io_to_log!(next_dataset_boundary(reader))
             } else {
-                let res = f0(self, dso, scan_next_dataset, start_time, conf)
-                    .map_commutative_warnings(W::from)
-                    .map_pure_errors(E::from);
-                let succ = split_log!(res);
-                succ.fmap_once(|ret| {
-                    dataset_offset =
-                        fnext(&ret).and_then(|next_dso| (next_dso.0 > 0).then_some(next_dso));
-                    Some(ret)
-                })
+                None
             };
-            results.push(nextdata_res);
-            count += 1;
-            // Subsequent start times will be a bit shorter because the file is
-            // already open.
-            start_time = Instant::now();
-        }
-        results
-            .into_iter()
-            .sequence_success()
-            .fmap_once(|xs| xs.into_iter().flatten().collect())
-            .into_log()
+            succ.fmap_once(|ret| {
+                let hns = ret.flat_diagnostics.header_supp;
+                let nd = hns.nextdata.map(u64::from);
+                dataset_offset = scanned_dataset_offset.or_else(|| {
+                    let n = nd?;
+                    (n > 0).then_some(DatasetOffset(dso.0 + n))
+                });
+                None
+            })
+        } else {
+            let res = f0(reader, dso, scan_next_dataset, start_time, conf)
+                .map_commutative_warnings(W::from)
+                .map_pure_errors(E::from);
+            let succ = split_log!(res);
+            succ.fmap_once(|ret| {
+                dataset_offset =
+                    fnext(&ret).and_then(|next_dso| (next_dso.0 > 0).then_some(next_dso));
+                Some(ret)
+            })
+        };
+        results.push(nextdata_res);
+        count += 1;
+        // Subsequent start times will be a bit shorter because the file is
+        // already open.
+        start_time = Instant::now();
     }
+    results
+        .into_iter()
+        .sequence_success()
+        .fmap_once(|xs| xs.into_iter().flatten().collect())
+        .into_log()
 }
 
 // Implement methods on local types

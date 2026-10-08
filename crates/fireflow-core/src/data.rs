@@ -183,7 +183,7 @@ use thiserror::Error;
 
 use std::convert::Infallible;
 use std::fmt;
-use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter;
 use std::marker::PhantomData;
 use std::mem;
@@ -1892,7 +1892,7 @@ where
 
     fn h_read_df<R>(
         &mut self,
-        h: &mut BufReader<R>,
+        reader: &mut R,
         tot: Self::Tot,
         offsets: &mut AnyDataOffsets,
         start_time: Instant,
@@ -1909,11 +1909,11 @@ where
     {
         if let Some(ne_offsets) = offsets.as_nonempty_mut() {
             // seek to start using absolute coordinates
-            io_to_log!(h.seek(SeekFrom::Start(ne_offsets.begin_abs())));
+            io_to_log!(reader.seek(SeekFrom::Start(ne_offsets.begin_abs())));
             // normalize layout (which is why self must be mut)
             self.normalize();
             // read dataframe
-            self.h_read_df_inner(h, tot, ne_offsets, conf)
+            self.h_read_df_inner(reader, tot, ne_offsets, conf)
                 .map_pure_errors(ReadCheckedDataframeError::from)
                 .map_commutative_warnings(ReadCheckedDataframeWarning::from)
                 .and_then_commutative(|mut res| {
@@ -3031,7 +3031,7 @@ where
 pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
     fn h_read_into<R, X>(
         &self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         tot: T,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
@@ -3047,7 +3047,7 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
 
     fn h_read_df_inner<R: Read>(
         &self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         tot: T,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
@@ -3064,7 +3064,7 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
 impl DataSchemaReadOps<Identity<Tot>> for DataSchema3_2 {
     fn h_read_df_inner<R: Read>(
         &self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         tot: Identity<Tot>,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
@@ -3094,7 +3094,7 @@ where
 {
     fn h_read_df_inner<R: Read>(
         &self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
@@ -3120,7 +3120,7 @@ where
 {
     fn h_read_df_inner<R: Read>(
         &self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         tot: Identity<Tot>,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
@@ -3143,7 +3143,7 @@ where
 {
     fn h_read_df_inner<R>(
         &self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
@@ -3183,7 +3183,7 @@ where
 {
     fn h_read_df_inner<R: Read>(
         &self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
@@ -3211,7 +3211,7 @@ where
 {
     fn h_read_df_inner<R: Read>(
         &self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
@@ -3273,7 +3273,7 @@ where
 {
     fn h_read_df_inner<R: Read>(
         &self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
         _: &ReadDatasetConfig,
@@ -3330,7 +3330,7 @@ where
 
 fn h_read_delim_with_rows<R: Read>(
     ranges: &NESlice<DelimAsciiRange>,
-    h: &mut BufReader<R>,
+    h: &mut R,
     tot: Tot,
     nbytes: usize,
 ) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimWithRowsAsciiError>> {
@@ -3358,6 +3358,11 @@ fn h_read_delim_with_rows<R: Read>(
             }
         };
     }
+    #[allow(
+        clippy::unbuffered_bytes,
+        reason = "rare use case, also the reader should be buffered upstream \
+                  but is not explicitly wrapped here to make the api convenient"
+    )]
     for b in h.bytes().take(nbytes) {
         let byte = b?;
         // exit if we encounter more rows than expected.
@@ -3392,7 +3397,7 @@ fn h_read_delim_with_rows<R: Read>(
 
 fn h_read_delim_without_rows<R: Read>(
     ranges: &NESlice<DelimAsciiRange>,
-    h: &mut BufReader<R>,
+    h: &mut R,
     nbytes: usize,
 ) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimAsciiWithoutRowsError>> {
     let mut buf = Vec::new();
@@ -3414,6 +3419,11 @@ fn h_read_delim_without_rows<R: Read>(
     // the column vectors one at a time. This leads to the possibility that
     // the vectors may not be the same length in the end, in which case,
     // scream loudly and bail.
+    #[allow(
+        clippy::unbuffered_bytes,
+        reason = "rare use case, also the reader should be buffered upstream \
+                  but is not explicitly wrapped here to make the api convenient"
+    )]
     for b in h.bytes().take(nbytes) {
         let byte = b?;
         if is_ascii_delim(byte) {
@@ -3599,7 +3609,7 @@ trait DataSchemaReadFixed {
 
     fn h_read_fixed_df<R: Read>(
         &self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         nrows: usize,
         conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError>;
@@ -3617,7 +3627,7 @@ where
 
     fn h_read_fixed_df<R: Read>(
         &self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         nrows: usize,
         conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError> {
@@ -3651,7 +3661,7 @@ impl<M, const ORD: bool> DataSchemaReadFixed
 
     fn h_read_fixed_df<R: Read>(
         &self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         nrows: usize,
         conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError> {
@@ -3676,7 +3686,7 @@ impl<M> DataSchemaReadFixed for Layout<Vec<VariableBitmask>, VecFamily, UvarCol,
 
     fn h_read_fixed_df<R: Read>(
         &self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         nrows: usize,
         conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError> {
@@ -3697,7 +3707,7 @@ impl<M> DataSchemaReadFixed for Layout<Vec<MixedRange>, VecFamily, MixedCol, End
 
     fn h_read_fixed_df<R: Read>(
         &self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         nrows: usize,
         conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError> {
@@ -3768,7 +3778,7 @@ impl_single_width_range!(Any8ByteRange, f64, F64, Uint64);
 
 /// Try to read DATA using multiple types with a single width.
 fn try_read_single<R, W, C>(
-    h: &mut BufReader<R>,
+    h: &mut R,
     ranges: &[MixedRange],
     nrows: usize,
     endian: Endian,
@@ -3805,7 +3815,7 @@ type SrcIndex = usize;
 type DstIndex = usize;
 
 fn read_columns<C, Rng, E, R, Fr, Fw, Fc>(
-    h: &mut BufReader<R>,
+    h: &mut R,
     nrows: usize,
     ranges: &[Rng],
     mut fread: Fr,
@@ -3855,7 +3865,7 @@ where
 
 /// Read a matrix where input bytes characters to be read as u64
 pub(crate) fn read_char_matrix<R: Read>(
-    h: &mut BufReader<R>,
+    h: &mut R,
     nrows: usize,
     ranges: &[FixedAsciiRange],
     buffer_nbytes: RowBufferSize,
@@ -3878,7 +3888,7 @@ pub(crate) fn read_char_matrix<R: Read>(
 
 /// Read a dataframe of unsigned integers with different widths
 pub(crate) fn read_any_uint_df<R: Read>(
-    h: &mut BufReader<R>,
+    h: &mut R,
     nrows: usize,
     ranges: &[VariableBitmask],
     endian: Endian,
@@ -3920,7 +3930,7 @@ pub(crate) fn read_any_uint_df<R: Read>(
 
 /// Read a dataframe of any mix of column types
 pub(crate) fn read_mixed_df<R: Read>(
-    h: &mut BufReader<R>,
+    h: &mut R,
     nrows: usize,
     ranges: &[MixedRange],
     endian: Endian,
@@ -7328,7 +7338,7 @@ where
 {
     fn read_matrix<R: Read>(
         &self,
-        h: &mut BufReader<R>,
+        h: &mut R,
         nrows: usize,
         ncols: usize,
         buffer_nbytes: RowBufferSize,
@@ -7348,7 +7358,7 @@ macro_rules! impl_byte_layout_io {
         impl ByteOrderIO<$inner> for $layout {
             fn read_matrix<R: Read>(
                 &self,
-                h: &mut BufReader<R>,
+                h: &mut R,
                 nrows: usize,
                 ncols: usize,
                 buffer_nbytes: RowBufferSize,
@@ -7410,7 +7420,7 @@ impl_endian_layout_io!(F64Range);
 
 /// Read stream of bytes using buffer where each value is the same type
 fn read_matrix<const LEN: usize, R, T, F>(
-    h: &mut BufReader<R>,
+    h: &mut R,
     nrows: usize,
     ncols: usize,
     byte_swap: F,
@@ -7502,7 +7512,7 @@ where
 
 /// Read a matrix where type is an aligned big or little endian value.
 pub(crate) fn read_endian_matrix<const LEN: usize, R, T>(
-    h: &mut BufReader<R>,
+    h: &mut R,
     nrows: usize,
     ncols: usize,
     endian: Endian,
@@ -7522,7 +7532,7 @@ where
 /// Read a matrix where type is an aligned big, little, or mixed endian value.
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) fn read_ordered_matrix<R, T, const LEN: usize>(
-    h: &mut BufReader<R>,
+    h: &mut R,
     nrows: usize,
     ncols: usize,
     s: ArrayByteOrd<LEN>,

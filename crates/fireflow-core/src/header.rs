@@ -29,7 +29,7 @@ use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZe
 use crate::validated::header_offsets::{
     FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
 };
-use crate::validated::read_state::{DatasetOffset, HeaderReadState, WriteFCSDigest};
+use crate::validated::read_state::{DatasetOffset, HeaderReader, WriteFCSDigest};
 
 use fireflow_types::config::{
     AppendableFlag, ConfigFlag as _, EnumStrIter as _, ReadHeaderInnerConfig, ReadOffsetConfig,
@@ -47,7 +47,7 @@ use num_traits::identities::Zero;
 use thiserror::Error;
 
 use std::fmt::{self, Write as _};
-use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write as _};
+use std::io::{self, BufWriter, Read as _, Seek as _, SeekFrom, Write as _};
 use std::iter::once;
 use std::time::Instant;
 
@@ -158,16 +158,17 @@ pub struct ParseHeaderOutput {
 }
 
 impl Header {
-    pub fn h_read<C, R>(
-        h: &mut BufReader<R>,
-        st: &mut HeaderReadState<C>,
+    pub fn read<C>(
+        reader: &mut HeaderReader,
+        conf: &C,
     ) -> WarningsAndIOGroupResult<ParseHeaderOutput, GuessOtherWidthError, HeaderError, ()>
     where
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
-        R: Read + Seek,
     {
-        io_to_log!(h.seek(SeekFrom::Start(st.dataset_offset().0)));
-        let req = io_to_log!(ReqHeader::h_read(h, st));
+        // TODO wrap this in method
+        let from = SeekFrom::Start(reader.dataset_offset().0);
+        io_to_log!(reader.inner_mut().seek(from));
+        let req = io_to_log!(ReqHeader::read(reader, conf));
 
         let (text, text_orig) = req.text;
         let (data, data_orig) = req.data;
@@ -183,12 +184,12 @@ impl Header {
         .min();
 
         let other_res = if let Some(m) = min_coord {
-            OtherOffsets20::h_read_others(h, m, st)
+            OtherOffsets20::h_read_others(reader, m, conf)
         } else {
             LogResult::new_ok(OtherOffsetOutput::default())
         };
 
-        let oconf: &ReadOffsetConfig = st.conf().as_ref();
+        let oconf: &ReadOffsetConfig = conf.as_ref();
 
         other_res
             .map_pure_errors(HeaderError::from)
@@ -197,14 +198,14 @@ impl Header {
                 let original =
                     OriginalHeaderOffsets::new(text_orig, data_orig, analysis_orig, os_orig);
                 let limit = oconf.overlap_correction_limit;
-                let d = st.dataset_offset();
+                let d = reader.dataset_offset();
                 FinalHeaderOffsets::try_new_with_limit(text, data, analysis, os_final, limit)
                     .map_errors(HeaderError::from)
                     .nowarn_into_warn()
                     .group()
                     .map_error(IOErrorGroup::Pure)
                     .map_ok_value(|(final_, overlaps)| {
-                        let t0 = st.start_time();
+                        let t0 = reader.start_time();
                         let t1 = Instant::now();
                         let t = t1.duration_since1(t0).as_nanos();
                         let hdr =
@@ -224,27 +225,23 @@ struct ReqHeader {
 }
 
 impl ReqHeader {
-    fn h_read<C, R>(
-        h: &mut BufReader<R>,
-        st: &HeaderReadState<C>,
-    ) -> IOGroupResult<Self, HeaderError, ()>
+    fn read<C>(reader: &mut HeaderReader, conf: &C) -> IOGroupResult<Self, HeaderError, ()>
     where
-        R: Read + Seek,
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
-        let conf: &ReadHeaderInnerConfig = st.conf().as_ref();
-        let text_cor = conf.text_correction;
-        let data_cor = conf.data_correction;
-        let anal_cor = conf.analysis_correction;
+        let iconf: &ReadHeaderInnerConfig = conf.as_ref();
+        let text_cor = iconf.text_correction;
+        let data_cor = iconf.data_correction;
+        let anal_cor = iconf.analysis_correction;
 
         #[allow(clippy::as_conversions, reason = "const not stable yet")]
         let mut buf = [0_u8; HEADER_LEN as usize];
-        let remaining = st.remaining_bytes(h)?;
+        let remaining = reader.inner().remaining_bytes();
         if remaining < HEADER_LEN.into() {
             let e = HeaderNoBytesError(remaining).into();
             return Err(IOAnonErrorGroup::new_pure_one(e));
         }
-        h.read_exact(&mut buf)?;
+        reader.inner_mut().read_exact(&mut buf)?;
 
         let vers_res = read_version(&buf).map_err(HeaderError::from);
         let space_res = Self::read_spaces(&buf).map_err(HeaderError::from);
@@ -268,7 +265,8 @@ impl ReqHeader {
             true,
             text_cor,
             version,
-            st,
+            reader,
+            conf,
         );
         let data_res = HeaderOffsets::read_primary(
             slice8!(26, 34),
@@ -276,7 +274,8 @@ impl ReqHeader {
             false,
             data_cor,
             version,
-            st,
+            reader,
+            conf,
         );
         let anal_res = HeaderOffsets::read_primary(
             slice8!(42, 50),
@@ -284,7 +283,8 @@ impl ReqHeader {
             false,
             anal_cor,
             version,
-            st,
+            reader,
+            conf,
         );
 
         text_res

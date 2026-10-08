@@ -3,6 +3,7 @@
 pub mod ascii_range;
 pub mod ascii_uint;
 pub mod bitmask;
+pub mod buf_file;
 pub mod compensation;
 pub mod dataframe;
 pub mod finite_float;

@@ -1,7 +1,7 @@
 //! Data structures representing standardized TEXT segment
 
 use crate::api::{
-    FCSFileReader, HeaderAndSuppOffsets, NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords,
+    HeaderAndSuppOffsets, NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords,
     RepairDiagnostics, RepairError, StdKeywords, StringOrBytes, TruncatedNEString, ValidKeywords,
     next_dataset_boundary,
 };
@@ -112,12 +112,13 @@ use crate::text::timestamps::{
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflowError, UintSpacePad8, UintSpacePad20,
 };
+use crate::validated::buf_file::BufFileReader;
 use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
-    TEXTReadState, WriteFCSDigest,
+    HeaderReader, TEXTReader, WriteFCSDigest,
 };
 use crate::validated::shortname::Shortname;
 
@@ -152,7 +153,7 @@ use thiserror::Error;
 use std::collections::HashSet;
 use std::convert::{AsRef, Infallible};
 use std::fmt;
-use std::io::{self, BufReader, BufWriter, Read, Seek, Write};
+use std::io::{self, BufWriter, Read, Seek, Write};
 use std::iter::{empty, once};
 use std::mem;
 use std::num::NonZeroU64;
@@ -818,8 +819,8 @@ pub struct AnalysisReader {
 }
 
 impl AnalysisReader {
-    pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Analysis> {
-        let buf = self.seg.h_read_contents(h)?;
+    pub(crate) fn read<R: Read + Seek>(&self, reader: &mut R) -> io::Result<Analysis> {
+        let buf = self.seg.read_contents(reader)?;
         Ok(Analysis(StringOrBytes::from(buf)))
     }
 }
@@ -831,10 +832,10 @@ pub struct OthersReader {
 }
 
 impl OthersReader {
-    pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Others> {
+    pub(crate) fn read<R: Read + Seek>(&self, reader: &mut R) -> io::Result<Others> {
         let mut others = vec![];
         for s in &self.offsets {
-            let buf = s.offsets.h_read_contents(h)?;
+            let buf = s.offsets.read_contents(reader)?;
             others.push(Other(StringOrBytes::from(buf)));
         }
         Ok(Others(others))
@@ -2166,12 +2167,12 @@ pub(crate) struct LookupFlatDatasetTimings {
 }
 
 pub(crate) trait PrivVersionSet: VersionSet {
-    fn h_lookup_and_read<C, R>(
-        h: &mut BufReader<R>,
+    fn h_lookup_and_read<C>(
+        reader: &mut TEXTReader,
         tx: &StdLookupTx,
         hns: &mut HeaderAndSuppOffsets,
         start_time: Instant,
-        st: &TEXTReadState<C>,
+        conf: &C,
     ) -> WarningsAndIOGroupResult<
         LookupFlatDatasetOutput,
         LookupAndReadDataAnalysisWarning,
@@ -2181,14 +2182,13 @@ pub(crate) trait PrivVersionSet: VersionSet {
     where
         <Self::DataSchema as DataSchemaToEmptyDataFrame>::DfTarget:
             Into<PrimitiveDataFrame> + DataFrameCheckRanges,
-        R: Read + Seek,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadDatasetConfig> + AsRef<ReadOffsetConfig>,
     {
         // TODO which order should these be in? it matter for benchmark
         // timing, since now offset lookup is considered part of data
         // schema lookup, but if this were flipped with the next
         // expression it would be counted as part of DATA read
-        let offset_res = Self::Offsets::lookup_ro(tx, hns, st)
+        let offset_res = Self::Offsets::lookup_ro(tx, hns, reader, conf)
             .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
             .map_errors(LookupAndReadDataAnalysisError::from);
 
@@ -2196,7 +2196,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
             .map_err(LookupAndReadDataAnalysisError::from)
             .into_log()
             .and_then_commutative(|par| {
-                Self::DataSchema::lookup_ro(tx, par, start_time, st.conf().as_ref())
+                Self::DataSchema::lookup_ro(tx, par, start_time, conf.as_ref())
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_errors(LookupAndReadDataAnalysisError::from)
             });
@@ -2212,12 +2212,12 @@ pub(crate) trait PrivVersionSet: VersionSet {
                 let t0 = layout_out.end_time;
                 layout_out
                     .data_schema
-                    .h_read_df(h, offsets.tot, fd, t0, st.conf().as_ref())
+                    .h_read_df(reader.inner_mut(), offsets.tot, fd, t0, conf.as_ref())
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
                     .and_then_commutative(|df_out| {
-                        let analysis = io_to_log!(ar.h_read(h));
-                        let others = io_to_log!(or.h_read(h));
+                        let analysis = io_to_log!(ar.read(reader.inner_mut()));
+                        let others = io_to_log!(or.read(reader.inner_mut()));
                         let read_other_anal_end = Instant::now();
                         let read_other_analysis_time =
                             read_other_anal_end.duration_since1(df_out.read_end);
@@ -2495,7 +2495,8 @@ pub trait LookupTEXTOffsets: Sized {
     fn lookup<C>(
         kws: &mut StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>;
@@ -2503,7 +2504,8 @@ pub trait LookupTEXTOffsets: Sized {
     fn lookup_ro<C>(
         kws: &StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>;
@@ -2515,12 +2517,13 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
     fn lookup<C>(
         kws: &mut StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
-        st: &TEXTReadState<C>,
+        _: &TEXTReader,
+        conf: &C,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
     {
-        Tot::remove_or_drop_root_opt(kws, st.conf().as_ref())
+        Tot::remove_or_drop_root_opt(kws, conf.as_ref())
             .map_ok_value(|tot| {
                 let s = offsets.header.final_offsets.as_dataset_offsets_2_0();
                 TEXTOffsets::new(s, tot)
@@ -2535,7 +2538,8 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
     fn lookup_ro<C>(
         kws: &StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
-        _: &TEXTReadState<C>,
+        _: &TEXTReader,
+        _: &C,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
@@ -2552,25 +2556,34 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
 }
 
 macro_rules! lookup_offsets_3_0 {
-    ($std:expr, $offsets:expr, $st:expr, $tot:ident, $lookup:ident) => {{
+    (
+        $std:expr,
+        $offsets:expr,
+        $reader:expr,
+        $conf:expr,
+        $tot:ident,
+        $lookup:ident
+    ) => {{
         let tot_res = Tot::$tot($std)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let dconf: &ReadDataKeywordsConfig = $st.conf().as_ref();
+        let dconf: &ReadDataKeywordsConfig = $conf.as_ref();
         let data_ignore = dconf.ignore_text_data_offsets;
         let data_corr = dconf.text_data_correction;
-        let data_res = DataSegmentId::$lookup($std, $offsets, data_ignore, data_corr, $st)
-            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
-            .map_errors(LookupTEXTOffsetsError::from);
+        let data_res =
+            DataSegmentId::$lookup($std, $offsets, data_ignore, data_corr, $reader, $conf)
+                .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
+                .map_errors(LookupTEXTOffsetsError::from);
         let anal_ignore = dconf.ignore_text_analysis_offsets;
         let anal_corr = dconf.text_analysis_correction;
-        let anal_res = AnalysisSegmentId::$lookup($std, $offsets, anal_ignore, anal_corr, $st)
-            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
-            .map_errors(LookupTEXTOffsetsError::from);
+        let anal_res =
+            AnalysisSegmentId::$lookup($std, $offsets, anal_ignore, anal_corr, $reader, $conf)
+                .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
+                .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_commutative(data_res, anal_res)
             .and_then_commutative(|(tot, d, a)| {
-                let oconf: &ReadOffsetConfig = $st.conf().as_ref();
+                let oconf: &ReadOffsetConfig = $conf.as_ref();
                 let limit = oconf.overlap_correction_limit;
                 DatasetOffsets::try_new(d, a, limit)
                     .map(|dos| TEXTOffsets::new(dos, Identity(tot)))
@@ -2586,46 +2599,65 @@ impl LookupTEXTOffsets for TEXTOffsets3_0 {
     fn lookup<C>(
         kws: &mut StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
     {
-        lookup_offsets_3_0!(kws, offsets, st, remove_metaroot_req, remove_req_or)
+        lookup_offsets_3_0!(
+            kws,
+            offsets,
+            reader,
+            conf,
+            remove_metaroot_req,
+            remove_req_or
+        )
     }
 
     fn lookup_ro<C>(
         kws: &StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
     {
-        lookup_offsets_3_0!(kws, offsets, st, get_metaroot_req, get_req_or)
+        lookup_offsets_3_0!(kws, offsets, reader, conf, get_metaroot_req, get_req_or)
     }
 }
 
 macro_rules! lookup_offsets_3_2 {
-    ($std:expr, $offsets:expr, $st:expr, $tot:ident, $lookup_req:ident, $lookup_opt:ident) => {{
+    (
+        $std:expr,
+        $offsets:expr,
+        $reader:expr,
+        $conf:expr,
+        $tot:ident,
+        $lookup_req:ident,
+        $lookup_opt:ident
+    ) => {{
         let tot_res = Tot::$tot($std)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let dconf: &ReadDataKeywordsConfig = $st.conf().as_ref();
+        let dconf: &ReadDataKeywordsConfig = $conf.as_ref();
         let data_corr = dconf.text_data_correction;
         let data_ignore = dconf.ignore_text_data_offsets;
-        let data_res = DataSegmentId::$lookup_req($std, $offsets, data_ignore, data_corr, $st)
-            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
-            .map_errors(LookupTEXTOffsetsError::from);
+        let data_res =
+            DataSegmentId::$lookup_req($std, $offsets, data_ignore, data_corr, $reader, $conf)
+                .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
+                .map_errors(LookupTEXTOffsetsError::from);
         let anal_corr = dconf.text_analysis_correction;
         let anal_ignore = dconf.ignore_text_analysis_offsets;
-        let anal_res = AnalysisSegmentId::$lookup_opt($std, $offsets, anal_ignore, anal_corr, $st)
-            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
-            .map_errors(LookupTEXTOffsetsError::from);
+        let anal_res =
+            AnalysisSegmentId::$lookup_opt($std, $offsets, anal_ignore, anal_corr, $reader, $conf)
+                .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
+                .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_commutative(data_res, anal_res)
             .and_then_commutative(|(tot, d, a)| {
-                let oconf: &ReadOffsetConfig = $st.conf().as_ref();
+                let oconf: &ReadOffsetConfig = $conf.as_ref();
                 let limit = oconf.overlap_correction_limit;
                 DatasetOffsets::try_new(d, a, limit)
                     .map(|dos| TEXTOffsets::new(dos, Identity(tot)))
@@ -2641,7 +2673,8 @@ impl LookupTEXTOffsets for TEXTOffsets3_2 {
     fn lookup<C>(
         kws: &mut StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
@@ -2649,7 +2682,8 @@ impl LookupTEXTOffsets for TEXTOffsets3_2 {
         lookup_offsets_3_2!(
             kws,
             offsets,
-            st,
+            reader,
+            conf,
             remove_metaroot_req,
             remove_req_or,
             remove_opt_or
@@ -2659,12 +2693,21 @@ impl LookupTEXTOffsets for TEXTOffsets3_2 {
     fn lookup_ro<C>(
         kws: &StdLookupTx,
         offsets: &mut HeaderAndSuppOffsets,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> LookupTEXTOffsetsResult<TEXTOffsets<Self::TotDef>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
     {
-        lookup_offsets_3_2!(kws, offsets, st, get_metaroot_req, get_req_or, get_opt_or)
+        lookup_offsets_3_2!(
+            kws,
+            offsets,
+            reader,
+            conf,
+            get_metaroot_req,
+            get_req_or,
+            get_opt_or
+        )
     }
 }
 
@@ -5777,6 +5820,7 @@ where
 
 impl<V: VersionSet> VersionedCoreTEXT<V> {
     #[allow(clippy::type_complexity)]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_from_transaction_with_offsets<C>(
         mut tx: StdLookupTx,
         pstd: &mut PseudoStdKeywords,
@@ -5784,7 +5828,8 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         nonstd: NonStdKeywords,
         offsets: &mut HeaderAndSuppOffsets,
         start_time: Instant,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> WarningsAndErrorsResult<
         (LookupCoreOutput<Self>, MetarootTEXTOffsets<V>),
         (),
@@ -5805,11 +5850,11 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         // Core struct but they will be needed later for parsing DATA and
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
-        let offsets_res = V::Offsets::lookup(&mut tx, offsets, st)
+        let offsets_res = V::Offsets::lookup(&mut tx, offsets, reader, conf)
             .map_commutative_warnings(StdTEXTFromTxWithOffsetsWarning::from)
             .map_errors(StdTEXTFromTxWithOffsetsError::from);
 
-        Self::lookup_inner(tx, pstd, pnonstd, nonstd, start_time, st.conf())
+        Self::lookup_inner(tx, pstd, pnonstd, nonstd, start_time, conf)
             .map_commutative_warnings(StdTEXTFromTxWithOffsetsWarning::from)
             .map_errors(StdTEXTFromTxWithOffsetsError::from)
             .zip_commutative(offsets_res)
@@ -6297,20 +6342,21 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             clippy::result_large_err,
             reason = "top level function, shouldn't be used often, large call stack won't matter much"
         )]
-        FCSFileReader::open_with_state(p, dataset_offset, start_time, conf)
-            .map_err(|e| e.fmap_once(NewStdDatasetFromKeywordsError::from))
-            .and_then(|(fr, st)| {
-                st.maybe_with_dataset_length(dataset_len)
-                    .map(|txt_st| (fr, txt_st))
+        // TODO consolidate
+        let mut fr = io_to_log!(BufFileReader::open(p));
+        HeaderReader::try_new(&mut fr, dataset_offset, start_time)
+            .map_err(NewStdDatasetFromKeywordsError::from)
+            .and_then(|reader| {
+                reader
+                    .maybe_with_dataset_length(dataset_len)
                     .map_err(NewStdDatasetFromKeywordsError::from)
-                    .map_err(ImpureError::Pure)
             })
-            .map_err(IOErrorGroup::from)
+            .map_err(IOErrorGroup::new_pure_one)
             .into_log()
-            .and_then_commutative(|(mut fr, txt_st)| {
+            .and_then_commutative(|mut reader| {
                 let tx = std.as_transaction();
                 Self::new_from_transaction(
-                    &mut fr.buf_read,
+                    &mut reader,
                     tx,
                     &mut pstd,
                     pnonstd,
@@ -6318,7 +6364,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                     &mut hns,
                     false,
                     start_time,
-                    &txt_st,
+                    &conf,
                 )
                 .map_commutative_warnings(NewStdDatasetFromKeywordsWarning::from)
                 .map_pure_errors(NewStdDatasetFromKeywordsError::from)
@@ -6332,8 +6378,8 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new_from_transaction<C, R>(
-        h: &mut BufReader<R>,
+    pub(crate) fn new_from_transaction<C>(
+        reader: &mut TEXTReader,
         tx: StdLookupTx,
         pstd: &mut PseudoStdKeywords,
         pnonstd: PseudoNonStdKeywords,
@@ -6341,7 +6387,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         hns: &mut HeaderAndSuppOffsets,
         scan_next_dataset: bool,
         start_time: Instant,
-        st: &TEXTReadState<C>,
+        conf: &C,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetFromKwsOutput),
         StdDatasetFromTxWarning,
@@ -6349,7 +6395,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         (),
     >
     where
-        R: Read + Seek,
         V::RootMeta: LookupMetaroot<V::Name>,
         V::Temporal: LookupTemporal,
         V::Optical: LookupOptical,
@@ -6361,7 +6406,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             + AsRef<ReadDatasetConfig>,
     {
         VersionedCoreTEXT::<V>::new_from_transaction_with_offsets(
-            tx, pstd, pnonstd, nonstd, hns, start_time, st,
+            tx, pstd, pnonstd, nonstd, hns, start_time, reader, conf,
         )
         .map_commutative_warnings(StdDatasetFromTxWarning::from)
         .map_errors(StdDatasetFromTxError::from)
@@ -6373,13 +6418,19 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             let ar = AnalysisReader::new(offsets.offsets.final_analysis);
             let version = core.fcs_version();
             let final_data = &mut offsets.offsets.final_data;
-            let other = io_to_log!(or.h_read(h));
-            let analysis = io_to_log!(ar.h_read(h));
+            let other = io_to_log!(or.read(reader.inner_mut()));
+            let analysis = io_to_log!(ar.read(reader.inner_mut()));
             let read_other_anal_end = Instant::now();
             let read_other_anal_time = read_other_anal_end.duration_since1(core_out.lookup_end);
             let r0 = read_other_anal_end;
             core.meas
-                .h_read_df(h, offsets.tot, final_data, r0, st.conf().as_ref())
+                .h_read_df(
+                    reader.inner_mut(),
+                    offsets.tot,
+                    final_data,
+                    r0,
+                    conf.as_ref(),
+                )
                 .map_commutative_warnings(StdDatasetFromTxWarning::from)
                 .map_pure_errors(StdDatasetFromTxError::from)
                 .and_then_commutative(|df_out| {
@@ -6396,7 +6447,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                         read_other_anal_time,
                         df_out.read_end,
                     );
-                    DatasetDiagnostics::from_parts(h, v, ed, hns, d, s, &ts, st)
+                    DatasetDiagnostics::from_parts(reader, v, ed, hns, d, s, &ts, conf)
                         .map_commutative_warnings(StdDatasetFromTxWarning::from)
                         .map_pure_errors(StdDatasetFromTxError::from)
                         .repack_warnings()
@@ -6951,7 +7002,8 @@ impl AnyCoreTEXT {
         mut kws: ValidKeywords,
         offsets: &mut HeaderAndSuppOffsets,
         read_text_end: Instant,
-        st: &TEXTReadState<C>,
+        reader: &TEXTReader,
+        conf: &C,
     ) -> WarningsAndErrorsResult<
         AnyCoreOutput<Self>,
         (),
@@ -6987,6 +7039,7 @@ impl AnyCoreTEXT {
                     kws.nonstd,
                     offsets,
                     read_text_end,
+                    reader,
                     $st,
                 )
                 .map_ok_value(|(core_out, offsets)| {
@@ -7004,22 +7057,22 @@ impl AnyCoreTEXT {
             }};
         }
 
-        let sconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
+        let sconf: &ReadHeaderAndTEXTConfig = conf.as_ref();
 
-        eval_repair_conf(st.conf().as_ref(), &kws)
+        eval_repair_conf(conf.as_ref(), &kws)
             .map_ok_value(|repair| {
-                st.as_ref().first_once(|conf| LookupConfig {
+                LookupConfig {
                     std: eval_std_conf(conf.as_ref(), &kws),
                     repair,
                     // TODO useless clone
                     data: AsRef::<ReadDataKeywordsConfig>::as_ref(&conf).clone(),
                     offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf),
-                })
+                }
             })
             .map_errors(AnyStdTEXTFromKeywordsError::from)
             .nowarn_into_warn()
-            .and_then_commutative(|lst| {
-                kws.repair(lst.conf().as_ref())
+            .and_then_commutative(|lconf| {
+                kws.repair(lconf.as_ref())
                     .map_commutative_warnings(AnyStdTEXTFromKeywordsWarning::from)
                     .map_errors(AnyStdTEXTFromKeywordsError::from)
                     .set_err_value(())
@@ -7027,10 +7080,10 @@ impl AnyCoreTEXT {
                         match autodetect_version(version, &kws.std, sconf.version_override.as_ref())
                         {
                             Ok((ver, scores)) => match ver {
-                                Version::FCS2_0 => go!(CoreTEXT2_0, scores, repair_diag, &lst),
-                                Version::FCS3_0 => go!(CoreTEXT3_0, scores, repair_diag, &lst),
-                                Version::FCS3_1 => go!(CoreTEXT3_1, scores, repair_diag, &lst),
-                                Version::FCS3_2 => go!(CoreTEXT3_2, scores, repair_diag, &lst),
+                                Version::FCS2_0 => go!(CoreTEXT2_0, scores, repair_diag, &lconf),
+                                Version::FCS3_0 => go!(CoreTEXT3_0, scores, repair_diag, &lconf),
+                                Version::FCS3_1 => go!(CoreTEXT3_1, scores, repair_diag, &lconf),
+                                Version::FCS3_2 => go!(CoreTEXT3_2, scores, repair_diag, &lconf),
                             },
                             Err(e) => LogResult::new_err(AnyStdTEXTFromKeywordsError::from(e)),
                         }
@@ -7063,13 +7116,13 @@ impl AnyCoreDataset {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new_from_keywords<C, R>(
-        h: &mut BufReader<R>,
+    pub(crate) fn new_from_keywords<C>(
+        reader: &mut TEXTReader,
         hns: &mut HeaderAndSuppOffsets,
         mut kws: ValidKeywords,
         scan_next_dataset: bool,
         start_time: Instant,
-        st: &TEXTReadState<C>,
+        conf: &C,
     ) -> WarningsAndIOGroupResult<
         StdDatasetFromKeywordsOutput<Self>,
         AnyStdDatasetFromKeywordsWarning,
@@ -7077,7 +7130,6 @@ impl AnyCoreDataset {
         (),
     >
     where
-        R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig>
             + AsRef<ReadRepairKeywordsConfig>
             + AsRef<ReadOffsetConfig>
@@ -7101,10 +7153,10 @@ impl AnyCoreDataset {
 
         let version = hns.header.version;
         macro_rules! go {
-            ($t:ident, $s:expr, $repair:expr, $st:expr) => {{
+            ($t:ident, $s:expr, $repair:expr, $conf:expr) => {{
                 let ltx = kws.std.as_transaction();
                 $t::new_from_transaction(
-                    h,
+                    reader,
                     ltx,
                     &mut kws.pstd,
                     kws.pnonstd,
@@ -7112,7 +7164,7 @@ impl AnyCoreDataset {
                     hns,
                     scan_next_dataset,
                     start_time,
-                    $st,
+                    $conf,
                 )
                 .map_ok_value(|(core, data_out)| {
                     let new = Self::from(core);
@@ -7123,25 +7175,25 @@ impl AnyCoreDataset {
             }};
         }
 
-        let sconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
+        let sconf: &ReadHeaderAndTEXTConfig = conf.as_ref();
 
-        eval_repair_conf(st.conf().as_ref(), &kws)
+        eval_repair_conf(conf.as_ref(), &kws)
             .map_ok_value(|repair| {
-                st.as_ref().first_once(|conf| LookupConfig {
+                LookupConfig {
                     std: eval_std_conf(conf.as_ref(), &kws),
                     repair,
                     // TODO useless clone
                     data: AsRef::<ReadDataKeywordsConfig>::as_ref(&conf).clone(),
                     offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf),
                     dataset: *AsRef::<ReadDatasetConfig>::as_ref(&conf),
-                })
+                }
             })
             .map_errors(AnyStdDatasetFromKeywordsError::from)
             .nowarn_into_warn()
             .group()
             .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|lst| {
-                kws.repair(lst.conf().as_ref())
+            .and_then_commutative(|lconf| {
+                kws.repair(lconf.as_ref())
                     .map_commutative_warnings(AnyStdDatasetFromKeywordsWarning::from)
                     .map_errors(AnyStdDatasetFromKeywordsError::from)
                     .set_err_value(())
@@ -7151,10 +7203,10 @@ impl AnyCoreDataset {
                         let vo = sconf.version_override.as_ref();
                         match autodetect_version(version, &kws.std, vo) {
                             Ok((ver, scores)) => match ver {
-                                Version::FCS2_0 => go!(CoreDataset2_0, scores, repair_diag, &lst),
-                                Version::FCS3_0 => go!(CoreDataset3_0, scores, repair_diag, &lst),
-                                Version::FCS3_1 => go!(CoreDataset3_1, scores, repair_diag, &lst),
-                                Version::FCS3_2 => go!(CoreDataset3_2, scores, repair_diag, &lst),
+                                Version::FCS2_0 => go!(CoreDataset2_0, scores, repair_diag, &lconf),
+                                Version::FCS3_0 => go!(CoreDataset3_0, scores, repair_diag, &lconf),
+                                Version::FCS3_1 => go!(CoreDataset3_1, scores, repair_diag, &lconf),
+                                Version::FCS3_2 => go!(CoreDataset3_2, scores, repair_diag, &lconf),
                             },
                             Err(e) => LogResult::new_err(IOErrorGroup::new_pure_one(e.into())),
                         }
@@ -7456,8 +7508,8 @@ impl TEXTOffsetsOrigin {
 }
 
 impl IntraSegmentDarkBytes {
-    pub(crate) fn read_all<R: io::Read + Seek>(
-        h: &mut BufReader<R>,
+    pub(crate) fn read_all(
+        reader: &mut TEXTReader,
         ptext: PrimaryTextOffsets,
         stext: Option<SupplementalTextOffsets>,
         data: AnyDataOffsets,
@@ -7495,8 +7547,8 @@ impl IntraSegmentDarkBytes {
             if nbytes == 0 {
                 continue;
             }
-            h.seek(io::SeekFrom::Start(end0))?;
-            read_to_end_checked(h, nbytes, &mut buf)?;
+            reader.inner_mut().seek(io::SeekFrom::Start(end0))?;
+            read_to_end_checked(reader.inner_mut(), nbytes, &mut buf)?;
             let bytes = DarkBytes::try_from_slice(&buf[..]).unwrap();
             let dark = Self {
                 prev: n0,
@@ -7555,21 +7607,20 @@ impl DarkBytes {
 
 impl DatasetDiagnostics {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn from_parts<R, C>(
-        h: &mut BufReader<R>,
+    pub(crate) fn from_parts<C>(
+        reader: &mut TEXTReader,
         version: Version,
         events: EventsDiagnostics,
         header_supp_offsets: &HeaderAndSuppOffsets,
         dataset_offsets: &DatasetOffsets,
         scan_next_dataset: bool,
         timings: &LookupFlatDatasetTimings,
-        st: &TEXTReadState<C>,
+        conf: C,
     ) -> WarningAndIOGroupResult<Self, CRCError, CRCError, ()>
     where
-        R: Read + Seek,
         C: AsRef<ReadDatasetConfig>,
     {
-        let dconf: &ReadDatasetConfig = st.conf().as_ref();
+        let dconf: &ReadDatasetConfig = conf.as_ref();
         // First, find next byte after the last segment in the dataset. Find the
         // max of the TEXT+STEXT+OTHER first followed by DATA+ANALYSIS. The
         // latter are separate since these could come from either TEXT or
@@ -7586,7 +7637,7 @@ impl DatasetDiagnostics {
         let (intra_seg_dark, read_intra_dark_end) = if dconf.read_intra_segment_dark_bytes.is_set()
         {
             let dark = io_to_log!(IntraSegmentDarkBytes::read_all(
-                h,
+                reader,
                 header_supp_offsets.header.final_offsets.text(),
                 header_supp_offsets.supp_text.final_offsets(),
                 dataset_offsets.final_data,
@@ -7610,97 +7661,102 @@ impl DatasetDiagnostics {
         // we do not know a priori if the CRC exists or not, and we should not
         // bother trying to parse it if there are no bytes left in the dataset.
         let (next_dataset_abs_start, scan_next_end) = if scan_next_dataset {
-            io_to_log!(h.seek(io::SeekFrom::Start(st.dataset_offset().0 + max_end_offset)));
-            let coord = io_to_log!(next_dataset_boundary(h));
+            let from = io::SeekFrom::Start(reader.dataset_offset().0 + max_end_offset);
+            io_to_log!(reader.inner_mut().seek(from));
+            let coord = io_to_log!(next_dataset_boundary(reader.inner_mut()));
             (coord, Instant::now())
         } else {
-            let coord = st
+            let coord = reader
                 .dataset_bounds()
                 .from_nextdata
-                .then_some(st.dataset_offset().0 + st.dataset_bounds().len.0)
+                .then_some(reader.dataset_offset().0 + reader.dataset_bounds().len.0)
                 .map(DatasetOffset);
             (coord, read_intra_dark_end)
         };
-        let dataset_abs_end = next_dataset_abs_start.map_or(st.file_len().0, |x| x.0);
+        let dataset_abs_end = next_dataset_abs_start.map_or(reader.inner().file_len(), |x| x.0);
 
         // Read the CRC value, and optionally test the CRC against the CRC
         // computed from the dataset contents. The latter is relatively
         // expensive since we must read the entire dataset again to compute its
         // CRC; therefore it is turned off by default.
-        st.test_crc(
-            h,
-            max_end_offset,
-            dataset_abs_end,
-            version,
-            scan_next_end,
-            dconf,
-        )
-        .and_then_nowarn_commutative(|crc_out| {
-            // Compute the final dataset length by adding the CRC length
-            // to the value of the byte offset after the last segment found
-            // above.
-            let crc_len = if crc_out
-                .file_crc
-                .as_ref()
-                .is_some_and(|c| matches!(c, CRCOutput::Valid(_)))
-            {
-                u64::from(CRC_LEN)
-            } else {
-                0
-            };
-            let dataset_len = crc_len + max_end_offset;
+        reader
+            .test_crc(
+                max_end_offset,
+                dataset_abs_end,
+                version,
+                scan_next_end,
+                dconf,
+            )
+            .and_then_nowarn_commutative(|crc_out| {
+                // Compute the final dataset length by adding the CRC length
+                // to the value of the byte offset after the last segment found
+                // above.
+                let crc_len = if crc_out
+                    .file_crc
+                    .as_ref()
+                    .is_some_and(|c| matches!(c, CRCOutput::Valid(_)))
+                {
+                    u64::from(CRC_LEN)
+                } else {
+                    0
+                };
+                let dataset_len = crc_len + max_end_offset;
 
-            // If desired, read the "dark bytes" after the CRC and before
-            // the next dataset. This is turned off by default since it
-            // involves another random read to the file. It also could be
-            // potentially large. If $NEXTDATA is 0 and manual scanning was
-            // either turned off or didn't find another dataset, this will
-            // read until EOF and return every byte as-is. Some files
-            // (CyTOF) are known to misuse $NEXTDATA and/or save large data
-            // dumps at the end of an FCS file. This is meant for such cases
-            // where one wants/knows that this data exists, but most users
-            // won't care and it is alot of extra overhead.
-            let post_dataset_abs_start = st.dataset_offset().0 + dataset_len;
-            let (post_dark, read_post_dark_end) = if let Some(post_dataset_nbytes) =
-                dataset_abs_end.checked_sub(post_dataset_abs_start)
-                && dconf.read_post_dataset_dark_bytes.is_set()
-            {
-                io_to_log!(h.seek(io::SeekFrom::Start(post_dataset_abs_start)));
-                let buf = io_to_log!(read_exact_owned(h, post_dataset_nbytes));
-                (buf, Instant::now())
-            } else {
-                (vec![], crc_out.read_end)
-            };
+                // If desired, read the "dark bytes" after the CRC and before
+                // the next dataset. This is turned off by default since it
+                // involves another random read to the file. It also could be
+                // potentially large. If $NEXTDATA is 0 and manual scanning was
+                // either turned off or didn't find another dataset, this will
+                // read until EOF and return every byte as-is. Some files
+                // (CyTOF) are known to misuse $NEXTDATA and/or save large data
+                // dumps at the end of an FCS file. This is meant for such cases
+                // where one wants/knows that this data exists, but most users
+                // won't care and it is alot of extra overhead.
+                let post_dataset_abs_start = reader.dataset_offset().0 + dataset_len;
+                let (post_dark, read_post_dark_end) = if let Some(post_dataset_nbytes) =
+                    dataset_abs_end.checked_sub(post_dataset_abs_start)
+                    && dconf.read_post_dataset_dark_bytes.is_set()
+                {
+                    io_to_log!(
+                        reader
+                            .inner_mut()
+                            .seek(io::SeekFrom::Start(post_dataset_abs_start))
+                    );
+                    let buf = io_to_log!(read_exact_owned(reader.inner_mut(), post_dataset_nbytes));
+                    (buf, Instant::now())
+                } else {
+                    (vec![], crc_out.read_end)
+                };
 
-            let read_intra_dark_ns = read_intra_dark_end.duration_since1(timings.end);
+                let read_intra_dark_ns = read_intra_dark_end.duration_since1(timings.end);
 
-            let scan_next_ns = scan_next_end.duration_since1(read_intra_dark_end);
+                let scan_next_ns = scan_next_end.duration_since1(read_intra_dark_end);
 
-            let read_post_dark_ns = read_post_dark_end.duration_since1(crc_out.read_end);
+                let read_post_dark_ns = read_post_dark_end.duration_since1(crc_out.read_end);
 
-            let read_dark_bytes_ns = read_intra_dark_ns + read_post_dark_ns;
+                let read_dark_bytes_ns = read_intra_dark_ns + read_post_dark_ns;
 
-            let ret = Self::new(
-                events.pre.event_width,
-                events.pre.event_data_remainder,
-                events.pre.tot_event_mismatch,
-                events.overrange_columns,
-                intra_seg_dark,
-                DarkBytes::try_from_vec(post_dark),
-                crc_out.file_crc,
-                crc_out.computed_crc,
-                dataset_len,
-                next_dataset_abs_start,
-                scan_next_dataset,
-                timings.read_data_time.as_nanos(),
-                timings.check_ranges_time.as_nanos(),
-                timings.read_other_analysis_time.as_nanos(),
-                read_dark_bytes_ns.as_nanos(),
-                crc_out.read_time.as_nanos(),
-                scan_next_ns.as_nanos(),
-            );
-            LogResult::new_ok(ret)
-        })
+                let ret = Self::new(
+                    events.pre.event_width,
+                    events.pre.event_data_remainder,
+                    events.pre.tot_event_mismatch,
+                    events.overrange_columns,
+                    intra_seg_dark,
+                    DarkBytes::try_from_vec(post_dark),
+                    crc_out.file_crc,
+                    crc_out.computed_crc,
+                    dataset_len,
+                    next_dataset_abs_start,
+                    scan_next_dataset,
+                    timings.read_data_time.as_nanos(),
+                    timings.check_ranges_time.as_nanos(),
+                    timings.read_other_analysis_time.as_nanos(),
+                    read_dark_bytes_ns.as_nanos(),
+                    crc_out.read_time.as_nanos(),
+                    scan_next_ns.as_nanos(),
+                );
+                LogResult::new_ok(ret)
+            })
     }
 }
 

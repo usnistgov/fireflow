@@ -45,6 +45,7 @@ use crate::text::named_vec::{
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::dataframe::PrimitiveDataFrame;
+use crate::validated::read_state::AnyReader;
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::config::{
@@ -3905,9 +3906,9 @@ where
         Ok(CoreMeasurements::new(self.meta, typed_df))
     }
 
-    pub(crate) fn h_read_df<R>(
+    pub(crate) fn h_read_df<'a>(
         mut self,
-        h: &mut R,
+        reader: &mut AnyReader,
         tot: <V::DataSchema as VersionedDataSchema>::Tot,
         seg: &mut AnyDataOffsets,
         start_time: Instant,
@@ -3919,11 +3920,10 @@ where
         (),
     >
     where
-        R: Read + Seek,
         V::DataSchema: VersionedDataSchema + DataSchemaToEmptyDataFrame<DfTarget = V::DataFrame>,
     {
         self.data
-            .h_read_df(h, tot, seg, start_time, conf)
+            .h_read_df(reader, tot, seg, start_time, conf)
             .map_ok_value(|df_out| {
                 // New dataframe should have same metadata and column number
                 // compared to old schema, so calling new with no checks should

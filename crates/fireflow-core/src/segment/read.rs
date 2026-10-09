@@ -20,7 +20,9 @@ use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_st
 use crate::validated::header_offsets::{
     FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
 };
-use crate::validated::read_state::{DatasetOffset, DatasetReader, HeaderReader, TEXTReader};
+use crate::validated::read_state::{
+    AnyReader, DatasetOffset, DatasetReader, HeaderReader, TEXTReader,
+};
 
 use fireflow_types::config::{
     AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
@@ -34,6 +36,7 @@ use fireflow_types::segment::{
     OffsetsFromTEXT, OtherSegmentId, PrimaryTextSegmentId, SupplementalTextSegmentId,
     TEXTCorrection,
 };
+use memmap2::Mmap;
 use nonempty::{
     IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec, NonEmptyArrayExt as _,
     NonEmptyIterator as _, once,
@@ -1607,7 +1610,7 @@ impl<I, S> Offsets<I, S> {
         }
     }
 
-    /// Read bytes within this segment
+    /// Read bytes within this segment using [`Read`]
     pub(crate) fn read_contents<R>(&self, reader: &mut R) -> io::Result<Vec<u8>>
     where
         R: Read + Seek,
@@ -1615,6 +1618,14 @@ impl<I, S> Offsets<I, S> {
         match self.inner {
             InnerOffsets::Empty => Ok(vec![]),
             InnerOffsets::NonEmpty(s) => s.read_contents(reader),
+        }
+    }
+
+    /// Read bytes within this segment using mmap
+    pub(crate) fn read_contents_mmap<'a>(&self, mmap: &'a Mmap) -> &'a [u8] {
+        match self.inner {
+            InnerOffsets::Empty => &[],
+            InnerOffsets::NonEmpty(s) => s.read_contents_mmap(mmap),
         }
     }
 
@@ -1714,7 +1725,7 @@ impl NonEmptyOffsetsInner {
             .unwrap_or_else(|| panic!("original length ({o}) should be >= length ({l})"))
     }
 
-    /// Read bytes within this segment.
+    /// Read bytes within this segment using [`Read`].
     pub(crate) fn read_contents<R>(&self, reader: &mut R) -> io::Result<Vec<u8>>
     where
         R: Read + Seek,
@@ -1726,6 +1737,20 @@ impl NonEmptyOffsetsInner {
         // be checked elsewhere to give the user a more instructive message
         // about which segment failed, file length, etc.
         read_exact_owned(reader, self.nbytes().get())
+    }
+
+    /// Read bytes within this segment using mmap
+    pub(crate) fn read_contents_mmap<'a>(&self, mmap: &'a Mmap) -> &'a [u8] {
+        let absolute_begin = (self.begin + self.dataset_offset.0).u64_to_usize();
+        let absolute_end = (self.end() + self.dataset_offset.0).u64_to_usize();
+        // These should not change even if the file is modified during a read.
+        // In that case the memory map will be totally invalid (user be warned).
+        // If the segment boundaries are outside the length of a valid memory
+        // map then this is a code bug since we didn't truncate/validate the
+        // offsets properly.
+        assert!(absolute_begin <= mmap.len(), "begin after memmap end");
+        assert!(absolute_end <= mmap.len(), "end after memmap end");
+        &mmap[absolute_begin..absolute_end]
     }
 }
 
@@ -1740,14 +1765,28 @@ impl<I, S> NonEmptyOffsets<I, S> {
         self.inner().dataset_offset.0 + self.end()
     }
 
-    /// Read bytes within this segment
-    pub(crate) fn h_read_contents<R>(&self, h: &mut R) -> io::Result<NEVec<u8>>
+    pub(crate) fn read_contents<'a>(&self, reader: &mut AnyReader) -> io::Result<NEVec<u8>> {
+        match reader {
+            AnyReader::Buffered(r) => self.read_contents_buffered(r),
+            AnyReader::Mmap(r) => Ok(self.read_contents_mmap(r)),
+        }
+    }
+
+    /// Read bytes within this segment using [`Read`].
+    pub(crate) fn read_contents_buffered<R>(&self, h: &mut R) -> io::Result<NEVec<u8>>
     where
         R: Read + Seek,
     {
         let buf = self.inner().read_contents(h)?;
         Ok(NEVec::try_from_vec(buf)
             .expect("offsets are non-empty, therefore buffer should be non-empty"))
+    }
+
+    /// Read bytes within this segment (memory mapped)
+    pub(crate) fn read_contents_mmap(&self, mmap: &Mmap) -> NEVec<u8> {
+        let buf = self.inner().read_contents_mmap(mmap);
+        NEVec::try_from_slice(buf)
+            .expect("offsets are non-empty, therefore buffer should be non-empty")
     }
 
     pub(crate) fn as_named<N>(&self, args: I::Params) -> NamedOffsets<N>
@@ -1992,8 +2031,9 @@ impl<I: Copy> HeaderOffsets<I> {
 
 impl OtherOffsets20 {
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn h_read_others<C>(
+    pub(crate) fn read_others<C>(
         reader: &mut HeaderReader,
+        start_pos: u64,
         first_seg_begin: u64,
         conf: &C,
     ) -> WarningsAndIOGroupResult<OtherOffsetOutput, GuessOtherWidthError, HeaderOffsetsError, ()>
@@ -2012,14 +2052,6 @@ impl OtherOffsets20 {
             return LogResult::new_ok(OtherOffsetOutput::default());
         };
 
-        // Check that we have enough bytes left to read the offsets.
-        let remaining = reader.inner().remaining_bytes();
-        if remaining < u64::from(max_other_len) {
-            // ASSUME this will always be at byte 58 (that's what the error says)
-            let e = OtherOffsetsNoBytesError::new(remaining, max_other_len);
-            return LogResult::new_err(IOErrorGroup::new_pure_one(e.into()));
-        }
-
         // Read the offsets.
         //
         // TODO (minor optimization opportunity) This will take all bytes
@@ -2033,10 +2065,16 @@ impl OtherOffsets20 {
         // did not specify a width). In these cases, reading bytes like this
         // will result in the OTHER segments themselves being read twice (here
         // they will be read and ignored).
-        let buf = io_to_log!(read_exact_owned(
-            reader.inner_mut(),
-            u64::from(max_other_len)
-        ));
+        let buf_res = reader
+            .inner_mut()
+            .read_bytes(start_pos, max_other_len.get())
+            // ASSUME this will always be at byte 58 (that's what the error says)
+            .map_err(|e| {
+                e.fmap_once(|remaining| {
+                    OtherOffsetsNoBytesError::new(remaining, max_other_len).into()
+                })
+            });
+        let buf = io_to_log!(buf_res);
 
         // Get max desired number of segments; If zero, exit early.
         let Ok(max_other) = hconf

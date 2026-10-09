@@ -4,8 +4,7 @@ use crate::api::StdKeywords;
 use crate::convert::InstantExt as _;
 use crate::core::{DarkBytes, Other, WriteHeaderAndTextConfig};
 use crate::logging::{
-    IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult, ResultExt as _,
-    WarningsAndIOGroupResult, io_to_log,
+    IOErrorGroup, IOGroupResult, LogResult, ResultExt as _, WarningsAndIOGroupResult, io_to_log,
 };
 use crate::segment::read::{
     GuessOtherWidthError, HeaderAnalysisOffsets, HeaderDataOffsets, HeaderOffsets,
@@ -45,9 +44,10 @@ use derive_new::new;
 use itertools::Itertools as _;
 use num_traits::identities::Zero;
 use thiserror::Error;
+use type_families::FunctorOnce;
 
 use std::fmt::{self, Write as _};
-use std::io::{self, BufWriter, Read as _, Seek as _, SeekFrom, Write as _};
+use std::io::{self, BufWriter, Write as _};
 use std::iter::once;
 use std::time::Instant;
 
@@ -165,10 +165,8 @@ impl Header {
     where
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
-        // TODO wrap this in method
-        let from = SeekFrom::Start(reader.dataset_offset().0);
-        io_to_log!(reader.inner_mut().seek(from));
-        let req = io_to_log!(ReqHeader::read(reader, conf));
+        let start_pos = reader.dataset_offset().0;
+        let req = io_to_log!(ReqHeader::read(reader, start_pos, conf));
 
         let (text, text_orig) = req.text;
         let (data, data_orig) = req.data;
@@ -184,7 +182,8 @@ impl Header {
         .min();
 
         let other_res = if let Some(m) = min_coord {
-            OtherOffsets20::h_read_others(reader, m, conf)
+            let other_start_pos = start_pos + u64::from(HEADER_LEN);
+            OtherOffsets20::read_others(reader, other_start_pos, m, conf)
         } else {
             LogResult::new_ok(OtherOffsetOutput::default())
         };
@@ -225,7 +224,11 @@ struct ReqHeader {
 }
 
 impl ReqHeader {
-    fn read<C>(reader: &mut HeaderReader, conf: &C) -> IOGroupResult<Self, HeaderError, ()>
+    fn read<C>(
+        reader: &mut HeaderReader,
+        start_pos: u64,
+        conf: &C,
+    ) -> IOGroupResult<Self, HeaderError, ()>
     where
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
@@ -234,14 +237,10 @@ impl ReqHeader {
         let data_cor = iconf.data_correction;
         let anal_cor = iconf.analysis_correction;
 
-        #[allow(clippy::as_conversions, reason = "const not stable yet")]
-        let mut buf = [0_u8; HEADER_LEN as usize];
-        let remaining = reader.inner().remaining_bytes();
-        if remaining < HEADER_LEN.into() {
-            let e = HeaderNoBytesError(remaining).into();
-            return Err(IOAnonErrorGroup::new_pure_one(e));
-        }
-        reader.inner_mut().read_exact(&mut buf)?;
+        let buf = reader
+            .inner_mut()
+            .read_exact::<{ HEADER_LEN as usize }>(start_pos)
+            .map_err(|e| e.fmap_once(|remaining| HeaderNoBytesError(remaining).into()))?;
 
         let vers_res = read_version(&buf).map_err(HeaderError::from);
         let space_res = Self::read_spaces(&buf).map_err(HeaderError::from);

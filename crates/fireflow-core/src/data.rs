@@ -152,7 +152,7 @@ use crate::validated::finite_float::{
     DecimalToFloatError, FiniteF32, FiniteF64, FiniteF64toF32Error, FiniteFloat,
     U64ToFiniteFloatError,
 };
-use crate::validated::read_state::WriteFCSDigest;
+use crate::validated::read_state::{AnyReader, WriteFCSDigest};
 use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
 
 use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
@@ -164,6 +164,7 @@ use fireflow_types::config::{
 };
 use fireflow_types::index::MeasIndex;
 use fireflow_types::keys::raw_std::{MeasKeyId, ToStd as _};
+use memmap2::Mmap;
 use nonempty::{
     DisplayableNE as _, IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec,
     NonEmptyIterator as _,
@@ -1890,9 +1891,9 @@ where
         conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>;
 
-    fn h_read_df<R>(
+    fn h_read_df<'a>(
         &mut self,
-        reader: &mut R,
+        reader: &mut AnyReader,
         tot: Self::Tot,
         offsets: &mut AnyDataOffsets,
         start_time: Instant,
@@ -1904,16 +1905,14 @@ where
         (),
     >
     where
-        R: Read + Seek,
         <Self as DataSchemaToEmptyDataFrame>::DfTarget: DataFrameCheckRanges,
     {
         if let Some(ne_offsets) = offsets.as_nonempty_mut() {
-            // seek to start using absolute coordinates
-            io_to_log!(reader.seek(SeekFrom::Start(ne_offsets.begin_abs())));
-            // normalize layout (which is why self must be mut)
+            // define start using absolute coordinates
+            let start_pos = ne_offsets.begin_abs();
             self.normalize();
             // read dataframe
-            self.h_read_df_inner(reader, tot, ne_offsets, conf)
+            self.read_df_inner(reader, start_pos, tot, ne_offsets, conf)
                 .map_pure_errors(ReadCheckedDataframeError::from)
                 .map_commutative_warnings(ReadCheckedDataframeWarning::from)
                 .and_then_commutative(|mut res| {
@@ -3029,25 +3028,26 @@ where
 /// A data schema that can be converted to a dataframe by reading a bytestream.
 #[delegatable_trait]
 pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
-    fn h_read_into<R, X>(
+    fn read_into<'a, X>(
         &self,
-        h: &mut R,
+        reader: &mut AnyReader,
+        start_pos: u64,
         tot: T,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<PreDataFrameResult<X>, ReadDataframeWarning, ReadDataframeError, ()>
     where
-        R: Read,
         T: IsTot,
         Self::DfTarget: Into<X>,
     {
-        self.h_read_df_inner(h, tot, offsets, conf)
+        self.read_df_inner(reader, start_pos, tot, offsets, conf)
             .map_ok_value(Functor::fmap_into)
     }
 
-    fn h_read_df_inner<R: Read>(
+    fn read_df_inner<'a>(
         &self,
-        h: &mut R,
+        reader: &mut AnyReader,
+        start_pos: u64,
         tot: T,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
@@ -3062,9 +3062,10 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
 }
 
 impl DataSchemaReadOps<Identity<Tot>> for DataSchema3_2 {
-    fn h_read_df_inner<R: Read>(
+    fn read_df_inner<'a>(
         &self,
-        h: &mut R,
+        reader: &mut AnyReader,
+        start_pos: u64,
         tot: Identity<Tot>,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
@@ -3075,8 +3076,8 @@ impl DataSchemaReadOps<Identity<Tot>> for DataSchema3_2 {
         (),
     > {
         match self {
-            Self::NonMixed(x) => x.h_read_into(h, tot, offsets, conf),
-            Self::Mixed(x) => x.h_read_into(h, tot, offsets, conf),
+            Self::NonMixed(x) => x.read_into(reader, start_pos, tot, offsets, conf),
+            Self::Mixed(x) => x.read_into(reader, start_pos, tot, offsets, conf),
         }
     }
 }
@@ -3092,9 +3093,10 @@ where
     F32::DfTarget: Into<Self::DfTarget>,
     F64::DfTarget: Into<Self::DfTarget>,
 {
-    fn h_read_df_inner<R: Read>(
+    fn read_df_inner<'a>(
         &self,
-        h: &mut R,
+        reader: &mut AnyReader,
+        start_pos: u64,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
@@ -3107,7 +3109,7 @@ where
     where
         TotType: IsTot,
     {
-        match_any_datatype!(self, x, x.h_read_into(h, tot, offsets, conf))
+        match_any_datatype!(self, x, x.read_into(reader, start_pos, tot, offsets, conf))
     }
 }
 
@@ -3118,9 +3120,10 @@ where
     W0::DfTarget: Into<Self::DfTarget>,
     W::DfTarget: Into<Self::DfTarget>,
 {
-    fn h_read_df_inner<R: Read>(
+    fn read_df_inner<'a>(
         &self,
-        h: &mut R,
+        reader: &mut AnyReader,
+        start_pos: u64,
         tot: Identity<Tot>,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
@@ -3130,7 +3133,7 @@ where
         ReadDataframeError,
         (),
     > {
-        match_any_endian_uint!(self, x, x.h_read_into(h, tot, offsets, conf))
+        match_any_endian_uint!(self, x, x.read_into(reader, start_pos, tot, offsets, conf))
     }
 }
 
@@ -3141,9 +3144,10 @@ where
     D::DfTarget: Into<Self::DfTarget>,
     A::DfTarget: Into<Self::DfTarget>,
 {
-    fn h_read_df_inner<R>(
+    fn read_df_inner<'a>(
         &self,
-        h: &mut R,
+        reader: &mut AnyReader,
+        start_pos: u64,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
@@ -3154,10 +3158,9 @@ where
         (),
     >
     where
-        R: Read,
         TotType: IsTot,
     {
-        match_any_ascii!(self, x, x.h_read_into(h, tot, offsets, conf))
+        match_any_ascii!(self, x, x.read_into(reader, start_pos, tot, offsets, conf))
     }
 }
 
@@ -3181,9 +3184,10 @@ where
     C56::DfTarget: Into<Self::DfTarget>,
     C64::DfTarget: Into<Self::DfTarget>,
 {
-    fn h_read_df_inner<R: Read>(
+    fn read_df_inner<'a>(
         &self,
-        h: &mut R,
+        reader: &mut AnyReader,
+        start_pos: u64,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
@@ -3196,7 +3200,7 @@ where
     where
         TotType: IsTot,
     {
-        match_any_uint!(self, x, x.h_read_into(h, tot, offsets, conf))
+        match_any_uint!(self, x, x.read_into(reader, start_pos, tot, offsets, conf))
     }
 }
 
@@ -3209,9 +3213,10 @@ where
     Col: Clone + ColumnIsFixed,
     ByteOrder: Copy,
 {
-    fn h_read_df_inner<R: Read>(
+    fn read_df_inner<'a>(
         &self,
-        h: &mut R,
+        reader: &mut AnyReader,
+        start_pos: u64,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
@@ -3243,7 +3248,7 @@ where
             })
             .and_then_commutative(|(tot_not_eq, nrow_out)| {
                 let n = nrow_out.total_events.u64_to_usize();
-                self.h_read_fixed_df(h, n, conf)
+                self.h_read_fixed_df(reader, start_pos, n, conf)
                     .map_err(IOErrorGroup::from)
                     .map(|df| {
                         let out = PreEventsDiagnostics::new(
@@ -3271,9 +3276,10 @@ where
     DelimAsciiCol: IsCol<VecFamily, ORD, Inner = DelimAsciiRange, Layout = NoByteOrd<ORD>>
         + IsCol<DataFrameFamily, ORD, Inner = NativeSeries<DelimAsciiRange>, Layout = NoByteOrd<ORD>>,
 {
-    fn h_read_df_inner<R: Read>(
+    fn read_df_inner<'a>(
         &self,
-        h: &mut R,
+        reader: &mut AnyReader,
+        start_pos: u64,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
         _: &ReadDatasetConfig,
@@ -3300,10 +3306,10 @@ where
 
         let res = if let Some(rs) = NESlice::try_from_slice(&self.container[..]) {
             let res = TotType::with_tot(
-                h,
+                reader,
                 tot,
-                |h_, t| go!(h_read_delim_with_rows(rs, h_, t, nbytes)),
-                |h_| go!(h_read_delim_without_rows(rs, h_, nbytes)),
+                |r, t| go!(read_delim_with_rows(r, start_pos, rs, t, nbytes)),
+                |r| go!(read_delim_without_rows(r, start_pos, rs, nbytes)),
             );
 
             res.map(|data| {
@@ -3328,11 +3334,51 @@ where
     }
 }
 
-fn h_read_delim_with_rows<R: Read>(
+fn read_delim_with_rows<'a>(
+    reader: &mut AnyReader,
+    start_pos: u64,
     ranges: &NESlice<DelimAsciiRange>,
-    h: &mut R,
     tot: Tot,
     nbytes: usize,
+) -> IOResult<Vec<Vec<u64>>, ReadDelimWithRowsAsciiError> {
+    match reader {
+        AnyReader::Buffered(r) => {
+            r.seek(SeekFrom::Start(start_pos))?;
+            read_delim_with_rows_from_iter(ranges, r.bytes().take(nbytes), tot)
+        }
+        AnyReader::Mmap(r) => {
+            let p0 = start_pos.u64_to_usize();
+            let p1 = p0 + nbytes;
+            let bytes = r[p0..p1].iter().copied().map(Ok);
+            read_delim_with_rows_from_iter(ranges, bytes, tot)
+        }
+    }
+}
+
+fn read_delim_without_rows<'a>(
+    reader: &mut AnyReader,
+    start_pos: u64,
+    ranges: &NESlice<DelimAsciiRange>,
+    nbytes: usize,
+) -> IOResult<Vec<Vec<u64>>, ReadDelimAsciiWithoutRowsError> {
+    match reader {
+        AnyReader::Buffered(r) => {
+            r.seek(SeekFrom::Start(start_pos))?;
+            read_delim_without_rows_from_iter(ranges, r.bytes().take(nbytes))
+        }
+        AnyReader::Mmap(r) => {
+            let p0 = start_pos.u64_to_usize();
+            let p1 = p0 + nbytes;
+            let bytes = r[p0..p1].iter().copied().map(Ok);
+            read_delim_without_rows_from_iter(ranges, bytes)
+        }
+    }
+}
+
+fn read_delim_with_rows_from_iter(
+    ranges: &NESlice<DelimAsciiRange>,
+    bytes: impl IntoIterator<Item = io::Result<u8>>,
+    tot: Tot,
 ) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimWithRowsAsciiError>> {
     let mut buf = Vec::new();
     let mut last_was_delim = false;
@@ -3358,12 +3404,7 @@ fn h_read_delim_with_rows<R: Read>(
             }
         };
     }
-    #[allow(
-        clippy::unbuffered_bytes,
-        reason = "rare use case, also the reader should be buffered upstream \
-                  but is not explicitly wrapped here to make the api convenient"
-    )]
-    for b in h.bytes().take(nbytes) {
+    for b in bytes {
         let byte = b?;
         // exit if we encounter more rows than expected.
         if row == nrows {
@@ -3395,10 +3436,9 @@ fn h_read_delim_with_rows<R: Read>(
     Ok(data)
 }
 
-fn h_read_delim_without_rows<R: Read>(
+fn read_delim_without_rows_from_iter(
     ranges: &NESlice<DelimAsciiRange>,
-    h: &mut R,
-    nbytes: usize,
+    bytes: impl IntoIterator<Item = io::Result<u8>>,
 ) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimAsciiWithoutRowsError>> {
     let mut buf = Vec::new();
     // Here we don't have $TOT so init to empty vectors
@@ -3419,12 +3459,7 @@ fn h_read_delim_without_rows<R: Read>(
     // the column vectors one at a time. This leads to the possibility that
     // the vectors may not be the same length in the end, in which case,
     // scream loudly and bail.
-    #[allow(
-        clippy::unbuffered_bytes,
-        reason = "rare use case, also the reader should be buffered upstream \
-                  but is not explicitly wrapped here to make the api convenient"
-    )]
-    for b in h.bytes().take(nbytes) {
+    for b in bytes {
         let byte = b?;
         if is_ascii_delim(byte) {
             if !last_was_delim {
@@ -3607,9 +3642,10 @@ impl<const ORD: bool, TotType, Dtype> DataFrameWriteOps
 trait DataSchemaReadFixed {
     type DfTarget;
 
-    fn h_read_fixed_df<R: Read>(
+    fn h_read_fixed_df<'a>(
         &self,
-        h: &mut R,
+        reader: &mut AnyReader,
+        start_pos: u64,
         nrows: usize,
         conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError>;
@@ -3625,16 +3661,17 @@ where
 {
     type DfTarget = Layout<DataFrame<NativeSeries<C>>, DataFrameFamily, I, L, M, ORD>;
 
-    fn h_read_fixed_df<R: Read>(
+    fn h_read_fixed_df<'a>(
         &self,
-        h: &mut R,
+        reader: &mut AnyReader,
+        start_pos: u64,
         nrows: usize,
         conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError> {
         let ncols = self.columns().len();
-        let columns = self
-            .byteord
-            .read_matrix(h, nrows, ncols, conf.row_buffer_size)?;
+        let columns =
+            self.byteord
+                .read_matrix(reader, start_pos, nrows, ncols, conf.row_buffer_size)?;
         let data = columns
             .into_iter()
             .map(InternalSeries::from)
@@ -3659,19 +3696,26 @@ impl<M, const ORD: bool> DataSchemaReadFixed
         ORD,
     >;
 
-    fn h_read_fixed_df<R: Read>(
+    fn h_read_fixed_df<'a>(
         &self,
-        h: &mut R,
+        reader: &mut AnyReader,
+        start_pos: u64,
         nrows: usize,
         conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError> {
-        let columns =
-            read_char_matrix(h, nrows, &self.container, conf.row_buffer_size).map_err(|e| {
-                e.fmap_once(DataAsciiNumToUintError)
-                    .fmap_once(ReadFixedAsciiError::from)
-                    .fmap_once(ReadAsciiError::from)
-                    .fmap_once(ReadDataframeError::from)
-            })?;
+        let columns = read_char_matrix(
+            reader,
+            start_pos,
+            nrows,
+            &self.container,
+            conf.row_buffer_size,
+        )
+        .map_err(|e| {
+            e.fmap_once(DataAsciiNumToUintError)
+                .fmap_once(ReadFixedAsciiError::from)
+                .fmap_once(ReadAsciiError::from)
+                .fmap_once(ReadDataframeError::from)
+        })?;
         let data = columns.into_iter().map(NativeSeries::from);
         let df = DataFrame::new_unchecked(data);
         Ok(Layout::new(df, self.byteord))
@@ -3684,14 +3728,16 @@ impl<M> DataSchemaReadFixed for Layout<Vec<VariableBitmask>, VecFamily, UvarCol,
     type DfTarget =
         Layout<DataFrame<VariableUintSeries>, DataFrameFamily, UvarCol, Endian, M, false>;
 
-    fn h_read_fixed_df<R: Read>(
+    fn h_read_fixed_df<'a>(
         &self,
-        h: &mut R,
+        reader: &mut AnyReader,
+        start_pos: u64,
         nrows: usize,
         conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError> {
         let rs = conf.row_buffer_size;
-        let columns = read_any_uint_df(h, nrows, &self.container, self.byteord, rs)?;
+        let columns =
+            read_any_uint_df(reader, start_pos, nrows, &self.container, self.byteord, rs)?;
         let data = columns.into_iter().map(VariableUintSeries::from);
         let df = DataFrame::new_unchecked(data);
         Ok(Layout::new(df, self.byteord))
@@ -3705,9 +3751,10 @@ impl<M> DataSchemaReadFixed for Layout<Vec<VariableBitmask>, VecFamily, UvarCol,
 impl<M> DataSchemaReadFixed for Layout<Vec<MixedRange>, VecFamily, MixedCol, Endian, M, false> {
     type DfTarget = Layout<DataFrame<MixedSeries>, DataFrameFamily, MixedCol, Endian, M, false>;
 
-    fn h_read_fixed_df<R: Read>(
+    fn h_read_fixed_df<'a>(
         &self,
-        h: &mut R,
+        reader: &mut AnyReader,
+        start_pos: u64,
         nrows: usize,
         conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError> {
@@ -3715,7 +3762,9 @@ impl<M> DataSchemaReadFixed for Layout<Vec<MixedRange>, VecFamily, MixedCol, End
         let cs = &self.container[..];
         let rs = conf.row_buffer_size;
 
-        let columns = if let Some(ret) = try_read_single::<_, _, F32Range>(h, cs, nrows, en, rs)? {
+        let columns = if let Some(ret) =
+            try_read_single::<_, F32Range>(reader, start_pos, cs, nrows, en, rs)?
+        {
             // If the types are all the same width (but not necessary the same
             // type), we can "cheat" and read the layout all as one type and
             // cast to other types after the fact. This will dramatically speed
@@ -3723,15 +3772,19 @@ impl<M> DataSchemaReadFixed for Layout<Vec<MixedRange>, VecFamily, MixedCol, End
             //
             // This is for 32-bit float+int
             ret
-        } else if let Some(ret) = try_read_single::<_, _, F64Range>(h, cs, nrows, en, rs)? {
+        } else if let Some(ret) =
+            try_read_single::<_, F64Range>(reader, start_pos, cs, nrows, en, rs)?
+        {
             // ditto 64-bit
             ret
         } else {
-            read_mixed_df(h, nrows, &self.container, self.byteord, rs).map_err(|e| {
-                e.fmap_once(ReadFixedAsciiError::from)
-                    .fmap_once(ReadAsciiError::from)
-                    .fmap_once(ReadDataframeError::from)
-            })?
+            read_mixed_df(reader, start_pos, nrows, &self.container, self.byteord, rs).map_err(
+                |e| {
+                    e.fmap_once(ReadFixedAsciiError::from)
+                        .fmap_once(ReadAsciiError::from)
+                        .fmap_once(ReadDataframeError::from)
+                },
+            )?
         };
 
         let data = columns.into_iter().map(MixedSeries::from);
@@ -3777,15 +3830,15 @@ impl_single_width_range!(Any4ByteRange, f32, F32, Uint32);
 impl_single_width_range!(Any8ByteRange, f64, F64, Uint64);
 
 /// Try to read DATA using multiple types with a single width.
-fn try_read_single<R, W, C>(
-    h: &mut R,
+fn try_read_single<'a, W, C>(
+    reader: &mut AnyReader,
+    start_pos: u64,
     ranges: &[MixedRange],
     nrows: usize,
     endian: Endian,
     buffer_nbytes: RowBufferSize,
 ) -> io::Result<Option<Vec<MixedVec>>>
 where
-    R: Read,
     Endian: ByteOrderIO<C>,
     W: TryFrom<MixedRange>,
     (Vec<C::Native>, W): Into<MixedVec>,
@@ -3799,7 +3852,8 @@ where
         .collect::<Result<Vec<_>, _>>()
     {
         let ncols = cs.len();
-        let columns = ByteOrderIO::<C>::read_matrix(&endian, h, nrows, ncols, buffer_nbytes)?;
+        let columns =
+            ByteOrderIO::<C>::read_matrix(&endian, reader, start_pos, nrows, ncols, buffer_nbytes)?;
         let ret = columns
             .into_iter()
             .zip(cs)
@@ -3814,7 +3868,39 @@ where
 type SrcIndex = usize;
 type DstIndex = usize;
 
-fn read_columns<C, Rng, E, R, Fr, Fw, Fc>(
+fn read_columns<'a, C, Rng, E, Fr, Fw, Fc>(
+    reader: &mut AnyReader,
+    start_pos: u64,
+    nrows: usize,
+    ranges: &[Rng],
+    fread: Fr,
+    fwidth: Fw,
+    fcol: Fc,
+    buffer_nbytes: RowBufferSize,
+) -> IOResult<Vec<C>, E>
+where
+    Fr: FnMut(&mut C, DstIndex, &[u8], SrcIndex) -> Result<(), E>,
+    Fw: Fn(&Rng) -> usize,
+    Fc: Fn(&Rng, usize) -> C,
+{
+    if ranges.len() == 0 || nrows == 0 {
+        return Ok(vec![]);
+    }
+
+    match reader {
+        AnyReader::Buffered(r) => {
+            r.seek(SeekFrom::Start(start_pos))?;
+            read_columns_buffered(r, nrows, ranges, fread, fwidth, fcol, buffer_nbytes)
+        }
+        AnyReader::Mmap(r) => {
+            let p0 = start_pos.u64_to_usize();
+            read_columns_mmap(r, p0, nrows, ranges, fread, fwidth, fcol, buffer_nbytes)
+                .map_err(ImpureError::Pure)
+        }
+    }
+}
+
+fn read_columns_buffered<C, Rng, E, R, Fr, Fw, Fc>(
     h: &mut R,
     nrows: usize,
     ranges: &[Rng],
@@ -3829,49 +3915,142 @@ where
     Fw: Fn(&Rng) -> usize,
     Fc: Fn(&Rng, usize) -> C,
 {
+    if ranges.len() == 0 || nrows == 0 {
+        return Ok(vec![]);
+    }
+
     let mut columns: Vec<_> = ranges.iter().map(|r| fcol(r, nrows)).collect();
     let (col_offsets, row_nbytes) = column_offsets(ranges, fwidth);
 
     let rows_per_buffer = (usize::from(buffer_nbytes) / row_nbytes).max(1);
-    let buffer_nvalues_optimal = rows_per_buffer * row_nbytes;
+    let buffer_nbytes_optimal = rows_per_buffer * row_nbytes;
     let remainder_nrows = nrows % rows_per_buffer;
     let remainder_nbytes = remainder_nrows * row_nbytes;
     let first_remainder_row = nrows - remainder_nrows;
 
-    let mut go = |buffer: &[u8], dst_start_row: usize, dst_end_row: usize| -> IOResult<(), E> {
-        for (c, col_offset) in columns.iter_mut().zip(&col_offsets) {
-            let mut src_offset = *col_offset;
-            for dst_idx in dst_start_row..dst_end_row {
-                fread(c, dst_idx, buffer, src_offset).map_err(ImpureError::Pure)?;
-                src_offset += row_nbytes;
-            }
-        }
-        Ok(())
-    };
-
-    let mut buffer = vec![0_u8; buffer_nvalues_optimal];
+    let mut buffer = vec![0_u8; buffer_nbytes_optimal];
 
     for dst_start_row in (0..first_remainder_row).step_by(rows_per_buffer) {
         h.read_exact(&mut buffer[..])?;
-        go(&buffer[..], dst_start_row, dst_start_row + rows_per_buffer)?;
+        read_row_buffer_columns(
+            &mut columns[..],
+            &col_offsets[..],
+            &buffer[..],
+            row_nbytes,
+            dst_start_row,
+            dst_start_row + rows_per_buffer,
+            &mut fread,
+        )
+        .map_err(ImpureError::Pure)?;
     }
 
     buffer.truncate(remainder_nbytes);
     h.read_exact(&mut buffer[..])?;
-    go(&buffer[..], first_remainder_row, nrows)?;
+    read_row_buffer_columns(
+        &mut columns[..],
+        &col_offsets[..],
+        &buffer[..],
+        row_nbytes,
+        first_remainder_row,
+        nrows,
+        &mut fread,
+    )
+    .map_err(ImpureError::Pure)?;
 
     Ok(columns)
 }
 
+fn read_columns_mmap<C, Rng, E, Fr, Fw, Fc>(
+    mmap: &Mmap,
+    start_pos: usize,
+    nrows: usize,
+    ranges: &[Rng],
+    mut fread: Fr,
+    fwidth: Fw,
+    fcol: Fc,
+    buffer_nbytes: RowBufferSize,
+) -> Result<Vec<C>, E>
+where
+    Fr: FnMut(&mut C, DstIndex, &[u8], SrcIndex) -> Result<(), E>,
+    Fw: Fn(&Rng) -> usize,
+    Fc: Fn(&Rng, usize) -> C,
+{
+    if ranges.len() == 0 || nrows == 0 {
+        return Ok(vec![]);
+    }
+
+    let mut columns: Vec<_> = ranges.iter().map(|r| fcol(r, nrows)).collect();
+    let (col_offsets, row_nbytes) = column_offsets(ranges, fwidth);
+
+    let rows_per_buffer = (usize::from(buffer_nbytes) / row_nbytes).max(1);
+    let buffer_nbytes_optimal = rows_per_buffer * row_nbytes;
+    let remainder_nrows = nrows % rows_per_buffer;
+    let first_remainder_row = nrows - remainder_nrows;
+
+    let buffer = &mmap[start_pos..start_pos + row_nbytes * nrows];
+    let mut it = buffer.chunks_exact(buffer_nbytes_optimal);
+
+    let mut dst_start_row = 0;
+    for local_buffer in it.by_ref() {
+        read_row_buffer_columns(
+            &mut columns[..],
+            &col_offsets[..],
+            local_buffer,
+            row_nbytes,
+            dst_start_row,
+            dst_start_row + rows_per_buffer,
+            &mut fread,
+        )?;
+        dst_start_row += rows_per_buffer;
+    }
+
+    let local_buffer = it.remainder();
+    read_row_buffer_columns(
+        &mut columns[..],
+        &col_offsets[..],
+        local_buffer,
+        row_nbytes,
+        first_remainder_row,
+        nrows,
+        &mut fread,
+    )?;
+
+    Ok(columns)
+}
+
+fn read_row_buffer_columns<C, E, Fr>(
+    columns: &mut [C],
+    col_offsets: &[usize],
+    buffer: &[u8],
+    row_nbytes: usize,
+    dst_start_row: usize,
+    dst_end_row: usize,
+    fread: &mut Fr,
+) -> Result<(), E>
+where
+    Fr: FnMut(&mut C, DstIndex, &[u8], SrcIndex) -> Result<(), E>,
+{
+    for (c, col_offset) in columns.iter_mut().zip(col_offsets) {
+        let mut src_offset = *col_offset;
+        for dst_idx in dst_start_row..dst_end_row {
+            fread(c, dst_idx, buffer, src_offset)?;
+            src_offset += row_nbytes;
+        }
+    }
+    Ok(())
+}
+
 /// Read a matrix where input bytes characters to be read as u64
-pub(crate) fn read_char_matrix<R: Read>(
-    h: &mut R,
+pub(crate) fn read_char_matrix<'a>(
+    reader: &mut AnyReader,
+    start_pos: u64,
     nrows: usize,
     ranges: &[FixedAsciiRange],
     buffer_nbytes: RowBufferSize,
 ) -> IOResult<Vec<RangedVec<FixedAsciiRange, u64>>, AsciiNumToUintError> {
     read_columns(
-        h,
+        reader,
+        start_pos,
         nrows,
         ranges,
         |dst: &mut RangedVec<FixedAsciiRange, _>, dst_index, src, src_index| {
@@ -3887,8 +4066,9 @@ pub(crate) fn read_char_matrix<R: Read>(
 }
 
 /// Read a dataframe of unsigned integers with different widths
-pub(crate) fn read_any_uint_df<R: Read>(
-    h: &mut R,
+pub(crate) fn read_any_uint_df<'a>(
+    reader: &mut AnyReader,
+    start_pos: u64,
     nrows: usize,
     ranges: &[VariableBitmask],
     endian: Endian,
@@ -3898,7 +4078,8 @@ pub(crate) fn read_any_uint_df<R: Read>(
     let make_col = |r: &VariableBitmask, nrows_| r.init_column(nrows_);
     let res = match endian {
         Endian::Big => read_columns(
-            h,
+            reader,
+            start_pos,
             nrows,
             ranges,
             |dst, dst_index, src, src_index| {
@@ -3910,7 +4091,8 @@ pub(crate) fn read_any_uint_df<R: Read>(
             buffer_nbytes,
         ),
         Endian::Little => read_columns(
-            h,
+            reader,
+            start_pos,
             nrows,
             ranges,
             |dst, dst_index, src, src_index| {
@@ -3929,8 +4111,9 @@ pub(crate) fn read_any_uint_df<R: Read>(
 }
 
 /// Read a dataframe of any mix of column types
-pub(crate) fn read_mixed_df<R: Read>(
-    h: &mut R,
+pub(crate) fn read_mixed_df<'a>(
+    reader: &mut AnyReader,
+    start_pos: u64,
     nrows: usize,
     ranges: &[MixedRange],
     endian: Endian,
@@ -3945,7 +4128,8 @@ pub(crate) fn read_mixed_df<R: Read>(
     let make_col = |r: &MixedRange, nrows_| r.init_column(nrows_);
     match endian {
         Endian::Big => read_columns(
-            h,
+            reader,
+            start_pos,
             nrows,
             ranges,
             AnyDatatype::read_be,
@@ -3954,7 +4138,8 @@ pub(crate) fn read_mixed_df<R: Read>(
             buffer_nbytes,
         ),
         Endian::Little => read_columns(
-            h,
+            reader,
+            start_pos,
             nrows,
             ranges,
             AnyDatatype::read_le,
@@ -7336,9 +7521,10 @@ trait ByteOrderIO<C: ColumnHasNativeType>
 where
     C::Native: FCSRepr,
 {
-    fn read_matrix<R: Read>(
+    fn read_matrix<'a>(
         &self,
-        h: &mut R,
+        reader: &mut AnyReader,
+        start_pos: u64,
         nrows: usize,
         ncols: usize,
         buffer_nbytes: RowBufferSize,
@@ -7356,14 +7542,15 @@ where
 macro_rules! impl_byte_layout_io {
     ($inner:path, $layout:path, $read_fun:ident, $write_fun:ident) => {
         impl ByteOrderIO<$inner> for $layout {
-            fn read_matrix<R: Read>(
+            fn read_matrix<'a>(
                 &self,
-                h: &mut R,
+                reader: &mut AnyReader,
+                start_pos: u64,
                 nrows: usize,
                 ncols: usize,
                 buffer_nbytes: RowBufferSize,
             ) -> io::Result<Vec<Vec<<$inner as ColumnHasNativeType>::Native>>> {
-                $read_fun(h, nrows, ncols, *self, buffer_nbytes)
+                $read_fun(reader, start_pos, nrows, ncols, *self, buffer_nbytes)
             }
 
             fn write_matrix<W: Write>(
@@ -7419,7 +7606,37 @@ impl_endian_layout_io!(F32Range);
 impl_endian_layout_io!(F64Range);
 
 /// Read stream of bytes using buffer where each value is the same type
-fn read_matrix<const LEN: usize, R, T, F>(
+fn read_matrix<'a, const LEN: usize, T, F>(
+    reader: &mut AnyReader,
+    start_pos: u64,
+    nrows: usize,
+    ncols: usize,
+    byte_swap: F,
+    buffer_nbytes: RowBufferSize,
+) -> io::Result<Vec<Vec<T>>>
+where
+    T: FromBytes<Bytes = [u8; LEN]> + Default + Clone,
+    F: Fn(&mut [u8; LEN]),
+{
+    if nrows == 0 || ncols == 0 {
+        return Ok(vec![]);
+    }
+
+    match reader {
+        AnyReader::Buffered(r) => {
+            r.seek(SeekFrom::Start(start_pos))?;
+            read_matrix_buffered(r, nrows, ncols, byte_swap, buffer_nbytes)
+        }
+        AnyReader::Mmap(r) => {
+            let p0 = start_pos.u64_to_usize();
+            let cols = read_matrix_mmap(r, p0, nrows, ncols, byte_swap, buffer_nbytes);
+            Ok(cols)
+        }
+    }
+}
+
+/// Read stream of bytes using buffer where each value is the same type
+fn read_matrix_buffered<const LEN: usize, R, T, F>(
     h: &mut R,
     nrows: usize,
     ncols: usize,
@@ -7431,40 +7648,6 @@ where
     T: FromBytes<Bytes = [u8; LEN]> + Default + Clone,
     F: Fn(&mut [u8; LEN]),
 {
-    fn copy_buffer<const LEN: usize, T, F>(
-        buffer: &[[u8; LEN]],
-        columns: &mut [Vec<T>],
-        start_row: usize,
-        end_row: usize,
-        ncols: usize,
-        byte_swap: F,
-    ) where
-        T: FromBytes<Bytes = [u8; LEN]>,
-        F: Fn(&mut [u8; LEN]),
-    {
-        for (ci, c) in columns.iter_mut().enumerate() {
-            let mut src_idx = ci;
-            for dst_idx in start_row..end_row {
-                // SAFETY: this will never be out of bounds because the loop
-                // indices represent (rows_per_buffer - 1) * ncols + ncols =
-                // rows_per_buffer * ncols = length of buffer
-                let mut src = *unsafe { buffer.get_unchecked(src_idx) };
-                byte_swap(&mut src);
-                // SAFETY: each column length is less than total row number
-                let dst = unsafe { c.get_unchecked_mut(dst_idx) };
-                // By convention, read as little-endian bytes. Assume the buffer
-                // has been swapped after reading if necessary if the file's
-                // byte order is not actually little-endian.
-                //
-                // We do it this way to decouple the read and the byteswap
-                // operations. In theory, a byteswap can be done much faster by
-                // itself when looped over a vector since it can be vectorized.
-                *dst = T::from_le_bytes(&src);
-                src_idx += ncols;
-            }
-        }
-    }
-
     if nrows == 0 || ncols == 0 {
         return Ok(vec![]);
     }
@@ -7492,13 +7675,13 @@ where
     for start_row in (0..first_remainder_row).step_by(rows_per_buffer) {
         h.read_exact(buffer[..].as_flattened_mut())?;
         let end_row = start_row + rows_per_buffer;
-        copy_buffer(&buffer, &mut columns, start_row, end_row, ncols, &byte_swap);
+        read_row_buffer(&buffer, &mut columns, start_row, end_row, ncols, &byte_swap);
     }
 
     // Read remaining rows if they exist
     buffer.truncate(remainder_nvalues);
     h.read_exact(buffer[..].as_flattened_mut())?;
-    copy_buffer(
+    read_row_buffer(
         &buffer,
         &mut columns,
         first_remainder_row,
@@ -7510,36 +7693,133 @@ where
     Ok(columns)
 }
 
+/// Read stream of bytes using buffer where each value is the same type
+fn read_matrix_mmap<const LEN: usize, T, F>(
+    mmap: &Mmap,
+    start_pos: usize,
+    nrows: usize,
+    ncols: usize,
+    byte_swap: F,
+    buffer_nbytes: RowBufferSize,
+) -> Vec<Vec<T>>
+where
+    T: FromBytes<Bytes = [u8; LEN]> + Default + Clone,
+    F: Fn(&mut [u8; LEN]),
+{
+    if nrows == 0 || ncols == 0 {
+        return vec![];
+    }
+
+    // Create each vector from scratch which will allocate a vector of zeros
+    // N times rather than allocating zeros once and copying N - 1 times.
+    let mut columns: Vec<_> = iter::repeat_with(|| vec![T::default(); nrows])
+        .take(ncols)
+        .collect();
+
+    let row_nbytes = LEN * ncols;
+    let rows_per_buffer = (usize::from(buffer_nbytes) / row_nbytes).max(1);
+    let buffer_nvalues_optimal = rows_per_buffer * ncols;
+    let remainder_nrows = nrows % rows_per_buffer;
+    let first_remainder_row = nrows - remainder_nrows;
+
+    let buffer = &mmap[start_pos..start_pos + ncols * nrows * LEN];
+    // SAFETY the length of the buffer is a product of LEN, therefore it is
+    // evenly divisible by LEN
+    let buffered_values = unsafe { buffer.as_chunks_unchecked::<LEN>() };
+    let mut it = buffered_values.chunks_exact(buffer_nvalues_optimal);
+
+    let mut start_row = 0;
+    for local_buf in it.by_ref() {
+        let end_row = start_row + rows_per_buffer;
+        read_row_buffer(
+            &local_buf,
+            &mut columns,
+            start_row,
+            end_row,
+            ncols,
+            &byte_swap,
+        );
+        start_row += rows_per_buffer;
+    }
+
+    // Read remaining rows if they exist
+    let remainder_buf = it.remainder();
+    read_row_buffer(
+        &remainder_buf,
+        &mut columns,
+        first_remainder_row,
+        nrows,
+        ncols,
+        byte_swap,
+    );
+
+    columns
+}
+
+fn read_row_buffer<const LEN: usize, T, F>(
+    buffer: &[[u8; LEN]],
+    columns: &mut [Vec<T>],
+    start_row: usize,
+    end_row: usize,
+    ncols: usize,
+    byte_swap: F,
+) where
+    T: FromBytes<Bytes = [u8; LEN]>,
+    F: Fn(&mut [u8; LEN]),
+{
+    for (ci, c) in columns.iter_mut().enumerate() {
+        let mut src_idx = ci;
+        for dst_idx in start_row..end_row {
+            // SAFETY: this will never be out of bounds because the loop
+            // indices represent (rows_per_buffer - 1) * ncols + ncols =
+            // rows_per_buffer * ncols = length of buffer
+            let mut src = *unsafe { buffer.get_unchecked(src_idx) };
+            byte_swap(&mut src);
+            // SAFETY: each column length is less than total row number
+            let dst = unsafe { c.get_unchecked_mut(dst_idx) };
+            // By convention, read as little-endian bytes. Assume the buffer
+            // has been swapped after reading if necessary if the file's
+            // byte order is not actually little-endian.
+            //
+            // We do it this way to decouple the read and the byteswap
+            // operations. In theory, a byteswap can be done much faster by
+            // itself when looped over a vector since it can be vectorized.
+            *dst = T::from_le_bytes(&src);
+            src_idx += ncols;
+        }
+    }
+}
+
 /// Read a matrix where type is an aligned big or little endian value.
-pub(crate) fn read_endian_matrix<const LEN: usize, R, T>(
-    h: &mut R,
+pub(crate) fn read_endian_matrix<'a, const LEN: usize, T>(
+    reader: &mut AnyReader,
+    start_pos: u64,
     nrows: usize,
     ncols: usize,
     endian: Endian,
     buffer_nbytes: RowBufferSize,
 ) -> io::Result<Vec<Vec<T>>>
 where
-    R: Read,
     T: FromBytes<Bytes = [u8; LEN]> + Copy + Default,
 {
     let be_swap = |buf: &mut [u8; LEN]| buf.reverse();
     match endian {
-        Endian::Big => read_matrix(h, nrows, ncols, be_swap, buffer_nbytes),
-        Endian::Little => read_matrix(h, nrows, ncols, |_| {}, buffer_nbytes),
+        Endian::Big => read_matrix(reader, start_pos, nrows, ncols, be_swap, buffer_nbytes),
+        Endian::Little => read_matrix(reader, start_pos, nrows, ncols, |_| {}, buffer_nbytes),
     }
 }
 
 /// Read a matrix where type is an aligned big, little, or mixed endian value.
 #[allow(clippy::needless_pass_by_value)]
-pub(crate) fn read_ordered_matrix<R, T, const LEN: usize>(
-    h: &mut R,
+pub(crate) fn read_ordered_matrix<'a, T, const LEN: usize>(
+    reader: &mut AnyReader,
+    start_pos: u64,
     nrows: usize,
     ncols: usize,
     s: ArrayByteOrd<LEN>,
     buffer_nbytes: RowBufferSize,
 ) -> io::Result<Vec<Vec<T>>>
 where
-    R: Read,
     T: FromBytes<Bytes = [u8; LEN]>
         + FCSRepr<FileBuf = [u8; LEN], ByteOrd = [u8; LEN]>
         + Copy
@@ -7548,10 +7828,10 @@ where
     ArrayByteOrd<LEN>: AsRef<T::ByteOrd>,
 {
     if let Some(e) = s.as_endian() {
-        read_endian_matrix(h, nrows, ncols, e, buffer_nbytes)
+        read_endian_matrix(reader, start_pos, nrows, ncols, e, buffer_nbytes)
     } else {
         let ord_swap = |buf: &mut [u8; LEN]| T::ordered_to_le(buf, s.as_ref());
-        read_matrix(h, nrows, ncols, ord_swap, buffer_nbytes)
+        read_matrix(reader, start_pos, nrows, ncols, ord_swap, buffer_nbytes)
     }
 }
 

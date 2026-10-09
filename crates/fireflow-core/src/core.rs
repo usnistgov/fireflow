@@ -3,14 +3,14 @@
 use crate::api::{
     HeaderAndSuppOffsets, NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords,
     RepairDiagnostics, RepairError, StdKeywords, StringOrBytes, TruncatedNEString, ValidKeywords,
-    next_dataset_boundary,
+    next_dataset_boundary, next_dataset_boundary_mmap,
 };
 use crate::config::{
     AppendRepairFlagError, EvaledReadRepairKeywordsConfig, EvaledReadStdKeywordsConfig,
     ReadRepairKeywordsConfig, ReadStdKeywordsConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
     eval_repair_conf, eval_std_conf,
 };
-use crate::convert::{InstantExt as _, UsizeExt as _};
+use crate::convert::{InstantExt as _, U64Ext, UsizeExt as _};
 use crate::data::{
     ConvertFromLayout, DataFrame2_0, DataFrame3_0, DataFrame3_1, DataFrame3_2,
     DataFrameAsDataSchema, DataFrameCheckRanges, DataSchema2_0, DataSchema3_0, DataSchema3_1,
@@ -117,8 +117,8 @@ use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::read_state::{
-    CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
-    HeaderReader, TEXTReader, WriteFCSDigest,
+    AnyReader, CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset,
+    DatasetOffsetError, HeaderReader, TEXTReader, WriteFCSDigest,
 };
 use crate::validated::shortname::Shortname;
 
@@ -153,7 +153,7 @@ use thiserror::Error;
 use std::collections::HashSet;
 use std::convert::{AsRef, Infallible};
 use std::fmt;
-use std::io::{self, BufWriter, Read, Seek, Write};
+use std::io::{self, BufWriter, Seek, Write};
 use std::iter::{empty, once};
 use std::mem;
 use std::num::NonZeroU64;
@@ -819,8 +819,12 @@ pub struct AnalysisReader {
 }
 
 impl AnalysisReader {
-    pub(crate) fn read<R: Read + Seek>(&self, reader: &mut R) -> io::Result<Analysis> {
-        let buf = self.seg.read_contents(reader)?;
+    pub(crate) fn read(&self, reader: &mut AnyReader) -> io::Result<Analysis> {
+        let buf = match reader {
+            AnyReader::Buffered(r) => self.seg.read_contents(r)?,
+            AnyReader::Mmap(r) => self.seg.read_contents_mmap(r).to_vec(),
+        };
+
         Ok(Analysis(StringOrBytes::from(buf)))
     }
 }
@@ -832,11 +836,21 @@ pub struct OthersReader {
 }
 
 impl OthersReader {
-    pub(crate) fn read<R: Read + Seek>(&self, reader: &mut R) -> io::Result<Others> {
+    pub(crate) fn read(&self, reader: &mut AnyReader) -> io::Result<Others> {
         let mut others = vec![];
-        for s in &self.offsets {
-            let buf = s.offsets.read_contents(reader)?;
-            others.push(Other(StringOrBytes::from(buf)));
+        match reader {
+            AnyReader::Buffered(r) => {
+                for s in &self.offsets {
+                    let buf = s.offsets.read_contents(r)?;
+                    others.push(Other(StringOrBytes::from(buf)));
+                }
+            }
+            AnyReader::Mmap(r) => {
+                for s in &self.offsets {
+                    let buf = s.offsets.read_contents_mmap(r);
+                    others.push(Other(StringOrBytes::from(buf.to_vec())));
+                }
+            }
         }
         Ok(Others(others))
     }
@@ -6343,8 +6357,8 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             reason = "top level function, shouldn't be used often, large call stack won't matter much"
         )]
         // TODO consolidate
-        let mut fr = io_to_log!(BufFileReader::open(p));
-        HeaderReader::try_new(&mut fr, dataset_offset, start_time)
+        let fr = io_to_log!(AnyReader::open(p));
+        HeaderReader::try_new(fr, dataset_offset, start_time)
             .map_err(NewStdDatasetFromKeywordsError::from)
             .and_then(|reader| {
                 reader
@@ -7547,9 +7561,18 @@ impl IntraSegmentDarkBytes {
             if nbytes == 0 {
                 continue;
             }
-            reader.inner_mut().seek(io::SeekFrom::Start(end0))?;
-            read_to_end_checked(reader.inner_mut(), nbytes, &mut buf)?;
-            let bytes = DarkBytes::try_from_slice(&buf[..]).unwrap();
+            let bytes = match reader.inner_mut() {
+                AnyReader::Buffered(r) => {
+                    r.seek(io::SeekFrom::Start(end0))?;
+                    read_to_end_checked(r, nbytes, &mut buf)?;
+                    DarkBytes::try_from_slice(&buf[..]).unwrap()
+                }
+                AnyReader::Mmap(r) => {
+                    let p0 = end0.u64_to_usize();
+                    let p1 = p0 + nbytes.u64_to_usize();
+                    DarkBytes::try_from_slice(&r.as_ref()[p0..p1]).unwrap()
+                }
+            };
             let dark = Self {
                 prev: n0,
                 next: n1,
@@ -7661,9 +7684,14 @@ impl DatasetDiagnostics {
         // we do not know a priori if the CRC exists or not, and we should not
         // bother trying to parse it if there are no bytes left in the dataset.
         let (next_dataset_abs_start, scan_next_end) = if scan_next_dataset {
-            let from = io::SeekFrom::Start(reader.dataset_offset().0 + max_end_offset);
-            io_to_log!(reader.inner_mut().seek(from));
-            let coord = io_to_log!(next_dataset_boundary(reader.inner_mut()));
+            let start = reader.dataset_offset().0 + max_end_offset;
+            let coord = match reader.inner_mut() {
+                AnyReader::Buffered(r) => {
+                    io_to_log!(r.seek(io::SeekFrom::Start(start)));
+                    io_to_log!(next_dataset_boundary(r))
+                }
+                AnyReader::Mmap(r) => next_dataset_boundary_mmap(r, start.u64_to_usize()),
+            };
             (coord, Instant::now())
         } else {
             let coord = reader
@@ -7673,7 +7701,7 @@ impl DatasetDiagnostics {
                 .map(DatasetOffset);
             (coord, read_intra_dark_end)
         };
-        let dataset_abs_end = next_dataset_abs_start.map_or(reader.inner().file_len(), |x| x.0);
+        let dataset_abs_end = next_dataset_abs_start.map_or(reader.file_len(), |x| x.0);
 
         // Read the CRC value, and optionally test the CRC against the CRC
         // computed from the dataset contents. The latter is relatively
@@ -7717,12 +7745,17 @@ impl DatasetDiagnostics {
                     dataset_abs_end.checked_sub(post_dataset_abs_start)
                     && dconf.read_post_dataset_dark_bytes.is_set()
                 {
-                    io_to_log!(
-                        reader
-                            .inner_mut()
-                            .seek(io::SeekFrom::Start(post_dataset_abs_start))
-                    );
-                    let buf = io_to_log!(read_exact_owned(reader.inner_mut(), post_dataset_nbytes));
+                    let buf = match reader.inner_mut() {
+                        AnyReader::Buffered(r) => {
+                            io_to_log!(r.seek(io::SeekFrom::Start(post_dataset_abs_start)));
+                            io_to_log!(read_exact_owned(r, post_dataset_nbytes))
+                        }
+                        AnyReader::Mmap(r) => {
+                            let p0 = post_dataset_abs_start.u64_to_usize();
+                            let p1 = p0 + post_dataset_nbytes.u64_to_usize();
+                            r.as_ref()[p0..p1].to_vec()
+                        }
+                    };
                     (buf, Instant::now())
                 } else {
                     (vec![], crc_out.read_end)

@@ -135,14 +135,9 @@ impl Nextdata {
     pub(crate) fn lookup_ro<'a, C>(
         index: &StdKeywords,
         primary_text: &PrimaryTextOffsets,
-        reader: HeaderReader<'a>,
+        reader: HeaderReader,
         conf: &C,
-    ) -> WarningAndErrorResult<
-        (Option<Self>, TEXTReader<'a>),
-        (),
-        ReadNextdataError,
-        LookupNextdataError,
-    >
+    ) -> WarningAndErrorResult<(Option<Self>, TEXTReader), (), ReadNextdataError, LookupNextdataError>
     where
         C: AsRef<ReadHeaderAndTEXTConfig>,
     {

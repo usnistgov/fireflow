@@ -47,8 +47,8 @@ use crate::validated::header_offsets::{
     SuppToHeaderOffsetsValidationError, TextToHeaderOrSuppOffsetsValidationError,
 };
 use crate::validated::read_state::{
-    CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError, HeaderReader,
-    TEXTReader,
+    AnyReader, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
+    HeaderReader, TEXTReader,
 };
 
 use fireflow_types::config::{
@@ -62,6 +62,7 @@ use fireflow_types::keys::raw_std::{RootKey, ToStd as _};
 use fireflow_types::keys::{AnyKey, PseudoNonStdKey, PseudoStdKey, StdKey};
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
 use fireflow_types::segment::{OffsetsFromTEXT, SupplementalTextSegmentId};
+use memmap2::Mmap;
 use nonempty::{HasNELen as _, NESlice, NEStr, NEString, NEVec};
 
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
@@ -118,8 +119,8 @@ pub fn fcs_read_header(
     conf: &ReadHeaderConfig,
 ) -> WarningsAndIOGroupResult<Header, GuessOtherWidthError, ReadHeaderError, HeaderSummary> {
     let start_time = Instant::now();
-    let mut fr = io_to_log!(BufFileReader::open(path));
-    HeaderReader::try_new(&mut fr, dataset_offset, start_time)
+    let fr = io_to_log!(AnyReader::open(path));
+    HeaderReader::try_new(fr, dataset_offset, start_time)
         .map_err(ReadHeaderError::from)
         .map_err(IOAnonErrorGroup::new_pure_one)
         .into_log()
@@ -219,8 +220,8 @@ pub fn fcs_read_flat_dataset_with_keywords(
     FlatDatasetWithKwsSummary,
 > {
     let start_time = Instant::now();
-    let mut fr = io_to_log!(BufFileReader::open(path));
-    HeaderReader::try_new(&mut fr, dataset_offset, start_time)
+    let fr = io_to_log!(AnyReader::open(path));
+    HeaderReader::try_new(fr, dataset_offset, start_time)
         .map_err(ReadFlatDatasetWithKwsError::from)
         .and_then(|fr_| {
             fr_.maybe_with_dataset_length(dataset_len)
@@ -395,6 +396,9 @@ pub(crate) fn next_dataset_boundary(
     const OVERLAP_SIZE: usize = BOUNDARY_MATCH_SIZE - 1;
     const BUF_SIZE: u64 = 32000;
 
+    // TODO this whole buffer dance probably isn't necessary since this already
+    // uses a buffered reader. Not clear what method to use. .tuple_windows
+    // is probably too slow since it copies each position N-1 times
     let mut buf = vec![];
     let mut file_offset = reader.pos();
     read_to_end_checked(reader, BUF_SIZE, &mut buf)?;
@@ -415,6 +419,23 @@ pub(crate) fn next_dataset_boundary(
     }
 
     Ok(None)
+}
+
+pub(crate) fn next_dataset_boundary_mmap(
+    reader: &Mmap,
+    file_offset: usize,
+) -> Option<DatasetOffset> {
+    const OVERLAP_SIZE: usize = BOUNDARY_MATCH_SIZE - 1;
+    const BUF_SIZE: usize = 32000;
+
+    for (i, w) in reader.as_ref()[file_offset..].array_windows().enumerate() {
+        if match_bytes_version(w).is_some() {
+            let o = (file_offset + i).usize_to_u64();
+            return Some(DatasetOffset(o));
+        }
+    }
+
+    None
 }
 
 /// Write multiple FCS datasets (of any version) to a file.
@@ -1603,10 +1624,10 @@ impl FlatDatasetFromKwsOutput {
 impl FlatTEXTOutput {
     /// Read flat TEXT from file handle.
     fn read<'a, C>(
-        mut reader: HeaderReader<'a>,
+        mut reader: HeaderReader,
         conf: &C,
     ) -> WarningsAndErrorResult<
-        FlatTEXTOutputInner<'a, Self>,
+        FlatTEXTOutputInner<Self>,
         (),
         HeaderOrFlatTEXTWarning,
         IOErrorGroup<HeaderOrFlatTextError, ()>,
@@ -1627,12 +1648,12 @@ impl FlatTEXTOutput {
     /// Read flat TEXT from file handle with offsets from HEADER.
     #[allow(clippy::too_many_lines)]
     fn read_from_header<'a, C>(
-        mut reader: HeaderReader<'a>,
+        mut reader: HeaderReader,
         mut header: Header,
         start_time: Instant,
         conf: &C,
     ) -> WarningsAndIOGroupResult<
-        FlatTEXTOutputInner<'a, Self>,
+        FlatTEXTOutputInner<Self>,
         ParseFlatTEXTWarning,
         ParseFlatTEXTError,
         (),
@@ -1660,7 +1681,7 @@ impl FlatTEXTOutput {
             return LogResult::new_err(e);
         };
 
-        let ptext_bytes = io_to_log!(ne_ptext_offsets.h_read_contents(reader.inner_mut()));
+        let ptext_bytes = io_to_log!(ne_ptext_offsets.read_contents(reader.inner_mut()));
         let penc = hconf.use_encoding.choose(ptext_bytes.as_ref());
 
         let ptext_ne_slice = ptext_bytes.as_nonempty_slice();
@@ -1872,8 +1893,8 @@ impl SplitTEXTDiagnostics {
     }
 
     /// Read supp TEXT from file handle and store keywords in hash table.
-    fn h_read_supp<R: Read + Seek>(
-        h: &mut R,
+    fn h_read_supp<'a>(
+        reader: &mut AnyReader,
         delim: u8,
         offsets: &NonEmptyOffsets<SupplementalTextSegmentId, OffsetsFromTEXT>,
         nonstd: &mut ParsedNonStdKeywords,
@@ -1884,7 +1905,7 @@ impl SplitTEXTDiagnostics {
         ParseSupplementalTEXTError,
         (),
     > {
-        let bytes = io_to_log!(offsets.h_read_contents(h));
+        let bytes = io_to_log!(offsets.read_contents(reader));
         let enc = conf.use_encoding.choose(bytes.as_ref());
         let ne = bytes.as_nonempty_slice();
         Self::supp_from_bytes(nonstd, delim, ne, enc, conf)
@@ -3181,10 +3202,10 @@ impl TruncatedString {
 // }
 
 #[derive(new)]
-struct FlatTEXTOutputInner<'a, T> {
+struct FlatTEXTOutputInner<T> {
     this: T,
     read_end: Instant,
-    reader: TEXTReader<'a>,
+    reader: TEXTReader,
 }
 
 // impl FCSFileReader {
@@ -3565,7 +3586,7 @@ fn read_flat_text_inner<'a, C>(
     start_time: Instant,
     conf: &C,
 ) -> WarningsAndIOGroupResult<
-    FlatTEXTOutputInner<'a, FlatTEXTOutput>,
+    FlatTEXTOutputInner<FlatTEXTOutput>,
     HeaderOrFlatTEXTWarning,
     HeaderOrFlatTextError,
     (),

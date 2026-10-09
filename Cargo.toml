@@ -32,6 +32,7 @@ crc-fast = "1.10.0"
 strum = "0.28.0"
 strum_macros = "0.28.0"
 memchr = "2.8.3"
+memmap2 = "0.9.11"
 
 # serde
 serde = "1.0.228"

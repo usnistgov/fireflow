@@ -2160,49 +2160,50 @@ impl OtherOffsets20 {
                     })
                     .sequence_commutative()
                     .nowarn_into_warn()
-                    .map_ok_value(|xs| {
-                        // Once we parse all the offset pairs we can, also
-                        // return the unparsed dark bytes for diagnostics. The
-                        // dark bytes will be all bytes after the last OTHER
-                        // offset pair up to the first segment. The only tricky
-                        // bit with this is that this function was called with
-                        // the offset of the first segment known at call time.
-                        // However, the OTHER offsets might start before this
-                        // (it would be weird, but nothing is stopping this from
-                        // happening). Therefore, we need to update this minimum
-                        // with the OTHER offsets we just parsed.
-                        if let Some(ne) = NEVec::try_from_vec(xs) {
-                            let max_index = ne.nonempty_iter().map(|(x, _)| x.index).max();
-                            let min_other_start = ne
-                                .iter()
-                                .filter_map(|(x, _)| x.offsets.as_nonempty())
-                                .map(|n| n.begin())
-                                .min();
-                            let dark_start = (max_index + 1) * 2 * usize::from(u8::from(width));
-                            // It is possible that the updated minimum offset
-                            // start (the end of the dark bytes) occurs in
-                            // HEADER. This is obviously illegal; we can assume
-                            // this error will be caught later when all the
-                            // offset pairs are validated against the HEADER.
-                            // Just ignore the issue here.
-                            let dark_bytes = if let Some(dark_end) = min_other_start
-                                .map_or(first_seg_begin, |x| x.min(first_seg_begin))
-                                .u64_to_usize()
-                                .checked_sub(usize::from(HEADER_LEN))
-                                && dark_start <= dark_end
-                            {
-                                &buf[dark_start..dark_end]
-                            } else {
-                                &[]
-                            };
-                            OtherOffsetOutput::new(
-                                Some((ne, width)),
-                                DarkBytes::try_from_bytes(Cow::Borrowed(dark_bytes)),
-                            )
-                        } else {
-                            OtherOffsetOutput::new(None, DarkBytes::try_from_bytes(buf))
-                        }
-                    })
+                    .map_ok_value(|xs| (width, xs))
+            })
+            .map_ok_value(|(width, xs)| {
+                // Once we parse all the offset pairs we can, also
+                // return the unparsed dark bytes for diagnostics. The
+                // dark bytes will be all bytes after the last OTHER
+                // offset pair up to the first segment. The only tricky
+                // bit with this is that this function was called with
+                // the offset of the first segment known at call time.
+                // However, the OTHER offsets might start before this
+                // (it would be weird, but nothing is stopping this from
+                // happening). Therefore, we need to update this minimum
+                // with the OTHER offsets we just parsed.
+                if let Some(ne) = NEVec::try_from_vec(xs) {
+                    let max_index = ne.nonempty_iter().map(|(x, _)| x.index).max();
+                    let min_other_start = ne
+                        .iter()
+                        .filter_map(|(x, _)| x.offsets.as_nonempty())
+                        .map(|n| n.begin())
+                        .min();
+                    let dark_start = (max_index + 1) * 2 * usize::from(u8::from(width));
+                    // It is possible that the updated minimum offset
+                    // start (the end of the dark bytes) occurs in
+                    // HEADER. This is obviously illegal; we can assume
+                    // this error will be caught later when all the
+                    // offset pairs are validated against the HEADER.
+                    // Just ignore the issue here.
+                    let dark_bytes = if let Some(dark_end) = min_other_start
+                        .map_or(first_seg_begin, |x| x.min(first_seg_begin))
+                        .u64_to_usize()
+                        .checked_sub(usize::from(HEADER_LEN))
+                        && dark_start <= dark_end
+                    {
+                        &buf[dark_start..dark_end]
+                    } else {
+                        &[]
+                    };
+                    OtherOffsetOutput::new(
+                        Some((ne, width)),
+                        DarkBytes::try_from_bytes(Cow::Borrowed(dark_bytes)),
+                    )
+                } else {
+                    OtherOffsetOutput::new(None, DarkBytes::try_from_bytes(buf))
+                }
             })
             .group()
             .map_error(IOErrorGroup::Pure)

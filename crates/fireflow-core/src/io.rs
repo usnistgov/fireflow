@@ -39,7 +39,7 @@ use fireflow_types::keywords::Version;
 use derive_more::AsRef;
 use derive_new::new;
 use memmap2::{Advice, Mmap};
-use nonempty::{NESlice, NEVec};
+use nonempty::NESlice;
 use num_traits::FromBytes;
 
 use std::borrow::Cow;
@@ -677,7 +677,7 @@ impl AnyReader {
         }
     }
 
-    pub(crate) fn read_bytes(&mut self, start_pos: u64, nbytes: u64) -> io::Result<Cow<[u8]>> {
+    pub(crate) fn read_bytes(&mut self, start_pos: u64, nbytes: u64) -> io::Result<Cow<'_, [u8]>> {
         match self {
             Self::Buffered(r) => {
                 r.seek(io::SeekFrom::Start(start_pos))?;
@@ -696,7 +696,7 @@ impl AnyReader {
         &mut self,
         start_pos: u64,
         nbytes: u64,
-    ) -> IOResult<Cow<[u8]>, u64> {
+    ) -> IOResult<Cow<'_, [u8]>, u64> {
         match self {
             Self::Buffered(r) => {
                 r.seek(io::SeekFrom::Start(start_pos))?;

@@ -1608,6 +1608,7 @@ class CoreDataset2_0(
         hide_warnings: bool = False,
         dataset_offset: int = 0,
         dataset_len: int | None = None,
+        mmap: bool = False,
     ) -> Self: ...
 
 @final
@@ -1736,6 +1737,7 @@ class CoreDataset3_0(
         hide_warnings: bool = False,
         dataset_offset: int = 0,
         dataset_len: int | None = None,
+        mmap: bool = False,
     ) -> Self: ...
 
 @final
@@ -1879,6 +1881,7 @@ class CoreDataset3_1(
         hide_warnings: bool = False,
         dataset_offset: int = 0,
         dataset_len: int | None = None,
+        mmap: bool = False,
     ) -> Self: ...
 
 @final
@@ -2024,6 +2027,7 @@ class CoreDataset3_2(
         hide_warnings: bool = False,
         dataset_offset: int = 0,
         dataset_len: int | None = None,
+        mmap: bool = False,
     ) -> Self: ...
 
 class PyreflowError(Exception): ...
@@ -2950,6 +2954,7 @@ def fcs_read_flat_text(
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
     dataset_offset: int = 0,
+    mmap: bool = False,
 ) -> FlatTEXTOutput: ...
 
 #
@@ -3032,6 +3037,7 @@ def fcs_read_std_text(
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
     dataset_offset: int = 0,
+    mmap: bool = False,
 ) -> tuple[pft.AnyCoreTEXT, StdTEXTOutput]: ...
 
 #
@@ -3106,6 +3112,7 @@ def fcs_read_flat_dataset(
     hide_warnings: bool = False,
     dataset_offset: int = 0,
     scan: bool = False,
+    mmap: bool = False,
 ) -> FlatDatasetOutput: ...
 
 #
@@ -3199,16 +3206,15 @@ def fcs_read_std_dataset(
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
+    # misc args
     dataset_offset: int = 0,
     scan: bool = False,
+    mmap: bool = False,
 ) -> tuple[pft.AnyCoreDataset, StdDatasetOutput]: ...
 
 #
 def fcs_read_flat_texts(
     path: Path,
-    skip: int | None = None,
-    limit: int | None = None,
-    scan: bool = False,
     # header args
     text_correction: pft.OffsetCorrection = (0, 0),
     data_correction: pft.OffsetCorrection = (0, 0),
@@ -3245,14 +3251,16 @@ def fcs_read_flat_texts(
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
+    # misc args
+    skip: int | None = None,
+    limit: int | None = None,
+    scan: bool = False,
+    mmap: bool = False,
 ) -> list[FlatTEXTOutput]: ...
 
 #
 def fcs_read_std_texts(
     path: Path,
-    skip: int | None = None,
-    limit: int | None = None,
-    scan: bool = False,
     # header args
     text_correction: pft.OffsetCorrection = (0, 0),
     data_correction: pft.OffsetCorrection = (0, 0),
@@ -3329,14 +3337,16 @@ def fcs_read_std_texts(
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
+    # misc args
+    skip: int | None = None,
+    limit: int | None = None,
+    scan: bool = False,
+    mmap: bool = False,
 ) -> list[tuple[pft.AnyCoreTEXT, StdTEXTOutput]]: ...
 
 #
 def fcs_read_flat_datasets(
     path: Path,
-    skip: int | None = None,
-    limit: int | None = None,
-    scan: bool = False,
     # header args
     text_correction: pft.OffsetCorrection = (0, 0),
     data_correction: pft.OffsetCorrection = (0, 0),
@@ -3404,14 +3414,16 @@ def fcs_read_flat_datasets(
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
+    # misc args
+    skip: int | None = None,
+    limit: int | None = None,
+    scan: bool = False,
+    mmap: bool = False,
 ) -> list[FlatDatasetOutput]: ...
 
 #
 def fcs_read_std_datasets(
     path: Path,
-    skip: int | None = None,
-    limit: int | None = None,
-    scan: bool = False,
     # header args
     text_correction: pft.OffsetCorrection = (0, 0),
     data_correction: pft.OffsetCorrection = (0, 0),
@@ -3500,6 +3512,11 @@ def fcs_read_std_datasets(
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
+    # misc args
+    skip: int | None = None,
+    limit: int | None = None,
+    scan: bool = False,
+    mmap: bool = False,
 ) -> list[tuple[pft.AnyCoreDataset, StdDatasetOutput]]: ...
 
 #
@@ -3539,14 +3556,12 @@ def fcs_read_flat_dataset_with_keywords(
     hide_warnings: bool = False,
     dataset_offset: int = 0,
     dataset_len: int | None = None,
+    mmap: bool = False,
 ) -> FlatDatasetFromKwsOutput: ...
 
 #
 def fcs_summarize(
     path: Path,
-    skip: int | None = None,
-    limit: int | None = None,
-    scan: bool = False,
     # header args
     text_correction: pft.OffsetCorrection = (0, 0),
     data_correction: pft.OffsetCorrection = (0, 0),
@@ -3614,6 +3629,11 @@ def fcs_summarize(
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
+    # misc args
+    skip: int | None = None,
+    limit: int | None = None,
+    scan: bool = False,
+    mmap: bool = False,
 ) -> list[DatasetSummary]: ...
 
 #

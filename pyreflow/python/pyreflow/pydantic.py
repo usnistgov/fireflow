@@ -200,10 +200,14 @@ class PyreflowReadFlatTEXTConfig(
         self,
         path: Path,
         dataset_offset: int = 0,
+        mmap: bool = False,
     ) -> pfa.FlatTEXTOutput:
         """Wrapper for :func:`~pyreflow.api.fcs_read_flat_text`."""
         return pfa.fcs_read_flat_text(
-            path, dataset_offset=dataset_offset, **self.model_dump()
+            path,
+            dataset_offset=dataset_offset,
+            mmap=mmap,
+            **self.model_dump(),
         )
 
     def read_flat_texts(
@@ -212,9 +216,17 @@ class PyreflowReadFlatTEXTConfig(
         skip: int | None = None,
         limit: int | None = None,
         scan: bool = False,
+        mmap: bool = False,
     ) -> list[pfa.FlatTEXTOutput]:
         """Wrapper for :func:`~pyreflow.api.fcs_read_flat_texts`."""
-        return pfa.fcs_read_flat_texts(path, skip, limit, scan, **self.model_dump())
+        return pfa.fcs_read_flat_texts(
+            path,
+            skip=skip,
+            limit=limit,
+            scan=scan,
+            mmap=mmap,
+            **self.model_dump(),
+        )
 
     @classmethod
     def new_scalpel(cls) -> Self:
@@ -242,10 +254,11 @@ class PyreflowReadStdTEXTConfig(
         self,
         path: Path,
         dataset_offset: int = 0,
+        mmap: bool = False,
     ) -> tuple[pft.AnyCoreTEXT, pfa.StdTEXTOutput]:
         """Wrapper for :py:func:`~pyreflow.api.fcs_read_std_text`."""
         return pfa.fcs_read_std_text(
-            path, dataset_offset=dataset_offset, **self.model_dump()
+            path, dataset_offset=dataset_offset, mmap=mmap, **self.model_dump()
         )
 
     def read_std_texts(
@@ -254,9 +267,17 @@ class PyreflowReadStdTEXTConfig(
         skip: int | None = None,
         limit: int | None = None,
         scan: bool = False,
+        mmap: bool = False,
     ) -> list[tuple[pft.AnyCoreTEXT, pfa.StdTEXTOutput]]:
         """Wrapper for :py:func:`~pyreflow.api.fcs_read_std_texts`."""
-        return pfa.fcs_read_std_texts(path, skip, limit, scan, **self.model_dump())
+        return pfa.fcs_read_std_texts(
+            path,
+            skip=skip,
+            limit=limit,
+            scan=scan,
+            mmap=mmap,
+            **self.model_dump(),
+        )
 
     @classmethod
     def new_scalpel(cls) -> Self:
@@ -285,10 +306,15 @@ class PyreflowReadFlatDatasetConfig(
         path: Path,
         dataset_offset: int = 0,
         scan: bool = False,
+        mmap: bool = False,
     ) -> pfa.FlatDatasetOutput:
         """Wrapper for :py:func:`~pyreflow.api.fcs_read_flat_dataset`."""
         return pfa.fcs_read_flat_dataset(
-            path, dataset_offset=dataset_offset, scan=scan, **self.model_dump()
+            path,
+            dataset_offset=dataset_offset,
+            scan=scan,
+            mmap=mmap,
+            **self.model_dump(),
         )
 
     def read_flat_datasets(
@@ -297,9 +323,17 @@ class PyreflowReadFlatDatasetConfig(
         skip: int | None = None,
         limit: int | None = None,
         scan: bool = False,
+        mmap: bool = False,
     ) -> list[pfa.FlatDatasetOutput]:
         """Wrapper for :py:func:`~pyreflow.api.fcs_read_flat_datasets`."""
-        return pfa.fcs_read_flat_datasets(path, skip, limit, scan, **self.model_dump())
+        return pfa.fcs_read_flat_datasets(
+            path,
+            skip=skip,
+            limit=limit,
+            scan=scan,
+            mmap=mmap,
+            **self.model_dump(),
+        )
 
     def summarize(
         self,
@@ -307,9 +341,17 @@ class PyreflowReadFlatDatasetConfig(
         skip: int | None = None,
         limit: int | None = None,
         scan: bool = False,
+        mmap: bool = False,
     ) -> list[pfa.DatasetSummary]:
         """Wrapper for :py:func:`~pyreflow.api.fcs_summarize`."""
-        return pfa.fcs_summarize(path, skip, limit, scan, **self.model_dump())
+        return pfa.fcs_summarize(
+            path,
+            skip=skip,
+            limit=limit,
+            scan=scan,
+            mmap=mmap,
+            **self.model_dump(),
+        )
 
     @classmethod
     def new_scalpel(cls) -> Self:
@@ -341,10 +383,15 @@ class PyreflowReadStdDatasetConfig(
         path: Path,
         dataset_offset: int = 0,
         scan: bool = False,
+        mmap: bool = False,
     ) -> tuple[pft.AnyCoreDataset, pfa.StdDatasetOutput]:
         """Wrapper for :py:func:`~pyreflow.api.fcs_read_std_dataset`."""
         return pfa.fcs_read_std_dataset(
-            path, dataset_offset=dataset_offset, scan=scan, **self.model_dump()
+            path,
+            dataset_offset=dataset_offset,
+            scan=scan,
+            mmap=mmap,
+            **self.model_dump(),
         )
 
     def read_std_datasets(
@@ -353,9 +400,17 @@ class PyreflowReadStdDatasetConfig(
         skip: int | None = None,
         limit: int | None = None,
         scan: bool = False,
+        mmap: bool = False,
     ) -> list[tuple[pft.AnyCoreDataset, pfa.StdDatasetOutput]]:
         """Wrapper for :py:func:`~pyreflow.api.fcs_read_std_datasets`."""
-        return pfa.fcs_read_std_datasets(path, skip, limit, scan, **self.model_dump())
+        return pfa.fcs_read_std_datasets(
+            path,
+            skip=skip,
+            limit=limit,
+            scan=scan,
+            mmap=mmap,
+            **self.model_dump(),
+        )
 
     @classmethod
     def new_scalpel(cls) -> Self:

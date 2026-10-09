@@ -3806,8 +3806,12 @@ class TestApiFunctions:
         dataset2_3_2.write_text(p)
         _ = pfp.PyreflowReadHeaderConfig().read_header(p)
 
+    @pytest.mark.parametrize("mmap", [False, True])
     def test_read_flat_text(
-        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+        self,
+        tmp_path: Path,
+        mmap: bool,
+        dataset2_3_2: pf.CoreDataset3_2,
     ) -> None:
         """Test fcs_read_flat_text with explicit configuration."""
         d = tmp_path
@@ -3815,11 +3819,17 @@ class TestApiFunctions:
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
         conf = pfp.PyreflowReadFlatTEXTConfig()
-        _ = pf.api.fcs_read_flat_text(p, **conf.model_dump(), dataset_offset=0)
-        _ = pf.api.fcs_read_flat_texts(p, **conf.model_dump())
+        _ = pf.api.fcs_read_flat_text(
+            p, **conf.model_dump(), dataset_offset=0, mmap=mmap
+        )
+        _ = pf.api.fcs_read_flat_texts(p, **conf.model_dump(), mmap=mmap)
 
+    @pytest.mark.parametrize("mmap", [False, True])
     def test_read_flat_text_pd(
-        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+        self,
+        tmp_path: Path,
+        mmap: bool,
+        dataset2_3_2: pf.CoreDataset3_2,
     ) -> None:
         """Test fcs_flat_text using pydantic configuration."""
         d = tmp_path
@@ -3827,11 +3837,12 @@ class TestApiFunctions:
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
         conf = pfp.PyreflowReadFlatTEXTConfig()
-        _ = conf.read_flat_text(p)
-        _ = conf.read_flat_texts(p)
+        _ = conf.read_flat_text(p, mmap=mmap)
+        _ = conf.read_flat_texts(p, mmap=mmap)
 
+    @pytest.mark.parametrize("mmap", [False, True])
     def test_read_std_text(
-        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+        self, tmp_path: Path, mmap: bool, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
         """Test fcs_read_std_text with explicit configuration."""
         d = tmp_path
@@ -3840,12 +3851,15 @@ class TestApiFunctions:
         dataset2_3_2.write_text(p)
         conf = pfp.PyreflowReadStdTEXTConfig()
         with pytest.RaisesGroup(pf.RelationalError):
-            _ = pf.api.fcs_read_std_text(p, **conf.model_dump(), dataset_offset=0)
+            _ = pf.api.fcs_read_std_text(
+                p, **conf.model_dump(), dataset_offset=0, mmap=mmap
+            )
         with pytest.RaisesGroup(pf.RelationalError):
-            _ = pf.api.fcs_read_std_texts(p, **conf.model_dump())
+            _ = pf.api.fcs_read_std_texts(p, **conf.model_dump(), mmap=mmap)
 
+    @pytest.mark.parametrize("mmap", [False, True])
     def test_read_std_text_pd(
-        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+        self, tmp_path: Path, mmap: bool, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
         """Test fcs_std_text using pydantic configuration."""
         d = tmp_path
@@ -3854,12 +3868,13 @@ class TestApiFunctions:
         dataset2_3_2.write_text(p)
         conf = pfp.PyreflowReadStdTEXTConfig()
         with pytest.RaisesGroup(pf.RelationalError):
-            _ = conf.read_std_text(p)
+            _ = conf.read_std_text(p, mmap=mmap)
         with pytest.RaisesGroup(pf.RelationalError):
-            _ = conf.read_std_texts(p)
+            _ = conf.read_std_texts(p, mmap=mmap)
 
+    @pytest.mark.parametrize("mmap", [False, True])
     def test_read_flat_dataset(
-        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+        self, tmp_path: Path, mmap: bool, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
         """Test fcs_read_flat_dataset with explicit configuration."""
         d = tmp_path
@@ -3867,11 +3882,14 @@ class TestApiFunctions:
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
         conf = pfp.PyreflowReadFlatDatasetConfig()
-        _ = pf.api.fcs_read_flat_dataset(p, **conf.model_dump(), dataset_offset=0)
-        _ = pf.api.fcs_read_flat_datasets(p, **conf.model_dump())
+        _ = pf.api.fcs_read_flat_dataset(
+            p, **conf.model_dump(), dataset_offset=0, mmap=mmap
+        )
+        _ = pf.api.fcs_read_flat_datasets(p, **conf.model_dump(), mmap=mmap)
 
+    @pytest.mark.parametrize("mmap", [False, True])
     def test_read_flat_dataset_pd(
-        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+        self, tmp_path: Path, mmap: bool, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
         """Test fcs_flat_dataset using pydantic configuration."""
         d = tmp_path
@@ -3879,11 +3897,12 @@ class TestApiFunctions:
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
         conf = pfp.PyreflowReadFlatDatasetConfig()
-        _ = conf.read_flat_dataset(p)
-        _ = conf.read_flat_datasets(p)
+        _ = conf.read_flat_dataset(p, mmap=mmap)
+        _ = conf.read_flat_datasets(p, mmap=mmap)
 
+    @pytest.mark.parametrize("mmap", [False, True])
     def test_read_std_dataset(
-        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+        self, tmp_path: Path, mmap: bool, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
         """Test fcs_read_std_dataset with explicit configuration."""
         d = tmp_path
@@ -3892,12 +3911,15 @@ class TestApiFunctions:
         dataset2_3_2.write_text(p)
         conf = pfp.PyreflowReadStdDatasetConfig()
         with pytest.RaisesGroup(pf.RelationalError):
-            _ = pf.api.fcs_read_std_dataset(p, **conf.model_dump(), dataset_offset=0)
+            _ = pf.api.fcs_read_std_dataset(
+                p, **conf.model_dump(), dataset_offset=0, mmap=mmap
+            )
         with pytest.RaisesGroup(pf.RelationalError):
-            _ = pf.api.fcs_read_std_datasets(p, **conf.model_dump())
+            _ = pf.api.fcs_read_std_datasets(p, **conf.model_dump(), mmap=mmap)
 
+    @pytest.mark.parametrize("mmap", [False, True])
     def test_read_std_dataset_pd(
-        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+        self, tmp_path: Path, mmap: bool, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
         """Test fcs_std_dataset using pydantic configuration."""
         d = tmp_path
@@ -3906,9 +3928,9 @@ class TestApiFunctions:
         dataset2_3_2.write_text(p)
         conf = pfp.PyreflowReadStdDatasetConfig()
         with pytest.RaisesGroup(pf.RelationalError):
-            _ = conf.read_std_dataset(p)
+            _ = conf.read_std_dataset(p, mmap=mmap)
         with pytest.RaisesGroup(pf.RelationalError):
-            _ = conf.read_std_datasets(p)
+            _ = conf.read_std_datasets(p, mmap=mmap)
 
     def test_other_width(self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2) -> None:
         """Test that other_width parameter validates appropriately.
@@ -6426,8 +6448,9 @@ class TestReadWrite:
         assert uncore.dataset.std_diagnostics.hyper_par == []
         assert uncore.dataset.std_diagnostics.other_version == []
 
+    @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])
-    def test_text_empty(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
+    def test_text_empty(self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT) -> None:
         """Test writing then reading an empty FCS file.
 
         Reading and writing should result in an identical copy of the original.
@@ -6436,12 +6459,15 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "empty_text.fcs"
         core.write_text(p)
-        nu_core, un_core = pf.api.fcs_read_std_text(p)
+        nu_core, un_core = pf.api.fcs_read_std_text(p, mmap=mmap)
         self._assert_uncore_text_empty(un_core)
         assert core == nu_core
 
+    @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
-    def test_text_non_empty_1(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
+    def test_text_non_empty_1(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT
+    ) -> None:
         """Test writing then reading TEXT with one measurement.
 
         Reading and writing should result in an identical copy of the original.
@@ -6450,12 +6476,15 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "text1.fcs"
         core.write_text(p)
-        nu_core, un_core = pf.api.fcs_read_std_text(p, time_meas_pattern="")
+        nu_core, un_core = pf.api.fcs_read_std_text(p, time_meas_pattern="", mmap=mmap)
         self._assert_uncore_text_empty(un_core)
         assert core == nu_core
 
+    @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
-    def test_text_non_empty_2(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
+    def test_text_non_empty_2(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT
+    ) -> None:
         """Test writing then reading TEXT with two measurements.
 
         Reading and writing should result in an identical copy of the original.
@@ -6464,12 +6493,17 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "text2.fcs"
         core.write_text(p)
-        nu_core, un_core = pf.api.fcs_read_std_text(p, time_meas_pattern=LINK_NAME2)
+        nu_core, un_core = pf.api.fcs_read_std_text(
+            p, time_meas_pattern=LINK_NAME2, mmap=mmap
+        )
         self._assert_uncore_text_empty(un_core)
         assert core == nu_core
 
+    @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_dataset"])
-    def test_dataset_empty(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+    def test_dataset_empty(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreDataset
+    ) -> None:
         """Test writing then reading an empty dataset.
 
         Reading and writing should result in an identical copy of the original.
@@ -6478,12 +6512,15 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "empty_dataset.fcs"
         core.write_dataset(p)
-        nu_core, un_core = pf.api.fcs_read_std_dataset(p)
+        nu_core, un_core = pf.api.fcs_read_std_dataset(p, mmap=mmap)
         self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
 
+    @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
-    def test_dataset_non_empty_1(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+    def test_dataset_non_empty_1(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreDataset
+    ) -> None:
         """Test writing then reading a dataset with one measurement.
 
         Reading and writing should result in an identical copy of the original.
@@ -6493,13 +6530,19 @@ class TestReadWrite:
         p = d / "dataset1.fcs"
         core.write_dataset(p)
         nu_core, un_core = pf.api.fcs_read_std_dataset(
-            p, time_meas_pattern="", warnings_are_errors=True
+            p,
+            time_meas_pattern="",
+            warnings_are_errors=True,
+            mmap=mmap,
         )
         self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
 
+    @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
-    def test_dataset_non_empty_2(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+    def test_dataset_non_empty_2(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreDataset
+    ) -> None:
         """Test writing then reading a dataset with two measurements.
 
         Reading and writing should result in an identical copy of the original.
@@ -6512,6 +6555,7 @@ class TestReadWrite:
             p,
             time_meas_pattern=LINK_NAME2,
             warnings_are_errors=True,
+            mmap=mmap,
         )
         self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
@@ -6547,8 +6591,11 @@ class TestReadWrite:
     #     # being U32
     #     core.write_dataset(p)
 
+    @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
-    def test_texts_non_empty(self, tmp_path: Path, core0: AnyCoreTEXT) -> None:
+    def test_texts_non_empty(
+        self, tmp_path: Path, mmap: bool, core0: AnyCoreTEXT
+    ) -> None:
         """Test writing then reading multiple empty TEXT objects.
 
         Reading and writing should result in an identical copy of the original.
@@ -6561,7 +6608,7 @@ class TestReadWrite:
         core1.sys = "Windows i^2"
         core2.sys = "Windows 9"
         type(core0).write_texts(p, [core0, core1, core2])  # type: ignore
-        datasets = pf.api.fcs_read_std_texts(p, time_meas_pattern=LINK_NAME2)
+        datasets = pf.api.fcs_read_std_texts(p, time_meas_pattern=LINK_NAME2, mmap=mmap)
         assert len(datasets) == 3
         nu_core0, un_core0 = datasets[0]
         nu_core1, un_core1 = datasets[1]
@@ -6573,8 +6620,11 @@ class TestReadWrite:
         assert core1 == nu_core1
         assert core2 == nu_core2
 
+    @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
-    def test_datasets_non_empty(self, tmp_path: Path, core0: AnyCoreDataset) -> None:
+    def test_datasets_non_empty(
+        self, tmp_path: Path, mmap: bool, core0: AnyCoreDataset
+    ) -> None:
         """Test writing then reading multiple TEXT objects with one measurement.
 
         Reading and writing should result in an identical copy of the original.
@@ -6587,7 +6637,9 @@ class TestReadWrite:
         core1.sys = "Windows i^2"
         core2.sys = "Windows 9"
         pf.api.fcs_write_datasets(p, [core0, core1, core2])  # type: ignore
-        datasets = pf.api.fcs_read_std_datasets(p, time_meas_pattern=LINK_NAME2)
+        datasets = pf.api.fcs_read_std_datasets(
+            p, time_meas_pattern=LINK_NAME2, mmap=mmap
+        )
         assert len(datasets) == 3
         nu_core0, un_core0 = datasets[0]
         nu_core1, un_core1 = datasets[1]
@@ -6601,8 +6653,11 @@ class TestReadWrite:
         smry = pf.api.fcs_summarize(p)
         assert len(smry) == 3
 
+    @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
-    def test_summarize_pd(self, tmp_path: Path, core0: AnyCoreDataset) -> None:
+    def test_summarize_pd(
+        self, tmp_path: Path, mmap: bool, core0: AnyCoreDataset
+    ) -> None:
         """Test writing then summarizing multiple TEXT objects with two measurements."""
         d = tmp_path
         d.mkdir(exist_ok=True)
@@ -6613,12 +6668,13 @@ class TestReadWrite:
         core2.sys = "Windows 9"
         pf.api.fcs_write_datasets(p, [core0, core1, core2])  # type: ignore
         conf = pfp.PyreflowReadFlatDatasetConfig()
-        smry = conf.summarize(p)
+        smry = conf.summarize(p, mmap=mmap)
         assert len(smry) == 3
 
     # TODO test other layouts such as var uint and s8, and also make this ascii
     # layout have variable width
 
+    @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
     @pytest.mark.parametrize(
         "data_schema",
@@ -6627,6 +6683,7 @@ class TestReadWrite:
     def test_ascii(
         self,
         tmp_path: Path,
+        mmap: bool,
         core: AnyCoreDataset,
         data_schema: pt.AsciiDataSchema,
     ) -> None:
@@ -6641,16 +6698,23 @@ class TestReadWrite:
         core.write_dataset(p0)
         core.data_schema = data_schema
         core.write_dataset(p1)
-        new_core0, _ = pf.api.fcs_read_std_dataset(p0, time_meas_pattern=LINK_NAME2)
+        new_core0, _ = pf.api.fcs_read_std_dataset(
+            p0, time_meas_pattern=LINK_NAME2, mmap=mmap
+        )
         if core.version in ["FCS3.1", "FCS3.2"]:
-            new_core1, _ = pf.api.fcs_read_std_dataset(p1, time_meas_pattern=LINK_NAME2)
+            new_core1, _ = pf.api.fcs_read_std_dataset(
+                p1, time_meas_pattern=LINK_NAME2, mmap=mmap
+            )
         else:
-            new_core1, _ = pf.api.fcs_read_std_dataset(p1, time_meas_pattern=LINK_NAME2)
+            new_core1, _ = pf.api.fcs_read_std_dataset(
+                p1, time_meas_pattern=LINK_NAME2, mmap=mmap
+            )
         assert new_core0 != core
         assert new_core1 == core
 
     # TODO this is probably better to test directly by making a mock file.
 
+    @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core", ["2_0", "3_0"], ["dataset2"])
     # make sure we can store and read a totally scrambled byteord (note the
     # first byte in the middle to make it extra weird)
@@ -6660,6 +6724,7 @@ class TestReadWrite:
     def test_mixed_byteord(
         self,
         tmp_path: Path,
+        mmap: bool,
         core: pf.CoreDataset2_0 | pf.CoreDataset3_0,
         byteord: pt.ByteOrd,
     ) -> None:
@@ -6674,13 +6739,20 @@ class TestReadWrite:
         core.write_dataset(p0)
         core.data_schema = pf.OrderedUintDataSchema([1023, 1023], byteord=byteord)
         core.write_dataset(p1)
-        new_core0, _ = pf.api.fcs_read_std_dataset(p0, time_meas_pattern=LINK_NAME2)
-        new_core1, _ = pf.api.fcs_read_std_dataset(p1, time_meas_pattern=LINK_NAME2)
+        new_core0, _ = pf.api.fcs_read_std_dataset(
+            p0, time_meas_pattern=LINK_NAME2, mmap=mmap
+        )
+        new_core1, _ = pf.api.fcs_read_std_dataset(
+            p1, time_meas_pattern=LINK_NAME2, mmap=mmap
+        )
         assert new_core0.data.equals(core.data)
         assert new_core1.data.equals(core.data)
 
+    @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["dataset2"])
-    def test_dataset_supp_text(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+    def test_dataset_supp_text(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreDataset
+    ) -> None:
         """Test writing then reading a dataset with a supplemental TEXT segment.
 
         Reading and writing should result in an identical copy of the original.
@@ -6698,6 +6770,7 @@ class TestReadWrite:
             p,
             time_meas_pattern=LINK_NAME2,
             warnings_are_errors=True,
+            mmap=mmap,
         )
         self._assert_uncore_dataset_empty(un_core)
         print(core.standard_keywords(req_or_opt="req_only", root_or_meas="both"))
@@ -6751,7 +6824,7 @@ class TestPydantic:
         pydantic_seen = []
 
         # ignore kw args that are not supposed to be in pydantic classes
-        ignore = ["dataset_offset", "dataset_len", "scan"]
+        ignore = ["dataset_offset", "dataset_len", "scan", "mmap"]
 
         # get dict of pydantic attrs and types
         sig = ins.signature(pydantic_class)

@@ -1,5 +1,5 @@
 use crate::api::StringOrBytes;
-use crate::convert::{InstantExt as _, U64Ext, UsizeExt};
+use crate::convert::{InstantExt as _, U64Ext as _, UsizeExt as _};
 use crate::core::CRCOutput;
 use crate::logging::{
     IOErrorGroup, IOResult, ImpureError, LogResult, SwitchableErrorResult, WarningAndIOGroupResult,
@@ -107,7 +107,7 @@ pub struct FailedChecksumError {
     computed: u16,
 }
 
-pub(crate) enum AnyReader {
+pub enum AnyReader {
     Buffered(BufFileReader),
     Mmap(Mmap),
 }
@@ -188,7 +188,26 @@ impl AnyReader {
         }
     }
 
-    pub(crate) fn read_bytes(&mut self, start_pos: u64, nbytes: u64) -> IOResult<Vec<u8>, u64> {
+    pub(crate) fn read_bytes(&mut self, start_pos: u64, nbytes: u64) -> io::Result<Vec<u8>> {
+        match self {
+            Self::Buffered(r) => {
+                r.seek(io::SeekFrom::Start(start_pos))?;
+                read_exact_owned(r, nbytes)
+            }
+            Self::Mmap(r) => {
+                // TODO do these need to return OOM errors?
+                let p0 = start_pos.u64_to_usize();
+                let p1 = p0 + nbytes.u64_to_usize();
+                Ok(r[p0..p1].to_vec())
+            }
+        }
+    }
+
+    pub(crate) fn read_bytes_checked(
+        &mut self,
+        start_pos: u64,
+        nbytes: u64,
+    ) -> IOResult<Vec<u8>, u64> {
         match self {
             Self::Buffered(r) => {
                 r.seek(io::SeekFrom::Start(start_pos))?;
@@ -207,13 +226,13 @@ impl AnyReader {
                 if remaining < nbytes.u64_to_usize() {
                     Err(ImpureError::Pure(remaining.usize_to_u64()))
                 } else {
-                    Ok(r[p0..p1].try_into().unwrap())
+                    Ok(r[p0..p1].to_vec())
                 }
             }
         }
     }
 
-    pub(crate) fn read_exact<const LEN: usize>(
+    pub(crate) fn read_exact_checked<const LEN: usize>(
         &mut self,
         start_pos: u64,
     ) -> IOResult<[u8; LEN], u64> {
@@ -427,7 +446,7 @@ impl TEXTReader {
             AnyReader::Mmap(r) => {
                 let p0 = self.state.dataset_start.0.u64_to_usize();
                 let p1 = p0 + crc_start.u64_to_usize();
-                digest.write_all(&r.as_ref()[p0..p1]);
+                digest.write_all(&r.as_ref()[p0..p1])?;
             }
         }
         let crc = u16::try_from(digest.finalize()).expect("CRC should be 16 bit");
@@ -439,11 +458,7 @@ impl TEXTReader {
     }
 }
 
-impl<'a, D> DatasetReader<AnyReader, D> {
-    // pub(crate) fn to_reader(&'a mut self) -> AnyReader<'a> {
-    //     self.inner.by_ref()
-    // }
-
+impl<D> DatasetReader<AnyReader, D> {
     pub(crate) fn file_len(&self) -> u64 {
         self.inner.file_len()
     }
@@ -452,6 +467,10 @@ impl<'a, D> DatasetReader<AnyReader, D> {
 impl<R, D> DatasetReader<R, D> {
     pub(crate) fn start_time(&self) -> Instant {
         self.state.start_time
+    }
+
+    pub(crate) fn into_inner(self) -> R {
+        self.inner
     }
 
     pub(crate) fn inner(&self) -> &R {

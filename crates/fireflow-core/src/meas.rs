@@ -72,7 +72,6 @@ use thiserror::Error;
 use std::borrow::Cow;
 use std::convert::Infallible;
 use std::fmt;
-use std::io::{Read, Seek};
 use std::iter::{empty, once, repeat};
 use std::marker::PhantomData;
 use std::mem;
@@ -3906,7 +3905,7 @@ where
         Ok(CoreMeasurements::new(self.meta, typed_df))
     }
 
-    pub(crate) fn h_read_df<'a>(
+    pub(crate) fn h_read_df(
         mut self,
         reader: &mut AnyReader,
         tot: <V::DataSchema as VersionedDataSchema>::Tot,

@@ -1765,7 +1765,7 @@ impl<I, S> NonEmptyOffsets<I, S> {
         self.inner().dataset_offset.0 + self.end()
     }
 
-    pub(crate) fn read_contents<'a>(&self, reader: &mut AnyReader) -> io::Result<NEVec<u8>> {
+    pub(crate) fn read_contents(&self, reader: &mut AnyReader) -> io::Result<NEVec<u8>> {
         match reader {
             AnyReader::Buffered(r) => self.read_contents_buffered(r),
             AnyReader::Mmap(r) => Ok(self.read_contents_mmap(r)),
@@ -2067,7 +2067,7 @@ impl OtherOffsets20 {
         // they will be read and ignored).
         let buf_res = reader
             .inner_mut()
-            .read_bytes(start_pos, max_other_len.get())
+            .read_bytes_checked(start_pos, max_other_len.get())
             // ASSUME this will always be at byte 58 (that's what the error says)
             .map_err(|e| {
                 e.fmap_once(|remaining| {

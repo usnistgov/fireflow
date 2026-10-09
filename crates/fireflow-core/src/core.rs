@@ -3,14 +3,14 @@
 use crate::api::{
     HeaderAndSuppOffsets, NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords,
     RepairDiagnostics, RepairError, StdKeywords, StringOrBytes, TruncatedNEString, ValidKeywords,
-    next_dataset_boundary, next_dataset_boundary_mmap,
+    next_dataset_boundary_buffered, next_dataset_boundary_mmap,
 };
 use crate::config::{
     AppendRepairFlagError, EvaledReadRepairKeywordsConfig, EvaledReadStdKeywordsConfig,
     ReadRepairKeywordsConfig, ReadStdKeywordsConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
     eval_repair_conf, eval_std_conf,
 };
-use crate::convert::{InstantExt as _, U64Ext, UsizeExt as _};
+use crate::convert::{InstantExt as _, U64Ext as _, UsizeExt as _};
 use crate::data::{
     ConvertFromLayout, DataFrame2_0, DataFrame3_0, DataFrame3_1, DataFrame3_2,
     DataFrameAsDataSchema, DataFrameCheckRanges, DataSchema2_0, DataSchema3_0, DataSchema3_1,
@@ -59,7 +59,7 @@ use crate::segment::read::{
     IsOffsetPair as _, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
     OffsetPairsOverlapError, OffsetsMismatchError, OptOffsetsWithDefaultWarning, OriginalOffsets,
     ReqOffsetsWithDefaultError, ReqOffsetsWithDefaultWarning, TextOffsetsName, TextOffsetsOverflow,
-    TextToHeaderOrSuppOffsetsOverlap, read_exact_owned, read_to_end_checked,
+    TextToHeaderOrSuppOffsetsOverlap, read_to_end_checked,
 };
 use crate::segment::read::{PrimaryTextOffsets, SupplementalTextOffsets};
 use crate::std_index::index::{
@@ -112,7 +112,6 @@ use crate::text::timestamps::{
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflowError, UintSpacePad8, UintSpacePad20,
 };
-use crate::validated::buf_file::BufFileReader;
 use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
@@ -153,7 +152,7 @@ use thiserror::Error;
 use std::collections::HashSet;
 use std::convert::{AsRef, Infallible};
 use std::fmt;
-use std::io::{self, BufWriter, Seek, Write};
+use std::io::{self, BufWriter, Seek as _, Write};
 use std::iter::{empty, once};
 use std::mem;
 use std::num::NonZeroU64;
@@ -7685,10 +7684,11 @@ impl DatasetDiagnostics {
         // bother trying to parse it if there are no bytes left in the dataset.
         let (next_dataset_abs_start, scan_next_end) = if scan_next_dataset {
             let start = reader.dataset_offset().0 + max_end_offset;
+            // TODO move to reader method
             let coord = match reader.inner_mut() {
                 AnyReader::Buffered(r) => {
                     io_to_log!(r.seek(io::SeekFrom::Start(start)));
-                    io_to_log!(next_dataset_boundary(r))
+                    io_to_log!(next_dataset_boundary_buffered(r))
                 }
                 AnyReader::Mmap(r) => next_dataset_boundary_mmap(r, start.u64_to_usize()),
             };
@@ -7745,17 +7745,10 @@ impl DatasetDiagnostics {
                     dataset_abs_end.checked_sub(post_dataset_abs_start)
                     && dconf.read_post_dataset_dark_bytes.is_set()
                 {
-                    let buf = match reader.inner_mut() {
-                        AnyReader::Buffered(r) => {
-                            io_to_log!(r.seek(io::SeekFrom::Start(post_dataset_abs_start)));
-                            io_to_log!(read_exact_owned(r, post_dataset_nbytes))
-                        }
-                        AnyReader::Mmap(r) => {
-                            let p0 = post_dataset_abs_start.u64_to_usize();
-                            let p1 = p0 + post_dataset_nbytes.u64_to_usize();
-                            r.as_ref()[p0..p1].to_vec()
-                        }
-                    };
+                    let buf_res = reader
+                        .inner_mut()
+                        .read_bytes(post_dataset_abs_start, post_dataset_nbytes);
+                    let buf = io_to_log!(buf_res);
                     (buf, Instant::now())
                 } else {
                     (vec![], crc_out.read_end)

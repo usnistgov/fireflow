@@ -44,7 +44,7 @@ use derive_new::new;
 use itertools::Itertools as _;
 use num_traits::identities::Zero;
 use thiserror::Error;
-use type_families::FunctorOnce;
+use type_families::FunctorOnce as _;
 
 use std::fmt::{self, Write as _};
 use std::io::{self, BufWriter, Write as _};
@@ -237,9 +237,10 @@ impl ReqHeader {
         let data_cor = iconf.data_correction;
         let anal_cor = iconf.analysis_correction;
 
+        #[allow(clippy::as_conversions, reason = "const not stable yet")]
         let buf = reader
             .inner_mut()
-            .read_exact::<{ HEADER_LEN as usize }>(start_pos)
+            .read_exact_checked::<{ HEADER_LEN as usize }>(start_pos)
             .map_err(|e| e.fmap_once(|remaining| HeaderNoBytesError(remaining).into()))?;
 
         let vers_res = read_version(&buf).map_err(HeaderError::from);

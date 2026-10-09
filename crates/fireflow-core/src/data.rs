@@ -111,7 +111,7 @@ use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
     DeferredWarningAndError, ErrorGroup, ErrorsResult, IOErrorGroup, IOResult, ImpureError,
     LogResult, ResultExt as _, SwitchableErrorResult, SwitchableErrorsResult, WarningOrErrorResult,
-    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
+    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult,
 };
 use crate::macros::def_summary;
 use crate::match_many_to_one;
@@ -184,7 +184,7 @@ use thiserror::Error;
 
 use std::convert::Infallible;
 use std::fmt;
-use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{self, BufWriter, Read, Seek as _, SeekFrom, Write};
 use std::iter;
 use std::marker::PhantomData;
 use std::mem;
@@ -1891,7 +1891,7 @@ where
         conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>;
 
-    fn h_read_df<'a>(
+    fn h_read_df(
         &mut self,
         reader: &mut AnyReader,
         tot: Self::Tot,
@@ -3028,7 +3028,7 @@ where
 /// A data schema that can be converted to a dataframe by reading a bytestream.
 #[delegatable_trait]
 pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
-    fn read_into<'a, X>(
+    fn read_into<X>(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3044,7 +3044,7 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
             .map_ok_value(Functor::fmap_into)
     }
 
-    fn read_df_inner<'a>(
+    fn read_df_inner(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3062,7 +3062,7 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
 }
 
 impl DataSchemaReadOps<Identity<Tot>> for DataSchema3_2 {
-    fn read_df_inner<'a>(
+    fn read_df_inner(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3093,7 +3093,7 @@ where
     F32::DfTarget: Into<Self::DfTarget>,
     F64::DfTarget: Into<Self::DfTarget>,
 {
-    fn read_df_inner<'a>(
+    fn read_df_inner(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3120,7 +3120,7 @@ where
     W0::DfTarget: Into<Self::DfTarget>,
     W::DfTarget: Into<Self::DfTarget>,
 {
-    fn read_df_inner<'a>(
+    fn read_df_inner(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3144,7 +3144,7 @@ where
     D::DfTarget: Into<Self::DfTarget>,
     A::DfTarget: Into<Self::DfTarget>,
 {
-    fn read_df_inner<'a>(
+    fn read_df_inner(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3184,7 +3184,7 @@ where
     C56::DfTarget: Into<Self::DfTarget>,
     C64::DfTarget: Into<Self::DfTarget>,
 {
-    fn read_df_inner<'a>(
+    fn read_df_inner(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3213,7 +3213,7 @@ where
     Col: Clone + ColumnIsFixed,
     ByteOrder: Copy,
 {
-    fn read_df_inner<'a>(
+    fn read_df_inner(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3276,7 +3276,7 @@ where
     DelimAsciiCol: IsCol<VecFamily, ORD, Inner = DelimAsciiRange, Layout = NoByteOrd<ORD>>
         + IsCol<DataFrameFamily, ORD, Inner = NativeSeries<DelimAsciiRange>, Layout = NoByteOrd<ORD>>,
 {
-    fn read_df_inner<'a>(
+    fn read_df_inner(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3334,7 +3334,7 @@ where
     }
 }
 
-fn read_delim_with_rows<'a>(
+fn read_delim_with_rows(
     reader: &mut AnyReader,
     start_pos: u64,
     ranges: &NESlice<DelimAsciiRange>,
@@ -3344,6 +3344,10 @@ fn read_delim_with_rows<'a>(
     match reader {
         AnyReader::Buffered(r) => {
             r.seek(SeekFrom::Start(start_pos))?;
+            #[allow(
+                clippy::unbuffered_bytes,
+                reason = "rare use case, efficiency not a concern"
+            )]
             read_delim_with_rows_from_iter(ranges, r.bytes().take(nbytes), tot)
         }
         AnyReader::Mmap(r) => {
@@ -3355,7 +3359,7 @@ fn read_delim_with_rows<'a>(
     }
 }
 
-fn read_delim_without_rows<'a>(
+fn read_delim_without_rows(
     reader: &mut AnyReader,
     start_pos: u64,
     ranges: &NESlice<DelimAsciiRange>,
@@ -3364,6 +3368,10 @@ fn read_delim_without_rows<'a>(
     match reader {
         AnyReader::Buffered(r) => {
             r.seek(SeekFrom::Start(start_pos))?;
+            #[allow(
+                clippy::unbuffered_bytes,
+                reason = "rare use case, efficiency not a concern"
+            )]
             read_delim_without_rows_from_iter(ranges, r.bytes().take(nbytes))
         }
         AnyReader::Mmap(r) => {
@@ -3642,7 +3650,7 @@ impl<const ORD: bool, TotType, Dtype> DataFrameWriteOps
 trait DataSchemaReadFixed {
     type DfTarget;
 
-    fn h_read_fixed_df<'a>(
+    fn h_read_fixed_df(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3661,7 +3669,7 @@ where
 {
     type DfTarget = Layout<DataFrame<NativeSeries<C>>, DataFrameFamily, I, L, M, ORD>;
 
-    fn h_read_fixed_df<'a>(
+    fn h_read_fixed_df(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3696,7 +3704,7 @@ impl<M, const ORD: bool> DataSchemaReadFixed
         ORD,
     >;
 
-    fn h_read_fixed_df<'a>(
+    fn h_read_fixed_df(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3728,7 +3736,7 @@ impl<M> DataSchemaReadFixed for Layout<Vec<VariableBitmask>, VecFamily, UvarCol,
     type DfTarget =
         Layout<DataFrame<VariableUintSeries>, DataFrameFamily, UvarCol, Endian, M, false>;
 
-    fn h_read_fixed_df<'a>(
+    fn h_read_fixed_df(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3751,7 +3759,7 @@ impl<M> DataSchemaReadFixed for Layout<Vec<VariableBitmask>, VecFamily, UvarCol,
 impl<M> DataSchemaReadFixed for Layout<Vec<MixedRange>, VecFamily, MixedCol, Endian, M, false> {
     type DfTarget = Layout<DataFrame<MixedSeries>, DataFrameFamily, MixedCol, Endian, M, false>;
 
-    fn h_read_fixed_df<'a>(
+    fn h_read_fixed_df(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3830,7 +3838,7 @@ impl_single_width_range!(Any4ByteRange, f32, F32, Uint32);
 impl_single_width_range!(Any8ByteRange, f64, F64, Uint64);
 
 /// Try to read DATA using multiple types with a single width.
-fn try_read_single<'a, W, C>(
+fn try_read_single<W, C>(
     reader: &mut AnyReader,
     start_pos: u64,
     ranges: &[MixedRange],
@@ -3868,7 +3876,8 @@ where
 type SrcIndex = usize;
 type DstIndex = usize;
 
-fn read_columns<'a, C, Rng, E, Fr, Fw, Fc>(
+#[allow(clippy::too_many_arguments)]
+fn read_columns<C, Rng, E, Fr, Fw, Fc>(
     reader: &mut AnyReader,
     start_pos: u64,
     nrows: usize,
@@ -3883,7 +3892,7 @@ where
     Fw: Fn(&Rng) -> usize,
     Fc: Fn(&Rng, usize) -> C,
 {
-    if ranges.len() == 0 || nrows == 0 {
+    if ranges.is_empty() || nrows == 0 {
         return Ok(vec![]);
     }
 
@@ -3915,10 +3924,7 @@ where
     Fw: Fn(&Rng) -> usize,
     Fc: Fn(&Rng, usize) -> C,
 {
-    if ranges.len() == 0 || nrows == 0 {
-        return Ok(vec![]);
-    }
-
+    // ASSUME we have at least one row/column
     let mut columns: Vec<_> = ranges.iter().map(|r| fcol(r, nrows)).collect();
     let (col_offsets, row_nbytes) = column_offsets(ranges, fwidth);
 
@@ -3960,6 +3966,7 @@ where
     Ok(columns)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn read_columns_mmap<C, Rng, E, Fr, Fw, Fc>(
     mmap: &Mmap,
     start_pos: usize,
@@ -3971,14 +3978,11 @@ fn read_columns_mmap<C, Rng, E, Fr, Fw, Fc>(
     buffer_nbytes: RowBufferSize,
 ) -> Result<Vec<C>, E>
 where
+    // ASSUME we have at least one row/column
     Fr: FnMut(&mut C, DstIndex, &[u8], SrcIndex) -> Result<(), E>,
     Fw: Fn(&Rng) -> usize,
     Fc: Fn(&Rng, usize) -> C,
 {
-    if ranges.len() == 0 || nrows == 0 {
-        return Ok(vec![]);
-    }
-
     let mut columns: Vec<_> = ranges.iter().map(|r| fcol(r, nrows)).collect();
     let (col_offsets, row_nbytes) = column_offsets(ranges, fwidth);
 
@@ -4041,7 +4045,7 @@ where
 }
 
 /// Read a matrix where input bytes characters to be read as u64
-pub(crate) fn read_char_matrix<'a>(
+pub(crate) fn read_char_matrix(
     reader: &mut AnyReader,
     start_pos: u64,
     nrows: usize,
@@ -4066,7 +4070,7 @@ pub(crate) fn read_char_matrix<'a>(
 }
 
 /// Read a dataframe of unsigned integers with different widths
-pub(crate) fn read_any_uint_df<'a>(
+pub(crate) fn read_any_uint_df(
     reader: &mut AnyReader,
     start_pos: u64,
     nrows: usize,
@@ -4111,7 +4115,7 @@ pub(crate) fn read_any_uint_df<'a>(
 }
 
 /// Read a dataframe of any mix of column types
-pub(crate) fn read_mixed_df<'a>(
+pub(crate) fn read_mixed_df(
     reader: &mut AnyReader,
     start_pos: u64,
     nrows: usize,
@@ -7521,7 +7525,7 @@ trait ByteOrderIO<C: ColumnHasNativeType>
 where
     C::Native: FCSRepr,
 {
-    fn read_matrix<'a>(
+    fn read_matrix(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -7542,7 +7546,7 @@ where
 macro_rules! impl_byte_layout_io {
     ($inner:path, $layout:path, $read_fun:ident, $write_fun:ident) => {
         impl ByteOrderIO<$inner> for $layout {
-            fn read_matrix<'a>(
+            fn read_matrix(
                 &self,
                 reader: &mut AnyReader,
                 start_pos: u64,
@@ -7606,7 +7610,8 @@ impl_endian_layout_io!(F32Range);
 impl_endian_layout_io!(F64Range);
 
 /// Read stream of bytes using buffer where each value is the same type
-fn read_matrix<'a, const LEN: usize, T, F>(
+#[allow(clippy::too_many_arguments)]
+fn read_matrix<const LEN: usize, T, F>(
     reader: &mut AnyReader,
     start_pos: u64,
     nrows: usize,
@@ -7648,9 +7653,7 @@ where
     T: FromBytes<Bytes = [u8; LEN]> + Default + Clone,
     F: Fn(&mut [u8; LEN]),
 {
-    if nrows == 0 || ncols == 0 {
-        return Ok(vec![]);
-    }
+    // ASSUME we have at least one row/column
 
     // Create each vector from scratch which will allocate a vector of zeros
     // N times rather than allocating zeros once and copying N - 1 times.
@@ -7706,9 +7709,7 @@ where
     T: FromBytes<Bytes = [u8; LEN]> + Default + Clone,
     F: Fn(&mut [u8; LEN]),
 {
-    if nrows == 0 || ncols == 0 {
-        return vec![];
-    }
+    // ASSUME we have at least one row/column
 
     // Create each vector from scratch which will allocate a vector of zeros
     // N times rather than allocating zeros once and copying N - 1 times.
@@ -7723,7 +7724,7 @@ where
     let first_remainder_row = nrows - remainder_nrows;
 
     let buffer = &mmap[start_pos..start_pos + ncols * nrows * LEN];
-    // SAFETY the length of the buffer is a product of LEN, therefore it is
+    // SAFETY: the length of the buffer is a product of LEN, therefore it is
     // evenly divisible by LEN
     let buffered_values = unsafe { buffer.as_chunks_unchecked::<LEN>() };
     let mut it = buffered_values.chunks_exact(buffer_nvalues_optimal);
@@ -7732,7 +7733,7 @@ where
     for local_buf in it.by_ref() {
         let end_row = start_row + rows_per_buffer;
         read_row_buffer(
-            &local_buf,
+            local_buf,
             &mut columns,
             start_row,
             end_row,
@@ -7745,7 +7746,7 @@ where
     // Read remaining rows if they exist
     let remainder_buf = it.remainder();
     read_row_buffer(
-        &remainder_buf,
+        remainder_buf,
         &mut columns,
         first_remainder_row,
         nrows,
@@ -7791,7 +7792,7 @@ fn read_row_buffer<const LEN: usize, T, F>(
 }
 
 /// Read a matrix where type is an aligned big or little endian value.
-pub(crate) fn read_endian_matrix<'a, const LEN: usize, T>(
+pub(crate) fn read_endian_matrix<const LEN: usize, T>(
     reader: &mut AnyReader,
     start_pos: u64,
     nrows: usize,
@@ -7811,7 +7812,7 @@ where
 
 /// Read a matrix where type is an aligned big, little, or mixed endian value.
 #[allow(clippy::needless_pass_by_value)]
-pub(crate) fn read_ordered_matrix<'a, T, const LEN: usize>(
+pub(crate) fn read_ordered_matrix<T, const LEN: usize>(
     reader: &mut AnyReader,
     start_pos: u64,
     nrows: usize,

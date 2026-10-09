@@ -132,7 +132,7 @@ impl Nextdata {
     // TODO unlike all other keyword lookup ops this won't demote a bad key on
     // failure since it is read-only. Not sure how to fix this without
     // destroying many other things
-    pub(crate) fn lookup_ro<'a, C>(
+    pub(crate) fn lookup_ro<C>(
         index: &StdKeywords,
         primary_text: &PrimaryTextOffsets,
         reader: HeaderReader,

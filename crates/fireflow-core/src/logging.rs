@@ -812,28 +812,28 @@ impl<V, E> ResultExt for Result<V, E> {
     }
 }
 
-/// Combine successes.
-///
-/// This is effectively the `sequence` function from Haskell's Data.Traversable
-/// where the Traversible is an iterator and `Success` forms a Monad.
-pub(crate) trait SuccessResultIter<V, WC>:
-    Iterator<Item = Success<V, (), WC>> + Sized
-{
-    fn sequence_success(self) -> Success<Vec<V>, (), WC>
-    where
-        WC: Monoid,
-    {
-        let mut xs = vec![];
-        let mut ws = WC::default();
-        for x in self {
-            xs.push(x.value);
-            ws = ws.mappend(x.warnings);
-        }
-        Success::new_non_switchable(xs).set_warnings(ws)
-    }
-}
+// /// Combine successes.
+// ///
+// /// This is effectively the `sequence` function from Haskell's Data.Traversable
+// /// where the Traversible is an iterator and `Success` forms a Monad.
+// pub(crate) trait SuccessResultIter<V, WC>:
+//     Iterator<Item = Success<V, (), WC>> + Sized
+// {
+//     fn sequence_success(self) -> Success<Vec<V>, (), WC>
+//     where
+//         WC: Monoid,
+//     {
+//         let mut xs = vec![];
+//         let mut ws = WC::default();
+//         for x in self {
+//             xs.push(x.value);
+//             ws = ws.mappend(x.warnings);
+//         }
+//         Success::new_non_switchable(xs).set_warnings(ws)
+//     }
+// }
 
-impl<I, V, WC> SuccessResultIter<V, WC> for I where I: Iterator<Item = Success<V, (), WC>> {}
+// impl<I, V, WC> SuccessResultIter<V, WC> for I where I: Iterator<Item = Success<V, (), WC>> {}
 
 /// Combine commutative results.
 ///

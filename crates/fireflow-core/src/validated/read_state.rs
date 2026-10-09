@@ -48,10 +48,6 @@ pub struct WriteFCSDigest {
     is_2_0: bool,
 }
 
-/// The length of the entire FCS file in bytes.
-#[derive(From, Into, Clone, Copy, Debug, Display, PartialEq, Eq)]
-pub(crate) struct FileLen(pub(crate) u64);
-
 /// The length of the current dataset in bytes.
 ///
 /// For files with one dataset, this will be exactly equal to the file length;
@@ -70,17 +66,27 @@ pub struct DatasetLen(pub u64);
 #[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]
 pub struct DatasetOffset(pub u64);
 
-#[derive(Error, Debug, PartialEq, Clone)]
-#[error("dataset offset ({0}) exceeds file length ({1})")]
+#[derive(new, Error, Debug, PartialEq, Clone)]
+#[error("dataset offset ({offset}) exceeds file length ({file_len})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-pub struct DatasetOffsetError(DatasetOffset, FileLen);
+pub struct DatasetOffsetError {
+    offset: DatasetOffset,
+    file_len: u64,
+}
 
-#[derive(Error, Debug, PartialEq, Clone)]
-#[error("dataset offset ({0}) + new length ({1}) exceeds file length ({2})")]
+#[derive(new, Error, Debug, PartialEq, Clone)]
+#[error(
+    "dataset offset ({dataset_offset}) + new length ({dataset_len}) \
+     exceeds file length ({file_len})"
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-pub struct DatasetLenEOFError(DatasetOffset, DatasetLen, FileLen);
+pub struct DatasetLenEOFError {
+    dataset_offset: DatasetOffset,
+    dataset_len: DatasetLen,
+    file_len: u64,
+}
 
 /// Error when computing or testing the CRC.
 #[derive(Debug, Display, Error, PartialEq, Clone, From)]
@@ -262,7 +268,7 @@ impl HeaderReader {
     ) -> Result<Self, DatasetOffsetError> {
         let fl = reader.file_len();
         if fl < u64::from(dataset_offset) {
-            return Err(DatasetOffsetError(dataset_offset, FileLen(fl)));
+            return Err(DatasetOffsetError::new(dataset_offset, fl));
         }
         let state = ReadDatasetState {
             dataset_start: dataset_offset,
@@ -285,7 +291,7 @@ impl HeaderReader {
             if d.0 + dl.0 <= f {
                 Ok(self.with_dataset_length(dl, false))
             } else {
-                Err(DatasetLenEOFError(d, dl, FileLen(f)))
+                Err(DatasetLenEOFError::new(d, dl, f))
             }
         } else {
             Ok(self.into_last_dataset())

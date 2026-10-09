@@ -10,7 +10,7 @@ use crate::segment::read::{
     OverlapResult, PrimaryTextOffsets, SuppTextOffsetsName, SuppToHeaderOffsetsOverlap,
     SupplementalTextOffsets, TEXTOffsets, TextOffsetsName, TextToHeaderOffsetsOverlap,
 };
-use crate::validated::read_state::{DatasetOffset, FileLen, HeaderReader, TEXTReader};
+use crate::validated::read_state::{DatasetOffset, HeaderReader, TEXTReader};
 
 use fireflow_types::config::{OverlapCorrectionLimit, ReadOffsetConfig};
 use fireflow_types::other_width::OtherWidth;
@@ -226,7 +226,7 @@ impl FinalHeaderOffsets {
                         res.offsets.begin,
                         res.offsets.length,
                         reader.dataset_offset(),
-                        FileLen(reader.inner().file_len()),
+                        reader.inner().file_len(),
                         res.overflow,
                     );
                     Err(e)
@@ -620,7 +620,7 @@ pub struct PrimaryTEXTOverflowError {
     begin: u64,
     length: u64,
     dataset_offset: DatasetOffset,
-    file_len: FileLen,
+    file_len: u64,
     overflow: NonZeroU64,
 }
 

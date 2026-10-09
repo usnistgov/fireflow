@@ -17,7 +17,7 @@ use fireflow_types::{
 use crc_fast::{CrcAlgorithm, Digest};
 use derive_more::{Display, From, Into};
 use derive_new::new;
-use memmap2::Mmap;
+use memmap2::{Advice, Mmap};
 use thiserror::Error;
 
 use std::fs::File;
@@ -166,22 +166,14 @@ impl AnyReader {
         }
     }
 
-    // pub(crate) fn by_ref<'b: 'a>(&'b mut self) -> AnyReader {
-    //     match *self {
-    //         Self::Buffered(ref mut r) => AnyReader::Buffered(r),
-    //         Self::Mmap(ref r) => AnyReader::Mmap(r),
-    //     }
-    // }
-
-    pub(crate) fn open(path: &PathBuf) -> io::Result<Self> {
-        // TODO turn me into a real argument
-        let mmap = false;
+    pub(crate) fn open(path: &PathBuf, mmap: bool) -> io::Result<Self> {
         if mmap {
             let file = File::options().read(true).open(path)?;
             // SAFETY: we read the riot act to the user informing them of all
             // the terrible things that may happen if they don't use memory
             // mapping properly.
             let reader = unsafe { Mmap::map(&file)? };
+            reader.advise(Advice::Sequential)?;
             Ok(Self::Mmap(reader))
         } else {
             Ok(Self::Buffered(BufFileReader::open(path)?))

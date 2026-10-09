@@ -1009,14 +1009,14 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(usize))
         .help("Index of the dataset to parse (starting from 0)");
 
-    let skip_arg = Arg::new(SKIP)
-        .long(SKIP)
+    let skip_arg = Arg::new(ta::SKIP)
+        .long(ta::SKIP)
         .value_name("INT")
         .value_parser(value_parser!(usize))
         .help("Number of datasets to skip");
 
-    let limit_arg = Arg::new(LIMIT)
-        .long(LIMIT)
+    let limit_arg = Arg::new(ta::LIMIT)
+        .long(ta::LIMIT)
         .value_name("INT")
         .value_parser(value_parser!(usize))
         .help("Number of datasets to return");
@@ -1068,6 +1068,17 @@ fn run() -> AppResult<()> {
         .action(ArgAction::SetTrue)
         .help("Enable vendor-specific heuristics when parsing files.");
 
+    let mmap_arg = Arg::new(ta::MMAP)
+        .short('m')
+        .long(ta::MMAP)
+        .action(ArgAction::SetTrue)
+        .help(
+            "Memory-map the file while reading. This is likely to be faster. \
+             The user must ensure that the file is not modified while being \
+             read, otherwise the mapping will be invalid and terrible things \
+             will happen.",
+        );
+
     let version_cmd = Command::new(SUBCMD_VERSION).about("Show version information.");
 
     let header_cmd = Command::new(SUBCMD_HEADER)
@@ -1082,6 +1093,7 @@ fn run() -> AppResult<()> {
         .arg(&input_arg)
         .arg(&strategy_arg)
         .arg(&dataset_index_arg)
+        .arg(&mmap_arg)
         .args(&all_read_header_args)
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
@@ -1094,6 +1106,7 @@ fn run() -> AppResult<()> {
         .arg(&strategy_arg)
         .arg(&vendor_heuristics_arg)
         .arg(&dataset_index_arg)
+        .arg(&mmap_arg)
         .args(&all_read_header_args)
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
@@ -1110,6 +1123,7 @@ fn run() -> AppResult<()> {
         .arg(&vendor_heuristics_arg)
         .arg(&dataset_index_arg)
         .arg(&delim_arg)
+        .arg(&mmap_arg)
         .args(&all_read_header_args)
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
@@ -1126,6 +1140,7 @@ fn run() -> AppResult<()> {
         .arg(&vendor_heuristics_arg)
         .arg(&dataset_index_arg)
         .arg(&delim_arg)
+        .arg(&mmap_arg)
         .args(&all_read_header_args)
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
@@ -1142,6 +1157,7 @@ fn run() -> AppResult<()> {
         .arg(&vendor_heuristics_arg)
         .arg(&dataset_index_arg)
         .arg(&delim_arg)
+        .arg(&mmap_arg)
         .args(&all_read_header_args)
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
@@ -1158,6 +1174,7 @@ fn run() -> AppResult<()> {
         .arg(&output_arg)
         .arg(&strategy_arg)
         .arg(&vendor_heuristics_arg)
+        .arg(&mmap_arg)
         .args(&all_read_header_args)
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
@@ -1180,16 +1197,17 @@ fn run() -> AppResult<()> {
         .about("Summarize datasets in FCS file")
         .arg(&input_arg)
         .arg(&strategy_arg)
+        .arg(&skip_arg)
+        .arg(&limit_arg)
+        .arg(&scan_arg)
+        .arg(&mmap_arg)
         .args(&all_read_header_args)
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
         .args(&all_repair_args)
         .args(&all_read_dataset_kws_args)
         .args(&all_read_dataset_args)
-        .args(&all_read_shared_args)
-        .arg(&skip_arg)
-        .arg(&limit_arg)
-        .arg(&scan_arg);
+        .args(&all_read_shared_args);
 
     let scan_cmd = Command::new(SUBCMD_SCAN)
         .about("Scan FCS file for dataset boundaries")
@@ -1235,7 +1253,8 @@ fn run() -> AppResult<()> {
             let conf = get_read_flat_text_config(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
-            let (ws, res) = api::fcs_read_flat_texts(filepath, skip, Some(1), false, &conf)
+            let mmap = get_mmap(sargs);
+            let (ws, res) = api::fcs_read_flat_texts(filepath, skip, Some(1), false, mmap, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             to_writer(stdout, &res?[0])?;
@@ -1248,7 +1267,8 @@ fn run() -> AppResult<()> {
             let delim = get_delim(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
-            let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, &conf)
+            let mmap = get_mmap(sargs);
+            let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, mmap, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             let (core, _) = &res?[0];
@@ -1262,7 +1282,8 @@ fn run() -> AppResult<()> {
             let delim = get_delim(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
-            let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, &conf)
+            let mmap = get_mmap(sargs);
+            let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, mmap, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             let (core, _) = &res?[0];
@@ -1275,7 +1296,8 @@ fn run() -> AppResult<()> {
             let conf = get_read_std_text_config(subcmd, sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
-            let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, &conf)
+            let mmap = get_mmap(sargs);
+            let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, mmap, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             let (core, uncore) = &res?[0];
@@ -1290,7 +1312,8 @@ fn run() -> AppResult<()> {
             let delim = get_delim(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
-            let (ws, res) = api::fcs_read_std_datasets(filepath, skip, Some(1), false, &conf)
+            let mmap = get_mmap(sargs);
+            let (ws, res) = api::fcs_read_std_datasets(filepath, skip, Some(1), false, mmap, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             let (core, _) = &res?[0];
@@ -1307,8 +1330,9 @@ fn run() -> AppResult<()> {
             let skip = get_skip(sargs);
             let scan = get_scan(sargs);
             let limit = get_limit(sargs);
+            let mmap = get_mmap(sargs);
             let (read_ws, read_res) =
-                api::fcs_read_std_datasets(ipath, skip, limit, scan, &read_conf)
+                api::fcs_read_std_datasets(ipath, skip, limit, scan, mmap, &read_conf)
                     .resolve_commutative(|ws| ws, |s| s);
             let (cores, outs): (Vec<_>, Vec<_>) = read_res?.into_iter().unzip();
             let (write_ws, write_res) = api::fcs_write_datasets(opath, &cores[..], &write_conf)
@@ -1327,7 +1351,8 @@ fn run() -> AppResult<()> {
             let skip = get_skip(sargs);
             let limit = get_limit(sargs);
             let scan = get_scan(sargs);
-            let (ws, res) = api::fcs_summarize(filepath, skip, limit, scan, &conf)
+            let mmap = get_mmap(sargs);
+            let (ws, res) = api::fcs_summarize(filepath, skip, limit, scan, mmap, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             to_writer(stdout, &res?)?;
@@ -1775,6 +1800,10 @@ fn get_path<'a>(sargs: &'a ArgMatches, name: &'a str) -> &'a PathBuf {
     sargs.get_one::<PathBuf>(name).expect("path is required")
 }
 
+fn get_mmap(sargs: &ArgMatches) -> bool {
+    sargs.get_flag(ta::MMAP)
+}
+
 fn get_strategy(sargs: &ArgMatches) -> tc::ReadStrategy {
     sargs.get_one(STRATEGY).copied().unwrap_or_default()
 }
@@ -1788,11 +1817,11 @@ fn get_dataset_index(sargs: &ArgMatches) -> Option<usize> {
 }
 
 fn get_skip(sargs: &ArgMatches) -> Option<usize> {
-    sargs.get_one::<usize>(SKIP).copied()
+    sargs.get_one::<usize>(ta::SKIP).copied()
 }
 
 fn get_limit(sargs: &ArgMatches) -> Option<usize> {
-    sargs.get_one::<usize>(LIMIT).copied()
+    sargs.get_one::<usize>(ta::LIMIT).copied()
 }
 
 fn get_scan(sargs: &ArgMatches) -> bool {
@@ -2162,10 +2191,6 @@ const DATASET_INDEX: &str = "dataset-index";
 const WRITE_DELIM: &str = "write-delim";
 
 const BIG_OTHER: &str = "skip-conversion-check";
-
-const SKIP: &str = "skip";
-
-const LIMIT: &str = "limit";
 
 const INPUT_PATH: &str = "input-path";
 

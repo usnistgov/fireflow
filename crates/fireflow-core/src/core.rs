@@ -6329,6 +6329,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         nonstd: NonStdKeywords,
         dataset_offset: DatasetOffset,
         dataset_len: Option<DatasetLen>,
+        mmap: bool,
         conf: &C,
     ) -> WarningsAndIOGroupResult<
         (Self, NewStdDatasetFromKwsOutput),
@@ -6356,7 +6357,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             reason = "top level function, shouldn't be used often, large call stack won't matter much"
         )]
         // TODO consolidate
-        let fr = io_to_log!(AnyReader::open(p));
+        let fr = io_to_log!(AnyReader::open(p, mmap));
         HeaderReader::try_new(fr, dataset_offset, start_time)
             .map_err(NewStdDatasetFromKeywordsError::from)
             .and_then(|reader| {

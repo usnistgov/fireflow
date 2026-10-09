@@ -145,6 +145,7 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
     let skip_arg = DocArg::new_skip_param("Number of datasets to skip");
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
     let scan_arg = DocArg::new_scan_param();
+    let mmap_arg = DocArg::new_mmap_param();
 
     let conf_args: Vec<_> = header_args
         .into_iter()
@@ -165,16 +166,18 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
     .arg(path_arg.clone())
     .args(conf_args.clone())
     .arg(dataset_offset_arg)
+    .arg(mmap_arg.clone())
     .returns(DocReturn::new(ret_pt.clone()).exc(xs.clone()));
 
     let many_doc = DocString::new_fun(format!(
         "Read {HEADER} and {TEXT} from multiple datasets in FCS file."
     ))
     .arg(path_arg)
+    .args(conf_args)
     .arg(skip_arg)
     .arg(limit_arg)
     .arg(scan_arg)
-    .args(conf_args)
+    .arg(mmap_arg)
     .returns(DocReturn::new(PyList::new1(ret_pt)).exc(xs));
 
     let one_fun_args = one_doc.fun_args();
@@ -197,7 +200,7 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_flat_text(#one_fun_args) -> #one_ret_path {
             #conf_q
-            Ok(#fun_one_path(&path, dataset_offset, &conf).py_resolve_commutative()?.into())
+            Ok(#fun_one_path(&path, dataset_offset, mmap, &conf).py_resolve_commutative()?.into())
         }
 
         #[pyfunction]
@@ -205,7 +208,7 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_flat_texts(#many_fun_args) -> #many_ret_path {
             #conf_q
-            let xs = #fun_many_path(&path, skip, limit, scan, &conf).py_resolve_commutative()?;
+            let xs = #fun_many_path(&path, skip, limit, scan, mmap, &conf).py_resolve_commutative()?;
             Ok(type_families::Functor::fmap(xs, Into::into))
         }
     }
@@ -247,6 +250,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     ));
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
     let scan_arg = DocArg::new_scan_param();
+    let mmap_arg = DocArg::new_mmap_param();
 
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
         .desc(format!("If {HEADER} or {TEXT} are unparsable"));
@@ -266,16 +270,18 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     .arg(path_arg.clone())
     .args(conf_args.clone())
     .arg(dataset_offset_arg)
+    .arg(mmap_arg.clone())
     .returns(DocReturn::new(pt_ret.clone()).exc(xs.clone()));
 
     let many_doc = DocString::new_fun(format!(
         "Read standardized {TEXT} from multiple datasets in FCS file."
     ))
     .arg(path_arg)
+    .args(conf_args)
     .arg(skip_arg)
     .arg(limit_arg)
     .arg(scan_arg)
-    .args(conf_args)
+    .arg(mmap_arg)
     .returns(DocReturn::new(PyList::new1(pt_ret)).exc(xs));
 
     let one_fun_args = one_doc.fun_args();
@@ -300,7 +306,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_std_text(#one_fun_args) -> #one_ret_path {
             #conf_q
-            let (core, data) = #fun_one_path(&path, dataset_offset, &conf).py_resolve_commutative()?;
+            let (core, data) = #fun_one_path(&path, dataset_offset, mmap, &conf).py_resolve_commutative()?;
             Ok((core.into(), data.into()))
         }
 
@@ -309,7 +315,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_std_texts(#many_fun_args) -> #many_ret_path {
             #conf_q
-            let xs = #fun_many_path(&path, skip, limit, scan, &conf).py_resolve_commutative()?;
+            let xs = #fun_many_path(&path, skip, limit, scan, mmap, &conf).py_resolve_commutative()?;
             Ok(type_families::Functor::fmap(xs, |(c, d)| (c.into(), d.into())))
         }
     }
@@ -344,6 +350,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
     ));
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
     let scan_arg = DocArg::new_scan_param();
+    let mmap_arg = DocArg::new_mmap_param();
 
     let conf_args = header_args
         .into_iter()
@@ -374,22 +381,25 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         .args(conf_args.clone())
         .arg(dataset_offset_arg)
         .arg(scan_arg.clone())
+        .arg(mmap_arg.clone())
         .returns(DocReturn::new(pt_data_ret.clone()).exc(xs.clone()));
 
     let many_doc = DocString::new_fun("Read multiple datasets from FCS file in flat mode.")
         .arg(path_arg.clone())
+        .args(conf_args.clone())
         .arg(skip_arg.clone())
         .arg(limit_arg.clone())
         .arg(scan_arg.clone())
-        .args(conf_args.clone())
+        .arg(mmap_arg.clone())
         .returns(DocReturn::new(PyList::new1(pt_data_ret)).exc(xs.clone()));
 
     let smry_doc = DocString::new_fun("Summarize datasets in FCS file.")
         .arg(path_arg)
+        .args(conf_args)
         .arg(skip_arg)
         .arg(limit_arg)
         .arg(scan_arg)
-        .args(conf_args)
+        .arg(mmap_arg)
         .returns(DocReturn::new(PyList::new1(pt_smry_ret)).exc(xs));
 
     let one_fun_args = one_doc.fun_args();
@@ -416,7 +426,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_flat_dataset(#one_fun_args) -> #one_ret_path {
             #conf_q
-            Ok(#fun_one_path(&path, dataset_offset, scan, &conf).py_resolve_commutative()?.into())
+            Ok(#fun_one_path(&path, dataset_offset, scan, mmap, &conf).py_resolve_commutative()?.into())
         }
 
         #[pyfunction]
@@ -424,7 +434,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_flat_datasets(#many_fun_args) -> #many_ret_path {
             #conf_q
-            let xs = #fun_many_path(&path, skip, limit, scan, &conf).py_resolve_commutative()?;
+            let xs = #fun_many_path(&path, skip, limit, scan, mmap, &conf).py_resolve_commutative()?;
             Ok(type_families::Functor::fmap(xs, Into::into))
         }
 
@@ -433,7 +443,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_summarize(#smry_fun_args) -> #smry_ret_path {
             #conf_q
-            let xs = #fun_smry_path(&path, skip, limit, scan, &conf).py_resolve_commutative()?;
+            let xs = #fun_smry_path(&path, skip, limit, scan, mmap, &conf).py_resolve_commutative()?;
             Ok(type_families::Functor::fmap(xs, Into::into))
         }
     }
@@ -477,6 +487,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     ));
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
     let scan_arg = DocArg::new_scan_param();
+    let mmap_arg = DocArg::new_mmap_param();
 
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
         .desc(format!("If {HEADER}, {TEXT}, or {DATA} are unparsable"));
@@ -498,14 +509,16 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         .args(conf_args.clone())
         .arg(dataset_offset_arg)
         .arg(scan_arg.clone())
+        .arg(mmap_arg.clone())
         .returns(DocReturn::new(pt_ret.clone()).exc(xs.clone()));
 
     let many_doc = DocString::new_fun("Read multiple standardized datasets from FCS file.")
         .arg(path_arg)
+        .args(conf_args)
         .arg(skip_arg)
         .arg(limit_arg)
         .arg(scan_arg)
-        .args(conf_args)
+        .arg(mmap_arg)
         .returns(DocReturn::new(PyList::new1(pt_ret)).exc(xs));
 
     let one_fun_args = one_doc.fun_args();
@@ -531,7 +544,8 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_std_dataset(#one_fun_args) -> #one_ret_path {
             #conf_q
-            let (core, data) = #fun_one_path(&path, dataset_offset, scan, &conf).py_resolve_commutative()?;
+            let (core, data) = #fun_one_path(&path, dataset_offset, scan, mmap, &conf)
+                .py_resolve_commutative()?;
             Ok((core.into(), data.into()))
         }
 
@@ -540,7 +554,8 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_std_datasets(#many_fun_args) -> #many_ret_path {
             #conf_q
-            let xs = #fun_many_path(&path, skip, limit, scan, &conf).py_resolve_commutative()?;
+            let xs = #fun_many_path(&path, skip, limit, scan, mmap, &conf)
+                .py_resolve_commutative()?;
             Ok(type_families::Functor::fmap(xs, |(c, d)| (c.into(), d.into())))
         }
     }
@@ -558,6 +573,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
     let std_arg = DocArg::new_std_keywords_param();
     let dataset_offset_arg = DocArg::new_dataset_offset_param(true);
     let dataset_len_arg = DocArg::new_dataset_len_param();
+    let mmap_arg = DocArg::new_mmap_param();
 
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
     let (layout_conf, layout_args, layout_recs) =
@@ -587,6 +603,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
         .args(shared_args)
         .arg(dataset_offset_arg)
         .arg(dataset_len_arg)
+        .arg(mmap_arg)
         .returns(DocReturn::new(PyClass::new_py(["api"], "NewFlatDatasetFromKwsOutput")).exc(xs));
 
     let fun_args = doc.fun_args();
@@ -608,6 +625,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
                 &std,
                 dataset_offset,
                 dataset_len,
+                mmap,
                 &conf
             ).py_resolve_commutative()?;
             Ok(ret.into())
@@ -4903,6 +4921,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     );
     let dataset_offset_param = DocArg::new_dataset_offset_param(true);
     let dataset_len_param = DocArg::new_dataset_len_param();
+    let mmap_param = DocArg::new_mmap_param();
 
     let exc0 = PyException::new_parse_keyval();
     let exc1 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
@@ -4923,6 +4942,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         .args(config_args)
         .arg(dataset_offset_param)
         .arg(dataset_len_param)
+        .arg(mmap_param)
         .returns(
             DocReturn::new(
                 [
@@ -4979,6 +4999,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                     nonstd,
                     dataset_offset,
                     dataset_len,
+                    mmap,
                     &conf
                 ).py_resolve_commutative()?;
                 Ok((core.into(), uncore.into()))
@@ -10000,12 +10021,12 @@ impl DocArgParam {
 
     fn new_skip_param(desc: impl fmt::Display) -> Self {
         let pt = PyOpt::new1(PyInt::new_int(RsInt::Usize));
-        Self::new_param("skip", pt, desc).def_auto()
+        Self::new_param(ta::SKIP, pt, desc).def_auto()
     }
 
     fn new_limit_param(desc: &str) -> Self {
         let pt = PyOpt::new1(PyInt::new_int(RsInt::Usize));
-        Self::new_param("limit", pt, desc).def_auto()
+        Self::new_param(ta::LIMIT, pt, desc).def_auto()
     }
 
     fn new_scan_param() -> Self {
@@ -10014,6 +10035,16 @@ impl DocArgParam {
              tags rather than relying on {NEXTDATA}."
         );
         Self::new_param(ta::SCAN, PyBool::default(), desc).def_auto()
+    }
+
+    fn new_mmap_param() -> Self {
+        let desc = format!(
+            "If {TRUE}, memory-map the file while reading. This is likely to be \
+             faster. The user must ensure that the file is not modified while \
+             reading, otherwise the mapping will be invalid and terrible things \
+             will happen."
+        );
+        Self::new_param(ta::MMAP, PyBool::default(), desc).def_auto()
     }
 
     fn new_path_param(read: bool) -> Self {

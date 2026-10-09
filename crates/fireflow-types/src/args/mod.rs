@@ -217,7 +217,10 @@ macro_rules! make_args {
             };
         }
 
+        pub const SKIP: &str = write_misc_arg!("skip");
+        pub const LIMIT: &str = write_misc_arg!("limit");
         pub const SCAN: &str = write_misc_arg!("scan");
+        pub const MMAP: &str = write_misc_arg!("mmap");
     };
 }
 

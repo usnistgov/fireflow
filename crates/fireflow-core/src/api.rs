@@ -119,7 +119,7 @@ pub fn fcs_read_header(
     conf: &ReadHeaderConfig,
 ) -> WarningsAndIOGroupResult<Header, GuessOtherWidthError, ReadHeaderError, HeaderSummary> {
     let start_time = Instant::now();
-    let fr = io_to_log!(AnyReader::open(path));
+    let fr = io_to_log!(AnyReader::open(path, false));
     HeaderReader::try_new(fr, dataset_offset, start_time)
         .map_err(ReadHeaderError::from)
         .map_err(IOAnonErrorGroup::new_pure_one)
@@ -138,6 +138,7 @@ pub fn fcs_read_header(
 pub fn fcs_read_flat_text(
     path: &PathBuf,
     dataset_offset: DatasetOffset,
+    mmap: bool,
     conf: &ReadFlatTEXTConfig,
 ) -> WarningsAndIOGroupResult<
     FlatTEXTOutput,
@@ -146,7 +147,7 @@ pub fn fcs_read_flat_text(
     FlatTEXTSummary,
 > {
     let start_time = Instant::now();
-    let fr = io_to_log!(AnyReader::open(path));
+    let fr = io_to_log!(AnyReader::open(path, mmap));
     read_flat_text(fr, dataset_offset, start_time, conf).map_ok_value(|(ret, _)| ret)
 }
 
@@ -155,6 +156,7 @@ pub fn fcs_read_flat_text(
 pub fn fcs_read_std_text(
     path: &PathBuf,
     dataset_offset: DatasetOffset,
+    mmap: bool,
     conf: &ReadStdTEXTConfig,
 ) -> WarningsAndIOGroupResult<
     (AnyCoreTEXT, StdTEXTOutput),
@@ -163,7 +165,7 @@ pub fn fcs_read_std_text(
     StdTEXTSummary,
 > {
     let start_time = Instant::now();
-    let fr = io_to_log!(AnyReader::open(path));
+    let fr = io_to_log!(AnyReader::open(path, mmap));
     read_std_text(fr, dataset_offset, start_time, conf)
         .map_ok_value(|(core, std_out, _)| (core, std_out))
 }
@@ -174,6 +176,7 @@ pub fn fcs_read_flat_dataset(
     path: &PathBuf,
     dataset_offset: DatasetOffset,
     scan_next_dataset: bool,
+    mmap: bool,
     conf: &ReadFlatDatasetConfig,
 ) -> WarningsAndIOGroupResult<
     FlatDatasetOutput,
@@ -182,7 +185,7 @@ pub fn fcs_read_flat_dataset(
     FlatDatasetSummary,
 > {
     let start_time = Instant::now();
-    let fr = io_to_log!(AnyReader::open(path));
+    let fr = io_to_log!(AnyReader::open(path, mmap));
     read_flat_dataset(fr, dataset_offset, scan_next_dataset, start_time, conf)
         .map_ok_value(|(ret, _)| ret)
 }
@@ -193,6 +196,7 @@ pub fn fcs_read_std_dataset(
     path: &PathBuf,
     dataset_offset: DatasetOffset,
     scan_next_dataset: bool,
+    mmap: bool,
     conf: &ReadStdDatasetConfig,
 ) -> WarningsAndIOGroupResult<
     (AnyCoreDataset, StdDatasetOutput),
@@ -201,7 +205,7 @@ pub fn fcs_read_std_dataset(
     StdDatasetSummary,
 > {
     let start_time = Instant::now();
-    let fr = io_to_log!(AnyReader::open(path));
+    let fr = io_to_log!(AnyReader::open(path, mmap));
     read_std_dataset(fr, dataset_offset, scan_next_dataset, start_time, conf)
         .map_ok_value(|(x, _)| x)
 }
@@ -215,6 +219,7 @@ pub fn fcs_read_flat_dataset_with_keywords(
     std: &StdKeywords,
     dataset_offset: DatasetOffset,
     dataset_len: Option<DatasetLen>,
+    mmap: bool,
     conf: &ReadFlatDatasetFromKeywordsConfig,
 ) -> WarningsAndIOGroupResult<
     NewFlatDatasetFromKwsOutput,
@@ -223,7 +228,7 @@ pub fn fcs_read_flat_dataset_with_keywords(
     FlatDatasetWithKwsSummary,
 > {
     let start_time = Instant::now();
-    let fr = io_to_log!(AnyReader::open(path));
+    let fr = io_to_log!(AnyReader::open(path, mmap));
     HeaderReader::try_new(fr, dataset_offset, start_time)
         .map_err(ReadFlatDatasetWithKwsError::from)
         .and_then(|fr_| {
@@ -251,6 +256,7 @@ pub fn fcs_read_flat_texts(
     skip: Option<usize>,
     limit: Option<usize>,
     scan: bool,
+    mmap: bool,
     conf: &ReadFlatTEXTConfig,
 ) -> WarningsAndIOGroupResult<
     Vec<FlatTEXTOutput>,
@@ -259,7 +265,7 @@ pub fn fcs_read_flat_texts(
     FlatTEXTSummary,
 > {
     let start_time = Instant::now();
-    let fr = io_to_log!(AnyReader::open(path));
+    let fr = io_to_log!(AnyReader::open(path, mmap));
     read_flat_texts(fr, skip, limit, scan, start_time, conf)
 }
 
@@ -270,6 +276,7 @@ pub fn fcs_read_std_texts(
     skip: Option<usize>,
     limit: Option<usize>,
     scan: bool,
+    mmap: bool,
     conf: &ReadStdTEXTConfig,
 ) -> WarningsAndIOGroupResult<
     Vec<(AnyCoreTEXT, StdTEXTOutput)>,
@@ -278,7 +285,7 @@ pub fn fcs_read_std_texts(
     StdTEXTSummary,
 > {
     let start_time = Instant::now();
-    let fr = io_to_log!(AnyReader::open(path));
+    let fr = io_to_log!(AnyReader::open(path, mmap));
     read_std_texts(fr, skip, limit, scan, start_time, conf)
 }
 
@@ -289,6 +296,7 @@ pub fn fcs_read_flat_datasets(
     skip: Option<usize>,
     limit: Option<usize>,
     scan: bool,
+    mmap: bool,
     conf: &ReadFlatDatasetConfig,
 ) -> WarningsAndIOGroupResult<
     Vec<FlatDatasetOutput>,
@@ -297,7 +305,7 @@ pub fn fcs_read_flat_datasets(
     FlatDatasetSummary,
 > {
     let start_time = Instant::now();
-    let fr = io_to_log!(AnyReader::open(path));
+    let fr = io_to_log!(AnyReader::open(path, mmap));
     read_flat_datasets(fr, skip, limit, scan, start_time, conf)
 }
 
@@ -308,6 +316,7 @@ pub fn fcs_read_std_datasets(
     skip: Option<usize>,
     limit: Option<usize>,
     scan: bool,
+    mmap: bool,
     conf: &ReadStdDatasetConfig,
 ) -> WarningsAndIOGroupResult<
     Vec<(AnyCoreDataset, StdDatasetOutput)>,
@@ -316,7 +325,7 @@ pub fn fcs_read_std_datasets(
     StdDatasetSummary,
 > {
     let start_time = Instant::now();
-    let fr = io_to_log!(AnyReader::open(path));
+    let fr = io_to_log!(AnyReader::open(path, mmap));
     read_std_datasets(fr, skip, limit, scan, start_time, conf)
 }
 
@@ -327,6 +336,7 @@ pub fn fcs_summarize(
     skip: Option<usize>,
     limit: Option<usize>,
     scan: bool,
+    mmap: bool,
     conf: &ReadFlatDatasetConfig,
 ) -> WarningsAndIOGroupResult<
     Vec<DatasetSummary>,
@@ -334,7 +344,7 @@ pub fn fcs_summarize(
     MultiFlatDatasetError,
     FlatDatasetSummary,
 > {
-    fcs_read_flat_datasets(path, skip, limit, scan, conf)
+    fcs_read_flat_datasets(path, skip, limit, scan, mmap, conf)
         .map_ok_value(|x| x.fmap(FlatDatasetOutput::summarize))
 }
 

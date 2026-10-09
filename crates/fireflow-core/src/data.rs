@@ -107,6 +107,7 @@
 // * width: The value of $PnB
 
 use crate::convert::{InstantExt as _, U64Ext as _, UsizeExt as _};
+use crate::io::AnyReader;
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
     DeferredWarningAndError, ErrorGroup, ErrorsResult, IOErrorGroup, IOResult, ImpureError,
@@ -152,7 +153,7 @@ use crate::validated::finite_float::{
     DecimalToFloatError, FiniteF32, FiniteF64, FiniteF64toF32Error, FiniteFloat,
     U64ToFiniteFloatError,
 };
-use crate::validated::read_state::{AnyReader, WriteFCSDigest};
+use crate::validated::read_state::WriteFCSDigest;
 use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
 
 use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
@@ -184,7 +185,7 @@ use thiserror::Error;
 
 use std::convert::Infallible;
 use std::fmt;
-use std::io::{self, BufWriter, Read, Seek as _, SeekFrom, Write};
+use std::io::{self, BufWriter, Read, Write};
 use std::iter;
 use std::marker::PhantomData;
 use std::mem;
@@ -3308,8 +3309,8 @@ where
             let res = TotType::with_tot(
                 reader,
                 tot,
-                |r, t| go!(read_delim_with_rows(r, start_pos, rs, t, nbytes)),
-                |r| go!(read_delim_without_rows(r, start_pos, rs, nbytes)),
+                |r, t| go!(r.read_delim_with_rows(start_pos, rs, t, nbytes)),
+                |r| go!(r.read_delim_without_rows(start_pos, rs, nbytes)),
             );
 
             res.map(|data| {
@@ -3334,56 +3335,7 @@ where
     }
 }
 
-fn read_delim_with_rows(
-    reader: &mut AnyReader,
-    start_pos: u64,
-    ranges: &NESlice<DelimAsciiRange>,
-    tot: Tot,
-    nbytes: usize,
-) -> IOResult<Vec<Vec<u64>>, ReadDelimWithRowsAsciiError> {
-    match reader {
-        AnyReader::Buffered(r) => {
-            r.seek(SeekFrom::Start(start_pos))?;
-            #[allow(
-                clippy::unbuffered_bytes,
-                reason = "rare use case, efficiency not a concern"
-            )]
-            read_delim_with_rows_from_iter(ranges, r.bytes().take(nbytes), tot)
-        }
-        AnyReader::Mmap(r) => {
-            let p0 = start_pos.u64_to_usize();
-            let p1 = p0 + nbytes;
-            let bytes = r[p0..p1].iter().copied().map(Ok);
-            read_delim_with_rows_from_iter(ranges, bytes, tot)
-        }
-    }
-}
-
-fn read_delim_without_rows(
-    reader: &mut AnyReader,
-    start_pos: u64,
-    ranges: &NESlice<DelimAsciiRange>,
-    nbytes: usize,
-) -> IOResult<Vec<Vec<u64>>, ReadDelimAsciiWithoutRowsError> {
-    match reader {
-        AnyReader::Buffered(r) => {
-            r.seek(SeekFrom::Start(start_pos))?;
-            #[allow(
-                clippy::unbuffered_bytes,
-                reason = "rare use case, efficiency not a concern"
-            )]
-            read_delim_without_rows_from_iter(ranges, r.bytes().take(nbytes))
-        }
-        AnyReader::Mmap(r) => {
-            let p0 = start_pos.u64_to_usize();
-            let p1 = p0 + nbytes;
-            let bytes = r[p0..p1].iter().copied().map(Ok);
-            read_delim_without_rows_from_iter(ranges, bytes)
-        }
-    }
-}
-
-fn read_delim_with_rows_from_iter(
+pub(crate) fn read_delim_with_rows_from_iter(
     ranges: &NESlice<DelimAsciiRange>,
     bytes: impl IntoIterator<Item = io::Result<u8>>,
     tot: Tot,
@@ -3444,7 +3396,7 @@ fn read_delim_with_rows_from_iter(
     Ok(data)
 }
 
-fn read_delim_without_rows_from_iter(
+pub(crate) fn read_delim_without_rows_from_iter(
     ranges: &NESlice<DelimAsciiRange>,
     bytes: impl IntoIterator<Item = io::Result<u8>>,
 ) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimAsciiWithoutRowsError>> {
@@ -3873,43 +3825,10 @@ where
     }
 }
 
-type SrcIndex = usize;
-type DstIndex = usize;
+pub(crate) type SrcIndex = usize;
+pub(crate) type DstIndex = usize;
 
-#[allow(clippy::too_many_arguments)]
-fn read_columns<C, Rng, E, Fr, Fw, Fc>(
-    reader: &mut AnyReader,
-    start_pos: u64,
-    nrows: usize,
-    ranges: &[Rng],
-    fread: Fr,
-    fwidth: Fw,
-    fcol: Fc,
-    buffer_nbytes: RowBufferSize,
-) -> IOResult<Vec<C>, E>
-where
-    Fr: FnMut(&mut C, DstIndex, &[u8], SrcIndex) -> Result<(), E>,
-    Fw: Fn(&Rng) -> usize,
-    Fc: Fn(&Rng, usize) -> C,
-{
-    if ranges.is_empty() || nrows == 0 {
-        return Ok(vec![]);
-    }
-
-    match reader {
-        AnyReader::Buffered(r) => {
-            r.seek(SeekFrom::Start(start_pos))?;
-            read_columns_buffered(r, nrows, ranges, fread, fwidth, fcol, buffer_nbytes)
-        }
-        AnyReader::Mmap(r) => {
-            let p0 = start_pos.u64_to_usize();
-            read_columns_mmap(r, p0, nrows, ranges, fread, fwidth, fcol, buffer_nbytes)
-                .map_err(ImpureError::Pure)
-        }
-    }
-}
-
-fn read_columns_buffered<C, Rng, E, R, Fr, Fw, Fc>(
+pub(crate) fn read_columns_buffered<C, Rng, E, R, Fr, Fw, Fc>(
     h: &mut R,
     nrows: usize,
     ranges: &[Rng],
@@ -3967,7 +3886,7 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn read_columns_mmap<C, Rng, E, Fr, Fw, Fc>(
+pub(crate) fn read_columns_mmap<C, Rng, E, Fr, Fw, Fc>(
     mmap: &Mmap,
     start_pos: usize,
     nrows: usize,
@@ -4052,8 +3971,7 @@ pub(crate) fn read_char_matrix(
     ranges: &[FixedAsciiRange],
     buffer_nbytes: RowBufferSize,
 ) -> IOResult<Vec<RangedVec<FixedAsciiRange, u64>>, AsciiNumToUintError> {
-    read_columns(
-        reader,
+    reader.read_columns(
         start_pos,
         nrows,
         ranges,
@@ -4081,8 +3999,7 @@ pub(crate) fn read_any_uint_df(
     let get_width = |r: &VariableBitmask| usize::from(u8::from(r.bytes()));
     let make_col = |r: &VariableBitmask, nrows_| r.init_column(nrows_);
     let res = match endian {
-        Endian::Big => read_columns(
-            reader,
+        Endian::Big => reader.read_columns(
             start_pos,
             nrows,
             ranges,
@@ -4094,8 +4011,7 @@ pub(crate) fn read_any_uint_df(
             make_col,
             buffer_nbytes,
         ),
-        Endian::Little => read_columns(
-            reader,
+        Endian::Little => reader.read_columns(
             start_pos,
             nrows,
             ranges,
@@ -4131,8 +4047,7 @@ pub(crate) fn read_mixed_df(
     };
     let make_col = |r: &MixedRange, nrows_| r.init_column(nrows_);
     match endian {
-        Endian::Big => read_columns(
-            reader,
+        Endian::Big => reader.read_columns(
             start_pos,
             nrows,
             ranges,
@@ -4141,8 +4056,7 @@ pub(crate) fn read_mixed_df(
             make_col,
             buffer_nbytes,
         ),
-        Endian::Little => read_columns(
-            reader,
+        Endian::Little => reader.read_columns(
             start_pos,
             nrows,
             ranges,
@@ -7610,38 +7524,7 @@ impl_endian_layout_io!(F32Range);
 impl_endian_layout_io!(F64Range);
 
 /// Read stream of bytes using buffer where each value is the same type
-#[allow(clippy::too_many_arguments)]
-fn read_matrix<const LEN: usize, T, F>(
-    reader: &mut AnyReader,
-    start_pos: u64,
-    nrows: usize,
-    ncols: usize,
-    byte_swap: F,
-    buffer_nbytes: RowBufferSize,
-) -> io::Result<Vec<Vec<T>>>
-where
-    T: FromBytes<Bytes = [u8; LEN]> + Default + Clone,
-    F: Fn(&mut [u8; LEN]),
-{
-    if nrows == 0 || ncols == 0 {
-        return Ok(vec![]);
-    }
-
-    match reader {
-        AnyReader::Buffered(r) => {
-            r.seek(SeekFrom::Start(start_pos))?;
-            read_matrix_buffered(r, nrows, ncols, byte_swap, buffer_nbytes)
-        }
-        AnyReader::Mmap(r) => {
-            let p0 = start_pos.u64_to_usize();
-            let cols = read_matrix_mmap(r, p0, nrows, ncols, byte_swap, buffer_nbytes);
-            Ok(cols)
-        }
-    }
-}
-
-/// Read stream of bytes using buffer where each value is the same type
-fn read_matrix_buffered<const LEN: usize, R, T, F>(
+pub(crate) fn read_matrix_buffered<const LEN: usize, R, T, F>(
     h: &mut R,
     nrows: usize,
     ncols: usize,
@@ -7697,7 +7580,7 @@ where
 }
 
 /// Read stream of bytes using buffer where each value is the same type
-fn read_matrix_mmap<const LEN: usize, T, F>(
+pub(crate) fn read_matrix_mmap<const LEN: usize, T, F>(
     mmap: &Mmap,
     start_pos: usize,
     nrows: usize,
@@ -7805,8 +7688,8 @@ where
 {
     let be_swap = |buf: &mut [u8; LEN]| buf.reverse();
     match endian {
-        Endian::Big => read_matrix(reader, start_pos, nrows, ncols, be_swap, buffer_nbytes),
-        Endian::Little => read_matrix(reader, start_pos, nrows, ncols, |_| {}, buffer_nbytes),
+        Endian::Big => reader.read_matrix(start_pos, nrows, ncols, be_swap, buffer_nbytes),
+        Endian::Little => reader.read_matrix(start_pos, nrows, ncols, |_| {}, buffer_nbytes),
     }
 }
 
@@ -7832,7 +7715,7 @@ where
         read_endian_matrix(reader, start_pos, nrows, ncols, e, buffer_nbytes)
     } else {
         let ord_swap = |buf: &mut [u8; LEN]| T::ordered_to_le(buf, s.as_ref());
-        read_matrix(reader, start_pos, nrows, ncols, ord_swap, buffer_nbytes)
+        reader.read_matrix(start_pos, nrows, ncols, ord_swap, buffer_nbytes)
     }
 }
 

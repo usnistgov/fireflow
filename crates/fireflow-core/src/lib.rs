@@ -5,6 +5,7 @@ pub mod core;
 pub mod data;
 mod fixed_vec;
 pub mod header;
+pub mod io;
 pub mod logging;
 mod macros;
 pub mod meas;

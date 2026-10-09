@@ -152,7 +152,7 @@ impl Nextdata {
                     let n = u64::from(nd);
                     let f = reader.inner().file_len();
                     if n == 0 {
-                        Ok(reader.into_last_dataset())
+                        Ok(reader.into_text_reader_no_nextdata())
                     } else if let Some(ptext_end) = primary_text.as_nonempty().map(|t| t.end())
                         // TODO this should always be some since we know that
                         // the TEXT segment is non-empty (otherwise how did we
@@ -165,10 +165,10 @@ impl Nextdata {
                         let e = NextdataEOFError(nd, f);
                         Err(LookupNextdataError::FileLength(e))
                     } else {
-                        Ok(reader.with_nextdata(nd))
+                        Ok(reader.into_text_reader_nextdata(nd))
                     }
                 } else {
-                    Ok(reader.into_last_dataset())
+                    Ok(reader.into_text_reader_no_nextdata())
                 };
                 res.map(|txt_st| (nextdata, txt_st)).into_nowarn1()
             })

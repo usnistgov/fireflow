@@ -12,6 +12,7 @@ use crate::data::{
     ReadCheckedDataframeWarning, ReadDataFrameResult, ScaleColumnDatatypeMismatchError,
     ScaleDatatypeMismatchErrors, VersionedDataFrame, VersionedDataSchema, WithPrimitiveDataFrame,
 };
+use crate::io::AnyReader;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorGroup, ErrorResult,
     ErrorsResult, LogResult, OptionExt as _, ResultExt as _, SwitchableErrorResult,
@@ -45,7 +46,6 @@ use crate::text::named_vec::{
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::dataframe::PrimitiveDataFrame;
-use crate::validated::read_state::AnyReader;
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::config::{
@@ -3905,7 +3905,7 @@ where
         Ok(CoreMeasurements::new(self.meta, typed_df))
     }
 
-    pub(crate) fn h_read_df(
+    pub(crate) fn read_df(
         mut self,
         reader: &mut AnyReader,
         tot: <V::DataSchema as VersionedDataSchema>::Tot,

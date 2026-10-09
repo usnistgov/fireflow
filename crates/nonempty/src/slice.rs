@@ -124,6 +124,10 @@ impl<T> NESlice<T> {
     pub fn nonempty_chunks(&self, chunk_size: NonZeroUsize) -> NEChunks<'_, T> {
         NEChunks(self.0.chunks(chunk_size.get()))
     }
+
+    pub fn as_slice(&self) -> &[T] {
+        self.as_ref()
+    }
 }
 
 impl<T> NonEmptyIterator for NEChunks<'_, T> {}

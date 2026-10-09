@@ -3,7 +3,6 @@
 use crate::api::{
     HeaderAndSuppOffsets, NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords,
     RepairDiagnostics, RepairError, StdKeywords, StringOrBytes, TruncatedNEString, ValidKeywords,
-    next_dataset_boundary_buffered, next_dataset_boundary_mmap,
 };
 use crate::config::{
     AppendRepairFlagError, EvaledReadRepairKeywordsConfig, EvaledReadStdKeywordsConfig,
@@ -27,6 +26,7 @@ use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
     autodetect_version,
 };
+use crate::io::AnyReader;
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
     DeferredWarningsAndErrors, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, ImpureError,
@@ -116,8 +116,7 @@ use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::read_state::{
-    AnyReader, CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset,
-    DatasetOffsetError, HeaderReader, TEXTReader, WriteFCSDigest,
+    CRC_LEN, CRCError, DatasetLen, DatasetOffset, NewTEXTReaderError, TEXTReader, WriteFCSDigest,
 };
 use crate::validated::shortname::Shortname;
 
@@ -137,7 +136,7 @@ use fireflow_types::keywords::{
 use fireflow_types::segment::{AnalysisSegmentId, DataSegmentId};
 use fireflow_types::textdelim::TEXTDelim;
 use fireflow_types::timepattern::TimePattern;
-use nonempty::{IntoIteratorExt as _, NESlice, NEStr, NEString, NEVec, NonEmptyIterator as _};
+use nonempty::{IntoIteratorExt as _, NEStr, NEString, NEVec, NonEmptyIterator as _};
 
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
@@ -149,6 +148,7 @@ use itertools::Itertools as _;
 use num_traits::identities::Zero;
 use thiserror::Error;
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::convert::{AsRef, Infallible};
 use std::fmt;
@@ -811,48 +811,10 @@ pub(crate) type VersionedCoreTEXT<V> = VersionedCore<(), <V as VersionMeasSet>::
 pub(crate) type VersionedCoreDataset<V> =
     VersionedCore<Analysis, <V as VersionMeasSet>::DataFrame, Others, V>;
 
-/// Reader for ANALYSIS segment
-#[derive(new)]
-pub struct AnalysisReader {
-    pub seg: AnyAnalysisOffsets,
-}
-
-impl AnalysisReader {
-    pub(crate) fn read(&self, reader: &mut AnyReader) -> io::Result<Analysis> {
-        let buf = match reader {
-            AnyReader::Buffered(r) => self.seg.read_contents(r)?,
-            AnyReader::Mmap(r) => self.seg.read_contents_mmap(r).to_vec(),
-        };
-
-        Ok(Analysis(StringOrBytes::from(buf)))
-    }
-}
-
 /// Reader for OTHER segments
 #[derive(new)]
 pub struct OthersReader {
     pub offsets: Vec<IndexedOtherOffsets>,
-}
-
-impl OthersReader {
-    pub(crate) fn read(&self, reader: &mut AnyReader) -> io::Result<Others> {
-        let mut others = vec![];
-        match reader {
-            AnyReader::Buffered(r) => {
-                for s in &self.offsets {
-                    let buf = s.offsets.read_contents(r)?;
-                    others.push(Other(StringOrBytes::from(buf)));
-                }
-            }
-            AnyReader::Mmap(r) => {
-                for s in &self.offsets {
-                    let buf = s.offsets.read_contents_mmap(r);
-                    others.push(Other(StringOrBytes::from(buf.to_vec())));
-                }
-            }
-        }
-        Ok(Others(others))
-    }
 }
 
 /// Output of using keywords to crate new standardized TEXT+DATA
@@ -1399,8 +1361,7 @@ pub enum StdTEXTFromTxWithOffsetsWarning {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewStdDatasetFromKeywordsError {
-    DatasetOffset(DatasetOffsetError),
-    DatasetLen(DatasetLenEOFError),
+    Reader(NewTEXTReaderError),
     Inner(StdDatasetFromTxError),
     Warn(NewStdDatasetFromKeywordsWarning),
 }
@@ -2219,8 +2180,8 @@ pub(crate) trait PrivVersionSet: VersionSet {
             .group()
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(mut layout_out, mut offsets)| {
-                let or = hns.header.final_offsets.others_reader();
-                let ar = AnalysisReader::new(offsets.offsets.final_analysis);
+                let osr = hns.header.final_offsets.others_reader();
+                let anal_offsets = offsets.offsets.final_analysis;
                 let fd = &mut offsets.offsets.final_data;
                 let t0 = layout_out.end_time;
                 layout_out
@@ -2229,8 +2190,8 @@ pub(crate) trait PrivVersionSet: VersionSet {
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
                     .and_then_commutative(|df_out| {
-                        let analysis = io_to_log!(ar.read(reader.inner_mut()));
-                        let others = io_to_log!(or.read(reader.inner_mut()));
+                        let analysis = io_to_log!(reader.inner_mut().read_analysis(anal_offsets));
+                        let others = io_to_log!(reader.inner_mut().read_others(&osr));
                         let read_other_anal_end = Instant::now();
                         let read_other_analysis_time =
                             read_other_anal_end.duration_since1(df_out.read_end);
@@ -6358,13 +6319,8 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         )]
         // TODO consolidate
         let fr = io_to_log!(AnyReader::open(p, mmap));
-        HeaderReader::try_new(fr, dataset_offset, start_time)
+        TEXTReader::try_new(fr, dataset_offset, dataset_len, start_time)
             .map_err(NewStdDatasetFromKeywordsError::from)
-            .and_then(|reader| {
-                reader
-                    .maybe_with_dataset_length(dataset_len)
-                    .map_err(NewStdDatasetFromKeywordsError::from)
-            })
             .map_err(IOErrorGroup::new_pure_one)
             .into_log()
             .and_then_commutative(|mut reader| {
@@ -6428,17 +6384,17 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         .map_error(IOErrorGroup::Pure)
         .and_then_commutative(|(core_out, mut offsets)| {
             let core = core_out.this;
-            let or = hns.header.final_offsets.others_reader();
-            let ar = AnalysisReader::new(offsets.offsets.final_analysis);
+            let osr = hns.header.final_offsets.others_reader();
+            let anal_offsets = offsets.offsets.final_analysis;
             let version = core.fcs_version();
             let final_data = &mut offsets.offsets.final_data;
-            let other = io_to_log!(or.read(reader.inner_mut()));
-            let analysis = io_to_log!(ar.read(reader.inner_mut()));
+            let analysis = io_to_log!(reader.inner_mut().read_analysis(anal_offsets));
+            let other = io_to_log!(reader.inner_mut().read_others(&osr));
             let read_other_anal_end = Instant::now();
             let read_other_anal_time = read_other_anal_end.duration_since1(core_out.lookup_end);
             let r0 = read_other_anal_end;
             core.meas
-                .h_read_df(
+                .read_df(
                     reader.inner_mut(),
                     offsets.tot,
                     final_data,
@@ -7565,12 +7521,12 @@ impl IntraSegmentDarkBytes {
                 AnyReader::Buffered(r) => {
                     r.seek(io::SeekFrom::Start(end0))?;
                     read_to_end_checked(r, nbytes, &mut buf)?;
-                    DarkBytes::try_from_slice(&buf[..]).unwrap()
+                    DarkBytes::try_from_bytes(Cow::Borrowed(&buf[..])).unwrap()
                 }
                 AnyReader::Mmap(r) => {
                     let p0 = end0.u64_to_usize();
                     let p1 = p0 + nbytes.u64_to_usize();
-                    DarkBytes::try_from_slice(&r.as_ref()[p0..p1]).unwrap()
+                    DarkBytes::try_from_bytes(Cow::Borrowed(&r.as_ref()[p0..p1])).unwrap()
                 }
             };
             let dark = Self {
@@ -7588,37 +7544,24 @@ impl IntraSegmentDarkBytes {
 }
 
 impl DarkBytes {
-    pub(crate) fn try_from_vec(bytes: Vec<u8>) -> Option<Self> {
-        let ne = NEVec::try_from_vec(bytes)?;
-        let (x, x0) = ne.split_first();
-        let ret = if x0.iter().all(|y| y == x) {
-            Self::Padding {
-                character: *x,
-                n: usize::from(ne.len()),
-            }
+    pub(crate) fn try_from_bytes(bytes: Cow<[u8]>) -> Option<Self> {
+        if bytes.as_ref().is_empty() {
+            None
         } else {
-            match NEString::from_utf8(ne) {
-                Ok(s) => Self::Utf8(s),
-                Err(e) => Self::Bytes(e.into_bytes()),
+            let x0 = bytes.as_ref()[0];
+            if bytes.as_ref()[1..].iter().all(|y| y == &x0) {
+                Some(Self::Padding {
+                    character: x0,
+                    n: bytes.as_ref().len(),
+                })
+            } else {
+                let ne = NEVec::try_from_vec(bytes.into_owned()).unwrap();
+                match NEString::from_utf8(ne) {
+                    Ok(s) => Some(Self::Utf8(s)),
+                    Err(e) => Some(Self::Bytes(e.into_bytes())),
+                }
             }
-        };
-        Some(ret)
-    }
-
-    pub(crate) fn try_from_slice(bytes: &[u8]) -> Option<Self> {
-        let ne = NESlice::try_from_slice(bytes)?;
-        let (x, x0) = ne.split_first();
-        let ret = if x0.iter().all(|y| y == x) {
-            Self::Padding {
-                character: *x,
-                n: usize::from(ne.len()),
-            }
-        } else if let Ok(s) = NEStr::from_utf8(ne) {
-            Self::Utf8(s.to_owned())
-        } else {
-            Self::Bytes(ne.to_ne_vec())
-        };
-        Some(ret)
+        }
     }
 
     #[cfg(feature = "python")]
@@ -7685,14 +7628,7 @@ impl DatasetDiagnostics {
         // bother trying to parse it if there are no bytes left in the dataset.
         let (next_dataset_abs_start, scan_next_end) = if scan_next_dataset {
             let start = reader.dataset_offset().0 + max_end_offset;
-            // TODO move to reader method
-            let coord = match reader.inner_mut() {
-                AnyReader::Buffered(r) => {
-                    io_to_log!(r.seek(io::SeekFrom::Start(start)));
-                    io_to_log!(next_dataset_boundary_buffered(r))
-                }
-                AnyReader::Mmap(r) => next_dataset_boundary_mmap(r, start.u64_to_usize()),
-            };
+            let coord = io_to_log!(reader.inner_mut().next_dataset_boundary(start));
             (coord, Instant::now())
         } else {
             let coord = reader
@@ -7752,7 +7688,7 @@ impl DatasetDiagnostics {
                     let buf = io_to_log!(buf_res);
                     (buf, Instant::now())
                 } else {
-                    (vec![], crc_out.read_end)
+                    (Cow::Owned(vec![]), crc_out.read_end)
                 };
 
                 let read_intra_dark_ns = read_intra_dark_end.duration_since1(timings.end);
@@ -7769,7 +7705,7 @@ impl DatasetDiagnostics {
                     events.pre.tot_event_mismatch,
                     events.overrange_columns,
                     intra_seg_dark,
-                    DarkBytes::try_from_vec(post_dark),
+                    DarkBytes::try_from_bytes(post_dark),
                     crc_out.file_crc,
                     crc_out.computed_crc,
                     dataset_len,
@@ -7980,6 +7916,8 @@ mod python {
 
     use pyo3::{IntoPyObjectExt as _, prelude::*};
 
+    use std::borrow::Cow;
+
     pub trait PySplitScale: Sized {
         type MaybeScale;
 
@@ -8134,7 +8072,7 @@ mod python {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             if let Ok(b) = obj.extract::<Vec<u8>>()
-                && let Some(ret) = Self::try_from_vec(b)
+                && let Some(ret) = Self::try_from_bytes(Cow::Owned(b))
             {
                 return Ok(ret);
             } else if let Ok(s) = obj.extract::<String>()

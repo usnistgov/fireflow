@@ -1,13 +1,11 @@
 use crate::api::StringOrBytes;
-use crate::convert::{InstantExt as _, U64Ext as _, UsizeExt as _};
+use crate::convert::{InstantExt as _, U64Ext as _};
 use crate::core::CRCOutput;
+use crate::io::AnyReader;
 use crate::logging::{
-    IOErrorGroup, IOResult, ImpureError, LogResult, SwitchableErrorResult, WarningAndIOGroupResult,
-    io_to_log,
+    IOErrorGroup, LogResult, SwitchableErrorResult, WarningAndIOGroupResult, io_to_log,
 };
-use crate::segment::read::read_exact_owned;
 use crate::text::keywords::Nextdata;
-use crate::validated::buf_file::BufFileReader;
 
 use fireflow_types::{
     config::{ComputeCRC, ComputeWriteCRC, ConfigFlag as _, ReadDatasetConfig},
@@ -17,12 +15,9 @@ use fireflow_types::{
 use crc_fast::{CrcAlgorithm, Digest};
 use derive_more::{Display, From, Into};
 use derive_new::new;
-use memmap2::{Advice, Mmap};
 use thiserror::Error;
 
-use std::fs::File;
 use std::io::{self, Read as _, Seek as _, Write as _};
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "serde")]
@@ -113,9 +108,11 @@ pub struct FailedChecksumError {
     computed: u16,
 }
 
-pub enum AnyReader {
-    Buffered(BufFileReader),
-    Mmap(Mmap),
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum NewTEXTReaderError {
+    Header(DatasetOffsetError),
+    TEXT(DatasetLenEOFError),
 }
 
 /// State pertinent to reading a dataset.
@@ -164,102 +161,6 @@ pub(crate) struct TestCRCOutput {
     pub(crate) read_end: Instant,
 }
 
-impl AnyReader {
-    pub(crate) fn file_len(&self) -> u64 {
-        match self {
-            Self::Buffered(r) => r.file_len(),
-            Self::Mmap(r) => r.len().usize_to_u64(),
-        }
-    }
-
-    pub(crate) fn open(path: &PathBuf, mmap: bool) -> io::Result<Self> {
-        if mmap {
-            let file = File::options().read(true).open(path)?;
-            // SAFETY: we read the riot act to the user informing them of all
-            // the terrible things that may happen if they don't use memory
-            // mapping properly.
-            let reader = unsafe { Mmap::map(&file)? };
-            reader.advise(Advice::Sequential)?;
-            Ok(Self::Mmap(reader))
-        } else {
-            Ok(Self::Buffered(BufFileReader::open(path)?))
-        }
-    }
-
-    pub(crate) fn read_bytes(&mut self, start_pos: u64, nbytes: u64) -> io::Result<Vec<u8>> {
-        match self {
-            Self::Buffered(r) => {
-                r.seek(io::SeekFrom::Start(start_pos))?;
-                read_exact_owned(r, nbytes)
-            }
-            Self::Mmap(r) => {
-                // TODO do these need to return OOM errors?
-                let p0 = start_pos.u64_to_usize();
-                let p1 = p0 + nbytes.u64_to_usize();
-                Ok(r[p0..p1].to_vec())
-            }
-        }
-    }
-
-    pub(crate) fn read_bytes_checked(
-        &mut self,
-        start_pos: u64,
-        nbytes: u64,
-    ) -> IOResult<Vec<u8>, u64> {
-        match self {
-            Self::Buffered(r) => {
-                r.seek(io::SeekFrom::Start(start_pos))?;
-                let remaining = r.remaining_bytes();
-                if remaining < nbytes {
-                    Err(ImpureError::Pure(remaining))
-                } else {
-                    Ok(read_exact_owned(r, nbytes)?)
-                }
-            }
-            Self::Mmap(r) => {
-                // TODO do these need to return OOM errors?
-                let p0 = start_pos.u64_to_usize();
-                let p1 = p0 + nbytes.u64_to_usize();
-                let remaining = r.len() - p0;
-                if remaining < nbytes.u64_to_usize() {
-                    Err(ImpureError::Pure(remaining.usize_to_u64()))
-                } else {
-                    Ok(r[p0..p1].to_vec())
-                }
-            }
-        }
-    }
-
-    pub(crate) fn read_exact_checked<const LEN: usize>(
-        &mut self,
-        start_pos: u64,
-    ) -> IOResult<[u8; LEN], u64> {
-        match self {
-            Self::Buffered(r) => {
-                r.seek(io::SeekFrom::Start(start_pos))?;
-                let remaining = r.remaining_bytes();
-                if remaining.u64_to_usize() < LEN {
-                    Err(ImpureError::Pure(remaining))
-                } else {
-                    let mut buf = [0_u8; LEN];
-                    r.read_exact(&mut buf)?;
-                    Ok(buf)
-                }
-            }
-            Self::Mmap(r) => {
-                let p0 = start_pos.u64_to_usize();
-                let p1 = p0 + LEN;
-                let remaining = r.len() - p0;
-                if remaining < LEN {
-                    Err(ImpureError::Pure(remaining.usize_to_u64()))
-                } else {
-                    Ok(r[p0..p1].try_into().unwrap())
-                }
-            }
-        }
-    }
-}
-
 impl HeaderReader {
     pub(crate) fn try_new(
         reader: AnyReader,
@@ -281,48 +182,12 @@ impl HeaderReader {
         })
     }
 
-    pub(crate) fn maybe_with_dataset_length(
-        self,
-        dataset_len: Option<DatasetLen>,
-    ) -> Result<TEXTReader, DatasetLenEOFError> {
-        if let Some(dl) = dataset_len {
-            let f = self.inner.file_len();
-            let d = self.state.dataset_start;
-            if d.0 + dl.0 <= f {
-                Ok(self.with_dataset_length(dl, false))
-            } else {
-                Err(DatasetLenEOFError::new(d, dl, f))
-            }
-        } else {
-            Ok(self.into_last_dataset())
-        }
-    }
-
-    fn with_dataset_length(self, dataset_len: DatasetLen, from_nextdata: bool) -> TEXTReader {
-        let f = self.inner.file_len();
-        let d = self.state.dataset_start;
-        assert!(
-            d.0 + dataset_len.0 <= f,
-            "dataset offset ({d}) + dataset length ({dataset_len}), exceeds file length ({f})"
-        );
-        let dataset_bounds = DatasetLenFromNextdata::new(dataset_len, from_nextdata);
-        let state = ReadDatasetState {
-            dataset_start: self.state.dataset_start,
-            dataset_len: dataset_bounds,
-            start_time: self.state.start_time,
-        };
-        DatasetReader {
-            inner: self.inner,
-            state,
-        }
-    }
-
-    pub(crate) fn with_nextdata(self, nd: Nextdata) -> TEXTReader {
+    pub(crate) fn into_text_reader_nextdata(self, nd: Nextdata) -> TEXTReader {
         self.with_dataset_length(DatasetLen(u64::from(nd)), true)
     }
 
     // this should only be called if $NEXTDATA is 0 or missing (if allowed)
-    pub(crate) fn into_last_dataset(self) -> TEXTReader {
+    pub(crate) fn into_text_reader_no_nextdata(self) -> TEXTReader {
         let f = self.inner.file_len();
         let d = self.state.dataset_start;
         let dl = f
@@ -346,9 +211,55 @@ impl HeaderReader {
         f.checked_sub(d.0)
             .unwrap_or_else(|| panic!("dataset offset ({d}) exceeds file length ({f})"))
     }
+
+    fn maybe_with_dataset_length(
+        self,
+        dataset_len: Option<DatasetLen>,
+    ) -> Result<TEXTReader, DatasetLenEOFError> {
+        if let Some(dl) = dataset_len {
+            let f = self.inner.file_len();
+            let d = self.state.dataset_start;
+            if d.0 + dl.0 <= f {
+                Ok(self.with_dataset_length(dl, false))
+            } else {
+                Err(DatasetLenEOFError::new(d, dl, f))
+            }
+        } else {
+            Ok(self.into_text_reader_no_nextdata())
+        }
+    }
+
+    fn with_dataset_length(self, dataset_len: DatasetLen, from_nextdata: bool) -> TEXTReader {
+        let f = self.inner.file_len();
+        let d = self.state.dataset_start;
+        assert!(
+            d.0 + dataset_len.0 <= f,
+            "dataset offset ({d}) + dataset length ({dataset_len}), exceeds file length ({f})"
+        );
+        let dataset_bounds = DatasetLenFromNextdata::new(dataset_len, from_nextdata);
+        let state = ReadDatasetState {
+            dataset_start: self.state.dataset_start,
+            dataset_len: dataset_bounds,
+            start_time: self.state.start_time,
+        };
+        DatasetReader {
+            inner: self.inner,
+            state,
+        }
+    }
 }
 
 impl TEXTReader {
+    pub(crate) fn try_new(
+        reader: AnyReader,
+        dataset_offset: DatasetOffset,
+        dataset_len: Option<DatasetLen>,
+        start_time: Instant,
+    ) -> Result<Self, NewTEXTReaderError> {
+        let hdr = HeaderReader::try_new(reader, dataset_offset, start_time)?;
+        Ok(hdr.maybe_with_dataset_length(dataset_len)?)
+    }
+
     pub(crate) fn test_crc(
         &mut self,
         crc_start: u64,

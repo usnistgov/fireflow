@@ -20,9 +20,7 @@ use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_st
 use crate::validated::header_offsets::{
     FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
 };
-use crate::validated::read_state::{
-    AnyReader, DatasetOffset, DatasetReader, HeaderReader, TEXTReader,
-};
+use crate::validated::read_state::{DatasetOffset, DatasetReader, HeaderReader, TEXTReader};
 
 use fireflow_types::config::{
     AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
@@ -53,6 +51,7 @@ use derive_where::derive_where;
 use itertools::Itertools as _;
 use thiserror::Error;
 
+use std::borrow::Cow;
 use std::fmt::{self, Debug};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::iter::repeat;
@@ -280,16 +279,16 @@ pub struct NewOffsetsConfig<I, S> {
 }
 
 impl<I, S> NewOffsetsConfig<I, S> {
-    fn from_read_config<R, C, D>(
+    fn from_read_config<C>(
         corr: OffsetsCorrection<I, S>,
-        reader: &DatasetReader<R, D>,
+        dataset_offset: DatasetOffset,
         conf: &C,
     ) -> Self
     where
         C: AsRef<ReadOffsetConfig>,
     {
         let oconf = conf.as_ref();
-        Self::new(corr, reader.dataset_offset(), oconf.allow_pseudoempty)
+        Self::new(corr, dataset_offset, oconf.allow_pseudoempty)
     }
 }
 
@@ -856,7 +855,7 @@ pub(crate) trait KeyedSegmentInner: KeyedOffsets + HasRegion {
         Self::B: Copy,
         Self::E: Copy,
     {
-        let new_conf = NewOffsetsConfig::from_read_config(corr, reader, conf);
+        let new_conf = NewOffsetsConfig::from_read_config(corr, reader.dataset_offset(), conf);
         let raw = OriginalOffsets::new(x0, x1);
         (Offsets::try_new(x0, x1, &new_conf), raw)
     }
@@ -1034,7 +1033,8 @@ where
         let mut pair_to_text = |txt_orig: OriginalOffsets, mismatch_warn, header_is_empty| {
             // mismatch_warn and header_is_empty need to be independent because we
             // may or may not throw a warning if a mismatch actually happened
-            let offsets_conf = NewOffsetsConfig::from_read_config(corr, reader, conf);
+            let offsets_conf =
+                NewOffsetsConfig::from_read_config(corr, reader.dataset_offset(), conf);
             let offsets_res = Offsets::try_new(txt_orig.begin, txt_orig.end, &offsets_conf)
                 .map_err(ReqOffsetsError::Segment);
             match offsets_res {
@@ -1309,7 +1309,8 @@ where
         let mut pair_to_text = |txt_orig: OriginalOffsets, mismatch_warn, header_is_empty| {
             // mismatch_warn and header_is_empty need to be independent because we
             // may or may not throw a warning if a mismatch actually happened
-            let offsets_conf = NewOffsetsConfig::from_read_config(corr, reader, conf);
+            let offsets_conf =
+                NewOffsetsConfig::from_read_config(corr, reader.dataset_offset(), conf);
             let offsets_res = Offsets::try_new(txt_orig.begin, txt_orig.end, &offsets_conf)
                 .map_err(OptOffsetsError::Segment);
             match offsets_res {
@@ -1611,7 +1612,7 @@ impl<I, S> Offsets<I, S> {
     }
 
     /// Read bytes within this segment using [`Read`]
-    pub(crate) fn read_contents<R>(&self, reader: &mut R) -> io::Result<Vec<u8>>
+    pub(crate) fn read_contents_buffered<R>(&self, reader: &mut R) -> io::Result<Vec<u8>>
     where
         R: Read + Seek,
     {
@@ -1765,13 +1766,6 @@ impl<I, S> NonEmptyOffsets<I, S> {
         self.inner().dataset_offset.0 + self.end()
     }
 
-    pub(crate) fn read_contents(&self, reader: &mut AnyReader) -> io::Result<NEVec<u8>> {
-        match reader {
-            AnyReader::Buffered(r) => self.read_contents_buffered(r),
-            AnyReader::Mmap(r) => Ok(self.read_contents_mmap(r)),
-        }
-    }
-
     /// Read bytes within this segment using [`Read`].
     pub(crate) fn read_contents_buffered<R>(&self, h: &mut R) -> io::Result<NEVec<u8>>
     where
@@ -1783,9 +1777,9 @@ impl<I, S> NonEmptyOffsets<I, S> {
     }
 
     /// Read bytes within this segment (memory mapped)
-    pub(crate) fn read_contents_mmap(&self, mmap: &Mmap) -> NEVec<u8> {
+    pub(crate) fn read_contents_mmap<'a>(&self, mmap: &'a Mmap) -> &'a NESlice<u8> {
         let buf = self.inner().read_contents_mmap(mmap);
-        NEVec::try_from_slice(buf)
+        NESlice::try_from_slice(buf)
             .expect("offsets are non-empty, therefore buffer should be non-empty")
     }
 
@@ -1972,7 +1966,7 @@ impl<I: Copy> HeaderOffsets<I> {
         I: HasRegion + Copy,
     {
         let hconf: &ReadHeaderInnerConfig = conf.as_ref();
-        let seg_conf = NewOffsetsConfig::from_read_config(corr, reader, conf);
+        let seg_conf = NewOffsetsConfig::from_read_config(corr, reader.dataset_offset(), conf);
 
         let parse_one = |bs: [u8; 8], is_begin| {
             // TEXT segment should never be blank
@@ -2041,6 +2035,7 @@ impl OtherOffsets20 {
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
         let hconf: &ReadHeaderInnerConfig = conf.as_ref();
+        let dso = reader.dataset_offset();
 
         // Get maximum length of OTHER offset region according to first required
         // offset. If zero, exit early.
@@ -2083,14 +2078,14 @@ impl OtherOffsets20 {
             .map(NonZeroU64::try_from)
             .transpose()
         else {
-            return LogResult::new_ok(OtherOffsetOutput::new(None, DarkBytes::try_from_vec(buf)));
+            return LogResult::new_ok(OtherOffsetOutput::new(None, DarkBytes::try_from_bytes(buf)));
         };
 
         // Only consider bytes which are spaces, nulls, minus sign, or digits
         // where a minus sign must always immediately precede a digit
         let mut n_valid_bytes = 0;
         let mut prev_was_minus = false;
-        for &c in &buf {
+        for &c in buf.as_ref() {
             let t = CharType::from(c);
             if prev_was_minus && t != CharType::Digit {
                 // Char is not a digit following a minus sign, decrement by one
@@ -2114,7 +2109,7 @@ impl OtherOffsets20 {
         {
             ne
         } else {
-            return LogResult::new_ok(OtherOffsetOutput::new(None, DarkBytes::try_from_vec(buf)));
+            return LogResult::new_ok(OtherOffsetOutput::new(None, DarkBytes::try_from_bytes(buf)));
         };
 
         // Guess offset width if desired.
@@ -2156,7 +2151,7 @@ impl OtherOffsets20 {
                     .take(limit)
                     .enumerate()
                     .filter_map(|(i, ((buf0, buf1), corr))| {
-                        let seg_conf = NewOffsetsConfig::from_read_config(corr, reader, conf);
+                        let seg_conf = NewOffsetsConfig::from_read_config(corr, dso, conf);
                         let all_are = |c| buf0.iter().chain(buf1.iter()).all(|&x| x == c);
                         (!(all_are(0) || all_are(32) || all_are(48))).then(|| {
                             Self::parse_other(buf0, buf1, &seg_conf)
@@ -2202,10 +2197,10 @@ impl OtherOffsets20 {
                             };
                             OtherOffsetOutput::new(
                                 Some((ne, width)),
-                                DarkBytes::try_from_slice(dark_bytes),
+                                DarkBytes::try_from_bytes(Cow::Borrowed(dark_bytes)),
                             )
                         } else {
-                            OtherOffsetOutput::new(None, DarkBytes::try_from_slice(&buf[..]))
+                            OtherOffsetOutput::new(None, DarkBytes::try_from_bytes(buf))
                         }
                     })
             })

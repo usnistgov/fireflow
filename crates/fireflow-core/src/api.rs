@@ -5,7 +5,7 @@ use crate::config::{
     ReadRepairKeywordsConfig, ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig,
     WriteMultiDatasetConfig, eval_repair_conf,
 };
-use crate::convert::{InstantExt as _, UsizeExt as _};
+use crate::convert::{InstantExt as _, U64Ext as _, UsizeExt as _};
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, AnyStdDatasetFromKeywordsError,
     AnyStdDatasetFromKeywordsWarning, AnyStdTEXTFromKeywordsError, AnyStdTEXTFromKeywordsWarning,
@@ -3453,8 +3453,9 @@ fn read_flat_texts(
         let ((ret, next_reader), ()) = succ.resolve(|ws| warnings.extend(ws));
         this_reader = next_reader;
         let scanned_dataset_offset = if scan_next_dataset {
-            // TODO the zero is wrong
-            io_to_log!(next_dataset_boundary(&mut this_reader, 0))
+            let pos = ret.flat_diagnostics.header_supp.text_other_max_end_offset();
+            let abs_pos = (pos + u64::from(dso)).u64_to_usize();
+            io_to_log!(next_dataset_boundary(&mut this_reader, abs_pos))
         } else {
             None
         };
@@ -3500,10 +3501,9 @@ fn read_std_texts(
         shared: *conf.as_ref(),
     };
     macro_rules! get_scanned {
-        ($reader:expr) => {
+        ($reader:expr, $pos:expr) => {
             if scan_next_dataset {
-                // TODO the zero is wrong
-                io_to_log!(next_dataset_boundary($reader, 0))
+                io_to_log!(next_dataset_boundary($reader, $pos))
             } else {
                 None
             }
@@ -3519,7 +3519,9 @@ fn read_std_texts(
                 .map_error(|e| e.set_group(StdTEXTSummary));
             let ((ret, next_reader), ()) = split_log!(res).resolve(|ws| warnings.extend(ws));
             this_reader = next_reader;
-            let scanned_dataset_offset = get_scanned!(&mut this_reader);
+            let pos = ret.flat_diagnostics.header_supp.text_other_max_end_offset();
+            let abs_pos = (pos + u64::from(dso)).u64_to_usize();
+            let scanned_dataset_offset = get_scanned!(&mut this_reader, abs_pos);
             let hns = ret.flat_diagnostics.header_supp;
             let nd = hns.nextdata.map(u64::from);
             dataset_offset = scanned_dataset_offset.or_else(|| {
@@ -3534,7 +3536,12 @@ fn read_std_texts(
             let ((ret, std_out, next_reader), ()) =
                 split_log!(res).resolve(|ws| warnings.extend(ws));
             this_reader = next_reader;
-            let scanned_dataset_offset = get_scanned!(&mut this_reader);
+            let pos = std_out
+                .flat_diagnostics
+                .header_supp
+                .text_other_max_end_offset();
+            let abs_pos = (pos + u64::from(dso)).u64_to_usize();
+            let scanned_dataset_offset = get_scanned!(&mut this_reader, abs_pos);
             dataset_offset = scanned_dataset_offset.or_else(|| {
                 let nd = u64::from(std_out.flat_diagnostics.header_supp.nextdata?);
                 (nd > 0).then_some(DatasetOffset(dso.0 + nd))
@@ -3672,9 +3679,11 @@ where
                 .map_pure_errors(E::from)
                 .map_error(|e| e.set_group(g));
             let ((ret, next_reader), ()) = split_log!(res).resolve(|ws| warnings.extend(ws));
+            let pos = ret.flat_diagnostics.header_supp.text_other_max_end_offset();
+            let abs_pos = (pos + u64::from(dso)).u64_to_usize();
             this_reader = next_reader;
             let scanned_dataset_offset = if scan_next_dataset {
-                io_to_log!(next_dataset_boundary(&mut this_reader, 0))
+                io_to_log!(next_dataset_boundary(&mut this_reader, abs_pos))
             } else {
                 None
             };

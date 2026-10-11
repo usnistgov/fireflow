@@ -12,35 +12,24 @@ use crate::config::{
 };
 use crate::convert::{U64Ext as _, UsizeExt as _};
 use crate::core::{Analysis, AnyCoreDataset, AnyCoreTEXT, Other, Others, OthersReader};
-use crate::data::{
-    DstIndex, ReadDelimAsciiWithoutRowsError, ReadDelimWithRowsAsciiError, SrcIndex,
-    read_columns_buffered, read_columns_mmap, read_delim_with_rows_from_iter,
-    read_delim_without_rows_from_iter, read_matrix_buffered, read_matrix_mmap,
-};
 use crate::header::autodetect_version;
 use crate::logging::{
     IOAnonErrorGroup, IOErrorGroup, IOResult, ImpureError, LogResult, ResultExt as _,
     WarningsAndIOGroupResult, io_to_log, split_log,
 };
-use crate::segment::read::{
-    AnyAnalysisOffsets, NonEmptyOffsets, Offsets, read_exact_owned, read_to_end_checked,
-};
-use crate::text::keywords::Tot;
-use crate::validated::ascii_range::DelimAsciiRange;
+use crate::segment::read::{AnyAnalysisOffsets, read_exact_owned, read_to_end_checked};
 use crate::validated::buf_file::BufFileReader;
 use crate::validated::read_state::{DatasetOffset, HeaderReader, TEXTReader};
 
 use fireflow_types::config::{
     ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadHeaderInnerConfig,
-    ReadOffsetConfig, ReadSharedConfig, RowBufferSize,
+    ReadOffsetConfig, ReadSharedConfig,
 };
 use fireflow_types::keywords::Version;
 
 use derive_more::AsRef;
 use derive_new::new;
 use memmap2::{Advice, Mmap};
-use nonempty::NESlice;
-use num_traits::FromBytes;
 
 use std::borrow::Cow;
 use std::fs::File;
@@ -61,35 +50,15 @@ pub(crate) struct FlatTEXTOutputInner<T> {
 }
 
 impl AnyReader {
-    pub(crate) fn read_ne_segment<I, S>(
-        &mut self,
-        offsets: &NonEmptyOffsets<I, S>,
-    ) -> io::Result<Cow<'_, NESlice<u8>>> {
-        match self {
-            Self::Buffered(r) => offsets.read_contents_buffered(r).map(Cow::Owned),
-            Self::Mmap(r) => Ok(Cow::Borrowed(offsets.read_contents_mmap(r))),
-        }
-    }
-
-    pub(crate) fn read_segment<I, S>(
-        &mut self,
-        offsets: Offsets<I, S>,
-    ) -> io::Result<Cow<'_, [u8]>> {
-        match self {
-            Self::Buffered(r) => offsets.read_contents_buffered(r).map(Cow::Owned),
-            Self::Mmap(r) => Ok(Cow::Borrowed(offsets.read_contents_mmap(r))),
-        }
-    }
-
     pub(crate) fn read_analysis(&mut self, offsets: AnyAnalysisOffsets) -> io::Result<Analysis> {
-        let buf = self.read_segment(offsets)?;
+        let buf = offsets.read_contents(self)?;
         Ok(Analysis(StringOrBytes::from(buf.into_owned())))
     }
 
     pub(crate) fn read_others(&mut self, osr: &OthersReader) -> io::Result<Others> {
         let mut others = vec![];
         for s in &osr.offsets {
-            let buf = self.read_segment(s.offsets)?;
+            let buf = s.offsets.read_contents(self)?;
             others.push(Other(StringOrBytes::from(buf.into_owned())));
         }
         Ok(Others(others))
@@ -543,119 +512,6 @@ impl AnyReader {
         LogResult::new_ok(outputs).set_commutative_warnings(warnings)
     }
 
-    /// Read stream of bytes using buffer where each value is the same type
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn read_matrix<const LEN: usize, T, F>(
-        &mut self,
-        start_pos: u64,
-        nrows: usize,
-        ncols: usize,
-        byte_swap: F,
-        buffer_nbytes: RowBufferSize,
-    ) -> io::Result<Vec<Vec<T>>>
-    where
-        T: FromBytes<Bytes = [u8; LEN]> + Default + Clone,
-        F: Fn(&mut [u8; LEN]),
-    {
-        if nrows == 0 || ncols == 0 {
-            return Ok(vec![]);
-        }
-
-        match self {
-            Self::Buffered(r) => {
-                r.seek(SeekFrom::Start(start_pos))?;
-                read_matrix_buffered(r, nrows, ncols, byte_swap, buffer_nbytes)
-            }
-            Self::Mmap(r) => {
-                let p0 = start_pos.u64_to_usize();
-                let cols = read_matrix_mmap(r, p0, nrows, ncols, byte_swap, buffer_nbytes);
-                Ok(cols)
-            }
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn read_columns<C, Rng, E, Fr, Fw, Fc>(
-        &mut self,
-        start_pos: u64,
-        nrows: usize,
-        ranges: &[Rng],
-        fread: Fr,
-        fwidth: Fw,
-        fcol: Fc,
-        buffer_nbytes: RowBufferSize,
-    ) -> IOResult<Vec<C>, E>
-    where
-        Fr: FnMut(&mut C, DstIndex, &[u8], SrcIndex) -> Result<(), E>,
-        Fw: Fn(&Rng) -> usize,
-        Fc: Fn(&Rng, usize) -> C,
-    {
-        if ranges.is_empty() || nrows == 0 {
-            return Ok(vec![]);
-        }
-
-        match self {
-            Self::Buffered(r) => {
-                r.seek(SeekFrom::Start(start_pos))?;
-                read_columns_buffered(r, nrows, ranges, fread, fwidth, fcol, buffer_nbytes)
-            }
-            Self::Mmap(r) => {
-                let p0 = start_pos.u64_to_usize();
-                read_columns_mmap(r, p0, nrows, ranges, fread, fwidth, fcol, buffer_nbytes)
-                    .map_err(ImpureError::Pure)
-            }
-        }
-    }
-
-    pub(crate) fn read_delim_with_rows(
-        &mut self,
-        start_pos: u64,
-        ranges: &NESlice<DelimAsciiRange>,
-        tot: Tot,
-        nbytes: usize,
-    ) -> IOResult<Vec<Vec<u64>>, ReadDelimWithRowsAsciiError> {
-        match self {
-            Self::Buffered(r) => {
-                r.seek(SeekFrom::Start(start_pos))?;
-                #[allow(
-                    clippy::unbuffered_bytes,
-                    reason = "rare use case, efficiency not a concern"
-                )]
-                read_delim_with_rows_from_iter(ranges, r.bytes().take(nbytes), tot)
-            }
-            Self::Mmap(r) => {
-                let p0 = start_pos.u64_to_usize();
-                let p1 = p0 + nbytes;
-                let bytes = r[p0..p1].iter().copied().map(Ok);
-                read_delim_with_rows_from_iter(ranges, bytes, tot)
-            }
-        }
-    }
-
-    pub(crate) fn read_delim_without_rows(
-        &mut self,
-        start_pos: u64,
-        ranges: &NESlice<DelimAsciiRange>,
-        nbytes: usize,
-    ) -> IOResult<Vec<Vec<u64>>, ReadDelimAsciiWithoutRowsError> {
-        match self {
-            Self::Buffered(r) => {
-                r.seek(SeekFrom::Start(start_pos))?;
-                #[allow(
-                    clippy::unbuffered_bytes,
-                    reason = "rare use case, efficiency not a concern"
-                )]
-                read_delim_without_rows_from_iter(ranges, r.bytes().take(nbytes))
-            }
-            Self::Mmap(r) => {
-                let p0 = start_pos.u64_to_usize();
-                let p1 = p0 + nbytes;
-                let bytes = r[p0..p1].iter().copied().map(Ok);
-                read_delim_without_rows_from_iter(ranges, bytes)
-            }
-        }
-    }
-
     pub(crate) fn file_len(&self) -> u64 {
         match self {
             Self::Buffered(r) => r.file_len(),
@@ -678,38 +534,30 @@ impl AnyReader {
     }
 
     pub(crate) fn read_bytes(&mut self, start_pos: u64, nbytes: u64) -> io::Result<Cow<'_, [u8]>> {
-        match self {
-            Self::Buffered(r) => {
-                r.seek(io::SeekFrom::Start(start_pos))?;
-                read_exact_owned(r, nbytes).map(Cow::Owned)
-            }
-            Self::Mmap(r) => {
-                // TODO do these need to return OOM errors?
-                let p0 = start_pos.u64_to_usize();
-                let p1 = p0 + nbytes.u64_to_usize();
-                Ok(Cow::Borrowed(&r[p0..p1]))
-            }
-        }
+        self.at_range_(
+            start_pos,
+            nbytes,
+            |r| read_exact_owned(r, nbytes).map(Cow::Owned),
+            |bytes| Ok(Cow::Borrowed(bytes)),
+        )
     }
 
-    pub(crate) fn read_bytes_checked(
-        &mut self,
+    pub(crate) fn read_bytes_checked<'a>(
+        &'a mut self,
         start_pos: u64,
         nbytes: u64,
-    ) -> IOResult<Cow<'_, [u8]>, u64> {
-        match self {
-            Self::Buffered(r) => {
-                r.seek(io::SeekFrom::Start(start_pos))?;
+    ) -> IOResult<Cow<'a, [u8]>, u64> {
+        self.at_pos_(
+            start_pos,
+            |r| {
                 let remaining = r.remaining_bytes();
                 if remaining < nbytes {
                     Err(ImpureError::Pure(remaining))
                 } else {
                     Ok(Cow::Owned(read_exact_owned(r, nbytes)?))
                 }
-            }
-            Self::Mmap(r) => {
-                // TODO do these need to return OOM errors?
-                let p0 = start_pos.u64_to_usize();
+            },
+            |r: &'a _, p0| {
                 let p1 = p0 + nbytes.u64_to_usize();
                 let remaining = r.len() - p0;
                 if remaining < nbytes.u64_to_usize() {
@@ -717,17 +565,17 @@ impl AnyReader {
                 } else {
                     Ok(Cow::Borrowed(&r[p0..p1]))
                 }
-            }
-        }
+            },
+        )
     }
 
     pub(crate) fn read_exact_checked<const LEN: usize>(
         &mut self,
         start_pos: u64,
     ) -> IOResult<[u8; LEN], u64> {
-        match self {
-            Self::Buffered(r) => {
-                r.seek(io::SeekFrom::Start(start_pos))?;
+        self.at_pos_(
+            start_pos,
+            |r| {
                 let remaining = r.remaining_bytes();
                 if remaining.u64_to_usize() < LEN {
                     Err(ImpureError::Pure(remaining))
@@ -736,9 +584,8 @@ impl AnyReader {
                     r.read_exact(&mut buf)?;
                     Ok(buf)
                 }
-            }
-            Self::Mmap(r) => {
-                let p0 = start_pos.u64_to_usize();
+            },
+            |r, p0| {
                 let p1 = p0 + LEN;
                 let remaining = r.len() - p0;
                 if remaining < LEN {
@@ -746,21 +593,114 @@ impl AnyReader {
                 } else {
                     Ok(r[p0..p1].try_into().unwrap())
                 }
-            }
-        }
+            },
+        )
     }
 
     pub(crate) fn next_dataset_boundary(
         &mut self,
         start_pos: u64,
     ) -> io::Result<Option<DatasetOffset>> {
+        self.at_pos_(start_pos, next_dataset_boundary_buffered, |r, p0| {
+            Ok(next_dataset_boundary_mmap(r, p0))
+        })
+    }
+
+    pub(crate) fn with<'a, T, X, E, Fb, Fm>(
+        &'a mut self,
+        inputs: T,
+        mut fbuf: Fb,
+        mut fmap: Fm,
+    ) -> Result<X, E>
+    where
+        Fb: FnMut(&'a mut BufFileReader, T) -> Result<X, E>,
+        Fm: FnMut(&'a Mmap, T) -> Result<X, E>,
+    {
         match self {
-            Self::Buffered(r) => {
-                r.seek(io::SeekFrom::Start(start_pos))?;
-                next_dataset_boundary_buffered(r)
-            }
-            Self::Mmap(r) => Ok(next_dataset_boundary_mmap(r, start_pos.u64_to_usize())),
+            Self::Buffered(r) => fbuf(r, inputs),
+            Self::Mmap(r) => fmap(r, inputs),
         }
+    }
+
+    pub(crate) fn with_<'a, X, E, Fb, Fm>(&'a mut self, mut fbuf: Fb, mut fmap: Fm) -> Result<X, E>
+    where
+        Fb: FnMut(&'a mut BufFileReader) -> Result<X, E>,
+        Fm: FnMut(&'a Mmap) -> Result<X, E>,
+    {
+        self.with((), |r, ()| fbuf(r), |r, ()| fmap(r))
+    }
+
+    pub(crate) fn at_pos<'a, T, X, E, Ei, Fb, Fm>(
+        &'a mut self,
+        inputs: T,
+        start_pos: u64,
+        mut fbuf: Fb,
+        mut fmap: Fm,
+    ) -> Result<X, E>
+    where
+        Fb: FnMut(&'a mut BufFileReader, T) -> Result<X, Ei>,
+        Fm: FnMut(&'a Mmap, usize, T) -> Result<X, Ei>,
+        E: From<Ei> + From<io::Error>,
+    {
+        self.with(
+            inputs,
+            |r, inputs_| {
+                r.seek(SeekFrom::Start(start_pos))?;
+                Ok(fbuf(r, inputs_)?)
+            },
+            |r, inputs_| {
+                let p0 = start_pos.u64_to_usize();
+                Ok(fmap(r, p0, inputs_)?)
+            },
+        )
+    }
+
+    pub(crate) fn at_pos_<'a, X, E, Ei, Fb, Fm>(
+        &'a mut self,
+        start_pos: u64,
+        mut fbuf: Fb,
+        mut fmap: Fm,
+    ) -> Result<X, E>
+    where
+        Fb: FnMut(&'a mut BufFileReader) -> Result<X, Ei>,
+        Fm: FnMut(&'a Mmap, usize) -> Result<X, Ei>,
+        E: From<Ei> + From<io::Error>,
+    {
+        self.at_pos((), start_pos, |r, ()| fbuf(r), |r, p0, ()| fmap(r, p0))
+    }
+
+    pub(crate) fn at_range<'a, T, X, E, Ei, Fb, Fm>(
+        &'a mut self,
+        inputs: T,
+        start_pos: u64,
+        nbytes: u64,
+        fbuf: Fb,
+        mut fmap: Fm,
+    ) -> Result<X, E>
+    where
+        Fb: FnMut(&'a mut BufFileReader, T) -> Result<X, Ei>,
+        Fm: FnMut(&'a [u8], T) -> Result<X, Ei>,
+        E: From<Ei> + From<io::Error>,
+    {
+        self.at_pos(inputs, start_pos, fbuf, |r, p0, inputs_| {
+            let p1 = p0 + nbytes.u64_to_usize();
+            fmap(&r[p0..p1], inputs_)
+        })
+    }
+
+    pub(crate) fn at_range_<'a, X, E, Ei, Fb, Fm>(
+        &'a mut self,
+        start_pos: u64,
+        nbytes: u64,
+        mut fbuf: Fb,
+        mut fmap: Fm,
+    ) -> Result<X, E>
+    where
+        Fb: FnMut(&'a mut BufFileReader) -> Result<X, Ei>,
+        Fm: FnMut(&'a [u8]) -> Result<X, Ei>,
+        E: From<Ei> + From<io::Error>,
+    {
+        self.at_range((), start_pos, nbytes, |r, ()| fbuf(r), |r, ()| fmap(r))
     }
 }
 

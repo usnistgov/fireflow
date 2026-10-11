@@ -6,6 +6,7 @@ use crate::api::{HeaderAndSuppOffsets, NEStringOrBytes};
 use crate::convert::U64Ext as _;
 use crate::core::{DarkBytes, MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
 use crate::fixed_vec::OneOrTwo;
+use crate::io::AnyReader;
 use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
@@ -1611,6 +1612,14 @@ impl<I, S> Offsets<I, S> {
         }
     }
 
+    /// Read bytes within this segment
+    pub(crate) fn read_contents<'a>(&self, reader: &'a mut AnyReader) -> io::Result<Cow<'a, [u8]>> {
+        reader.with_(
+            |r| self.read_contents_buffered(r).map(Cow::Owned),
+            |r| Ok(Cow::Borrowed(self.read_contents_mmap(r))),
+        )
+    }
+
     /// Read bytes within this segment using [`Read`]
     pub(crate) fn read_contents_buffered<R>(&self, reader: &mut R) -> io::Result<Vec<u8>>
     where
@@ -1764,6 +1773,17 @@ impl<I, S> NonEmptyOffsets<I, S> {
 
     pub(crate) fn abs_end(&self) -> u64 {
         self.inner().dataset_offset.0 + self.end()
+    }
+
+    /// Read bytes within this segment using [`Read`].
+    pub(crate) fn read_contents<'a>(
+        &self,
+        reader: &'a mut AnyReader,
+    ) -> io::Result<Cow<'a, NESlice<u8>>> {
+        reader.with_(
+            |r| self.read_contents_buffered(r).map(Cow::Owned),
+            |r| Ok(Cow::Borrowed(self.read_contents_mmap(r))),
+        )
     }
 
     /// Read bytes within this segment using [`Read`].

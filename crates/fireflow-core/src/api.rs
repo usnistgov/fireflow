@@ -1628,7 +1628,7 @@ impl FlatTEXTOutput {
             return LogResult::new_err(e);
         };
 
-        let ptext_bytes = io_to_log!(reader.inner_mut().read_ne_segment(&ne_ptext_offsets));
+        let ptext_bytes = io_to_log!(ne_ptext_offsets.read_contents(reader.inner_mut()));
         let penc = hconf.use_encoding.choose(ptext_bytes.as_ref().as_slice());
 
         let ptext_ne_slice = ptext_bytes.as_ref();
@@ -1855,7 +1855,7 @@ impl SplitTEXTDiagnostics {
         ParseSupplementalTEXTError,
         (),
     > {
-        let bytes = io_to_log!(reader.read_ne_segment(offsets));
+        let bytes = io_to_log!(offsets.read_contents(reader));
         let enc = conf.use_encoding.choose(bytes.as_ref().as_slice());
         let ne = bytes.as_ref();
         Self::supp_from_bytes(nonstd, delim, ne, enc, conf)

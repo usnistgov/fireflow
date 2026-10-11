@@ -1211,7 +1211,8 @@ fn run() -> AppResult<()> {
 
     let scan_cmd = Command::new(SUBCMD_SCAN)
         .about("Scan FCS file for dataset boundaries")
-        .arg(&input_arg);
+        .arg(&input_arg)
+        .arg(&mmap_arg);
 
     let mut cmd = Command::new("fireflow")
         .about("Read FCS files in standards-compliant manner")
@@ -1366,7 +1367,8 @@ fn run() -> AppResult<()> {
                 offset: DatasetOffset,
             }
             let filepath = get_path(sargs, INPUT_PATH);
-            let bounds = api::fcs_scan_dataset_boundaries(filepath)?;
+            let mmap = get_mmap(sargs);
+            let bounds = api::fcs_scan_dataset_boundaries(filepath, mmap)?;
             let arr: Vec<_> = bounds
                 .into_iter()
                 .map(|(version, offset)| Bounds { version, offset })

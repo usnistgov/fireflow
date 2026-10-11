@@ -704,9 +704,35 @@ impl AnyReader {
     }
 }
 
+pub(crate) fn scan_dataset_boundaries_buffered(
+    reader: &mut BufFileReader,
+) -> io::Result<Vec<(Version, DatasetOffset)>> {
+    let mut bounds = vec![];
+    next_dataset_boundary_buffered_inner(reader, 0, |v, o, _| {
+        bounds.push((v, o));
+    })?;
+    Ok(bounds)
+}
+
 pub(crate) fn next_dataset_boundary_buffered(
     reader: &mut BufFileReader,
 ) -> io::Result<Option<DatasetOffset>> {
+    let mut ret = None;
+    next_dataset_boundary_buffered_inner(reader, reader.pos(), |_, o, flag| {
+        ret = Some(o);
+        *flag = true;
+    })?;
+    Ok(ret)
+}
+
+fn next_dataset_boundary_buffered_inner<F>(
+    reader: &mut BufFileReader,
+    start_pos: u64,
+    mut f: F,
+) -> io::Result<()>
+where
+    F: FnMut(Version, DatasetOffset, &mut bool),
+{
     const OVERLAP_SIZE: usize = BOUNDARY_MATCH_SIZE - 1;
     const BUF_SIZE: u64 = 32000;
 
@@ -714,13 +740,17 @@ pub(crate) fn next_dataset_boundary_buffered(
     // uses a buffered reader. Not clear what method to use. .tuple_windows
     // is probably too slow since it copies each position N-1 times
     let mut buf = vec![];
-    let mut file_offset = reader.pos();
+    let mut file_offset = start_pos;
+    let mut done = false;
     read_to_end_checked(reader, BUF_SIZE, &mut buf)?;
 
     while buf.len() >= BOUNDARY_MATCH_SIZE {
         for w in buf[..].array_windows() {
-            if match_bytes_version(w).is_some() {
-                return Ok(Some(DatasetOffset(file_offset)));
+            if let Some(v) = match_bytes_version(w) {
+                f(v, DatasetOffset(file_offset), &mut done);
+                if done {
+                    break;
+                }
             }
             file_offset += 1;
         }
@@ -731,8 +761,17 @@ pub(crate) fn next_dataset_boundary_buffered(
         let overlap_nbytes = BUF_SIZE - OVERLAP_SIZE.usize_to_u64();
         read_to_end_checked(reader, overlap_nbytes, &mut buf)?;
     }
+    Ok(())
+}
 
-    Ok(None)
+pub(crate) fn scan_dataset_boundaries_mmap(reader: &Mmap) -> Vec<(Version, DatasetOffset)> {
+    let mut bounds = vec![];
+    for (i, w) in reader[..].array_windows().enumerate() {
+        if let Some(v) = match_bytes_version(w) {
+            bounds.push((v, DatasetOffset(i.usize_to_u64())));
+        }
+    }
+    bounds
 }
 
 pub(crate) fn next_dataset_boundary_mmap(
@@ -745,11 +784,10 @@ pub(crate) fn next_dataset_boundary_mmap(
             return Some(DatasetOffset(o));
         }
     }
-
     None
 }
 
-pub(crate) fn match_bytes_version(xs: &[u8; BOUNDARY_MATCH_SIZE]) -> Option<Version> {
+fn match_bytes_version(xs: &[u8; BOUNDARY_MATCH_SIZE]) -> Option<Version> {
     match xs {
         b"FCS2.0    " => Some(Version::FCS2_0),
         b"FCS3.0    " => Some(Version::FCS3_0),
@@ -759,4 +797,4 @@ pub(crate) fn match_bytes_version(xs: &[u8; BOUNDARY_MATCH_SIZE]) -> Option<Vers
     }
 }
 
-pub(crate) const BOUNDARY_MATCH_SIZE: usize = 10;
+const BOUNDARY_MATCH_SIZE: usize = 10;

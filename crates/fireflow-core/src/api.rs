@@ -6,7 +6,7 @@ use crate::config::{
     ReadRepairKeywordsConfig, ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig,
     WriteMultiDatasetConfig,
 };
-use crate::convert::{InstantExt as _, UsizeExt as _};
+use crate::convert::InstantExt as _;
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, AnyStdDatasetFromKeywordsError,
     AnyStdDatasetFromKeywordsWarning, AnyStdTEXTFromKeywordsError, AnyStdTEXTFromKeywordsWarning,
@@ -17,7 +17,9 @@ use crate::core::{
 use crate::data::{DataSchemaDiagnostics, EventOverRangeError};
 use crate::fixed_vec::OneOrTwo;
 use crate::header::{GuessVersionError, Header, HeaderError, KeywordVersionScores};
-use crate::io::{AnyReader, BOUNDARY_MATCH_SIZE, FlatTEXTOutputInner, match_bytes_version};
+use crate::io::{
+    AnyReader, FlatTEXTOutputInner, scan_dataset_boundaries_buffered, scan_dataset_boundaries_mmap,
+};
 use crate::logging::{
     DeferredErrors, DeferredWarningsAndErrors, IOAnonErrorGroup, IOErrorGroup, LogResult,
     ResultExt as _, SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult,
@@ -32,7 +34,7 @@ use crate::segment::read::{
     OffsetsOverlap, OptOffsetsError, OptSegmentKeyError, OriginalOffsets, PairResult,
     PrimaryTextOffsets, ReqOffsetsError, ReqSegmentKeyError, SuppOffsetsOverflow,
     SuppTextOffsetsName, SuppToHeaderOffsetsOverlap, SupplementalTextOffsets, TEXTOffsets,
-    TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap, read_to_end_checked,
+    TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
 };
 use crate::std_index::index::{RawStdKeyIndex, StdLookupTx};
 use crate::text::keywords::{
@@ -75,8 +77,7 @@ use thiserror::Error;
 
 use std::borrow::Cow;
 use std::fmt;
-use std::fs::File;
-use std::io::{self, Read as _};
+use std::io;
 use std::iter;
 use std::mem;
 use std::num::{NonZeroUsize, ParseIntError};
@@ -350,40 +351,14 @@ pub fn fcs_summarize(
 ///
 /// Specifically, this will look for the pattern "FCS2.0|FCS3.0|FCS3.1|FCS3.2"
 /// followed by 4 spaces.
-// TODO memmap this
-pub fn fcs_scan_dataset_boundaries(path: &PathBuf) -> io::Result<Vec<(Version, DatasetOffset)>> {
-    // General strategy:
-    // 1. take overlapping buffers of some size
-    // 2. iterate over all overlapping windows in this buffer
-    // 3. test each window against the version pattern for a match
-    const OVERLAP_SIZE: usize = BOUNDARY_MATCH_SIZE - 1;
-    const BUF_SIZE: u64 = 32000;
-
-    let mut file = File::options().read(true).open(path)?;
-    let mut bounds = vec![];
-    let mut buf = vec![];
-    let mut file_pos = 0;
-    read_to_end_checked(file.by_ref(), BUF_SIZE, &mut buf)?;
-
-    while buf.len() >= BOUNDARY_MATCH_SIZE {
-        for w in buf[..].array_windows() {
-            if let Some(v) = match_bytes_version(w) {
-                bounds.push((v, DatasetOffset(file_pos)));
-            }
-            file_pos += 1;
-        }
-        // Shift the last WINDOW_SIZE - 1 bytes from the end to the front of
-        // the buffer. We don't want the full window size because that would
-        // double-count the last window in the buffer.
-        let mut tmp = [0_u8; OVERLAP_SIZE];
-        tmp.copy_from_slice(&buf[buf.len() - OVERLAP_SIZE..]);
-        buf.clear();
-        buf.extend(tmp);
-        let overlap_nbytes = BUF_SIZE - OVERLAP_SIZE.usize_to_u64();
-        read_to_end_checked(file.by_ref(), overlap_nbytes, &mut buf)?;
-    }
-
-    Ok(bounds)
+pub fn fcs_scan_dataset_boundaries(
+    path: &PathBuf,
+    mmap: bool,
+) -> io::Result<Vec<(Version, DatasetOffset)>> {
+    let mut reader = AnyReader::open(path, mmap)?;
+    reader.with_(scan_dataset_boundaries_buffered, |r| {
+        Ok(scan_dataset_boundaries_mmap(r))
+    })
 }
 
 /// Write multiple FCS datasets (of any version) to a file.

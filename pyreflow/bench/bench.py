@@ -46,11 +46,21 @@ import pyreflow.typing as pft
 
 FIREFLOW = "fireflow"
 FIREFLOW_FIX = "fireflow_fix"
+FIREFLOW_MMAP = "fireflow_mmap"
+FIREFLOW_FIX_MMAP = "fireflow_fix_mmap"
 FCSPARSER = "fcsparser"
 FLOWIO = "flowio"
 FLOWCORE = "flowCore"
 
-LIBRARIES = [FIREFLOW, FIREFLOW_FIX, FCSPARSER, FLOWIO, FLOWCORE]
+LIBRARIES = [
+    FIREFLOW,
+    FIREFLOW_FIX,
+    FIREFLOW_MMAP,
+    FIREFLOW_FIX_MMAP,
+    FCSPARSER,
+    FLOWIO,
+    FLOWCORE,
+]
 
 BENCH_FILES_NAME = "bench_files.tsv"
 
@@ -194,7 +204,10 @@ class FCSParserBenchKey(Enum):
 
 
 type AnyBenchKey = (
-    FlowCoreBenchKey | tuple[FFBenchKey, bool] | FCSParserBenchKey | FlowIOBenchKey
+    FlowCoreBenchKey
+    | tuple[FFBenchKey, bool, bool]
+    | FCSParserBenchKey
+    | FlowIOBenchKey
 )
 
 
@@ -235,6 +248,7 @@ type Range = tuple[Literal["I", "A"], int] | tuple[Literal["F", "D"], Decimal]
 class FFInternalResult(NamedTuple):
     name: str
     scalpel: bool
+    mmap: bool
     total_ns: int
     read_header_ns: int
     read_text_ns: int
@@ -255,7 +269,7 @@ class BenchResult[X]:
 type FCSParserBenchResult = BenchResult[FCSParserBenchKey]
 type FlowIOBenchResult = BenchResult[FlowIOBenchKey]
 type FlowCoreBenchResult = BenchResult[FlowCoreBenchKey]
-type FFBenchResult = BenchResult[tuple[FFBenchKey, bool]]
+type FFBenchResult = BenchResult[tuple[FFBenchKey, bool, bool]]
 
 
 type AnyBenchResult = (
@@ -424,6 +438,7 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
     """A benchmark run for fireflow."""
 
     scalpel: bool
+    mmap: bool
 
     @property
     def tsv_name(self) -> Path:
@@ -485,7 +500,7 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
             value = self.write_data(input_root, scratch_root)
         else:
             assert_never(self.key)
-        return BenchResult(self.name, (self.key, self.scalpel), value)
+        return BenchResult(self.name, (self.key, self.scalpel, self.mmap), value)
 
 
 class FFInternalBenchRun(NamedTuple):
@@ -493,6 +508,7 @@ class FFInternalBenchRun(NamedTuple):
 
     name: str
     scalpel: bool
+    mmap: bool
 
     def fcs_name(self, suffix: str | None = None) -> Path:
         if suffix is not None:
@@ -511,7 +527,7 @@ class FFInternalBenchRun(NamedTuple):
 
         gc.collect()
         start = perf_counter_ns()
-        _, diag = conf.read_std_dataset(target)
+        _, diag = conf.read_std_dataset(target, mmap=self.mmap)
         end = perf_counter_ns()
 
         total = end - start
@@ -524,6 +540,7 @@ class FFInternalBenchRun(NamedTuple):
         ret = FFInternalResult(
             self.name,
             self.scalpel,
+            self.mmap,
             total,
             fd.header_supp.header.read_header_ns,
             fd.read_text_ns,
@@ -1373,9 +1390,10 @@ def ff_runs(
     input_root: Path,
     scratch_root: Path,
     scalpel: bool,
+    mmap: bool,
 ) -> list[FFBenchRun]:
     runs = [
-        FFBenchRun(n, k, scalpel)
+        FFBenchRun(n, k, scalpel, mmap)
         for n in bench_files[BENCH_NAME]
         for k in FFBenchKey
         for _ in range(FF_TRIAL_NUMBER[k])
@@ -1634,8 +1652,8 @@ def run_all_bench(
             *fcsparser_runs(bench_files),
             *flowio_runs(bench_files),
             *flowcore_runs(bench_files, py_to_r, r_to_py),
-            *ff_runs(bench_files, input_root, scratch_root, True),
-            *ff_runs(bench_files, input_root, scratch_root, False),
+            *ff_runs(bench_files, input_root, scratch_root, True, False),
+            *ff_runs(bench_files, input_root, scratch_root, False, False),
         ]
 
         # Warm up all code paths once; also load all files into page cache
@@ -1701,24 +1719,42 @@ def run_all_bench(
         to_df(FlowCoreBenchKey.WRITE_DATA, "w_data", WRITE_DATA_RUNS),
     )
 
-    df_ff_clean = compute_read_write_df(
-        to_df((FFBenchKey.READ_FLAT, False), "r_text", READ_TEXT_RUNS),
-        to_df((FFBenchKey.READ_DATA, False), "r_data", READ_DATA_RUNS),
-        to_df((FFBenchKey.WRITE_TEXT, False), "w_text", WRITE_TEXT_RUNS),
-        to_df((FFBenchKey.WRITE_DATA, False), "w_data", WRITE_DATA_RUNS),
+    df_ff = compute_read_write_df(
+        to_df((FFBenchKey.READ_FLAT, False, False), "r_text", READ_TEXT_RUNS),
+        to_df((FFBenchKey.READ_DATA, False, False), "r_data", READ_DATA_RUNS),
+        to_df((FFBenchKey.WRITE_TEXT, False, False), "w_text", WRITE_TEXT_RUNS),
+        to_df((FFBenchKey.WRITE_DATA, False, False), "w_data", WRITE_DATA_RUNS),
     )
 
     df_ff_fix = compute_read_write_df(
-        to_df((FFBenchKey.READ_FLAT, True), "r_text", READ_TEXT_RUNS),
-        to_df((FFBenchKey.READ_DATA, True), "r_data", READ_DATA_RUNS),
-        to_df((FFBenchKey.WRITE_TEXT, True), "w_text", WRITE_TEXT_RUNS),
-        to_df((FFBenchKey.WRITE_DATA, True), "w_data", WRITE_DATA_RUNS),
+        to_df((FFBenchKey.READ_FLAT, True, False), "r_text", READ_TEXT_RUNS),
+        to_df((FFBenchKey.READ_DATA, True, False), "r_data", READ_DATA_RUNS),
+        to_df((FFBenchKey.WRITE_TEXT, True, False), "w_text", WRITE_TEXT_RUNS),
+        to_df((FFBenchKey.WRITE_DATA, True, False), "w_data", WRITE_DATA_RUNS),
+    )
+
+    df_ff_mmap = compute_read_write_df(
+        to_df((FFBenchKey.READ_FLAT, False, True), "r_text", READ_TEXT_RUNS),
+        to_df((FFBenchKey.READ_DATA, False, True), "r_data", READ_DATA_RUNS),
+        to_df((FFBenchKey.WRITE_TEXT, False, True), "w_text", WRITE_TEXT_RUNS),
+        to_df((FFBenchKey.WRITE_DATA, False, True), "w_data", WRITE_DATA_RUNS),
+    )
+
+    df_ff_fix_mmap = compute_read_write_df(
+        to_df((FFBenchKey.READ_FLAT, True, True), "r_text", READ_TEXT_RUNS),
+        to_df((FFBenchKey.READ_DATA, True, True), "r_data", READ_DATA_RUNS),
+        to_df((FFBenchKey.WRITE_TEXT, True, True), "w_text", WRITE_TEXT_RUNS),
+        to_df((FFBenchKey.WRITE_DATA, True, True), "w_data", WRITE_DATA_RUNS),
     )
 
     df_all = pl.concat(
         [
-            df_ff_clean.select(all_columns).with_columns(library=pl.lit(FIREFLOW)),
+            df_ff.select(all_columns).with_columns(library=pl.lit(FIREFLOW)),
             df_ff_fix.select(all_columns).with_columns(library=pl.lit(FIREFLOW_FIX)),
+            df_ff_mmap.select(all_columns).with_columns(library=pl.lit(FIREFLOW_MMAP)),
+            df_ff_fix_mmap.select(all_columns).with_columns(
+                library=pl.lit(FIREFLOW_FIX_MMAP)
+            ),
             df_flowio.select(all_columns).with_columns(library=pl.lit(FLOWIO)),
             df_fcsparser.select(read_columns)
             .with_columns(pl.lit(None).alias(n) for n in write_columns)
@@ -1740,10 +1776,11 @@ def run_ff_bench(
 
     bench_files = read_bench_files(input_root, names_filter)
     runs = [
-        FFInternalBenchRun(n, s)
+        FFInternalBenchRun(n, s, m)
         for n in bench_files[BENCH_NAME]
         for _ in range(20)
         for s in [True, False]
+        for m in [True, False]
     ]
 
     # warm up code paths and load files into page cache
@@ -1782,9 +1819,13 @@ def run_ff_bench(
             ),
         )
         .with_columns(
-            pl.when(pl.col("scalpel"))
+            pl.when(~pl.col("scalpel") & ~pl.col("mmap"))
+            .then(pl.lit(FIREFLOW))
+            .when(pl.col("scalpel") & ~pl.col("mmap"))
             .then(pl.lit(FIREFLOW_FIX))
-            .otherwise(pl.lit(FIREFLOW))
+            .when(~pl.col("scalpel") & pl.col("mmap"))
+            .then(pl.lit(FIREFLOW_MMAP))
+            .otherwise(pl.lit(FIREFLOW_FIX_MMAP))
             .alias(LIBRARY)
         )
         .drop("scalpel")
@@ -1813,8 +1854,9 @@ def fill_cartesian[X](df: pl.DataFrame, col: str, fill: float | None) -> pl.Data
     )
 
 
-def parser_enum() -> pl.Enum:
-    return pl.Enum(list(reversed(LIBRARIES)))
+def parser_enum(flip: bool = True) -> pl.Enum:
+    xs = reversed(LIBRARIES) if flip else LIBRARIES
+    return pl.Enum(list(xs))
 
 
 def agg_mean_ci(df: pl.DataFrame, col: str) -> pl.DataFrame:
@@ -1860,7 +1902,7 @@ def plot_read_text(df: pl.DataFrame, out_path: Path) -> None:
         )
         + labs(y="TEXT read time (ns/keyword pair)", x="FCS File", fill="Library")
         + coord_flip()
-        + scale_fill_discrete(limits=LIBRARIES)
+        + scale_fill_discrete(limits=[x for x in LIBRARIES if not x.endswith("mmap")])
     )
     read_text_plt.save(out_path)
 
@@ -1898,7 +1940,7 @@ def plot_read_data(
         )
         + labs(y="DATA read time (ns/value)", x="FCS File", fill="Library")
         + coord_flip(ylim=(None, 40))
-        + scale_fill_discrete(limits=LIBRARIES)
+        + scale_fill_discrete(limits=[x for x in LIBRARIES if not x.endswith("mmap")])
     )
     read_text_plt.save(out_path)
 
@@ -1915,7 +1957,7 @@ def plot_read_data(
         )
         + labs(y="DATA read time (ns/value)", x="FCS File", fill="Library")
         + coord_flip(ylim=(None, 10))
-        + scale_fill_discrete(limits=[t for t in LIBRARIES if t != FLOWCORE])
+        + scale_fill_discrete(limits=[x for x in LIBRARIES if not x.endswith("mmap")])
     )
     read_text_plt.save(out_path_no_flowcore)
 
@@ -1950,7 +1992,11 @@ def plot_write_text(df: pl.DataFrame, out_path: Path) -> None:
         + labs(y="TEXT write time (ns/keyword pair)", x="FCS File", fill="Library")
         + coord_flip()
         + scale_fill_discrete(
-            limits=[t for t in LIBRARIES if t not in [FCSPARSER, FIREFLOW_FIX]]
+            limits=[
+                t
+                for t in LIBRARIES
+                if t not in [FCSPARSER, FIREFLOW_FIX] and not t.endswith("mmap")
+            ]
         )
     )
     read_text_plt.save(out_path)
@@ -1988,7 +2034,11 @@ def plot_write_data(df: pl.DataFrame, out_path: Path) -> None:
         + labs(y="DATA write time (ns/value)", x="FCS File", fill="Library")
         + coord_flip()
         + scale_fill_discrete(
-            limits=[t for t in LIBRARIES if t not in [FCSPARSER, FIREFLOW_FIX]]
+            limits=[
+                t
+                for t in LIBRARIES
+                if t not in [FCSPARSER, FIREFLOW_FIX] and not t.endswith("mmap")
+            ]
         )
     )
     read_text_plt.save(out_path)
@@ -2016,6 +2066,7 @@ def plot_fireflow_composition(df: pl.DataFrame, out_path: Path) -> None:
                 READ_CRC_NS: "CRC",
             }
         )
+        .with_columns(pl.col(LIBRARY).cast(parser_enum(False)))
         .unpivot(index=[BENCH_NAME, LIBRARY])
         .group_by([BENCH_NAME, LIBRARY, "variable"])
         .agg((pl.col("value").mean() / 1000000).alias("mean"))
@@ -2033,12 +2084,14 @@ def plot_fireflow_composition(df: pl.DataFrame, out_path: Path) -> None:
         + scale_fill_discrete(limits=["TEXT", "Std", "DATA", "Rng", "CRC"])
         + theme(legend_position="bottom")  # type: ignore
     )
-    plt.save(out_path)  # type: ignore
+    plt.save(out_path, width=6, height=7)  # type: ignore
 
 
 def plot_fireflow_std_overhead(df: pl.DataFrame, out_path: Path) -> None:
     df_agg = agg_mean_ci(
-        df.with_columns((pl.col(READ_ALL_STD_NS) / pl.col(N_KEYWORDS)).alias("rate")),
+        df.with_columns(
+            (pl.col(READ_ALL_STD_NS) / pl.col(N_KEYWORDS)).alias("rate")
+        ).with_columns(pl.col(LIBRARY).cast(parser_enum())),
         "rate",
     )
 
@@ -2053,6 +2106,7 @@ def plot_fireflow_std_overhead(df: pl.DataFrame, out_path: Path) -> None:
             position="dodge",
             width=0.9,
         )
+        + scale_fill_discrete(limits=[x for x in LIBRARIES if x.startswith("fireflow")])
         + labs(y="TEXT Std. Overhead (ns/keyword pair)", x="FCS File")
         + coord_flip()
     )
@@ -2067,7 +2121,7 @@ def plot_fireflow_std_overhead_ratio(df: pl.DataFrame, out_path: Path) -> None:
                 / (pl.col(READ_ALL_STD_NS) + pl.col(READ_TEXT_TOTAL_NS))
                 * 100
             ).alias("frac")
-        ),
+        ).with_columns(pl.col(LIBRARY).cast(parser_enum())),
         "frac",
     )
 
@@ -2082,6 +2136,7 @@ def plot_fireflow_std_overhead_ratio(df: pl.DataFrame, out_path: Path) -> None:
             position="dodge",
             width=0.9,
         )
+        + scale_fill_discrete(limits=[x for x in LIBRARIES if x.startswith("fireflow")])
         + labs(y="TEXT Std. Overhead (% of total TEXT parse time)", x="FCS File")
         + coord_flip()
     )
@@ -2094,7 +2149,7 @@ def plot_fireflow_crc_overhead(df: pl.DataFrame, out_path: Path) -> None:
             (
                 pl.col(READ_CRC_NS) / (pl.col(TEXT_NBYTES) + pl.col(DATA_NBYTES)) * 1024
             ).alias("rate")
-        ),
+        ).with_columns(pl.col(LIBRARY).cast(parser_enum())),
         "rate",
     )
 
@@ -2109,6 +2164,7 @@ def plot_fireflow_crc_overhead(df: pl.DataFrame, out_path: Path) -> None:
             position="dodge",
             width=0.9,
         )
+        + scale_fill_discrete(limits=[x for x in LIBRARIES if x.startswith("fireflow")])
         + labs(y="CRC Overhead (ns/KiB)", x="FCS File")
         + coord_flip()
     )
@@ -2117,7 +2173,9 @@ def plot_fireflow_crc_overhead(df: pl.DataFrame, out_path: Path) -> None:
 
 def plot_fireflow_crc_overhead_ratio(df: pl.DataFrame, out_path: Path) -> None:
     df_agg = agg_mean_ci(
-        df.with_columns((pl.col(READ_CRC_NS) / pl.col(TOTAL_NS) * 100).alias("frac")),
+        df.with_columns(
+            (pl.col(READ_CRC_NS) / pl.col(TOTAL_NS) * 100).alias("frac")
+        ).with_columns(pl.col(LIBRARY).cast(parser_enum())),
         "frac",
     )
 
@@ -2132,6 +2190,7 @@ def plot_fireflow_crc_overhead_ratio(df: pl.DataFrame, out_path: Path) -> None:
             position="dodge",
             width=0.9,
         )
+        + scale_fill_discrete(limits=[x for x in LIBRARIES if x.startswith("fireflow")])
         + labs(y="CRC Overhead (% of total read time)", x="FCS File")
         + coord_flip()
     )
@@ -2142,7 +2201,7 @@ def plot_fireflow_rng_overhead(df: pl.DataFrame, out_path: Path) -> None:
     df_agg = agg_mean_ci(
         df.with_columns(
             (pl.col(CHECK_RANGE_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias("rate")
-        ),
+        ).with_columns(pl.col(LIBRARY).cast(parser_enum())),
         "rate",
     )
 
@@ -2157,6 +2216,7 @@ def plot_fireflow_rng_overhead(df: pl.DataFrame, out_path: Path) -> None:
             position="dodge",
             width=0.9,
         )
+        + scale_fill_discrete(limits=[x for x in LIBRARIES if x.startswith("fireflow")])
         + labs(y="Range Overhead (ns/value)", x="FCS File")
         + coord_flip()
     )
@@ -2167,7 +2227,7 @@ def plot_fireflow_rng_overhead_ratio(df: pl.DataFrame, out_path: Path) -> None:
     df_agg = agg_mean_ci(
         df.with_columns(
             (pl.col(CHECK_RANGE_NS) / pl.col(TOTAL_NS) * 100).alias("frac")
-        ),
+        ).with_columns(pl.col(LIBRARY).cast(parser_enum())),
         "frac",
     )
 
@@ -2182,6 +2242,7 @@ def plot_fireflow_rng_overhead_ratio(df: pl.DataFrame, out_path: Path) -> None:
             position="dodge",
             width=0.9,
         )
+        + scale_fill_discrete(limits=[x for x in LIBRARIES if x.startswith("fireflow")])
         + labs(y="Range Check Overhead (% of total read time)", x="FCS File")
         + coord_flip()
     )

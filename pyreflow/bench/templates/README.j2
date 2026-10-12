@@ -38,7 +38,8 @@ here. See [Appendix A](#a-text--data-read-speed-with-flowcore) for full plot.
 
 In addition to reading and writing files, `fireflow` can parse all keyword
 values in an FCS version-specific manner (standardization), check ranges (not
-just bitmask), and compute the CRC.
+just bitmask), and compute the CRC. It also support memory mapping which may
+increase performance depending on operating system and hardware.
 
 The other libraries cannot do most of these. Therefore the performance of these
 features cannot be compared; however, these are useful for understanding
@@ -46,9 +47,8 @@ features cannot be compared; however, these are useful for understanding
 perform for their applications.
 
 Each of the following was assessed using `fireflow`'s internal execution
-timings. For purposes of uncertainty, these timing were assumed to have such
-small error ranges compared to the execution time that their uncertainty was
-assumed zero.
+timings. For purposes of uncertainty, these timing were assumed to have zero
+uncertainty since their variation is small relative to the total execution time.
 
 ### Read Time Composition
 
@@ -200,7 +200,7 @@ are normalized to the most atomic component of the segment which will scale with
 file size.
 
 Overall, (1) and (2) are assessed by reading/writing *HEADER* (assumed
-negligable) and *TEXT* without *DATA*. (3) and (4) are assessed by subtracting
+negligible) and *TEXT* without *DATA*. (3) and (4) are assessed by subtracting
 the total time from (1) and (2) to the total time required to read/write an
 entire file (*HEADER* + *TEXT* + *DATA*).
 
@@ -228,14 +228,25 @@ then calling `write_dataset` on the resulting object.
 #### fireflow_fix
 
 This was identical to running *fireflow* as described in the previous section
-except the configuration was created with the scalpal preset. Consult
+except the configuration was created with the scalpel preset. Consult
 documentation for details; this will attempt to parse and repair an FCS file on
 the fly. Since all FCS files for this benchmark should be perfect, this setting
 is actually measuring the overhead to check for deviations from the standard.
 
+#### fireflow_mmap
+
+This was identical to running *fireflow* as described previously except that the
+`mmap` argument was passed in addition to the other configuration parameters.
+This will memory-map the file while reading.
+
+#### fireflow_fix_mmap
+
+This combines the settings from the last two sections; it combines parse/repair
+heuristics with file memory-mapping.
+
 #### flowio
 
-(1) was measured by invoking `FlowData` with `only_text=True`. 0
+(1) was measured by invoking `FlowData` with `only_text=True`.
 
 (2) was measured by invoking `FlowData` without any additional options. This is
 followed by calling `as_array(preprocess=False)` on the resulting object. This
@@ -247,7 +258,7 @@ segment as a 1D array.
 setting the `events` attribute to an empty list (`None` doesn't work) and
 calling `write_fcs`.
 
-(4) was measured simiarly to (3) except without zeroing the `events` attribute.
+(4) was measured similarly to (3) except without zeroing the `events` attribute.
 
 #### fcsparser
 
@@ -279,9 +290,9 @@ Measuring `flowCore` required special setup since it required an R subprocess to
 be run from within a Python session.
 
 First, the Python parent process creates two named pipes (one for Python->R, one
-for the reverse). Next, Python forks an R script asynchronously as a deamon
+for the reverse). Next, Python forks an R script asynchronously as a daemon
 subprocess. This script runs a single thread which blocks synchronously on a the
-Python->R named pipe. Upon receiving input, the R loop will dispact to one of
+Python->R named pipe. Upon receiving input, the R loop will dispatch to one of
 the test functions. Upon completion, this function will write its output to the
 second named pipe. The python parent process blocks on the other end and
 continues to the next test after receiving the output. Timing is done with the
@@ -304,7 +315,7 @@ All timings were obtained by calling `fireflow` with `fcs_read_std_dataset`
 which will parse *TEXT* and put it into a standardized data structure before
 reading *DATA*. Additionally, `compute_crc="always"` and `over_range_action =
 "warn"` were passed to force-enable CRC computation and range checking for all
-values. The scalpal preset was used as described above for the `fireflow_fix`
+values. The scalpel preset was used as described above for the `fireflow_fix`
 category.
 
 ### Benchmark Equivalence Check
@@ -361,8 +372,17 @@ In practice, this combination is extremely rare.
 * Optimization Level: {{ff_build_info.opt_level}}
 * Target Features: {{ff_build_info.target_features|replace(",", ", ")|upper}}
 
-NOTE: extensions only matter for range checks since these are vectorized and
-thus will benefit from larger register sizes.
+##### Extension Support
+
+Extensions apply to the following execution paths:
+
+* *TEXT* parsing: the delimiter-finding algorithm is SIMD accelerated using
+  runtime CPU feature detection.
+* Range checking: this is vectorized according to the target features at compile
+  time. In practice, anything higher than SSE2 appears to provide little
+  benefit.
+* CRC computation: This is accelerated using either SSE2 or AVX512 using runtime
+  feature detection.
 
 #### numpy
 
@@ -394,15 +414,18 @@ memory. See [limitations](#limitations).
 
 ### In-Memory Access
 
+This benchmark should be be interpreted as measuring the CPU/memory overhead of
+these libraries independent of disk bandwidth.
+
 #### Read benchmarks
 
-The execution times in this benchmark will only reflect a real user's experience
-(in an absolute sense) if they access a small number of files repeatedly in a
-tight loop. This means that the files are loaded in the page cache which
-eliminates disk IO overhead. This will not be the case when many FCS files are
-read cold from disk and processed once. For many files, disk access will
-bottleneck before parsing (see [Appendix B](#b-comparison-to-disk-throughput) for
-discussion on this).
+Execution times will only reflect a real user's experience (in an absolute
+sense) if they access a small number of files repeatedly in a tight loop. This
+means that the files are loaded in the page cache which eliminates disk IO
+overhead. This will not be the case when many FCS files are read cold from disk
+and processed once. For most hardware, disk access will bottleneck before
+parsing (see [Appendix B](#b-comparison-to-disk-throughput) for discussion on
+this).
 
 This limitation exists because the alternative would require evicting the page
 cache before every read. This either requires triggering

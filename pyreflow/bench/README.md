@@ -3,7 +3,7 @@
 The following are benchmarking results for the `fireflow` library, including
 comparisons with existing FCS parsing tools.
 
-This benchmark was created on Aug 28 2026 20:12 (UTC).
+This benchmark was created on Oct 12 2026 13:41 (UTC).
 
 ## Comparison Results
 
@@ -38,7 +38,8 @@ here. See [Appendix A](#a-text--data-read-speed-with-flowcore) for full plot.
 
 In addition to reading and writing files, `fireflow` can parse all keyword
 values in an FCS version-specific manner (standardization), check ranges (not
-just bitmask), and compute the CRC.
+just bitmask), and compute the CRC. It also support memory mapping which may
+increase performance depending on operating system and hardware.
 
 The other libraries cannot do most of these. Therefore the performance of these
 features cannot be compared; however, these are useful for understanding
@@ -46,9 +47,8 @@ features cannot be compared; however, these are useful for understanding
 perform for their applications.
 
 Each of the following was assessed using `fireflow`'s internal execution
-timings. For purposes of uncertainty, these timing were assumed to have such
-small error ranges compared to the execution time that their uncertainty was
-assumed zero.
+timings. For purposes of uncertainty, these timing were assumed to have zero
+uncertainty since their variation is small relative to the total execution time.
 
 ### Read Time Composition
 
@@ -132,22 +132,22 @@ check](#benchmark-equivalence-check) for more details).
 | name | version | n_rows | n_cols | byteord | datatypes | n_keywords | text_nbytes | data_nbytes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | i32_31_10000x25 | FCS3.1 | 10000 | 25 | 1,2,3,4 | U32 | 229 | 2669 | 1000000 |
-| i32_31_10000x75 | FCS3.1 | 10000 | 75 | 1,2,3,4 | U32 | 679 | 8096 | 3000000 |
-| i32_31_100000x25 | FCS3.1 | 100000 | 25 | 1,2,3,4 | U32 | 229 | 2667 | 10000000 |
-| i32_31_100000x75 | FCS3.1 | 100000 | 75 | 1,2,3,4 | U32 | 679 | 8105 | 30000000 |
-| i32_20_10000x25 | FCS2.0 | 10000 | 25 | 1,2,3,4 | U32 | 204 | 2230 | 1000000 |
-| i32_30_10000x25 | FCS3.0 | 10000 | 25 | 1,2,3,4 | U32 | 204 | 2229 | 1000000 |
-| i32_32_10000x25 | FCS3.0 | 10000 | 25 | 1,2,3,4 | U32 | 204 | 2225 | 1000000 |
+| i32_31_10000x75 | FCS3.1 | 10000 | 75 | 1,2,3,4 | U32 | 679 | 8105 | 3000000 |
+| i32_31_100000x25 | FCS3.1 | 100000 | 25 | 1,2,3,4 | U32 | 229 | 2664 | 10000000 |
+| i32_31_100000x75 | FCS3.1 | 100000 | 75 | 1,2,3,4 | U32 | 679 | 8107 | 30000000 |
+| i32_20_10000x25 | FCS2.0 | 10000 | 25 | 1,2,3,4 | U32 | 204 | 2225 | 1000000 |
+| i32_30_10000x25 | FCS3.0 | 10000 | 25 | 1,2,3,4 | U32 | 204 | 2228 | 1000000 |
+| i32_32_10000x25 | FCS3.0 | 10000 | 25 | 1,2,3,4 | U32 | 204 | 2227 | 1000000 |
 | i32_30_mx_10000x25 | FCS3.0 | 10000 | 25 | 3,4,1,2 | U32 | 204 | 2226 | 1000000 |
 | i32_30_be_10000x25 | FCS3.0 | 10000 | 25 | 4,3,2,1 | U32 | 204 | 2225 | 1000000 |
 | i16_31_10000x25 | FCS3.1 | 10000 | 25 | 1,2,3,4 | U16 | 229 | 2542 | 500000 |
-| i24_31_10000x25 | FCS3.1 | 10000 | 25 | 1,2,3,4 | U24 | 229 | 2615 | 750000 |
-| i64_31_10000x25 | FCS3.1 | 10000 | 25 | 1,2,3,4 | U64 | 229 | 2915 | 2000000 |
+| i24_31_10000x25 | FCS3.1 | 10000 | 25 | 1,2,3,4 | U24 | 229 | 2618 | 750000 |
+| i64_31_10000x25 | FCS3.1 | 10000 | 25 | 1,2,3,4 | U64 | 229 | 2919 | 2000000 |
 | f32_31_10000x25 | FCS3.1 | 10000 | 25 | 1,2,3,4 | F32 | 229 | 2692 | 1000000 |
-| f64_31_10000x25 | FCS3.1 | 10000 | 25 | 1,2,3,4 | F64 | 229 | 2691 | 2000000 |
-| cube_10000x14 | FCS3.1 | 10000 | 14 | 1,2,3,4 | U08,U16,U32 | 130 | 1404 | 290000 |
-| s8_10000x400 | FCS3.2 | 10000 | 400 | 1,2,3,4 | F32,U32 | 4424 | 59158 | 16000000 |
-| mixrand_10000x90 | FCS3.2 | 10000 | 90 | 1,2,3,4 | F32,F64,U08,U16,U32,U64 | 1024 | 12572 | 4050000 |
+| f64_31_10000x25 | FCS3.1 | 10000 | 25 | 1,2,3,4 | F64 | 229 | 2693 | 2000000 |
+| cube_10000x14 | FCS3.1 | 10000 | 14 | 1,2,3,4 | U08,U16,U32 | 130 | 1400 | 290000 |
+| s8_10000x400 | FCS3.2 | 10000 | 400 | 1,2,3,4 | F32,U32 | 4424 | 59162 | 16000000 |
+| mixrand_10000x90 | FCS3.2 | 10000 | 90 | 1,2,3,4 | F32,F64,U08,U16,U32,U64 | 1024 | 12583 | 4050000 |
 
 Descriptions of each file and rationale for why it is included in the testing
 suite:
@@ -252,10 +252,10 @@ number was used across all test FCS files.
 | library | read_text_runs | read_data_runs | write_text_runs | write_data_runs |
 | --- | --- | --- | --- | --- |
 | flowio | 10 | 10 | 10 | 10 |
-| fireflow_fix | 100 | 30 | 100 | 10 |
-| fireflow | 100 | 30 | 100 | 10 |
-| fcsparser | 10 | 10 | None | None |
 | flowCore | 3 | 3 | 3 | 3 |
+| fireflow_fix | 100 | 30 | 100 | 10 |
+| fcsparser | 10 | 10 | None | None |
+| fireflow | 100 | 30 | 100 | 10 |
 
 A given experiment consisted of all combinations of test FCS file, library, and
 target metric repeated N times as given in the above table. Prior to performing
@@ -289,7 +289,7 @@ are normalized to the most atomic component of the segment which will scale with
 file size.
 
 Overall, (1) and (2) are assessed by reading/writing *HEADER* (assumed
-negligable) and *TEXT* without *DATA*. (3) and (4) are assessed by subtracting
+negligible) and *TEXT* without *DATA*. (3) and (4) are assessed by subtracting
 the total time from (1) and (2) to the total time required to read/write an
 entire file (*HEADER* + *TEXT* + *DATA*).
 
@@ -317,14 +317,25 @@ then calling `write_dataset` on the resulting object.
 #### fireflow_fix
 
 This was identical to running *fireflow* as described in the previous section
-except the configuration was created with the scalpal preset. Consult
+except the configuration was created with the scalpel preset. Consult
 documentation for details; this will attempt to parse and repair an FCS file on
 the fly. Since all FCS files for this benchmark should be perfect, this setting
 is actually measuring the overhead to check for deviations from the standard.
 
+#### fireflow_mmap
+
+This was identical to running *fireflow* as described previously except that the
+`mmap` argument was passed in addition to the other configuration parameters.
+This will memory-map the file while reading.
+
+#### fireflow_fix_mmap
+
+This combines the settings from the last two sections; it combines parse/repair
+heuristics with file memory-mapping.
+
 #### flowio
 
-(1) was measured by invoking `FlowData` with `only_text=True`. 0
+(1) was measured by invoking `FlowData` with `only_text=True`.
 
 (2) was measured by invoking `FlowData` without any additional options. This is
 followed by calling `as_array(preprocess=False)` on the resulting object. This
@@ -336,7 +347,7 @@ segment as a 1D array.
 setting the `events` attribute to an empty list (`None` doesn't work) and
 calling `write_fcs`.
 
-(4) was measured simiarly to (3) except without zeroing the `events` attribute.
+(4) was measured similarly to (3) except without zeroing the `events` attribute.
 
 #### fcsparser
 
@@ -368,9 +379,9 @@ Measuring `flowCore` required special setup since it required an R subprocess to
 be run from within a Python session.
 
 First, the Python parent process creates two named pipes (one for Python->R, one
-for the reverse). Next, Python forks an R script asynchronously as a deamon
+for the reverse). Next, Python forks an R script asynchronously as a daemon
 subprocess. This script runs a single thread which blocks synchronously on a the
-Python->R named pipe. Upon receiving input, the R loop will dispact to one of
+Python->R named pipe. Upon receiving input, the R loop will dispatch to one of
 the test functions. Upon completion, this function will write its output to the
 second named pipe. The python parent process blocks on the other end and
 continues to the next test after receiving the output. Timing is done with the
@@ -393,7 +404,7 @@ All timings were obtained by calling `fireflow` with `fcs_read_std_dataset`
 which will parse *TEXT* and put it into a standardized data structure before
 reading *DATA*. Additionally, `compute_crc="always"` and `over_range_action =
 "warn"` were passed to force-enable CRC computation and range checking for all
-values. The scalpal preset was used as described above for the `fireflow_fix`
+values. The scalpel preset was used as described above for the `fireflow_fix`
 category.
 
 ### Benchmark Equivalence Check
@@ -454,22 +465,31 @@ In practice, this combination is extremely rare.
 
 * Python Version: 3.12.14 | packaged by conda-forge | (main, Aug 21 2026, 22:48:28) [GCC 14.4.0]
 * R Version: 4.5.3 (2026-03-11, x86_64-conda-linux-gnu)
-* Linux Kernel: 6.18.46-1-lts
+* Linux Kernel: 6.18.55-1-lts
 
 ### Package and Build Info
 
 #### fireflow
 
-* Commit Hash: 90465deff1459e747fc89b840f5549031d8cca79
-* Build Date: Fri, 28 Aug 2026 18:35:13 +0000
-* Rust Compiler Version: rustc 1.97.1 (8bab26f4f 2026-07-14)
+* Commit Hash: 9440127f97504b7e7044db2ea9ff7de3c848b4c8
+* Build Date: Mon, 21 Sep 2026 02:28:24 +0000
+* Rust Compiler Version: rustc 1.98.1 (48a229cea 2026-09-01)
 * Build Target: x86_64-unknown-linux-gnu
 * Build Is Debug: False
 * Optimization Level: 3
 * Target Features: FXSR, SSE, SSE2
 
-NOTE: extensions only matter for range checks since these are vectorized and
-thus will benefit from larger register sizes.
+##### Extension Support
+
+Extensions apply to the following execution paths:
+
+* *TEXT* parsing: the delimiter-finding algorithm is SIMD accelerated using
+  runtime CPU feature detection.
+* Range checking: this is vectorized according to the target features at compile
+  time. In practice, anything higher than SSE2 appears to provide little
+  benefit.
+* CRC computation: This is accelerated using either SSE2 or AVX512 using runtime
+  feature detection.
 
 #### numpy
 
@@ -501,15 +521,18 @@ memory. See [limitations](#limitations).
 
 ### In-Memory Access
 
+This benchmark should be be interpreted as measuring the CPU/memory overhead of
+these libraries independent of disk bandwidth.
+
 #### Read benchmarks
 
-The execution times in this benchmark will only reflect a real user's experience
-(in an absolute sense) if they access a small number of files repeatedly in a
-tight loop. This means that the files are loaded in the page cache which
-eliminates disk IO overhead. This will not be the case when many FCS files are
-read cold from disk and processed once. For many files, disk access will
-bottleneck before parsing (see [Appendix B](#b-comparison-to-disk-throughput) for
-discussion on this).
+Execution times will only reflect a real user's experience (in an absolute
+sense) if they access a small number of files repeatedly in a tight loop. This
+means that the files are loaded in the page cache which eliminates disk IO
+overhead. This will not be the case when many FCS files are read cold from disk
+and processed once. For most hardware, disk access will bottleneck before
+parsing (see [Appendix B](#b-comparison-to-disk-throughput) for discussion on
+this).
 
 This limitation exists because the alternative would require evicting the page
 cache before every read. This either requires triggering

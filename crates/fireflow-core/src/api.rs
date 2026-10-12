@@ -71,7 +71,6 @@ use derive_more::{Display, From, Into};
 use derive_new::new;
 use hashbrown::HashMap;
 use hashbrown::hash_map::Entry;
-use itertools::Itertools as _;
 use memchr::memchr_iter;
 use thiserror::Error;
 
@@ -2272,8 +2271,7 @@ impl SplitTEXTDiagnostics {
         let parsed: Vec<_> = even_tokens
             .pairs
             .iter()
-            .tuples()
-            .map(|(key, value)| {
+            .map(|[key, value]| {
                 let k = NESlice::try_from_slice(key);
                 let v = NESlice::try_from_slice(value);
                 match (k, v) {
@@ -2375,8 +2373,7 @@ impl SplitTEXTDiagnostics {
         let parsed: Vec<_> = even_tokens
             .pairs
             .iter()
-            .tuples()
-            .map(|(key, value)| {
+            .map(|[key, value]| {
                 let k = NESlice::try_from_slice(key);
                 let v = NESlice::try_from_slice(value);
                 match (k, v) {
@@ -3410,7 +3407,7 @@ enum GuessedEscapeMode {
 #[derive(new)]
 struct EvenTokens<'a, 'b> {
     /// The first tokens that add to an even number.
-    pairs: &'b [&'a [u8]],
+    pairs: &'b [[&'a [u8]; 2]],
     /// The last odd token if it was removed.
     extra_token: Option<&'a NESlice<u8>>,
     /// `true` if number of original tokens was even.
@@ -3507,7 +3504,7 @@ impl GuessedEscapeMode {
         // Only consider the first even number of tokens since both modes should
         // deal with extra crap at the end in the same way
         let tokens = EvenTokens::from_tokens(raw_tokens).pairs;
-        tokens.iter().any(|s| s.is_empty())
+        tokens.as_flattened().iter().any(|s| s.is_empty())
     }
 
     fn test_both_modes(raw_tokens: &NESlice<&[u8]>) -> Self {
@@ -3525,7 +3522,7 @@ impl GuessedEscapeMode {
         // delims (escaped). Also track if we have any empty tokens at all,
         // because if we have none then the choice of mode doesn't matter and
         // we can choose whatever is fastest to maximize performance.
-        for (i, s) in tokens.iter().enumerate() {
+        for (i, s) in tokens.as_flattened().iter().enumerate() {
             // In unescaped mode, even tokens are keys; test if any are blank
             if i & 1 == 0 && s.is_empty() {
                 any_unescaped_blank_keys = true;
@@ -3608,7 +3605,9 @@ impl<'a, 'b> EvenTokens<'a, 'b> {
             even_tokens.len() & 1 == 0,
             "number of tokens should be even"
         );
-        Self::new(even_tokens, extra_token, has_even_tokens)
+        // SAFETY: length is even
+        let pairs = unsafe { even_tokens.as_chunks_unchecked::<2>() };
+        Self::new(pairs, extra_token, has_even_tokens)
     }
 }
 

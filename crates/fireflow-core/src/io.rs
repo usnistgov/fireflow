@@ -17,7 +17,7 @@ use crate::logging::{
     IOAnonErrorGroup, IOErrorGroup, IOResult, ImpureError, LogResult, ResultExt as _,
     WarningsAndIOGroupResult, io_to_log, split_log,
 };
-use crate::segment::read::{AnyAnalysisOffsets, read_exact_owned, read_to_end_checked};
+use crate::segment::read::AnyAnalysisOffsets;
 use crate::validated::buf_file::BufFileReader;
 use crate::validated::read_state::{DatasetOffset, HeaderReader, TEXTReader};
 
@@ -537,7 +537,7 @@ impl AnyReader {
         self.at_range_(
             start_pos,
             nbytes,
-            |r| read_exact_owned(r, nbytes).map(Cow::Owned),
+            |r| r.read_exact_owned(nbytes).map(Cow::Owned),
             |bytes| Ok(Cow::Borrowed(bytes)),
         )
     }
@@ -554,7 +554,7 @@ impl AnyReader {
                 if remaining < nbytes {
                     Err(ImpureError::Pure(remaining))
                 } else {
-                    Ok(Cow::Owned(read_exact_owned(r, nbytes)?))
+                    Ok(Cow::Owned(r.read_exact_owned(nbytes)?))
                 }
             },
             |r: &'a _, p0| {
@@ -742,7 +742,7 @@ where
     let mut buf = vec![];
     let mut file_offset = start_pos;
     let mut done = false;
-    read_to_end_checked(reader, BUF_SIZE, &mut buf)?;
+    reader.read_to_end_checked(BUF_SIZE, &mut buf)?;
 
     while buf.len() >= BOUNDARY_MATCH_SIZE {
         for w in buf[..].array_windows() {
@@ -759,7 +759,7 @@ where
         buf.clear();
         buf.extend(tmp);
         let overlap_nbytes = BUF_SIZE - OVERLAP_SIZE.usize_to_u64();
-        read_to_end_checked(reader, overlap_nbytes, &mut buf)?;
+        reader.read_to_end_checked(overlap_nbytes, &mut buf)?;
     }
     Ok(())
 }

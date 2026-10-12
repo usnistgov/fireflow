@@ -1,4 +1,4 @@
-use crate::convert::UsizeExt as _;
+use crate::convert::{U64Ext as _, UsizeExt as _};
 
 use std::fs::File;
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
@@ -118,5 +118,30 @@ impl BufFileReader {
         } else {
             Ok(n)
         }
+    }
+
+    pub(crate) fn read_exact_owned(&mut self, n: u64) -> io::Result<Vec<u8>> {
+        read_exact_owned(self, n)
+    }
+
+    pub(crate) fn read_to_end_checked(&mut self, n: u64, buf: &mut Vec<u8>) -> io::Result<()> {
+        read_to_end_checked(self, n, buf)
+    }
+}
+
+/// Like [`Read::read_exact`] but returns an owned vector.
+pub(crate) fn read_exact_owned<R: Read>(h: &mut R, n: u64) -> io::Result<Vec<u8>> {
+    let mut buf = Vec::with_capacity(n.u64_to_usize());
+    read_to_end_checked(h, n, &mut buf)?;
+    Ok(buf)
+}
+
+/// Like [`Read::read_to_end`] but checks that we actually read the full amount.
+pub(crate) fn read_to_end_checked<R: Read>(h: &mut R, n: u64, buf: &mut Vec<u8>) -> io::Result<()> {
+    h.take(n).read_to_end(buf)?;
+    if buf.len() == n.u64_to_usize() {
+        Ok(())
+    } else {
+        Err(io::ErrorKind::UnexpectedEof.into())
     }
 }

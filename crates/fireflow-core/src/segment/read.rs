@@ -18,6 +18,7 @@ use crate::text::lookup::{
     ReqValue,
 };
 use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_str_from_bytes};
+use crate::validated::buf_file::read_exact_owned;
 use crate::validated::header_offsets::{
     FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
 };
@@ -2483,25 +2484,6 @@ impl<I> HeaderOrTextOffsets<I> {
             }
             Self::Text { seg, origin } => (seg.into_any(), TEXTOffsetsOrigin::MismatchTEXT(origin)),
         }
-    }
-}
-
-// Misc functions
-
-/// Like [`Read::read_exact`] but returns an owned vector.
-pub(crate) fn read_exact_owned<R: Read>(h: &mut R, n: u64) -> io::Result<Vec<u8>> {
-    let mut buf = Vec::with_capacity(n.u64_to_usize());
-    read_to_end_checked(h, n, &mut buf)?;
-    Ok(buf)
-}
-
-/// Like [`Read::read_to_end`] but checks that we actually read the full amount.
-pub(crate) fn read_to_end_checked<R: Read>(h: &mut R, n: u64, buf: &mut Vec<u8>) -> io::Result<()> {
-    h.take(n).read_to_end(buf)?;
-    if buf.len() == n.u64_to_usize() {
-        Ok(())
-    } else {
-        Err(io::ErrorKind::UnexpectedEof.into())
     }
 }
 

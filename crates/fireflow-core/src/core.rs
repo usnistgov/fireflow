@@ -59,7 +59,7 @@ use crate::segment::read::{
     IsOffsetPair as _, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
     OffsetPairsOverlapError, OffsetsMismatchError, OptOffsetsWithDefaultWarning, OriginalOffsets,
     ReqOffsetsWithDefaultError, ReqOffsetsWithDefaultWarning, TextOffsetsName, TextOffsetsOverflow,
-    TextToHeaderOrSuppOffsetsOverlap, read_to_end_checked,
+    TextToHeaderOrSuppOffsetsOverlap,
 };
 use crate::segment::read::{PrimaryTextOffsets, SupplementalTextOffsets};
 use crate::std_index::index::{
@@ -7520,21 +7520,22 @@ impl IntraSegmentDarkBytes {
             let bytes = match reader.inner_mut() {
                 AnyReader::Buffered(r) => {
                     r.seek(io::SeekFrom::Start(end0))?;
-                    read_to_end_checked(r, nbytes, &mut buf)?;
-                    DarkBytes::try_from_bytes(Cow::Borrowed(&buf[..])).unwrap()
+                    r.read_to_end_checked(nbytes, &mut buf)?;
+                    &buf[..]
                 }
                 AnyReader::Mmap(r) => {
                     let p0 = end0.u64_to_usize();
                     let p1 = p0 + nbytes.u64_to_usize();
-                    DarkBytes::try_from_bytes(Cow::Borrowed(&r.as_ref()[p0..p1])).unwrap()
+                    &r[p0..p1]
                 }
             };
+            let dark_bytes = DarkBytes::try_from_bytes(Cow::Borrowed(bytes)).unwrap();
             let dark = Self {
                 prev: n0,
                 next: n1,
                 start: end0,
                 end: start1,
-                bytes,
+                bytes: dark_bytes,
             };
             ret.push(dark);
             buf.clear();

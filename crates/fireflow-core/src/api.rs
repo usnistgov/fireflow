@@ -3523,17 +3523,14 @@ impl GuessedEscapeMode {
         // because if we have none then the choice of mode doesn't matter and
         // we can choose whatever is fastest to maximize performance.
         for (i, s) in tokens.as_flattened().iter().enumerate() {
+            let is_empty = s.is_empty();
+            any_empty_tokens |= is_empty;
             // In unescaped mode, even tokens are keys; test if any are blank
-            if i & 1 == 0 && s.is_empty() {
-                any_unescaped_blank_keys = true;
-            }
+            any_unescaped_blank_keys |= i & 1 == 0 && is_empty;
             // In escaped mode, record if we encounter two consecutive
             // delimiters (ie a blank token) while in a key.
-            if s.is_empty() {
-                any_empty_tokens = true;
-                if prev_escaped_was_key {
-                    any_escaped_delims_in_keys = true;
-                }
+            if is_empty {
+                any_escaped_delims_in_keys |= prev_escaped_was_key;
             } else {
                 prev_escaped_was_key = !prev_escaped_was_key;
             }

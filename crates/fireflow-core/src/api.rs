@@ -1604,7 +1604,6 @@ impl FlatTEXTOutput {
         };
 
         let ptext_bytes = io_to_log!(ne_ptext_offsets.read_contents(reader.inner_mut()));
-        let penc = hconf.use_encoding.choose(ptext_bytes.as_ref().as_slice());
 
         let ptext_ne_slice = ptext_bytes.as_ref();
         let delim_res = split_first_delim(ptext_ne_slice, hconf)
@@ -1623,7 +1622,7 @@ impl FlatTEXTOutput {
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(delim, bytes)| {
                 let c = conf.as_ref();
-                SplitTEXTDiagnostics::primary_from_bytes(delim, bytes, penc, c)
+                SplitTEXTDiagnostics::primary_from_bytes(delim, bytes, c)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
                     .group()
@@ -1831,7 +1830,13 @@ impl SplitTEXTDiagnostics {
         (),
     > {
         let bytes = io_to_log!(offsets.read_contents(reader));
-        let enc = conf.use_encoding.choose(bytes.as_ref().as_slice());
+        let enc = if delim.is_ascii() {
+            conf.use_encoding.choose(bytes.as_slice())
+        } else {
+            // if delim is not an ASCII character, we can no longer assume TEXT
+            // is entirely Utf8-encoded.
+            Some(Encoding::Single)
+        };
         let ne = bytes.as_ref();
         Self::supp_from_bytes(nonstd, delim, ne, enc, conf)
             .group()
@@ -1842,7 +1847,6 @@ impl SplitTEXTDiagnostics {
     fn primary_from_bytes(
         delim: u8,
         bytes: &[u8],
-        enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<
         (ParsedStdKeywords, ParsedNonStdKeywords, Self),
@@ -1850,6 +1854,13 @@ impl SplitTEXTDiagnostics {
         ParseKeywordsIssue,
         ParseKeywordsIssue,
     > {
+        let enc = if delim.is_ascii() {
+            conf.use_encoding.choose(bytes)
+        } else {
+            // if delim is not an ASCII character, we can no longer assume TEXT
+            // is entirely Utf8-encoded.
+            Some(Encoding::Single)
+        };
         let raw_tokens = Self::split_bytes(delim, bytes);
         let raw_slice = raw_tokens.as_nonempty_slice();
         let mut nonstd = ParsedNonStdKeywords::default();
@@ -1863,7 +1874,7 @@ impl SplitTEXTDiagnostics {
         kws: &mut ParsedNonStdKeywords,
         delim: u8,
         bytes: &NESlice<u8>,
-        enc: Encoding,
+        enc: Option<Encoding>,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<
         (ParsedStdKeywords, Self),
@@ -1903,7 +1914,7 @@ impl SplitTEXTDiagnostics {
         tk: TEXTKind,
         delim: u8,
         raw_tokens: &NESlice<&'_ [u8]>,
-        enc: Encoding,
+        enc: Option<Encoding>,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<
         (ParsedStdKeywords, Self),
@@ -1913,10 +1924,17 @@ impl SplitTEXTDiagnostics {
     > {
         let escaped = GuessedEscapeMode::is_escaped(raw_tokens, conf.delim_escape_mode);
         let trim = conf.trim_value_whitespace.is_trim();
-        let (index, diag) = if escaped {
-            Self::parse_escaped(nonstd, delim, raw_tokens, trim, enc)
+        let (index, diag) = if let Some(e) = enc {
+            if escaped {
+                Self::parse_escaped(nonstd, delim, raw_tokens, trim, e)
+            } else {
+                Self::parse_unescaped(nonstd, delim, raw_tokens, trim, e)
+            }
+        } else if escaped {
+            Self::parse_escaped(nonstd, delim, raw_tokens, trim, Encoding::Utf8)
         } else {
-            Self::parse_unescaped(nonstd, delim, raw_tokens, trim, enc)
+            // SAFETY: we checked that all of TEXT is ASCII
+            unsafe { Self::parse_unescaped_ascii(nonstd, delim, raw_tokens, trim) }
         };
         diag.as_errors(tk, conf).map_ok_value(|()| (index, diag))
     }
@@ -2187,13 +2205,12 @@ impl SplitTEXTDiagnostics {
         }
 
         diag.reserve(&counts);
-
-        nonstd.reserve(&counts);
+        nonstd.reserve(&counts.ascii);
 
         let ((std_index, non_unique_std), (pnonstd_index, non_unique_pnonstd)) =
             if counts.std_owned_kws == 0 && counts.pnonstd_owned_kws == 0 {
-                let mut std = Vec::with_capacity(counts.std_slice_kws);
-                let mut pnonstd = Vec::with_capacity(counts.pnonstd_slice_kws);
+                let mut std = Vec::with_capacity(counts.ascii.std_slice_kws);
+                let mut pnonstd = Vec::with_capacity(counts.ascii.pnonstd_slice_kws);
                 for p in parsed {
                     p.dispatch_slice_only(&mut std, &mut pnonstd, nonstd, &mut diag);
                 }
@@ -2202,9 +2219,9 @@ impl SplitTEXTDiagnostics {
                     RawStdKeyIndex::from_vec(pnonstd),
                 )
             } else {
-                let mut std = Vec::with_capacity(counts.std_slice_kws + counts.std_owned_kws);
+                let mut std = Vec::with_capacity(counts.ascii.std_slice_kws + counts.std_owned_kws);
                 let mut pnonstd =
-                    Vec::with_capacity(counts.pnonstd_slice_kws + counts.pnonstd_owned_kws);
+                    Vec::with_capacity(counts.ascii.pnonstd_slice_kws + counts.pnonstd_owned_kws);
                 for p in parsed {
                     p.dispatch_slice_or_owned(&mut std, &mut pnonstd, nonstd, &mut diag);
                 }
@@ -2226,6 +2243,108 @@ impl SplitTEXTDiagnostics {
         );
 
         (ParsedStdKeywords::new(std_index, pnonstd_index), text_diag)
+    }
+
+    unsafe fn parse_unescaped_ascii(
+        nonstd: &mut ParsedNonStdKeywords,
+        delim: u8,
+        segs: &NESlice<&[u8]>,
+        trim: bool,
+    ) -> (ParsedStdKeywords, Self) {
+        #[derive(Debug)]
+        enum Unescaped<'a> {
+            Keyword(ParsedAsciiKeyword<'a>),
+            EmptyKey(NEVec<u8>),
+            EmptyValue(NEVec<u8>),
+            EmptyPair,
+        }
+
+        let even_tokens = EvenTokens::from_tokens(segs);
+
+        let has_even_delims = !even_tokens.input_was_even;
+
+        let last_odd_token = even_tokens
+            .extra_token
+            .as_ref()
+            .map(|s| s.as_ref().to_vec().into())
+            .unwrap_or_default();
+
+        let parsed: Vec<_> = even_tokens
+            .pairs
+            .iter()
+            .tuples()
+            .map(|(key, value)| {
+                let k = NESlice::try_from_slice(key);
+                let v = NESlice::try_from_slice(value);
+                match (k, v) {
+                    (Some(kk), Some(vv)) => {
+                        // SAFETY: function is marked unsafe
+                        let kw = unsafe { ParsedAsciiKeyword::from_ascii_pair(kk, vv, trim) };
+                        Unescaped::Keyword(kw)
+                    }
+                    (Some(kk), None) => Unescaped::EmptyValue(kk.to_ne_vec()),
+                    (None, Some(vv)) => Unescaped::EmptyKey(vv.to_ne_vec()),
+                    (None, None) => Unescaped::EmptyPair,
+                }
+            })
+            .collect();
+
+        let mut counts = ParsedAsciiKeywordCounts::default();
+        let mut n_empty_keys = 0;
+        let mut n_empty_values = 0;
+        let mut n_empty_pairs = 0;
+
+        for p in &parsed {
+            match p {
+                Unescaped::Keyword(k) => k.count(&mut counts),
+                Unescaped::EmptyKey(_) => n_empty_keys += 1,
+                Unescaped::EmptyValue(_) => n_empty_values += 1,
+                Unescaped::EmptyPair => n_empty_pairs += 1,
+            }
+        }
+
+        let mut diag = SplitTEXTDiagnosticsCommon::default();
+        diag.reserve_ascii(&counts);
+        nonstd.reserve(&counts);
+
+        let mut values_with_blank_keys = Vec::with_capacity(n_empty_keys);
+        let mut keys_with_blank_values = Vec::with_capacity(n_empty_values);
+
+        // We know that there are no escaped delims and no single-byte encoded
+        // strings, therefore all values are slices and we can take the fast
+        // path.
+        let mut std = Vec::with_capacity(counts.std_slice_kws);
+        let mut pnonstd = Vec::with_capacity(counts.pnonstd_slice_kws);
+        for p in parsed {
+            match p {
+                Unescaped::Keyword(k) => {
+                    k.dispatch(&mut std, &mut pnonstd, nonstd, &mut diag);
+                }
+                Unescaped::EmptyKey(k) => values_with_blank_keys.push(k.into()),
+                Unescaped::EmptyValue(v) => keys_with_blank_values.push(v.into()),
+                Unescaped::EmptyPair => (),
+            }
+        }
+        let (std_index, non_unique_std) = RawStdKeyIndex::from_vec(std);
+        let (pnonstd_index, non_unique_pnonstd) = RawStdKeyIndex::from_vec(pnonstd);
+
+        diag.non_unique_std_keywords = non_unique_std;
+        diag.non_unique_pnonstd_keywords = non_unique_pnonstd;
+
+        let inner = SplitTEXTDiagnosticsSpecific::new_unescaped(
+            delim,
+            n_empty_pairs,
+            keys_with_blank_values,
+            values_with_blank_keys,
+            last_odd_token,
+            has_even_delims,
+            false,
+        );
+
+        (
+            ParsedStdKeywords::new(std_index, pnonstd_index),
+            Self::build(inner, diag),
+        )
     }
 
     fn parse_unescaped(
@@ -2287,8 +2406,7 @@ impl SplitTEXTDiagnostics {
 
         let mut diag = SplitTEXTDiagnosticsCommon::default();
         diag.reserve(&counts);
-
-        nonstd.reserve(&counts);
+        nonstd.reserve(&counts.ascii);
 
         let mut values_with_blank_keys = Vec::with_capacity(n_empty_keys);
         let mut keys_with_blank_values = Vec::with_capacity(n_empty_values);
@@ -2296,8 +2414,8 @@ impl SplitTEXTDiagnostics {
         // TODO sloppy optimization, this may not even be worth all that much
         let ((std_index, non_unique_std), (pnonstd_index, non_unique_pnonstd)) =
             if counts.std_owned_kws == 0 && counts.pnonstd_owned_kws == 0 {
-                let mut std = Vec::with_capacity(counts.std_slice_kws);
-                let mut pnonstd = Vec::with_capacity(counts.pnonstd_slice_kws);
+                let mut std = Vec::with_capacity(counts.ascii.std_slice_kws);
+                let mut pnonstd = Vec::with_capacity(counts.ascii.pnonstd_slice_kws);
                 for p in parsed {
                     match p {
                         Unescaped::Keyword(k) => {
@@ -2313,9 +2431,9 @@ impl SplitTEXTDiagnostics {
                     RawStdKeyIndex::from_vec(pnonstd),
                 )
             } else {
-                let mut std = Vec::with_capacity(counts.std_slice_kws + counts.std_owned_kws);
+                let mut std = Vec::with_capacity(counts.ascii.std_slice_kws + counts.std_owned_kws);
                 let mut pnonstd =
-                    Vec::with_capacity(counts.pnonstd_slice_kws + counts.pnonstd_owned_kws);
+                    Vec::with_capacity(counts.ascii.pnonstd_slice_kws + counts.pnonstd_owned_kws);
                 for p in parsed {
                     match p {
                         Unescaped::Keyword(k) => {
@@ -3174,18 +3292,26 @@ struct SplitTEXTDiagnosticsCommon {
 ///
 /// This is used for efficient allocation when parsing TEXT.
 #[derive(Default)]
-struct ParsedKeywordCounts {
+struct ParsedAsciiKeywordCounts {
     std_slice_kws: usize,
-    std_owned_kws: usize,
     pnonstd_slice_kws: usize,
-    pnonstd_owned_kws: usize,
     nonstd_keys: usize,
     pstd_keys: usize,
     trimmed_empty_values: usize,
-    non_utf8_values: usize,
     non_ascii_keys: usize,
-    invalid_pairs: usize,
     trimmed: usize,
+}
+
+/// The number of keywords of various types.
+///
+/// This is used for efficient allocation when parsing TEXT.
+#[derive(Default)]
+struct ParsedKeywordCounts {
+    ascii: ParsedAsciiKeywordCounts,
+    std_owned_kws: usize,
+    pnonstd_owned_kws: usize,
+    non_utf8_values: usize,
+    invalid_pairs: usize,
 }
 
 /// Temporary collection of all keywords which are standard
@@ -3202,28 +3328,37 @@ struct ParsedNonStdKeywords {
     pstd: PseudoStdKeywords,
 }
 
-/// Result of parsing a keyword pair
+/// Result of parsing a keyword pair known to be valid ASCII
 #[derive(Debug)]
-enum ParsedKeyword<'a> {
+enum ParsedAsciiKeyword<'a> {
     /// Valid std key value as a slice
     StdSlice(NonEmptyKeyword<StdKey, &'a NEStr>),
-    /// Valid std key value as owned value (used for values with latin1
-    /// characters and escaped delimiters)
-    StdOwned(NonEmptyKeyword<StdKey, NEString>),
     /// Pseudo-non-std key and value (slice)
     PseudoNonStdSlice(NonEmptyKeyword<PseudoNonStdKey, &'a NEStr>),
-    /// Pseudo-non-std key and value (owned)
-    PseudoNonStdOwned(NonEmptyKeyword<PseudoNonStdKey, NEString>),
     /// Valid non-std key and valid
     NonStd(NonEmptyKeyword<NonStdKey, NEString>),
     /// Pseudo-std key and value
     PseudoStd(NonEmptyKeyword<PseudoStdKey, NEString>),
     /// Key (any type or raw bytes) where value was trimmed to empty whitespace
     TrimmedEmptyValue(KeyOrBytes, NEString),
+    /// Invalid key with valid value
+    ///
+    /// "Non-ascii" in this case means it had non-printable ASCII characters.
+    NonAsciiKey(NonEmptyKeyword<NEVec<u8>, NEString>),
+}
+
+/// Result of parsing a keyword pair
+#[derive(Debug, From)]
+enum ParsedKeyword<'a> {
+    /// Parsed ASCII keyword pair
+    #[from]
+    Ascii(ParsedAsciiKeyword<'a>),
+    /// Valid std key value (owned)
+    StdOwned(NonEmptyKeyword<StdKey, NEString>),
+    /// Pseudo-non-std key and value (owned)
+    PseudoNonStdOwned(NonEmptyKeyword<PseudoNonStdKey, NEString>),
     /// Valid key with invalid value
     NonUtf8Value(AnyKey, NEVec<u8>),
-    /// Invalid key with valid value
-    NonAsciiKey(NonEmptyKeyword<NEVec<u8>, NEString>),
     /// Invalid pair
     BothInvalid(NEVec<u8>, NEVec<u8>),
 }
@@ -3522,34 +3657,36 @@ impl<'a> ParsedKeyword<'a> {
         // optimizing. The convenience of returning owned strings is worth it.
         match (pk, pv) {
             (Ok(AnyKey::Std(k)), ParsedValue::Slice(v, original)) => {
-                Self::StdSlice(NonEmptyKeyword::new(k, v, original))
+                ParsedAsciiKeyword::StdSlice(NonEmptyKeyword::new(k, v, original)).into()
             }
             (Ok(AnyKey::Std(k)), ParsedValue::Owned(v, original)) => {
                 Self::StdOwned(NonEmptyKeyword::new(k, v, original))
             }
             (Ok(AnyKey::PseudoStd(k)), ParsedValue::Slice(v, original)) => {
-                Self::PseudoStd(NonEmptyKeyword::new(k, v.to_owned(), original))
+                ParsedAsciiKeyword::PseudoStd(NonEmptyKeyword::new(k, v.to_owned(), original))
+                    .into()
             }
             (Ok(AnyKey::PseudoStd(k)), ParsedValue::Owned(v, original)) => {
-                Self::PseudoStd(NonEmptyKeyword::new(k, v, original))
+                ParsedAsciiKeyword::PseudoStd(NonEmptyKeyword::new(k, v, original)).into()
             }
             (Ok(AnyKey::NonStd(k)), ParsedValue::Slice(v, original)) => {
-                Self::NonStd(NonEmptyKeyword::new(k, v.to_owned(), original))
+                ParsedAsciiKeyword::NonStd(NonEmptyKeyword::new(k, v.to_owned(), original)).into()
             }
             (Ok(AnyKey::NonStd(k)), ParsedValue::Owned(v, original)) => {
-                Self::NonStd(NonEmptyKeyword::new(k, v, original))
+                ParsedAsciiKeyword::NonStd(NonEmptyKeyword::new(k, v, original)).into()
             }
             (Ok(AnyKey::PseudoNonStd(k)), ParsedValue::Slice(v, original)) => {
-                Self::PseudoNonStdSlice(NonEmptyKeyword::new(k, v, original))
+                ParsedAsciiKeyword::PseudoNonStdSlice(NonEmptyKeyword::new(k, v, original)).into()
             }
             (Ok(AnyKey::PseudoNonStd(k)), ParsedValue::Owned(v, original)) => {
                 Self::PseudoNonStdOwned(NonEmptyKeyword::new(k, v, original))
             }
             (Err(k), ParsedValue::Slice(v, original)) => {
-                Self::NonAsciiKey(NonEmptyKeyword::new(k, v.to_owned(), original))
+                ParsedAsciiKeyword::NonAsciiKey(NonEmptyKeyword::new(k, v.to_owned(), original))
+                    .into()
             }
             (Err(k), ParsedValue::Owned(v, original)) => {
-                Self::NonAsciiKey(NonEmptyKeyword::new(k, v, original))
+                ParsedAsciiKeyword::NonAsciiKey(NonEmptyKeyword::new(k, v, original)).into()
             }
             (Err(k), ParsedValue::Bytes(v)) => Self::BothInvalid(k, v),
             (Ok(k), ParsedValue::Bytes(v)) => Self::NonUtf8Value(k, v),
@@ -3558,7 +3695,7 @@ impl<'a> ParsedKeyword<'a> {
                     Ok(x) => KeyOrBytes::Ascii(x),
                     Err(x) => KeyOrBytes::Bytes(TruncatedNEBytes(x)),
                 };
-                Self::TrimmedEmptyValue(kb, original)
+                ParsedAsciiKeyword::TrimmedEmptyValue(kb, original).into()
             }
         }
     }
@@ -3597,14 +3734,7 @@ impl<'a> ParsedKeyword<'a> {
         F1: FnOnce(NEString) -> V,
     {
         match self {
-            Self::StdSlice(kv) => {
-                if let Some(o) = kv.original {
-                    let k = AnyKey::Std(kv.key);
-                    diag.keys_with_trimmed_values
-                        .push((KeyOrBytes::from(k), o.into()));
-                }
-                std.push((kv.key, f_slice(kv.value)));
-            }
+            Self::Ascii(kv) => kv.dispatch_inner(std, pnonstd, nonstd, diag, f_slice),
             Self::StdOwned(kv) => {
                 if let Some(o) = kv.original {
                     let k = AnyKey::Std(kv.key);
@@ -3613,14 +3743,6 @@ impl<'a> ParsedKeyword<'a> {
                 }
                 std.push((kv.key, f_owned(kv.value)));
             }
-            Self::PseudoNonStdSlice(kv) => {
-                if let Some(o) = kv.original {
-                    let k = AnyKey::PseudoNonStd(kv.key);
-                    diag.keys_with_trimmed_values
-                        .push((KeyOrBytes::from(k), o.into()));
-                }
-                pnonstd.push((kv.key, f_slice(kv.value)));
-            }
             Self::PseudoNonStdOwned(kv) => {
                 if let Some(o) = kv.original {
                     let k = AnyKey::PseudoNonStd(kv.key);
@@ -3628,6 +3750,100 @@ impl<'a> ParsedKeyword<'a> {
                         .push((KeyOrBytes::from(k), o.into()));
                 }
                 pnonstd.push((kv.key, f_owned(kv.value)));
+            }
+            Self::NonUtf8Value(k, v) => diag.keys_with_non_utf8_values.push((k, v.into())),
+            Self::BothInvalid(k, v) => diag.byte_pairs.push((k.into(), v.into())),
+        }
+    }
+
+    fn count(&self, counts: &mut ParsedKeywordCounts) {
+        match self {
+            Self::Ascii(kw) => kw.count(&mut counts.ascii),
+            Self::PseudoNonStdOwned(kv) => {
+                counts.pnonstd_owned_kws += 1;
+                counts.ascii.trimmed += usize::from(kv.original.is_some());
+            }
+            Self::StdOwned(kv) => {
+                counts.std_owned_kws += 1;
+                counts.ascii.trimmed += usize::from(kv.original.is_some());
+            }
+            Self::NonUtf8Value(_, _) => counts.non_utf8_values += 1,
+            Self::BothInvalid(_, _) => counts.invalid_pairs += 1,
+        }
+    }
+}
+
+impl<'a> ParsedAsciiKeyword<'a> {
+    pub(crate) unsafe fn from_ascii_pair(
+        key: &NESlice<u8>,
+        val: &'a NESlice<u8>,
+        trim: bool,
+    ) -> Self {
+        let pk = AnyKey::from_bytes(key);
+        // SAFETY: function is unsafe
+        let pv = unsafe { ParsedAsciiValue::parse_from_ascii(val, trim) };
+        match (pk, pv) {
+            (Ok(AnyKey::Std(k)), ParsedAsciiValue::Slice(v, original)) => {
+                Self::StdSlice(NonEmptyKeyword::new(k, v, original))
+            }
+            (Ok(AnyKey::PseudoStd(k)), ParsedAsciiValue::Slice(v, original)) => {
+                Self::PseudoStd(NonEmptyKeyword::new(k, v.to_owned(), original))
+            }
+            (Ok(AnyKey::NonStd(k)), ParsedAsciiValue::Slice(v, original)) => {
+                Self::NonStd(NonEmptyKeyword::new(k, v.to_owned(), original))
+            }
+            (Ok(AnyKey::PseudoNonStd(k)), ParsedAsciiValue::Slice(v, original)) => {
+                Self::PseudoNonStdSlice(NonEmptyKeyword::new(k, v, original))
+            }
+            (Err(k), ParsedAsciiValue::Slice(v, original)) => {
+                Self::NonAsciiKey(NonEmptyKeyword::new(k, v.to_owned(), original))
+            }
+            (k, ParsedAsciiValue::Empty(original)) => {
+                let kb = match k {
+                    Ok(x) => KeyOrBytes::Ascii(x),
+                    Err(x) => KeyOrBytes::Bytes(TruncatedNEBytes(x)),
+                };
+                Self::TrimmedEmptyValue(kb, original)
+            }
+        }
+    }
+
+    fn dispatch(
+        self,
+        std: &mut Vec<(StdKey, &'a NEStr)>,
+        pnonstd: &mut Vec<(PseudoNonStdKey, &'a NEStr)>,
+        nonstd: &mut ParsedNonStdKeywords,
+        diag: &mut SplitTEXTDiagnosticsCommon,
+    ) {
+        self.dispatch_inner(std, pnonstd, nonstd, diag, |v| v);
+    }
+
+    fn dispatch_inner<F, V>(
+        self,
+        std: &mut Vec<(StdKey, V)>,
+        pnonstd: &mut Vec<(PseudoNonStdKey, V)>,
+        nonstd: &mut ParsedNonStdKeywords,
+        diag: &mut SplitTEXTDiagnosticsCommon,
+        f_slice: F,
+    ) where
+        F: FnOnce(&'a NEStr) -> V,
+    {
+        match self {
+            Self::StdSlice(kv) => {
+                if let Some(o) = kv.original {
+                    let k = AnyKey::Std(kv.key);
+                    diag.keys_with_trimmed_values
+                        .push((KeyOrBytes::from(k), o.into()));
+                }
+                std.push((kv.key, f_slice(kv.value)));
+            }
+            Self::PseudoNonStdSlice(kv) => {
+                if let Some(o) = kv.original {
+                    let k = AnyKey::PseudoNonStd(kv.key);
+                    diag.keys_with_trimmed_values
+                        .push((KeyOrBytes::from(k), o.into()));
+                }
+                pnonstd.push((kv.key, f_slice(kv.value)));
             }
             Self::NonStd(kv) => {
                 if let Some(o) = kv.original {
@@ -3662,7 +3878,6 @@ impl<'a> ParsedKeyword<'a> {
             Self::TrimmedEmptyValue(k, v) => {
                 diag.keys_with_empty_trimmed_values.push((k, v.into()));
             }
-            Self::NonUtf8Value(k, v) => diag.keys_with_non_utf8_values.push((k, v.into())),
             Self::NonAsciiKey(kv) => {
                 if let Some(o) = kv.original {
                     let k = TruncatedNEBytes::from(kv.key.clone());
@@ -3672,11 +3887,10 @@ impl<'a> ParsedKeyword<'a> {
                 diag.values_with_non_ascii_keys
                     .push((kv.key.into(), kv.value.into()));
             }
-            Self::BothInvalid(k, v) => diag.byte_pairs.push((k.into(), v.into())),
         }
     }
 
-    fn count(&self, counts: &mut ParsedKeywordCounts) {
+    fn count(&self, counts: &mut ParsedAsciiKeywordCounts) {
         match self {
             Self::StdSlice(kv) => {
                 counts.std_slice_kws += 1;
@@ -3684,14 +3898,6 @@ impl<'a> ParsedKeyword<'a> {
             }
             Self::PseudoNonStdSlice(kv) => {
                 counts.pnonstd_slice_kws += 1;
-                counts.trimmed += usize::from(kv.original.is_some());
-            }
-            Self::PseudoNonStdOwned(kv) => {
-                counts.pnonstd_owned_kws += 1;
-                counts.trimmed += usize::from(kv.original.is_some());
-            }
-            Self::StdOwned(kv) => {
-                counts.std_owned_kws += 1;
                 counts.trimmed += usize::from(kv.original.is_some());
             }
             Self::NonStd(kv) => {
@@ -3703,15 +3909,13 @@ impl<'a> ParsedKeyword<'a> {
                 counts.trimmed += usize::from(kv.original.is_some());
             }
             Self::TrimmedEmptyValue(_, _) => counts.trimmed_empty_values += 1,
-            Self::NonUtf8Value(_, _) => counts.non_utf8_values += 1,
             Self::NonAsciiKey(_) => counts.non_ascii_keys += 1,
-            Self::BothInvalid(_, _) => counts.invalid_pairs += 1,
         }
     }
 }
 
 impl ParsedNonStdKeywords {
-    fn reserve(&mut self, counts: &ParsedKeywordCounts) {
+    fn reserve(&mut self, counts: &ParsedAsciiKeywordCounts) {
         self.nonstd.reserve(counts.nonstd_keys);
         self.pstd.reserve(counts.pstd_keys);
     }
@@ -3719,14 +3923,53 @@ impl ParsedNonStdKeywords {
 
 impl SplitTEXTDiagnosticsCommon {
     fn reserve(&mut self, counts: &ParsedKeywordCounts) {
+        self.reserve_ascii(&counts.ascii);
         self.keys_with_non_utf8_values
             .reserve(counts.non_utf8_values);
+        self.byte_pairs.reserve(counts.invalid_pairs);
+    }
+
+    fn reserve_ascii(&mut self, counts: &ParsedAsciiKeywordCounts) {
         self.values_with_non_ascii_keys
             .reserve(counts.non_ascii_keys);
-        self.byte_pairs.reserve(counts.invalid_pairs);
         self.keys_with_empty_trimmed_values
             .reserve(counts.trimmed_empty_values);
         self.keys_with_trimmed_values.reserve(counts.trimmed);
+    }
+}
+
+// Implement ascii value parser
+//
+// This is for the fast path case where all of TEXT is validated to be entirely
+// ASCII bytes and there are no escaped delimiters (which will be most FCS
+// files). In these cases, from_utf8 is redundant. We can also keep everything
+// as a slice since there is no need to join delimiters or transmute non-ASCII
+// bytes to Utf8 characters.
+
+/// A parsed value from TEXT
+enum ParsedAsciiValue<'a> {
+    /// The value was non-empty, UTF8, and possibly trimmed.
+    Slice(&'a NEStr, Option<NEString>),
+    /// The value was all whitespace and trimmed to empty.
+    ///
+    /// The inner value is the original.
+    Empty(NEString),
+}
+
+impl<'a> ParsedAsciiValue<'a> {
+    unsafe fn parse_from_ascii(bytes: &'a NESlice<u8>, trim: bool) -> Self {
+        // SAFETY: function is unsafe, caller must check that input is ASCII
+        let v = unsafe { NEStr::from_utf8_unchecked(bytes) };
+        if trim {
+            if let Some(trimmed) = NEStr::try_new(v.trim_ascii()) {
+                let original = (trimmed.ne_len() < v.ne_len()).then(|| v.to_owned());
+                Self::Slice(trimmed, original)
+            } else {
+                Self::Empty(v.to_owned())
+            }
+        } else {
+            Self::Slice(v, None)
+        }
     }
 }
 

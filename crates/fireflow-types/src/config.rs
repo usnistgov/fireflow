@@ -1579,17 +1579,22 @@ impl UseEncoding {
     /// [`Encoding::Single`] will be returned if any bytes have the most
     /// significant bit set to 1.
     #[must_use]
-    pub fn choose(&self, bytes: &[u8]) -> Encoding {
-        match self {
-            Self::Utf8 => Encoding::Utf8,
-            Self::Single => Encoding::Single,
-            Self::Guess => {
-                if str::from_utf8(bytes).is_ok() {
-                    Encoding::Utf8
-                } else {
-                    Encoding::Single
+    pub fn choose(&self, bytes: &[u8]) -> Option<Encoding> {
+        if bytes.is_ascii() {
+            None
+        } else {
+            let enc = match self {
+                Self::Utf8 => Encoding::Utf8,
+                Self::Single => Encoding::Single,
+                Self::Guess => {
+                    if str::from_utf8(bytes).is_ok() {
+                        Encoding::Utf8
+                    } else {
+                        Encoding::Single
+                    }
                 }
-            }
+            };
+            Some(enc)
         }
     }
 }

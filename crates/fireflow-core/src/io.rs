@@ -247,7 +247,7 @@ impl AnyReader {
         let mut warnings = vec![];
         let mut this_reader = self;
         while let Some(dso) = dataset_offset
-            && limit.is_none_or(|x| count <= x)
+            && limit.is_none_or(|x| count < x)
         {
             let res = Self::read_flat_text(this_reader, dso, start_time, conf);
             let succ = split_log!(res);
@@ -266,7 +266,7 @@ impl AnyReader {
                 let n = nd?;
                 (n > 0).then_some(DatasetOffset(dso.0 + n))
             });
-            if count > skip.unwrap_or_default() {
+            if count >= skip.unwrap_or_default() {
                 outputs.push(ret);
             }
             count += 1;

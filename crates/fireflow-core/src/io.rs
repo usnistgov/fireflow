@@ -29,7 +29,9 @@ use fireflow_types::keywords::Version;
 
 use derive_more::AsRef;
 use derive_new::new;
-use memmap2::{Advice, Mmap};
+#[cfg(unix)]
+use memmap2::Advice;
+use memmap2::Mmap;
 
 use std::borrow::Cow;
 use std::fs::File;
@@ -526,6 +528,7 @@ impl AnyReader {
             // the terrible things that may happen if they don't use memory
             // mapping properly.
             let reader = unsafe { Mmap::map(&file)? };
+            #[cfg(unix)]
             reader.advise(Advice::Sequential)?;
             Ok(Self::Mmap(reader))
         } else {

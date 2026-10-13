@@ -855,7 +855,7 @@ pub(crate) trait CommutativeResultIter<T, P, WC, E, EC>:
         WC: Monoid,
         EC: Extend<E> + IntoIterator<Item = E>,
     {
-        let mut left_vs = vec![];
+        let mut left_vs = Vec::with_capacity(self.size_hint().1.unwrap_or_default());
         let mut ws = WC::default();
         let mut error_head = None;
         for x in self.by_ref() {
@@ -913,7 +913,7 @@ pub(crate) trait DeferredIter<T, WC, E, EC>:
         WC: Monoid,
         EC: Extend<E> + IntoIterator<Item = E>,
     {
-        let mut vs = vec![];
+        let mut vs = Vec::with_capacity(self.size_hint().1.unwrap_or_default());
         let mut ws = WC::default();
         let mut error_head = None;
         for x in self.by_ref() {

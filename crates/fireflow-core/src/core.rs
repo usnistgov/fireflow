@@ -28,11 +28,10 @@ use crate::header::{
 };
 use crate::io::AnyReader;
 use crate::logging::{
-    CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
-    DeferredWarningsAndErrors, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, ImpureError,
-    LogResult, ResultExt as _, WarningAndGroupResult, WarningAndIOGroupResult,
-    WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
-    WarningsAndIOGroupResult, io_to_log,
+    DeferredIter as _, DeferredSwitchableError, DeferredWarningsAndErrors, ErrorGroup,
+    ErrorsResult, GroupResult, IOErrorGroup, ImpureError, LogResult, ResultExt as _,
+    WarningAndGroupResult, WarningAndIOGroupResult, WarningOrErrorResult, WarningsAndErrorsResult,
+    WarningsAndGroupResult, WarningsAndIOGroupResult, io_to_log,
 };
 use crate::macros::{assert_eq_msg, def_summary, match_many_to_one};
 use crate::meas::{
@@ -5675,23 +5674,29 @@ where
         V::RootMeta: LookupMetaroot<V::Name>,
         V::Name: LookupShortname,
     {
-        (0..par.0)
-            .map(|n| {
-                let i = n.into();
-                V::Name::lookup_shortname(kws, i, conf.as_ref()).into_semigroup()
-            })
-            .sequence_commutative()
-            .map_ok_value(|mut names| {
-                let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
-                if sconf.dedup_measurement_names.is_set() {
-                    let original = uniquify_names(&mut names[..]);
-                    (names, original)
-                } else {
-                    let mut original = vec![];
-                    original.resize_with(names.len(), || None);
-                    (names, original)
-                }
-            })
+        let mut names = Vec::with_capacity(par.0);
+        let mut warnings = vec![];
+        let mut errors = vec![];
+        for n in 0..par.0 {
+            let i = n.into();
+            let (w, res) =
+                V::Name::lookup_shortname(kws, i, conf.as_ref()).resolve_commutative(|w| w, |e| e);
+            warnings.extend(w);
+            match res {
+                Ok(name) => names.push(name),
+                Err(e) => errors.push(e),
+            }
+        }
+        let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
+        let (n, o) = if sconf.dedup_measurement_names.is_set() {
+            let original = uniquify_names(&mut names[..]);
+            (names, original)
+        } else {
+            let mut original = vec![];
+            original.resize_with(names.len(), || None);
+            (names, original)
+        };
+        LogResult::new_from_err_iter(errors, (n, o), ()).set_commutative_warnings(warnings)
     }
 
     fn lookup_measurements<C>(
@@ -5707,88 +5712,81 @@ where
         V::Optical: LookupOptical,
         V::Name: Pointed<Shortname>,
     {
-        let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
-        let mut found_time = false;
-
-        let mut match_time_pattern = |i, wrapped| {
-            let res = match V::Name::unwrap(wrapped) {
-                Ok(name) => {
-                    if let Some(tp) = sconf.time_meas_pattern.pattern()
-                        && tp.is_match(name.as_ref())
-                    {
-                        if found_time {
-                            let e = DuplicateTimeNameError(i, name);
-                            Err(LookupMeasurementError::from(e))
-                        } else {
-                            found_time = true;
-                            Ok(Element::Center(name))
-                        }
-                    } else {
-                        Ok(Element::NonCenter(V::Name::wrap(name)))
-                    }
-                }
-                Err(key) => Ok(Element::NonCenter(key)),
-            };
-            res.into_log()
-        };
-
         assert_eq_msg!(names.len(), dts.len(), "datatypes", "names");
 
-        names
-            .into_iter()
-            .zip(dts)
-            .enumerate()
-            .map(|(i, (wrapped, dt))| {
-                let j = i.into();
-                // If $PnN is found, check that it matches the time pattern (if
-                // given). Also check that only zero or one $PnN match the time
-                // pattern, and throw error otherwise.
-                match_time_pattern(j, wrapped)
-                    // Once we checked $PnN, pull all the rest of the
-                    // standardized keywords from the hashtable and collect
-                    // errors. In general, required keywords will trigger an
-                    // error if they are missing and optional keywords will
-                    // trigger a warning. Either can generate an error/warning
-                    // if they fail to be parsed to their type
-                    .and_then_commutative(|key| match key {
-                        Element::Center(name) => Temporal::lookup_temporal(kws, j, conf)
-                            .map_errors(LookupMeasurementError::from)
-                            .map_commutative_warnings(LookupMeasurementWarning::from)
-                            .map_ok_value(|x| Element::Center((name, x))),
-                        Element::NonCenter(k) => {
-                            ScaledOptical::lookup_scaled_optical(kws, j, *dt, conf)
-                                .map_errors(LookupMeasurementError::from)
-                                .map_commutative_warnings(LookupMeasurementWarning::from)
-                                .map_ok_value(|x| Element::NonCenter((k, x)))
+        let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
+
+        let mut meas = Vec::with_capacity(names.len());
+        let mut scale_fixes = Vec::with_capacity(names.len());
+        let mut found_time = false;
+        let mut trimmed = vec![];
+        let mut tmp_opt_pairs = vec![];
+        let mut timestep_added = false;
+
+        let mut warnings = vec![];
+        let mut errors = vec![];
+
+        let mut match_time_pattern = |i, wrapped| match V::Name::unwrap(wrapped) {
+            Ok(name) => {
+                if let Some(tp) = sconf.time_meas_pattern.pattern()
+                    && tp.is_match(name.as_ref())
+                {
+                    if found_time {
+                        Err(DuplicateTimeNameError(i, name))
+                    } else {
+                        found_time = true;
+                        Ok(Element::Center(name))
+                    }
+                } else {
+                    Ok(Element::NonCenter(V::Name::wrap(name)))
+                }
+            }
+            Err(key) => Ok(Element::NonCenter(key)),
+        };
+
+        for (i, (wrapped, dt)) in names.into_iter().zip(dts).enumerate() {
+            let j = i.into();
+            match match_time_pattern(j, wrapped) {
+                Ok(Element::Center(name)) => {
+                    let (ws, res) = Temporal::lookup_temporal(kws, j, conf)
+                        .group::<()>()
+                        .resolve_commutative(|ws| ws, |es| es.errors);
+                    warnings.extend(ws.into_iter().map(LookupMeasurementWarning::from));
+                    match res {
+                        Ok(tdiag) => {
+                            meas.push(Element::Center((name, tdiag.this)));
+                            scale_fixes.push(tdiag.scale.into());
+                            trimmed.extend(tdiag.trimmed);
+                            tmp_opt_pairs.extend(tdiag.tmp_opt_pairs);
+                            timestep_added = timestep_added || tdiag.timestep_added;
                         }
-                    })
-            })
-            .sequence_commutative()
-            .map_ok_value(|xs| {
-                let mut ms = vec![];
-                let mut ds = vec![];
-                let mut trimmed = vec![];
-                let mut tops = vec![];
-                let mut timestep_added = false;
-                for x in xs {
-                    match x {
-                        Element::Center((name, y)) => {
-                            ms.push(Element::Center((name, y.this)));
-                            ds.push(y.scale.into());
-                            trimmed.extend(y.trimmed);
-                            tops.extend(y.tmp_opt_pairs);
-                            timestep_added = timestep_added || y.timestep_added;
-                        }
-                        Element::NonCenter((name, y)) => {
-                            ms.push(Element::NonCenter((name, y.this)));
-                            ds.push(y.scale.into());
-                            trimmed.extend(y.trimmed);
+                        Err(es) => {
+                            errors.extend(es.into_iter().map(LookupMeasurementError::from));
                         }
                     }
                 }
-                let d = MeasurementDiagnostics::new(ds, trimmed, tops, timestep_added);
-                (ms, d)
-            })
+                Ok(Element::NonCenter(k)) => {
+                    let (ws, res) = ScaledOptical::lookup_scaled_optical(kws, j, *dt, conf)
+                        .group::<()>()
+                        .resolve_commutative(|ws| ws, |es| es.errors);
+                    warnings.extend(ws.into_iter().map(LookupMeasurementWarning::from));
+                    match res {
+                        Ok(odiag) => {
+                            meas.push(Element::NonCenter((k, odiag.this)));
+                            scale_fixes.push(odiag.scale.into());
+                            trimmed.extend(odiag.trimmed);
+                        }
+                        Err(es) => {
+                            errors.extend(es.into_iter().map(LookupMeasurementError::from));
+                        }
+                    }
+                }
+                Err(e) => errors.push(LookupMeasurementError::from(e)),
+            }
+        }
+
+        let diag = MeasurementDiagnostics::new(scale_fixes, trimmed, tmp_opt_pairs, timestep_added);
+        LogResult::new_from_err_iter(errors, (meas, diag), ()).set_commutative_warnings(warnings)
     }
 }
 

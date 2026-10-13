@@ -39,13 +39,13 @@ use crate::meas::{
     CoreMeasurements, DatasetSetDataSchemaError, DatasetSetUnnamedMeasAndDataSchemaError,
     InnerOptical2_0, InnerOptical3_0, InnerOptical3_1, InnerOptical3_2, InnerTemporal2_0,
     InnerTemporal3_0, InnerTemporal3_1, InnerTemporal3_2, InsertOpticalError, InsertTemporalError,
-    LookupMeasError, LookupOptical, LookupScaledOpticalError, LookupScaledOpticalWarning,
-    LookupShortname, LookupShortnameError, LookupTemporal, LookupTemporalError,
-    LookupTemporalWarning, MeasConvertError, MeasConvertWarning, MeasMeta, MissingTimeError,
-    NewMeasError, Optical, OpticalFromTemporal, PushOpticalError, PushTemporalError,
-    ReplaceTemporalByIndexError, ReplaceTemporalByNameError, ScaledOptical, SetScalesError,
-    SetScalesSummary, SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError,
-    SetUnnamdMeasurementsAndDataError, SetUnnamedMeasurementsAndDataSchemaError,
+    LookupMeasError, LookupOptical, LookupScaleError, LookupScaledOpticalError,
+    LookupScaledOpticalWarning, LookupShortname, LookupShortnameError, LookupTemporal,
+    LookupTemporalError, LookupTemporalWarning, MeasConvertError, MeasConvertWarning, MeasMeta,
+    MissingTimeError, NewMeasError, Optical, OpticalFromTemporal, PushOpticalError,
+    PushTemporalError, ReplaceTemporalByIndexError, ReplaceTemporalByNameError, ScaledOptical,
+    SetScalesError, SetScalesSummary, SetTemporalByIndexError, SetTemporalByNameError,
+    SetTemporalError, SetUnnamdMeasurementsAndDataError, SetUnnamedMeasurementsAndDataSchemaError,
     SetUnnamedMeasurementsError, SwapOpticalWithTemporal, Temporal, TemporalFromOptical,
     TemporalMaybeToOptical, TemporalsAndOpticalsWithScale2_0, TemporalsAndOpticalsWithScale3_0,
     TemporalsAndOpticalsWithScale3_1, TemporalsAndOpticalsWithScale3_2,
@@ -1656,6 +1656,7 @@ pub enum LookupMeasurementError {
     Optical(LookupScaledOpticalError),
     TimeName(DuplicateTimeNameError),
     Warn(LookupMeasurementWarning),
+    Scale(LookupScaleError),
 }
 
 /// Error when more than one $PnN matches the given time pattern
@@ -5715,6 +5716,7 @@ where
         assert_eq_msg!(names.len(), dts.len(), "datatypes", "names");
 
         let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
+        let dconf: &ReadDataKeywordsConfig = conf.as_ref();
 
         let mut meas = Vec::with_capacity(names.len());
         let mut scale_fixes = Vec::with_capacity(names.len());
@@ -5766,18 +5768,28 @@ where
                     }
                 }
                 Ok(Element::NonCenter(k)) => {
-                    let (ws, res) = ScaledOptical::lookup_scaled_optical(kws, j, *dt, conf)
-                        .group::<()>()
-                        .resolve_commutative(|ws| ws, |es| es.errors);
-                    warnings.extend(ws.into_iter().map(LookupMeasurementWarning::from));
+                    let (res, ws) = ScaledOptical::lookup_scaled_optical(kws, j, *dt, conf);
+                    match dconf.process_optional_failure.is_error() {
+                        Some(true) => {
+                            errors.extend(
+                                ws.into_warnings()
+                                    .map(LookupMeasurementWarning::from)
+                                    .map(LookupMeasurementError::from),
+                            );
+                        }
+                        Some(false) => {
+                            warnings.extend(ws.into_warnings().map(LookupMeasurementWarning::from));
+                        }
+                        None => (),
+                    }
                     match res {
                         Ok(odiag) => {
                             meas.push(Element::NonCenter((k, odiag.this)));
                             scale_fixes.push(odiag.scale.into());
                             trimmed.extend(odiag.trimmed);
                         }
-                        Err(es) => {
-                            errors.extend(es.into_iter().map(LookupMeasurementError::from));
+                        Err(e) => {
+                            errors.push(LookupMeasurementError::from(e));
                         }
                     }
                 }

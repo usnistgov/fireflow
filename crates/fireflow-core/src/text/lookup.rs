@@ -406,6 +406,19 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     //         .map(|x| x.map_or(DiagnosedKeyword::default(), BifunctorOnce::first_into_once))
     // }
 
+    // fn get_or_ignore_opt0(
+    //     kws: &StdLookupTx,
+    //     k: Self::Index,
+    // ) -> (Self::Outer, Option<ParseKeyError<Self::Err, Self>>)
+    // where
+    //     Self: FromStr,
+    // {
+    //     match Self::get_opt(kws, k) {
+    //         Ok(x) => (x, None),
+    //         Err(e) => (Self::Outer::default(), Some(e)),
+    //     }
+    // }
+
     fn get_or_ignore_opt(
         kws: &StdLookupTx,
         k: Self::Index,
@@ -415,6 +428,19 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         Self: FromStr,
     {
         Self::get_opt(kws, k).into_deferred_switchable3(conf.process_optional_failure)
+    }
+
+    fn remove_or_transfer_opt0(
+        kws: &mut StdLookupTx,
+        k: Self::Index,
+        conf: &ReadDataKeywordsConfig,
+    ) -> (Self::Outer, Option<ParseKeyError<Self::Err, Self>>)
+    where
+        Self: FromStr,
+        Self::Index: Copy,
+    {
+        let flag = conf.process_optional_failure;
+        Self::remove_opt0(kws, k, flag)
     }
 
     fn remove_or_transfer_opt(
@@ -428,6 +454,27 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     {
         let flag = conf.process_optional_failure;
         Self::remove_opt(kws, k, flag)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn remove_or_transfer_opt_with0<C>(
+        kws: &mut StdLookupTx,
+        k: Self::Index,
+        data: Self::Payload<'_>,
+        conf: &C,
+    ) -> (
+        Diagnosed<Self::Outer, Self::Diagnostic>,
+        Option<ParseKeyError<Self::Err, Self>>,
+    )
+    where
+        Self: FromStrWith,
+        Self::Index: Copy,
+        Self::Diagnostic: Default,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
+    {
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let flag = rconf.process_optional_failure;
+        Self::remove_opt_with0(kws, k, data, flag, conf.as_ref())
     }
 
     #[allow(clippy::type_complexity)]
@@ -504,6 +551,16 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
     //     Self::get_opt(kws, SpecificKey::new_i1(i.into()))
     // }
 
+    // fn get_or_ignore_meas_opt0(
+    //     std: &StdLookupTx,
+    //     i: Self::Index,
+    // ) -> (Self::Outer, Option<OptKeyError<Self>>)
+    // where
+    //     Self: FromStr,
+    // {
+    //     Self::get_or_ignore_opt0(std, i)
+    // }
+
     fn get_or_ignore_meas_opt(
         std: &StdLookupTx,
         i: Self::Index,
@@ -522,6 +579,18 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         Self::remove_opt_nofail(kws, i)
     }
 
+    fn remove_or_drop_meas_opt0(
+        kws: &mut StdLookupTx,
+        i: Self::Index,
+        conf: &ReadDataKeywordsConfig,
+    ) -> (Self::Outer, Option<OptKeyError<Self>>)
+    where
+        Self: FromStr,
+        Self::Index: Copy,
+    {
+        Self::remove_or_transfer_opt0(kws, i, conf)
+    }
+
     fn remove_or_drop_meas_opt(
         kws: &mut StdLookupTx,
         i: Self::Index,
@@ -532,6 +601,25 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         Self::Index: Copy,
     {
         Self::remove_or_transfer_opt(kws, i, conf)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn remove_or_drop_meas_opt_with0<C>(
+        kws: &mut StdLookupTx,
+        i: Self::Index,
+        data: Self::Payload<'_>,
+        conf: &C,
+    ) -> (
+        Diagnosed<Self::Outer, Self::Diagnostic>,
+        Option<OptStKeyError<Self>>,
+    )
+    where
+        Self: FromStrWith,
+        Self::Index: Copy,
+        Self::Diagnostic: Default,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
+    {
+        Self::remove_or_transfer_opt_with0(kws, i, data, conf)
     }
 
     fn remove_or_drop_meas_opt_with<C>(
@@ -553,6 +641,26 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         Self::remove_or_transfer_opt_with(kws, i, data, conf)
     }
 
+    fn remove_opt0(
+        kws: &mut StdLookupTx,
+        k: Self::Index,
+        flag: ProcessOptionalFailure,
+    ) -> (Self::Outer, Option<ParseKeyError<Self::Err, Self>>)
+    where
+        Self: FromStr,
+    {
+        let action = LookupAction::from_flag(flag);
+        let res = kws.remove_and_parse::<_, _, Self>(&k, |v| match v.parse() {
+            Ok(x) => (None, Ok(x)),
+            Err(e) => (action, Err((e, v.to_owned()))),
+        });
+        match res {
+            Some(Ok(x)) => (Self::Outer::from(x), None),
+            Some(Err((e, v))) => (Self::Outer::default(), Some(ParseKeyError::new1(e, k, v))),
+            None => (Self::Outer::default(), None),
+        }
+    }
+
     fn remove_opt(
         kws: &mut StdLookupTx,
         k: Self::Index,
@@ -570,6 +678,39 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         .map(|x| x.map(Self::Outer::from).unwrap_or_default())
         .map_err(|(e, v)| ParseKeyError::new1(e, k, v))
         .into_deferred_switchable3(flag)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn remove_opt_with0(
+        kws: &mut StdLookupTx,
+        i: Self::Index,
+        data: Self::Payload<'_>,
+        flag: ProcessOptionalFailure,
+        conf: &Self::Config,
+    ) -> (
+        Diagnosed<Self::Outer, Self::Diagnostic>,
+        Option<ParseKeyError<Self::Err, Self>>,
+    )
+    where
+        Self: FromStrWith,
+        Self::Diagnostic: Default,
+    {
+        let action = LookupAction::from_flag(flag);
+        let res =
+            kws.remove_and_parse::<_, _, Self>(&i, |v| match Self::from_str_with(v, data, conf) {
+                Ok(x) => (None, Ok(x)),
+                Err(e) => (action, Err((e, v.to_owned()))),
+            });
+        match res {
+            Some(Ok(x)) => (x.first_once(Self::Outer::from), None),
+            Some(Err((e, v))) => (Diagnosed::default(), Some(ParseKeyError::new1(e, i, v))),
+            None => (Diagnosed::default(), None),
+        }
+
+        // .transpose()
+        // .map(|x| x.map_or(Diagnosed::default(), |y| y.first_once(Self::Outer::from)))
+        // .map_err(|(e, v)| ParseKeyError::new1(e, i, v))
+        // .into_deferred_switchable3(flag)
     }
 
     #[allow(clippy::type_complexity)]

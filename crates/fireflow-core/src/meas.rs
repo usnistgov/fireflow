@@ -14,10 +14,9 @@ use crate::data::{
 };
 use crate::io::AnyReader;
 use crate::logging::{
-    DeferredError, DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorGroup, ErrorResult,
-    ErrorsResult, LogResult, OptionExt as _, ResultExt as _, SwitchableErrorResult,
-    WarningAndErrorResult, WarningAndErrorsResult, WarningsAndErrorsResult,
-    WarningsAndIOGroupResult,
+    DeferredError, DeferredSwitchableErrors, ErrorGroup, ErrorResult, ErrorsResult, LogResult,
+    OptionExt as _, ResultExt as _, SwitchableErrorResult, WarningAndErrorResult,
+    WarningAndErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult,
 };
 use crate::macros::{assert_eq_msg, def_summary};
 use crate::segment::read::AnyDataOffsets;
@@ -61,7 +60,7 @@ use fireflow_types::keywords::{
 use fireflow_types::ranged_float::PositiveFloat;
 use nonempty::DisplayableNE as _;
 
-use type_families::{ApplyOnce as _, BifunctorOnce as _};
+use type_families::BifunctorOnce as _;
 
 use derive_more::{AsMut, AsRef, Display, From};
 use derive_new::new;
@@ -608,7 +607,6 @@ pub enum LookupScaledOpticalWarning {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupOpticalError {
     New(NewOpticalScaleError),
-    Lookup(ReqStKeyError<Scale>),
     Warn(LookupOpticalWarning),
 }
 
@@ -626,7 +624,7 @@ pub enum LookupOpticalWarning {
     Power(OptKeyError<Power>),
     PercentEmitted(OptKeyError<PercentEmitted>),
     DetectorVoltage(OptKeyError<DetectorVoltage>),
-    Peak(LookupPeakError),
+    Peak(LookupPeakWarning),
 }
 
 /// Error when parsing any optical scale keyword
@@ -635,7 +633,6 @@ pub enum LookupOpticalWarning {
 pub enum LookupScaleError {
     New(NewOpticalScaleError),
     Lookup(ReqStKeyError<Scale>),
-    Warn(LookupScaleWarning),
 }
 
 /// Warning when parsing any optical scale keyword
@@ -678,14 +675,14 @@ pub enum LookupTemporalWarning {
     TemporalGain(LookupTemporalGainError),
     TemporalType(OptKeyError<TemporalType>),
     Display(OptStKeyError<Display>),
-    Peak(LookupPeakError),
+    Peak(LookupPeakWarning),
     Optical(TemporalHasOpticalKeyError),
 }
 
 /// Error when parsing $PKn or $PKNn
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum LookupPeakError {
+pub enum LookupPeakWarning {
     Bin(OptKeyError<PeakBin>),
     Index(OptKeyError<PeakIndex>),
 }
@@ -1808,8 +1805,10 @@ impl LookupShortname for Identity<Shortname> {
 
 // Implement method to look up $PnE/$PnG from a hash table
 
-type LookupOpticalScaleResult<S> =
-    WarningsAndErrorsResult<S, (), LookupScaleWarning, LookupScaleError>;
+type LookupOpticalScaleResult<S> = (
+    Result<Diagnosed<S, OpticalScaleFix>, LookupScaleError>,
+    LookupScaleWarningTable,
+);
 
 pub trait LookupOpticalScale: Sized {
     fn lookup_optical_scale<C>(
@@ -1817,7 +1816,7 @@ pub trait LookupOpticalScale: Sized {
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
-    ) -> LookupOpticalScaleResult<Diagnosed<Self, OpticalScaleFix>>
+    ) -> LookupOpticalScaleResult<Self>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>;
 }
@@ -1828,17 +1827,13 @@ impl LookupOpticalScale for OpticalScale2_0 {
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
-    ) -> LookupOpticalScaleResult<Diagnosed<Self, OpticalScaleFix>>
+    ) -> LookupOpticalScaleResult<Self>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        Scale::remove_or_drop_meas_opt_with(kws, i, dt, conf)
-            .map_switchable_errors(LookupScaleWarning::from)
-            .switchable_into_commutative()
-            .map_errors(LookupScaleError::from)
-            .map_ok_value(|diag| diag.first_once(|x: Option<Scale>| Self(x)))
-            .set_err_value(())
-            .into_semigroup()
+        let (scale, se) = Scale::remove_or_drop_meas_opt_with0(kws, i, dt, conf);
+        let es = LookupScaleWarningTable::new(se, None);
+        (Ok(scale.first_once(Self)), es)
     }
 }
 
@@ -1848,38 +1843,34 @@ impl LookupOpticalScale for OpticalScale3_0 {
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
-    ) -> LookupOpticalScaleResult<Diagnosed<Self, OpticalScaleFix>>
+    ) -> LookupOpticalScaleResult<Self>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let gain = Gain::remove_or_drop_meas_opt(kws, i, conf.as_ref())
-            .map_switchable_errors(LookupScaleWarning::from)
-            .switchable_into_commutative()
-            .map_errors(LookupScaleError::from)
-            .into_semigroup();
-        let scale = Scale::remove_meas_req_with(kws, i, dt, conf.as_ref())
+        let (gain, ge) = Gain::remove_or_drop_meas_opt0(kws, i, conf.as_ref());
+        let res = Scale::remove_meas_req_with(kws, i, dt, conf.as_ref())
             .map_err(LookupScaleError::from)
-            .into_log();
-        gain.zip_commutative(scale).and_then_commutative(|(g, s)| {
-            Self::try_from((s.inner, g))
-                .map(|x| Diagnosed::new(x, s.diagnostic))
-                .map_err(LookupScaleError::from)
-                .into_log()
-        })
+            .and_then(|scale| {
+                Self::try_from((scale.inner, gain))
+                    .map(|x| Diagnosed::new(x, scale.diagnostic))
+                    .map_err(LookupScaleError::from)
+            });
+        (res, LookupScaleWarningTable::new(None, ge))
     }
 }
 
 // Implement method to look up optical keywords from a hash table
 
-type LookupOpticalResult<V> =
-    WarningsAndErrorsResult<V, (), LookupOpticalWarning, LookupOpticalError>;
+type LookupOpticalResult<V> = (DiagnosedOptical<V>, LookupOpticalErrorTable);
+
+type LookupSpecOpticalResult<V> = (DiagnosedOptical<V>, LookupSpecOpticalErrorTable);
 
 pub trait LookupOptical: Sized + OpticalKeywords {
     fn lookup_specific<C>(
         kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupOpticalResult<DiagnosedOptical<Self>>
+    ) -> LookupSpecOpticalResult<Self>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>;
 }
@@ -1889,22 +1880,15 @@ impl LookupOptical for InnerOptical2_0 {
         kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupOpticalResult<DiagnosedOptical<Self>>
+    ) -> LookupSpecOpticalResult<Self>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let wave = Wavelength::remove_or_drop_meas_opt(kws, i, conf.as_ref())
-            .map_switchable_errors(LookupOpticalWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let peak = PeakData::lookup(kws, i, conf.as_ref())
-            .map_warnings_and_errors(LookupOpticalWarning::from);
-        wave.zip_commutative(peak)
-            .map_errors(LookupOpticalError::from)
-            .map_ok_value(|(wi, pi)| {
-                let ret = Self::new(wi, pi);
-                DiagnosedOptical::new(ret, vec![])
-            })
+        let (w, we) = Wavelength::remove_or_drop_meas_opt0(kws, i, conf.as_ref());
+        let (p, pe) = PeakData::lookup(kws, i, conf.as_ref());
+        let ret = Self::new(w, p);
+        let es = LookupSpecOpticalErrorTable::new(we, pe, None, None, None, None, None, None);
+        (DiagnosedOptical::new(ret, vec![]), es)
     }
 }
 
@@ -1913,22 +1897,15 @@ impl LookupOptical for InnerOptical3_0 {
         kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupOpticalResult<DiagnosedOptical<Self>>
+    ) -> LookupSpecOpticalResult<Self>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let wave = Wavelength::remove_or_drop_meas_opt(kws, i, conf.as_ref())
-            .map_switchable_errors(LookupOpticalWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let peak = PeakData::lookup(kws, i, conf.as_ref())
-            .map_warnings_and_errors(LookupOpticalWarning::from);
-        wave.zip_commutative(peak)
-            .map_errors(LookupOpticalError::from)
-            .map_ok_value(|(w, p)| {
-                let ret = Self::new(w, p);
-                DiagnosedOptical::new(ret, vec![])
-            })
+        let (w, we) = Wavelength::remove_or_drop_meas_opt0(kws, i, conf.as_ref());
+        let (p, pe) = PeakData::lookup(kws, i, conf.as_ref());
+        let ret = Self::new(w, p);
+        let es = LookupSpecOpticalErrorTable::new(we, pe, None, None, None, None, None, None);
+        (DiagnosedOptical::new(ret, vec![]), es)
     }
 }
 
@@ -1937,37 +1914,25 @@ impl LookupOptical for InnerOptical3_1 {
         kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupOpticalResult<DiagnosedOptical<Self>>
+    ) -> LookupSpecOpticalResult<Self>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        macro_rules! go {
-            ($x:expr) => {
-                $x.map_switchable_errors(LookupOpticalWarning::from)
-                    .switchable_into_commutative()
-                    .into_semigroup()
-            };
-        }
-        let wave = Wavelengths::remove_or_drop_meas_opt_with(kws, i, (), conf);
-        let cal = Calibration3_1::remove_or_drop_meas_opt_with(kws, i, (), conf);
-        let dpy = Display::remove_or_drop_meas_opt_with(kws, i, (), conf);
-        let peak = PeakData::lookup(kws, i, conf.as_ref())
-            .map_warnings_and_errors(LookupOpticalWarning::from);
-        go!(wave)
-            .zip4_commutative(go!(cal), go!(dpy), peak)
-            .map_errors(LookupOpticalError::from)
-            .map_ok_value(|(w_out, c_out, d_out, p)| {
-                let (w, w_trimmed) = w_out.into_indexed_pair(&i);
-                let (c, c_trimmed) = c_out.into_opt_indexed_pair(&i);
-                let (d, d_trimmed) = d_out.into_opt_indexed_pair(&i);
-                let ret = Self::new(w, c, d, p);
-                let trimmed = w_trimmed
-                    .into_iter()
-                    .chain(c_trimmed)
-                    .chain(d_trimmed)
-                    .collect();
-                DiagnosedOptical::new(ret, trimmed)
-            })
+        let (wdiag, we) = Wavelengths::remove_or_drop_meas_opt_with0(kws, i, (), conf);
+        let (cdiag, ce) = Calibration3_1::remove_or_drop_meas_opt_with0(kws, i, (), conf);
+        let (ddiag, de) = Display::remove_or_drop_meas_opt_with0(kws, i, (), conf);
+        let (peak, pe) = PeakData::lookup(kws, i, conf.as_ref());
+        let (wave, w_trimmed) = wdiag.into_indexed_pair(&i);
+        let (cal, c_trimmed) = cdiag.into_opt_indexed_pair(&i);
+        let (dpy, d_trimmed) = ddiag.into_opt_indexed_pair(&i);
+        let ret = Self::new(wave, cal, dpy, peak);
+        let trimmed = w_trimmed
+            .into_iter()
+            .chain(c_trimmed)
+            .chain(d_trimmed)
+            .collect();
+        let es = LookupSpecOpticalErrorTable::new(None, pe, we, ce, None, de, None, None);
+        (DiagnosedOptical::new(ret, trimmed), es)
     }
 }
 
@@ -1976,43 +1941,32 @@ impl LookupOptical for InnerOptical3_2 {
         kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupOpticalResult<DiagnosedOptical<Self>>
+    ) -> LookupSpecOpticalResult<Self>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        macro_rules! go {
-            ($x:expr) => {
-                $x.map_switchable_errors(LookupOpticalWarning::from)
-                    .switchable_into_commutative()
-                    .map_errors(LookupOpticalError::from)
-                    .into_semigroup()
-            };
-        }
-
-        let wave = Wavelengths::remove_or_drop_meas_opt_with(kws, i, (), conf);
-        let cal = Calibration3_2::remove_or_drop_meas_opt_with(kws, i, (), conf);
-        let dpy = Display::remove_or_drop_meas_opt_with(kws, i, (), conf);
-        let meas = OpticalType::remove_or_drop_meas_opt(kws, i, conf.as_ref());
-        let feat = Feature::remove_or_drop_meas_opt_with(kws, i, (), conf);
+        let (wdiag, we) = Wavelengths::remove_or_drop_meas_opt_with0(kws, i, (), conf);
+        let (cdiag, ce) = Calibration3_2::remove_or_drop_meas_opt_with0(kws, i, (), conf);
+        let (ddiag, de) = Display::remove_or_drop_meas_opt_with0(kws, i, (), conf);
+        let (otype, me) = OpticalType::remove_or_drop_meas_opt0(kws, i, conf.as_ref());
+        let (fdiag, fe) = Feature::remove_or_drop_meas_opt_with0(kws, i, (), conf);
 
         let det_name = DetectorName::remove_meas_opt_nofail(kws, i);
         let tag = Tag::remove_meas_opt_nofail(kws, i);
         let anal = Analyte::remove_meas_opt_nofail(kws, i);
 
-        go!(wave)
-            .zip5_commutative(go!(cal), go!(dpy), go!(meas), go!(feat))
-            .map_ok_value(|(w_out, c_out, d_out, m, f)| {
-                let (w, w_trimmed) = w_out.into_indexed_pair(&i);
-                let (c, c_trimmed) = c_out.into_opt_indexed_pair(&i);
-                let (d, d_trimmed) = d_out.into_opt_indexed_pair(&i);
-                let ret = Self::new(w, c, d, anal, f.inner, m, tag, det_name);
-                let trimmed = c_trimmed
-                    .into_iter()
-                    .chain(w_trimmed)
-                    .chain(d_trimmed)
-                    .collect();
-                DiagnosedOptical::new(ret, trimmed)
-            })
+        let (w, w_trimmed) = wdiag.into_indexed_pair(&i);
+        let (c, c_trimmed) = cdiag.into_opt_indexed_pair(&i);
+        let (d, d_trimmed) = ddiag.into_opt_indexed_pair(&i);
+        let ret = Self::new(w, c, d, anal, fdiag.inner, otype, tag, det_name);
+        let trimmed = c_trimmed
+            .into_iter()
+            .chain(w_trimmed)
+            .chain(d_trimmed)
+            .collect();
+        let pe = PeakDataWarningTable::default();
+        let es = LookupSpecOpticalErrorTable::new(None, pe, we, None, ce, de, me, fe);
+        (DiagnosedOptical::new(ret, trimmed), es)
     }
 }
 
@@ -2053,13 +2007,13 @@ impl LookupTemporal for InnerTemporal2_0 {
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let peak = PeakData::lookup(kws, i, conf.as_ref())
-            .map_warnings_and_errors(LookupTemporalWarning::from);
+        let (peak, _pe) = PeakData::lookup(kws, i, conf.as_ref());
+        // .map_warnings_and_errors(LookupTemporalWarning::from);
         scale
-            .zip3_commutative(peak, tmp_opt_res)
+            .zip_commutative(tmp_opt_res)
             .map_errors(LookupTemporalError::from)
-            .map_ok_value(|(s, p, tmp_opt_pairs)| {
-                let this = Self::new(p);
+            .map_ok_value(|(s, tmp_opt_pairs)| {
+                let this = Self::new(peak);
                 DiagnosedTemporal::new(this, s.diagnostic, vec![], tmp_opt_pairs, false)
             })
     }
@@ -2086,17 +2040,16 @@ impl LookupTemporal for InnerTemporal3_0 {
         let gain = Gain::lookup_temporal_3_0(kws, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
-        let peak = PeakData::lookup(kws, i, conf.as_ref())
-            .map_warnings_and_errors(LookupTemporalWarning::from);
+        let (peak, _pe) = PeakData::lookup(kws, i, conf.as_ref());
         let scale = TemporalScale3_0::remove_meas_req_with(kws, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
         let timestep = Timestep::lookup(kws, conf.as_ref()).map_err(LookupTemporalError::from);
         let req_res = scale.zip(timestep);
-        gain.zip3_commutative(peak, tmp_opt)
+        gain.zip_commutative(tmp_opt)
             .map_errors(LookupTemporalError::from)
             .zip_commutative(req_res)
-            .map_ok_value(|((_, p, tmp_opt_pairs), (s, t))| {
-                let this = Self::new(t.inner, p);
+            .map_ok_value(|((_, tmp_opt_pairs), (s, t))| {
+                let this = Self::new(t.inner, peak);
                 DiagnosedTemporal::new(this, s.diagnostic, vec![], tmp_opt_pairs, t.diagnostic)
             })
     }
@@ -2127,19 +2080,18 @@ impl LookupTemporal for InnerTemporal3_1 {
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let peak = PeakData::lookup(kws, i, conf.as_ref())
-            .map_warnings_and_errors(LookupTemporalWarning::from);
+        let (peak, _pe) = PeakData::lookup(kws, i, conf.as_ref());
         let scale = TemporalScale3_0::remove_meas_req_with(kws, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
         let timestep = Timestep::lookup(kws, conf.as_ref()).map_err(LookupTemporalError::from);
         let req_res = scale.zip(timestep);
-        gain.zip4_commutative(dpy, peak, tmp_opt)
+        gain.zip3_commutative(dpy, tmp_opt)
             .map_errors(LookupTemporalError::from)
             .zip_commutative(req_res)
-            .map_ok_value(|((_, d_out, p, tmp_opt_pairs), (s, t))| {
+            .map_ok_value(|((_, d_out, tmp_opt_pairs), (s, t))| {
                 let (d, d_trimmed) = d_out.into_opt_indexed_pair(&i);
                 let trimmed = d_trimmed.into_iter().collect();
-                let ret = Self::new(t.inner, d, p);
+                let ret = Self::new(t.inner, d, peak);
                 DiagnosedTemporal::new(ret, s.diagnostic, trimmed, tmp_opt_pairs, t.diagnostic)
             })
     }
@@ -2700,26 +2652,22 @@ impl<X, O> ScaledOptical<X, O> {
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
-    ) -> WarningsAndErrorsResult<
-        DiagnosedScaledOptical<Self>,
-        (),
-        LookupScaledOpticalWarning,
-        LookupScaledOpticalError,
-    >
+    ) -> (
+        Result<DiagnosedScaledOptical<Self>, LookupScaleError>,
+        LookupScaledOpticalErrorTable,
+    )
     where
         X: LookupOpticalScale,
         O: LookupOptical,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let s_res = X::lookup_optical_scale(kws, i, dt, conf)
-            .map_errors(LookupScaledOpticalError::from)
-            .map_commutative_warnings(LookupScaledOpticalWarning::from);
-        let o_res = Optical::lookup_optical(kws, i, conf)
-            .map_errors(LookupScaledOpticalError::from)
-            .map_commutative_warnings(LookupScaledOpticalWarning::from);
-        s_res.zip_commutative(o_res).map_ok_value(|(s, o)| {
+        let (s_res, s_ws) = X::lookup_optical_scale(kws, i, dt, conf);
+        let (o, o_ws) = Optical::lookup_optical(kws, i, conf);
+        let res = s_res.map(|s| {
             DiagnosedScaledOptical::new(Self::new(o.this, s.inner), s.diagnostic, o.trimmed)
-        })
+        });
+        let es = LookupScaledOpticalErrorTable::new(s_ws, o_ws);
+        (res, es)
     }
 
     pub(crate) fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>>
@@ -2968,32 +2916,24 @@ impl<O> Optical<O> {
         kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupOpticalResult<DiagnosedOptical<Self>>
+    ) -> LookupOpticalResult<Self>
     where
         O: LookupOptical,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        macro_rules! go {
-            ($x:expr) => {
-                $x.map_switchable_errors(LookupOpticalWarning::from)
-                    .switchable_into_commutative()
-                    .map_errors(LookupOpticalError::from)
-                    .into_semigroup()
-            };
-        }
         let filter = Filter::remove_meas_opt_nofail(kws, i);
-        let power = Power::remove_or_drop_meas_opt(kws, i, conf.as_ref());
+        let (power, pe) = Power::remove_or_drop_meas_opt0(kws, i, conf.as_ref());
         let det_type = DetectorType::remove_meas_opt_nofail(kws, i);
-        let perc_emit = PercentEmitted::remove_or_drop_meas_opt(kws, i, conf.as_ref());
-        let det_volt = DetectorVoltage::remove_or_drop_meas_opt(kws, i, conf.as_ref());
-        let specific = O::lookup_specific(kws, i, conf);
+        let (perc_emit, pee) = PercentEmitted::remove_or_drop_meas_opt0(kws, i, conf.as_ref());
+        let (det_volt, dve) = DetectorVoltage::remove_or_drop_meas_opt0(kws, i, conf.as_ref());
+        let (sdiag, se) = O::lookup_specific(kws, i, conf);
         let common = CommonMeasurement::lookup(kws, i);
-        go!(power)
-            .zip4_commutative(go!(perc_emit), go!(det_volt), specific)
-            .map_ok_value(|(p, e, v, s_out)| {
-                let ret = Self::new(common, filter, p, det_type, e, v, s_out.this);
-                DiagnosedOptical::new(ret, s_out.trimmed)
-            })
+        let ret = Self::new(
+            common, filter, power, det_type, perc_emit, det_volt, sdiag.this,
+        );
+        let diag = DiagnosedOptical::new(ret, sdiag.trimmed);
+        let es = LookupOpticalErrorTable::new(se, pe, pee, dve);
+        (diag, es)
     }
 
     pub(crate) fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = OptOpticalKeyword<'_>>
@@ -4149,6 +4089,112 @@ impl TryFrom<(Scale, Option<Gain>)> for OpticalScale3_0 {
     }
 }
 
+// Implement warning tables for lookup functions
+//
+// This is much faster than using the logging.rs module because all warnings get
+// allocated to the stack and can be converted to higher-level errors easily
+// using an iterator without making lots of intermediate allocations.
+
+#[derive(new)]
+pub(crate) struct LookupScaledOpticalErrorTable {
+    scaled: LookupScaleWarningTable,
+    optical: LookupOpticalErrorTable,
+}
+
+impl LookupScaledOpticalErrorTable {
+    pub(crate) fn into_warnings(self) -> impl Iterator<Item = LookupScaledOpticalWarning> {
+        let s = self
+            .scaled
+            .into_warnings()
+            .map(LookupScaledOpticalWarning::from);
+        let o = self
+            .optical
+            .into_warnings()
+            .map(LookupScaledOpticalWarning::from);
+        s.chain(o)
+    }
+}
+
+#[derive(new)]
+pub struct LookupScaleWarningTable {
+    scale: Option<OptStKeyError<Scale>>,
+    gain: Option<OptKeyError<Gain>>,
+}
+
+impl LookupScaleWarningTable {
+    fn into_warnings(self) -> impl Iterator<Item = LookupScaleWarning> {
+        let scale = self.scale.into_iter().map(LookupScaleWarning::from);
+        let gain = self.gain.into_iter().map(LookupScaleWarning::from);
+        scale.chain(gain)
+    }
+}
+
+#[derive(new)]
+pub(crate) struct LookupOpticalErrorTable {
+    specific: LookupSpecOpticalErrorTable,
+    power: Option<OptKeyError<Power>>,
+    perc_emit: Option<OptKeyError<PercentEmitted>>,
+    det_volt: Option<OptKeyError<DetectorVoltage>>,
+}
+
+impl LookupOpticalErrorTable {
+    fn into_warnings(self) -> impl Iterator<Item = LookupOpticalWarning> {
+        let specific = self.specific.into_warnings();
+        let power = self.power.into_iter().map(LookupOpticalWarning::from);
+        let perc_emit = self.perc_emit.into_iter().map(LookupOpticalWarning::from);
+        let det_volt = self.det_volt.into_iter().map(LookupOpticalWarning::from);
+        specific.chain(power).chain(perc_emit).chain(det_volt)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+#[derive(new)]
+pub struct LookupSpecOpticalErrorTable {
+    wavelength: Option<OptKeyError<Wavelength>>,
+    peak: PeakDataWarningTable,
+    wavelengths: Option<OptStKeyError<Wavelengths>>,
+    cal31: Option<OptStKeyError<Calibration3_1>>,
+    cal32: Option<OptStKeyError<Calibration3_2>>,
+    display: Option<OptStKeyError<Display>>,
+    otype: Option<OptKeyError<OpticalType>>,
+    feature: Option<OptStKeyError<Feature>>,
+}
+
+impl LookupSpecOpticalErrorTable {
+    fn into_warnings(self) -> impl Iterator<Item = LookupOpticalWarning> {
+        let wavelength = self.wavelength.into_iter().map(LookupOpticalWarning::from);
+        let wavelengths = self.wavelengths.into_iter().map(LookupOpticalWarning::from);
+        let cal31 = self.cal31.into_iter().map(LookupOpticalWarning::from);
+        let cal32 = self.cal32.into_iter().map(LookupOpticalWarning::from);
+        let display = self.display.into_iter().map(LookupOpticalWarning::from);
+        let otype = self.otype.into_iter().map(LookupOpticalWarning::from);
+        let feature = self.feature.into_iter().map(LookupOpticalWarning::from);
+        let peak = self.peak.into_warnings().map(LookupOpticalWarning::from);
+        wavelength
+            .chain(wavelengths)
+            .chain(cal31)
+            .chain(cal32)
+            .chain(display)
+            .chain(otype)
+            .chain(feature)
+            .chain(peak)
+    }
+}
+
+#[derive(new, Default)]
+pub(crate) struct PeakDataWarningTable {
+    bin: Option<OptKeyError<PeakBin>>,
+    index: Option<OptKeyError<PeakIndex>>,
+}
+
+impl PeakDataWarningTable {
+    fn into_warnings(self) -> impl Iterator<Item = LookupPeakWarning> {
+        let bin = self.bin.into_iter().map(LookupPeakWarning::from);
+        let index = self.index.into_iter().map(LookupPeakWarning::from);
+        bin.chain(index)
+    }
+}
+
 // Implement methods on misc data structures
 
 impl PeakData {
@@ -4156,16 +4202,10 @@ impl PeakData {
         kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredWarningsAndErrors<Self, LookupPeakError, LookupPeakError> {
-        let b = PeakBin::remove_or_drop_meas_opt(kws, i, conf)
-            .map_switchable_errors(LookupPeakError::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let s = PeakIndex::remove_or_drop_meas_opt(kws, i, conf)
-            .map_switchable_errors(LookupPeakError::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        b.lift_f2_once(s, Self::new)
+    ) -> (Self, PeakDataWarningTable) {
+        let (b, be) = PeakBin::remove_or_drop_meas_opt0(kws, i, conf);
+        let (n, ne) = PeakIndex::remove_or_drop_meas_opt0(kws, i, conf);
+        (Self::new(b, n), PeakDataWarningTable::new(be, ne))
     }
 
     pub(crate) fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = OptPeakKeyword> {

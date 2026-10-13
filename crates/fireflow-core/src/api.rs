@@ -3534,9 +3534,6 @@ impl GuessedEscapeMode {
             } else {
                 prev_escaped_was_key = !prev_escaped_was_key;
             }
-            if any_unescaped_blank_keys && any_escaped_delims_in_keys {
-                break;
-            }
         }
 
         // If there were no empty tokens, it doesn't matter which mode is active

@@ -2421,7 +2421,7 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_2 {
         let modif = ModificationData::lookup(kws, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
         let (ts, te) = Timestamps::lookup(kws, conf);
-        let dt = Datetimes::lookup(kws, conf).map_warnings_and_errors(LookupMetarootWarning::from);
+        let (dt, de) = Datetimes::lookup(kws, conf);
         let agates =
             AppliedGates3_2::lookup(kws, conf).map_warnings_and_errors(LookupMetarootWarning::from);
 
@@ -2432,20 +2432,23 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_2 {
         let es = te
             .into_warnings()
             .map(LookupMetarootWarning::from)
+            .chain(de.into_warnings().map(LookupMetarootWarning::from))
             .chain(me.map(LookupMetarootWarning::from))
             .chain(ue.map(LookupMetarootWarning::from))
             .chain(ve.map(LookupMetarootWarning::from))
             .chain(se.map(LookupMetarootWarning::from));
 
-        dt.zip3_commutative(modif, agates)
+        modif
+            .zip_commutative(agates)
             .map_errors(LookupMetarootError::from)
             .zip_commutative(cyt)
-            .map_ok_value(|((d, md, ag), c)| {
+            .map_ok_value(|((md, ag), c)| {
                 let t = ts.inner;
+                let d = dt.inner;
                 let s = spill.inner;
                 let u = u_out.inner;
                 let ret = Self::new(
-                    mode, t, d.inner, c, s, cytsn, md.inner, plate, vol, carrier, u, flow, ag.inner,
+                    mode, t, d, c, s, cytsn, md.inner, plate, vol, carrier, u, flow, ag.inner,
                 );
                 let trimmed = u_out.diagnostic.into_iter().collect();
                 let diag = MetarootDiagnostics::new(
@@ -2453,7 +2456,7 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_2 {
                     ag.diagnostic,
                     spill.diagnostic,
                     ts.diagnostic,
-                    d.diagnostic,
+                    dt.diagnostic,
                     md.diagnostic,
                 );
                 DiagnosedMetaroot::new(ret, diag)

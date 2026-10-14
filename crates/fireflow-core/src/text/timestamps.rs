@@ -141,7 +141,7 @@ impl<X> Timestamps<X> {
         }
     }
 
-    pub fn try_new_inner(
+    fn try_new_inner(
         btim: Option<Btim<X>>,
         etim: Option<Etim<X>>,
         date: Option<FCSDate>,
@@ -235,7 +235,7 @@ impl<X> Timestamps<X> {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let diag = TimestampsDiagnostics::new(btim.diagnostic, etim.diagnostic, date.diagnostic);
         let (ts, rev_e) = match Self::try_new_inner(btim.inner, etim.inner, date.inner) {
-            Ok(ts) => (Diagnosed::new(ts, diag), None),
+            Ok(ts) => (ts, None),
             Err((old, rev_e)) => {
                 // If creating the new timestamp object failed,
                 // optionally transfer component keys to nonstandard
@@ -246,11 +246,11 @@ impl<X> Timestamps<X> {
                 for k in [bk, ek, dk].into_iter().flatten() {
                     kws.set_failure_flag(&k, flag);
                 }
-                (Diagnosed::new(Self::default(), diag), Some(rev_e))
+                (Self::default(), Some(rev_e))
             }
         };
         let es = LookupTimestampsErrorTable::new(be, ee, de, rev_e);
-        (ts, es)
+        (Diagnosed::new(ts, diag), es)
     }
 
     pub(crate) fn opt_keywords<'a>(&self) -> impl Iterator<Item = OptRootKeyword<'a>>
@@ -544,6 +544,7 @@ pub(crate) struct LookupTimestampsErrorTable<T, E> {
     btim: Option<ParseKeyError_<FCSFixedTimeError<E>, Btim<T>, ()>>,
     etim: Option<ParseKeyError_<FCSFixedTimeError<E>, Etim<T>, ()>>,
     date: Option<OptStKeyError<FCSDate>>,
+    // TODO this is mutually exclusive from the others
     reversed: Option<ReversedTimestampsError>,
 }
 

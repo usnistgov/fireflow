@@ -1,5 +1,5 @@
 use crate::config::EvaledReadStdKeywordsConfig;
-use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
+use crate::logging::{ErrorResult, LogResult};
 use crate::std_index::index::StdLookupTx;
 use crate::text::keyword_enum::{Keyword0FromValue as _, OptRootKeyword};
 use crate::text::keywords::ValueToStdKey as _;
@@ -93,11 +93,27 @@ impl Datetimes {
         end: Option<EndDateTime>,
     ) -> ErrorResult<Self, (Option<BeginDateTime>, Option<EndDateTime>), ReversedDatetimesError>
     {
+        match Self::try_new_inner(begin, end) {
+            Ok(x) => LogResult::new_ok(x),
+            Err((old, rev)) => LogResult::new_err(rev).set_err_value(old),
+        }
+    }
+
+    fn try_new_inner(
+        begin: Option<BeginDateTime>,
+        end: Option<EndDateTime>,
+    ) -> Result<
+        Self,
+        (
+            (Option<BeginDateTime>, Option<EndDateTime>),
+            ReversedDatetimesError,
+        ),
+    > {
         let ret = Self { begin, end };
         if ret.valid() {
-            LogResult::new_ok(ret)
+            Ok(ret)
         } else {
-            LogResult::new_err(ReversedDatetimesError).set_err_value((ret.begin, ret.end))
+            Err(((ret.begin, ret.end), ReversedDatetimesError))
         }
     }
 
@@ -131,12 +147,10 @@ impl Datetimes {
     pub(crate) fn lookup<C>(
         kws: &mut StdLookupTx,
         conf: &C,
-    ) -> WarningsAndErrorsResult<
+    ) -> (
         Diagnosed<Self, DatetimesDiagnostics>,
-        (),
-        LookupDatetimesError,
-        LookupDatetimesError,
-    >
+        LookupDatetimesErrorTable,
+    )
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
@@ -144,16 +158,9 @@ impl Datetimes {
         let (end, ee) = EndDateTime::remove_or_drop_root_opt_with(kws, (), conf);
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let diag = DatetimesDiagnostics::new(begin.diagnostic, end.diagnostic);
-        let es = [
-            be.map(LookupDatetimesError::from),
-            ee.map(LookupDatetimesError::from),
-        ]
-        .into_iter()
-        .flatten();
-        Self::try_new(begin.inner, end.inner)
-            .map_ok_value(|x| Diagnosed::new(x, diag))
-            .map_errors(LookupDatetimesError::from)
-            .map_err_value(|(old_begin, old_end)| {
+        let (ts, rev_e) = match Self::try_new_inner(begin.inner, end.inner) {
+            Ok(x) => (x, None),
+            Err(((old_begin, old_end), rev_e)) => {
                 // If creating the new datetime object failed,
                 // optionally transfer component keys to nonstandard
                 let bk = old_begin.map(|v| v.std0_());
@@ -163,16 +170,11 @@ impl Datetimes {
                 for k in failed_kws {
                     kws.set_failure_flag(&k, flag);
                 }
-            })
-            .into_semigroup()
-            .nowarn_into_warn()
-            .extend_warnings_or_errors3(
-                es,
-                |_| (),
-                |w| w,
-                LookupDatetimesError::from,
-                rconf.process_optional_failure,
-            )
+                (Self::default(), Some(rev_e))
+            }
+        };
+        let es = LookupDatetimesErrorTable::new(be, ee, rev_e);
+        (Diagnosed::new(ts, diag), es)
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
@@ -302,6 +304,23 @@ pub enum LookupDatetimesError {
     Begindatetime(OptStKeyError<BeginDateTime>),
     Enddatetime(OptStKeyError<EndDateTime>),
     Datetime(ReversedDatetimesError),
+}
+
+#[derive(new)]
+pub(crate) struct LookupDatetimesErrorTable {
+    begin: Option<OptStKeyError<BeginDateTime>>,
+    end: Option<OptStKeyError<EndDateTime>>,
+    // TODO this is mutually exclusive from the others
+    reversed: Option<ReversedDatetimesError>,
+}
+
+impl LookupDatetimesErrorTable {
+    pub(crate) fn into_warnings(self) -> impl Iterator<Item = LookupDatetimesError> {
+        let begin = self.begin.into_iter().map(LookupDatetimesError::from);
+        let end = self.end.into_iter().map(LookupDatetimesError::from);
+        let rev = self.reversed.into_iter().map(LookupDatetimesError::from);
+        begin.chain(end).chain(rev)
+    }
 }
 
 #[cfg(test)]

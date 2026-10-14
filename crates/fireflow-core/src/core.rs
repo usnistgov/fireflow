@@ -1676,7 +1676,6 @@ pub struct DuplicateTimeNameError(MeasIndex, Shortname);
 pub enum LookupMeasurementWarning {
     Temporal(LookupTemporalWarning),
     Optical(LookupScaledOpticalWarning),
-    MissingTime(MissingTimeError),
     OpticalOnly(TemporalHasOpticalKeyError),
 }
 

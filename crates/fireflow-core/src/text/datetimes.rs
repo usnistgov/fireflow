@@ -86,13 +86,14 @@ impl<'a> ToDisplayNE<'a> for FCSDateTime {
     }
 }
 
+type OldInputs = (Option<BeginDateTime>, Option<EndDateTime>);
+
 impl Datetimes {
     #[must_use]
     pub fn try_new(
         begin: Option<BeginDateTime>,
         end: Option<EndDateTime>,
-    ) -> ErrorResult<Self, (Option<BeginDateTime>, Option<EndDateTime>), ReversedDatetimesError>
-    {
+    ) -> ErrorResult<Self, OldInputs, ReversedDatetimesError> {
         match Self::try_new_inner(begin, end) {
             Ok(x) => LogResult::new_ok(x),
             Err((old, rev)) => LogResult::new_err(rev).set_err_value(old),
@@ -102,13 +103,7 @@ impl Datetimes {
     fn try_new_inner(
         begin: Option<BeginDateTime>,
         end: Option<EndDateTime>,
-    ) -> Result<
-        Self,
-        (
-            (Option<BeginDateTime>, Option<EndDateTime>),
-            ReversedDatetimesError,
-        ),
-    > {
+    ) -> Result<Self, (OldInputs, ReversedDatetimesError)> {
         let ret = Self { begin, end };
         if ret.valid() {
             Ok(ret)

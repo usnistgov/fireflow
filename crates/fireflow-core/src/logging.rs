@@ -27,6 +27,7 @@
 //! like a transformer stack where pure errors are handled on one layer and
 //! an IO error is handled on a different layer.
 
+use crate::fixed_vec::OneOrTwo;
 use crate::text::optional::Nothing;
 
 use fireflow_types::config::{ReadSharedConfig, TriErrorFlag, TriFlag};
@@ -761,6 +762,18 @@ pub(crate) trait ResultExt: Sized {
                 ret.extend_errors(iter::once(e1));
                 Fail(ret)
             }
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn zip_fixed<V>(
+        self,
+        a: Result<V, Self::Error>,
+    ) -> Result<(Self::Ok, V), OneOrTwo<Self::Error>> {
+        match (self.into_result(), a) {
+            (Ok(x0), Ok(x1)) => Ok((x0, x1)),
+            (Ok(_), Err(e)) | (Err(e), Ok(_)) => Err(OneOrTwo::One(e)),
+            (Err(e0), Err(e1)) => Err(OneOrTwo::Two(e0, e1)),
         }
     }
 
@@ -2028,42 +2041,42 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
             .map_ok_value(|((ax, bx, cx), dx)| (ax, bx, cx, dx))
     }
 
-    /// Combine five commutative results.
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn zip5_commutative<V1, V2, V3, V4, P1, P2, P3, P4>(
-        self,
-        a: CommutativeResult<V1, P1, WC, E, EC>,
-        b: CommutativeResult<V2, P2, WC, E, EC>,
-        c: CommutativeResult<V3, P3, WC, E, EC>,
-        d: CommutativeResult<V4, P4, WC, E, EC>,
-    ) -> CommutativeResult<(V, V1, V2, V3, V4), (), WC, E, EC>
-    where
-        EC: Extend<E> + IntoIterator<Item = E>,
-        WC: Monoid,
-    {
-        self.zip4_commutative(a, b, c)
-            .zip_commutative(d.repack())
-            .map_ok_value(|((ax, bx, cx, dx), ex)| (ax, bx, cx, dx, ex))
-    }
+    // /// Combine five commutative results.
+    // #[allow(clippy::type_complexity)]
+    // pub(crate) fn zip5_commutative<V1, V2, V3, V4, P1, P2, P3, P4>(
+    //     self,
+    //     a: CommutativeResult<V1, P1, WC, E, EC>,
+    //     b: CommutativeResult<V2, P2, WC, E, EC>,
+    //     c: CommutativeResult<V3, P3, WC, E, EC>,
+    //     d: CommutativeResult<V4, P4, WC, E, EC>,
+    // ) -> CommutativeResult<(V, V1, V2, V3, V4), (), WC, E, EC>
+    // where
+    //     EC: Extend<E> + IntoIterator<Item = E>,
+    //     WC: Monoid,
+    // {
+    //     self.zip4_commutative(a, b, c)
+    //         .zip_commutative(d.repack())
+    //         .map_ok_value(|((ax, bx, cx, dx), ex)| (ax, bx, cx, dx, ex))
+    // }
 
-    /// Combine six commutative results.
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn zip6_commutative<V1, V2, V3, V4, V5, P1, P2, P3, P4, P5>(
-        self,
-        x1: CommutativeResult<V1, P1, WC, E, EC>,
-        x2: CommutativeResult<V2, P2, WC, E, EC>,
-        x3: CommutativeResult<V3, P3, WC, E, EC>,
-        x4: CommutativeResult<V4, P4, WC, E, EC>,
-        x5: CommutativeResult<V5, P5, WC, E, EC>,
-    ) -> CommutativeResult<(V, V1, V2, V3, V4, V5), (), WC, E, EC>
-    where
-        EC: Extend<E> + IntoIterator<Item = E>,
-        WC: Monoid,
-    {
-        self.zip5_commutative(x1, x2, x3, x4)
-            .zip_commutative(x5.repack())
-            .map_ok_value(|((y0, y1, y2, y3, y4), y5)| (y0, y1, y2, y3, y4, y5))
-    }
+    // /// Combine six commutative results.
+    // #[allow(clippy::type_complexity)]
+    // pub(crate) fn zip6_commutative<V1, V2, V3, V4, V5, P1, P2, P3, P4, P5>(
+    //     self,
+    //     x1: CommutativeResult<V1, P1, WC, E, EC>,
+    //     x2: CommutativeResult<V2, P2, WC, E, EC>,
+    //     x3: CommutativeResult<V3, P3, WC, E, EC>,
+    //     x4: CommutativeResult<V4, P4, WC, E, EC>,
+    //     x5: CommutativeResult<V5, P5, WC, E, EC>,
+    // ) -> CommutativeResult<(V, V1, V2, V3, V4, V5), (), WC, E, EC>
+    // where
+    //     EC: Extend<E> + IntoIterator<Item = E>,
+    //     WC: Monoid,
+    // {
+    //     self.zip5_commutative(x1, x2, x3, x4)
+    //         .zip_commutative(x5.repack())
+    //         .map_ok_value(|((y0, y1, y2, y3, y4), y5)| (y0, y1, y2, y3, y4, y5))
+    // }
 }
 
 //
@@ -2142,17 +2155,17 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
         }
     }
 
-    // pub(crate) fn new_deferred_from_err_iter<I>(errors: I, default: V) -> Self
-    // where
-    //     I: IntoIterator<Item = E>,
-    //     EC: Extend<E> + Default,
-    //     WC: Default,
-    // {
-    //     match GenNonEmpty::collect(errors) {
-    //         None => Self::new_ok(default),
-    //         Some(e) => Fail(Failure::new_from_many(e, default)),
-    //     }
-    // }
+    pub(crate) fn new_deferred_from_err_iter<I>(errors: I, default: V) -> Self
+    where
+        I: IntoIterator<Item = E>,
+        EC: Extend<E> + Default,
+        WC: Default,
+    {
+        match GenNonEmpty::collect(errors) {
+            None => Self::new_ok(default),
+            Some(e) => Fail(Failure::new_from_many(e, default)),
+        }
+    }
 
     pub(crate) fn new_deferred_if(is_ok: bool, value: V, error: E) -> Self
     where
@@ -2934,24 +2947,24 @@ impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
         }
     }
 
-    pub(crate) fn eval_deferred_switchable_error3<F>(self, f: F) -> Self
-    where
-        F: FnOnce(&T) -> Option<E>,
-        EC: Extend<E> + Default + SwitchableErrorContainer<Warn = WC, Inner = E>,
-        EC::Warn: Default + IntoIterator<Item = E>,
-        X: TriErrorFlag + Into<TriFlag> + Copy,
-    {
-        match self {
-            Succ(succ) => {
-                let ws = succ.warnings.into_iter().chain(f(&succ.value));
-                Self::new_deferred_switchable_iter3(succ.value, ws, succ.flag)
-            }
-            Fail(mut fail) => {
-                fail.extend_errors(f(&fail.value));
-                Fail(fail)
-            }
-        }
-    }
+    // pub(crate) fn eval_deferred_switchable_error3<F>(self, f: F) -> Self
+    // where
+    //     F: FnOnce(&T) -> Option<E>,
+    //     EC: Extend<E> + Default + SwitchableErrorContainer<Warn = WC, Inner = E>,
+    //     EC::Warn: Default + IntoIterator<Item = E>,
+    //     X: TriErrorFlag + Into<TriFlag> + Copy,
+    // {
+    //     match self {
+    //         Succ(succ) => {
+    //             let ws = succ.warnings.into_iter().chain(f(&succ.value));
+    //             Self::new_deferred_switchable_iter3(succ.value, ws, succ.flag)
+    //         }
+    //         Fail(mut fail) => {
+    //             fail.extend_errors(f(&fail.value));
+    //             Fail(fail)
+    //         }
+    //     }
+    // }
 
     pub(crate) fn and_then_switchable<Vf, F>(self, f: F) -> DeferredSwitchable<Vf, X, E, EC>
     where

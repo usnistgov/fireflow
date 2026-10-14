@@ -1,5 +1,5 @@
 use crate::config::EvaledReadStdKeywordsConfig;
-use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
+use crate::logging::{ErrorResult, LogResult};
 use crate::std_index::index::StdLookupTx;
 use crate::text::keyword_enum::{Keyword0FromValue as _, OptRootKeyword, SplitKeyword};
 use crate::text::keywords::ValueToStdKey;
@@ -135,12 +135,25 @@ impl<X> Timestamps<X> {
     where
         X: PartialOrd,
     {
+        match Self::try_new_inner(btim, etim, date) {
+            Ok(x) => LogResult::new_ok(x),
+            Err((old, e)) => LogResult::new_err(e).set_err_value(old),
+        }
+    }
+
+    pub fn try_new_inner(
+        btim: Option<Btim<X>>,
+        etim: Option<Etim<X>>,
+        date: Option<FCSDate>,
+    ) -> Result<Self, (OldInputs<X>, ReversedTimestampsError)>
+    where
+        X: PartialOrd,
+    {
         let ret = Self::new(btim, etim, date);
         if ret.valid() {
-            LogResult::new_ok(ret)
+            Ok(ret)
         } else {
-            let old = (ret.btim, ret.etim, ret.date);
-            LogResult::new_err(ReversedTimestampsError).set_err_value(old)
+            Err(((ret.btim, ret.etim, ret.date), ReversedTimestampsError))
         }
     }
 
@@ -205,12 +218,10 @@ impl<X> Timestamps<X> {
     pub(crate) fn lookup<C>(
         kws: &mut StdLookupTx,
         conf: &C,
-    ) -> WarningsAndErrorsResult<
+    ) -> (
         Diagnosed<Self, TimestampsDiagnostics>,
-        (),
-        LookupTimestampsError<X, X::Err>,
-        LookupTimestampsError<X, X::Err>,
-    >
+        LookupTimestampsErrorTable<X, X::Err>,
+    )
     where
         Btim<X>: OptValue<Outer = Option<Btim<X>>> + ValueToStdKey<Index = ()>,
         Etim<X>: OptValue<Outer = Option<Etim<X>>> + ValueToStdKey<Index = ()>,
@@ -218,40 +229,28 @@ impl<X> Timestamps<X> {
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         for<'a> OptRootKeyword<'a>: From<SplitKeyword<Btim<X>>> + From<SplitKeyword<Etim<X>>>,
     {
-        macro_rules! go {
-            ($x:expr) => {
-                $x.map_switchable_errors(LookupTimestampsError::from)
-                    .switchable_into_commutative()
-                    .set_err_value(())
-                    .into_semigroup::<Vec<_>, _>()
-            };
-        }
-        let b = Btim::remove_or_drop_root_opt_with(kws, (), conf);
-        let e = Etim::remove_or_drop_root_opt_with(kws, (), conf);
-        let d = FCSDate::remove_or_drop_root_opt_with(kws, (), conf);
+        let (btim, be) = Btim::remove_or_drop_root_opt_with(kws, (), conf);
+        let (etim, ee) = Etim::remove_or_drop_root_opt_with(kws, (), conf);
+        let (date, de) = FCSDate::remove_or_drop_root_opt_with(kws, (), conf);
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        go!(b)
-            .zip3_commutative(go!(e), go!(d))
-            .and_then_commutative(|(btim, etim, date)| {
-                let diag =
-                    TimestampsDiagnostics::new(btim.diagnostic, etim.diagnostic, date.diagnostic);
-                Self::try_new(btim.inner, etim.inner, date.inner)
-                    .map_ok_value(|x| Diagnosed::new(x, diag))
-                    .map_errors(LookupTimestampsError::Reversed)
-                    .map_err_value(|(old_btim, old_etim, old_date)| {
-                        // If creating the new timestamp object failed,
-                        // optionally transfer component keys to nonstandard
-                        let bk = old_btim.map(|v| v.std0_());
-                        let ek = old_etim.map(|v| v.std0_());
-                        let dk = old_date.map(|v| v.std0_());
-                        let flag = rconf.process_optional_failure;
-                        for k in [bk, ek, dk].into_iter().flatten() {
-                            kws.set_failure_flag(&k, flag);
-                        }
-                    })
-                    .into_semigroup()
-                    .nowarn_into_warn()
-            })
+        let diag = TimestampsDiagnostics::new(btim.diagnostic, etim.diagnostic, date.diagnostic);
+        let (ts, rev_e) = match Self::try_new_inner(btim.inner, etim.inner, date.inner) {
+            Ok(ts) => (Diagnosed::new(ts, diag), None),
+            Err((old, rev_e)) => {
+                // If creating the new timestamp object failed,
+                // optionally transfer component keys to nonstandard
+                let bk = old.0.map(|v| v.std0_());
+                let ek = old.1.map(|v| v.std0_());
+                let dk = old.2.map(|v| v.std0_());
+                let flag = rconf.process_optional_failure;
+                for k in [bk, ek, dk].into_iter().flatten() {
+                    kws.set_failure_flag(&k, flag);
+                }
+                (Diagnosed::new(Self::default(), diag), Some(rev_e))
+            }
+        };
+        let es = LookupTimestampsErrorTable::new(be, ee, de, rev_e);
+        (ts, es)
     }
 
     pub(crate) fn opt_keywords<'a>(&self) -> impl Iterator<Item = OptRootKeyword<'a>>
@@ -538,6 +537,24 @@ pub enum LookupTimestampsError<T, E> {
     Btim(ParseKeyError_<FCSFixedTimeError<E>, Btim<T>, ()>),
     Etim(ParseKeyError_<FCSFixedTimeError<E>, Etim<T>, ()>),
     Reversed(ReversedTimestampsError),
+}
+
+#[derive(new)]
+pub(crate) struct LookupTimestampsErrorTable<T, E> {
+    btim: Option<ParseKeyError_<FCSFixedTimeError<E>, Btim<T>, ()>>,
+    etim: Option<ParseKeyError_<FCSFixedTimeError<E>, Etim<T>, ()>>,
+    date: Option<OptStKeyError<FCSDate>>,
+    reversed: Option<ReversedTimestampsError>,
+}
+
+impl<T, E> LookupTimestampsErrorTable<T, E> {
+    pub(crate) fn into_warnings(self) -> impl Iterator<Item = LookupTimestampsError<T, E>> {
+        let btim = self.btim.into_iter().map(LookupTimestampsError::Btim);
+        let etim = self.etim.into_iter().map(LookupTimestampsError::Etim);
+        let date = self.date.into_iter().map(LookupTimestampsError::from);
+        let reversed = self.reversed.into_iter().map(LookupTimestampsError::from);
+        btim.chain(etim).chain(date).chain(reversed)
+    }
 }
 
 impl From<FCSTime> for FCSTime60 {

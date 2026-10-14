@@ -489,7 +489,7 @@ impl Gain {
         kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &C,
-    ) -> DeferredSwitchableErrors<Option<Self>, ProcessOptionalFailure, LookupTemporalGainError>
+    ) -> Option<LookupTemporalGainError>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
@@ -499,14 +499,14 @@ impl Gain {
             if kws.read::<Self>(&i).is_some() {
                 kws.set_failure_flag(&Self::std(&i), flag);
             }
-            LogResult::new_switchable_ok(None, flag)
+            None
         } else {
-            Self::remove_or_drop_meas_opt(kws, i, conf.as_ref())
-                .map_switchable_errors(LookupTemporalGainError::from)
-                .into_semigroup()
-                .eval_deferred_switchable_error3(|gain| {
-                    (!gain.is_none_or(|g| g.0.is_one())).then_some(TemporalGainError(i).into())
-                })
+            // TODO this is confusing, this method is overspecified for Option<>
+            let (gain, ge) = Self::remove_or_drop_meas_opt(kws, i, conf.as_ref());
+            match gain {
+                Some(g) => g.0.is_one().then_some(TemporalGainError(i).into()),
+                None => ge.map(LookupTemporalGainError::from),
+            }
         }
     }
 }

@@ -24,6 +24,8 @@ use derive_new::new;
 use itertools::Itertools as _;
 use thiserror::Error;
 
+use std::iter;
+
 #[cfg(feature = "serde")]
 use serde::{Serialize, Serializer, ser::SerializeMap as _};
 
@@ -34,12 +36,14 @@ use {
     pyo3::prelude::*,
 };
 
-type OpticalOnlyResult = WarningsAndErrorsResult<
-    Vec<(StdKey, TruncatedNEString)>,
-    (),
-    TemporalHasOpticalKeyError,
-    TemporalHasOpticalKeyError,
->;
+type OpticalOnlyResult = (Vec<(StdKey, TruncatedNEString)>, OpticalOnlyErrors);
+
+#[derive(new)]
+pub struct OpticalOnlyErrors {
+    index: MeasIndex,
+    error_keys: Vec<OpticalOnlyKey>,
+    warning_keys: Vec<OpticalOnlyKey>,
+}
 
 pub(crate) type DroppedStdKeywords = Vec<(StdKey, NEString)>;
 
@@ -159,7 +163,6 @@ pub struct StdTransaction<'a, M> {
     dfc: MaskedVariableString<'a, DfcKey, usize, M>,
 }
 
-// pub(crate) type StdRepairTx<'a> = StdTransaction<'a, RepairMask>;
 pub type StdLookupTx<'a> = StdTransaction<'a, LookupMask>;
 
 type NestedRoot = NestedEnumString<N_ROOT, RootKey>;
@@ -730,22 +733,19 @@ impl StdLookupTx<'_> {
         for t in targets {
             let k = DollarWrap(RawStdKey::from_optical_only_key(*t, i));
             if let Some(v) = self.remove_unseen(&k) {
-                let err = || TemporalHasOpticalKeyError::new(i, *t);
                 if keys.0.contains(t) {
                     let vf = v.to_owned();
                     self.set_lookup_action_seen(&k, action);
                     if warn {
-                        ws.push(err());
+                        ws.push(*t);
                     }
                     pairs.push((k, vf.into()));
                 } else {
-                    es.push(err());
+                    es.push(*t);
                 }
             }
         }
-        let mut ret = LogResult::new_from_err_iter(es, pairs, ());
-        ret.extend_commutative_warnings(ws);
-        ret
+        (pairs, OpticalOnlyErrors::new(i, es, ws))
     }
 
     pub(crate) fn read<K: ValueToStdKey>(&self, i: &K::Index) -> Option<&NEStr> {
@@ -818,6 +818,22 @@ impl StdLookupTx<'_> {
             RawStdKey::CsvFlag(ck) => self.csv_flag.parse_unseen(ck, f),
             RawStdKey::Dfc(dk) => self.dfc.parse_unseen(dk, f),
         }
+    }
+}
+
+impl OpticalOnlyErrors {
+    pub(crate) fn errors(&self) -> impl Iterator<Item = TemporalHasOpticalKeyError> {
+        self.error_keys
+            .iter()
+            .zip(iter::repeat(self.index))
+            .map(|(&k, i)| TemporalHasOpticalKeyError::new(i, k))
+    }
+
+    pub(crate) fn warnings(&self) -> impl Iterator<Item = TemporalHasOpticalKeyError> {
+        self.warning_keys
+            .iter()
+            .zip(iter::repeat(self.index))
+            .map(|(&k, i)| TemporalHasOpticalKeyError::new(i, k))
     }
 }
 

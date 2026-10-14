@@ -28,10 +28,10 @@ use crate::header::{
 };
 use crate::io::AnyReader;
 use crate::logging::{
-    DeferredIter as _, DeferredSwitchableError, DeferredWarningsAndErrors, ErrorGroup,
-    ErrorsResult, GroupResult, IOErrorGroup, ImpureError, LogResult, ResultExt as _,
-    WarningAndGroupResult, WarningAndIOGroupResult, WarningOrErrorResult, WarningsAndErrorsResult,
-    WarningsAndGroupResult, WarningsAndIOGroupResult, io_to_log,
+    DeferredWarningsAndErrors, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, ImpureError,
+    LogResult, ResultExt as _, WarningAndGroupResult, WarningAndIOGroupResult,
+    WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
+    WarningsAndIOGroupResult, io_to_log,
 };
 use crate::macros::{assert_eq_msg, def_summary, match_many_to_one};
 use crate::meas::{
@@ -123,8 +123,8 @@ use fireflow_types::config::{
     AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, IncludeReqOrOpt,
     IncludeRootOrMeas, OverBitmaskAction, OverRangeAction, OverlapCorrectionLimit,
     ProcessOptionalFailure, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
-    ReadOffsetConfig, ReadSharedConfig, TriErrorFlag as _, WriteDatasetInnerConfig,
-    WriteMultiConfig, WriteTEXTInnerConfig,
+    ReadOffsetConfig, ReadSharedConfig, TemporalHasOpticalKeyError, TriErrorFlag as _,
+    WriteDatasetInnerConfig, WriteMultiConfig, WriteTEXTInnerConfig,
 };
 use fireflow_types::datepattern::DatePattern;
 use fireflow_types::index::MeasIndex;
@@ -137,7 +137,7 @@ use fireflow_types::textdelim::TEXTDelim;
 use fireflow_types::timepattern::TimePattern;
 use nonempty::{IntoIteratorExt as _, NEStr, NEString, NEVec, NonEmptyIterator as _};
 
-use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
+use type_families::{BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{AsMut, AsRef, Display, From};
@@ -1677,6 +1677,7 @@ pub enum LookupMeasurementWarning {
     Temporal(LookupTemporalWarning),
     Optical(LookupScaledOpticalWarning),
     MissingTime(MissingTimeError),
+    OpticalOnly(TemporalHasOpticalKeyError),
 }
 
 /// Error when parsing $CS* keywords.
@@ -2242,31 +2243,35 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta2_0 {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let flag = rconf.process_optional_failure;
         let par = Par(ms.len());
         let comp = Compensation2_0::lookup(kws, par, conf.as_ref())
             .map_switchable_errors(LookupMetarootWarning::from)
             .switchable_into_commutative();
         let cyt = Cyt::remove_root_opt_nofail(kws);
-        let ts = Timestamps::lookup(kws, conf).map_warnings_and_errors(LookupMetarootWarning::from);
+        let (ts, te) = Timestamps::lookup(kws, conf);
         let ag =
             AppliedGates2_0::lookup(kws, conf).map_warnings_and_errors(LookupMetarootWarning::from);
         let mode = Mode::remove_metaroot_req(kws)
             .map_err(LookupMetarootError::from)
             .into_log();
-        comp.zip3_commutative(ts, ag)
+        let es = te.into_warnings().map(LookupMetarootWarning::from);
+        comp.zip_commutative(ag)
             .map_errors(LookupMetarootError::from)
             .zip_commutative(mode)
-            .map_ok_value(|((c, t, g), m)| {
+            .map_ok_value(|((c, g), m)| {
                 let diag = MetarootDiagnostics::new(
                     vec![],
                     g.diagnostic,
                     SpilloverDiagnostics::default(),
-                    t.diagnostic,
+                    ts.diagnostic,
                     DatetimesDiagnostics::default(),
                     None,
                 );
-                DiagnosedMetaroot::new(Self::new(m, cyt, c, t.inner, g.inner), diag)
+                DiagnosedMetaroot::new(Self::new(m, cyt, c, ts.inner, g.inner), diag)
             })
+            .extend_warnings_or_errors3(es, |_| (), |w| w, LookupMetarootError::from, flag)
     }
 }
 
@@ -2279,21 +2284,16 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta3_0 {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        macro_rules! go {
-            ($x:expr) => {
-                $x.map_switchable_errors(LookupMetarootWarning::from)
-                    .switchable_into_commutative()
-                    .into_semigroup()
-            };
-        }
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let flag = rconf.process_optional_failure;
 
         let cyt = Cyt::remove_root_opt_nofail(kws);
         let cytsn = Cytsn::remove_root_opt_nofail(kws);
 
-        let comp = Compensation3_0::remove_or_drop_root_opt_with(kws, (), conf);
-        let uni = Unicode::remove_or_drop_root_opt_with(kws, (), conf);
+        let (co_out, ce) = Compensation3_0::remove_or_drop_root_opt_with(kws, (), conf);
+        let (u_out, ue) = Unicode::remove_or_drop_root_opt_with(kws, (), conf);
 
-        let ts = Timestamps::lookup(kws, conf).map_warnings_and_errors(LookupMetarootWarning::from);
+        let (ts, te) = Timestamps::lookup(kws, conf);
         let subset = SubsetData::lookup(kws, conf.as_ref())
             .map_warnings_and_errors(LookupMetarootWarning::from);
         let ag =
@@ -2303,25 +2303,32 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta3_0 {
             .map_err(LookupMetarootError::from)
             .into_log();
 
-        go!(comp)
-            .zip5_commutative(subset, ts, go!(uni), ag)
+        let es = te
+            .into_warnings()
+            .map(LookupMetarootWarning::from)
+            .chain(ce.map(LookupMetarootWarning::from))
+            .chain(ue.map(LookupMetarootWarning::from));
+
+        subset
+            .zip_commutative(ag)
             .map_errors(LookupMetarootError::from)
             .zip_commutative(mode)
-            .map_ok_value(|((co_out, su, t, u_out, g), m)| {
+            .map_ok_value(|((su, g), m)| {
                 let (co, c_trimmed) = co_out.into_opt_root_pair();
                 let (u, u_trimmed) = u_out.into_opt_root_pair();
-                let ret = Self::new(m, cyt, co, t.inner, cytsn, u, su, g.inner);
+                let ret = Self::new(m, cyt, co, ts.inner, cytsn, u, su, g.inner);
                 let trimmed = c_trimmed.into_iter().chain(u_trimmed).collect();
                 let diag = MetarootDiagnostics::new(
                     trimmed,
                     g.diagnostic,
                     SpilloverDiagnostics::default(),
-                    t.diagnostic,
+                    ts.diagnostic,
                     DatetimesDiagnostics::default(),
                     None,
                 );
                 DiagnosedMetaroot::new(ret, diag)
             })
+            .extend_warnings_or_errors3(es, |_| (), |w| w, LookupMetarootError::from, flag)
     }
 }
 
@@ -2334,21 +2341,17 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_1 {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let flag = rconf.process_optional_failure;
+
         let ordered_names: Vec<_> = ms.iter().map(|n| &n.0).collect();
 
         let cyt = Cyt::remove_root_opt_nofail(kws);
         let cytsn = Cytsn::remove_root_opt_nofail(kws);
         let plate = PlateData::lookup(kws);
 
-        let vol = Vol::remove_or_drop_root_opt(kws, conf.as_ref())
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-
-        let spill = Spillover::remove_or_drop_root_opt_with(kws, &ordered_names[..], conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
+        let (vol, ve) = Vol::remove_or_drop_root_opt(kws, conf.as_ref());
+        let (spill, se) = Spillover::remove_or_drop_root_opt_with(kws, &ordered_names[..], conf);
 
         let subset = SubsetData::lookup(kws, conf.as_ref())
             .map_warnings_and_errors(LookupMetarootWarning::from);
@@ -2356,30 +2359,38 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_1 {
             AppliedGates3_0::lookup(kws, conf).map_warnings_and_errors(LookupMetarootWarning::from);
         let modif = ModificationData::lookup(kws, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
-        let ts = Timestamps::lookup(kws, conf).map_warnings_and_errors(LookupMetarootWarning::from);
+        let (ts, te) = Timestamps::lookup(kws, conf);
 
         let mode = Mode::remove_metaroot_req(kws)
             .map_err(LookupMetarootError::from)
             .into_log();
 
-        spill
-            .zip6_commutative(subset, modif, ts, vol, ag)
+        let es = te
+            .into_warnings()
+            .map(LookupMetarootWarning::from)
+            .chain(ve.map(LookupMetarootWarning::from))
+            .chain(se.map(LookupMetarootWarning::from));
+
+        subset
+            .zip3_commutative(modif, ag)
             .map_errors(LookupMetarootError::from)
             .zip_commutative(mode)
-            .map_ok_value(|((sp, su, md, t, v, g), m)| {
+            .map_ok_value(|((su, md, g), m)| {
+                let s = spill.inner;
                 let ret = Self::new(
-                    m, cyt, t.inner, cytsn, sp.inner, md.inner, plate, v, su, g.inner,
+                    m, cyt, ts.inner, cytsn, s, md.inner, plate, vol, su, g.inner,
                 );
                 let diag = MetarootDiagnostics::new(
                     vec![],
                     g.diagnostic,
-                    sp.diagnostic,
-                    t.diagnostic,
+                    spill.diagnostic,
+                    ts.diagnostic,
                     DatetimesDiagnostics::default(),
                     md.diagnostic,
                 );
                 DiagnosedMetaroot::new(ret, diag)
             })
+            .extend_warnings_or_errors3(es, |_| (), |w| w, LookupMetarootError::from, flag)
     }
 }
 
@@ -2392,13 +2403,8 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_2 {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        macro_rules! go {
-            ($x:expr) => {
-                $x.map_switchable_errors(LookupMetarootWarning::from)
-                    .switchable_into_commutative()
-                    .into_semigroup()
-            };
-        }
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let flag = rconf.process_optional_failure;
 
         let ordered_names: Vec<_> = ms.iter().map(|n| &n.0).collect();
 
@@ -2407,18 +2413,14 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_2 {
         let plate = PlateData::lookup(kws);
         let carrier = CarrierData::lookup(kws);
 
-        let mode = go!(Mode3_2::remove_or_drop_root_opt(kws, conf.as_ref()));
-        let us = go!(UnstainedData::lookup(kws, conf));
-        let vol = go!(Vol::remove_or_drop_root_opt(kws, conf.as_ref()));
-        let spill = go!(Spillover::remove_or_drop_root_opt_with(
-            kws,
-            &ordered_names[..],
-            conf
-        ));
+        let (mode, me) = Mode3_2::remove_or_drop_root_opt(kws, conf.as_ref());
+        let (u_out, ue) = UnstainedData::lookup(kws, conf);
+        let (vol, ve) = Vol::remove_or_drop_root_opt(kws, conf.as_ref());
+        let (spill, se) = Spillover::remove_or_drop_root_opt_with(kws, &ordered_names[..], conf);
 
         let modif = ModificationData::lookup(kws, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
-        let ts = Timestamps::lookup(kws, conf).map_warnings_and_errors(LookupMetarootWarning::from);
+        let (ts, te) = Timestamps::lookup(kws, conf);
         let dt = Datetimes::lookup(kws, conf).map_warnings_and_errors(LookupMetarootWarning::from);
         let agates =
             AppliedGates3_2::lookup(kws, conf).map_warnings_and_errors(LookupMetarootWarning::from);
@@ -2427,37 +2429,36 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_2 {
             .map_err(LookupMetarootError::from)
             .into_log();
 
-        dt.zip4_commutative(modif, mode, spill)
-            .zip5_commutative(ts, us, vol, agates)
+        let es = te
+            .into_warnings()
+            .map(LookupMetarootWarning::from)
+            .chain(me.map(LookupMetarootWarning::from))
+            .chain(ue.map(LookupMetarootWarning::from))
+            .chain(ve.map(LookupMetarootWarning::from))
+            .chain(se.map(LookupMetarootWarning::from));
+
+        dt.zip3_commutative(modif, agates)
             .map_errors(LookupMetarootError::from)
             .zip_commutative(cyt)
-            .map_ok_value(|(((d, md, mo, sp), t, u_out, v, ag), c)| {
+            .map_ok_value(|((d, md, ag), c)| {
+                let t = ts.inner;
+                let s = spill.inner;
+                let u = u_out.inner;
                 let ret = Self::new(
-                    mo,
-                    t.inner,
-                    d.inner,
-                    c,
-                    sp.inner,
-                    cytsn,
-                    md.inner,
-                    plate,
-                    v,
-                    carrier,
-                    u_out.inner,
-                    flow,
-                    ag.inner,
+                    mode, t, d.inner, c, s, cytsn, md.inner, plate, vol, carrier, u, flow, ag.inner,
                 );
                 let trimmed = u_out.diagnostic.into_iter().collect();
                 let diag = MetarootDiagnostics::new(
                     trimmed,
                     ag.diagnostic,
-                    sp.diagnostic,
-                    t.diagnostic,
+                    spill.diagnostic,
+                    ts.diagnostic,
                     d.diagnostic,
                     md.diagnostic,
                 );
                 DiagnosedMetaroot::new(ret, diag)
             })
+            .extend_warnings_or_errors3(es, |_| (), |w| w, LookupMetarootError::from, flag)
     }
 }
 
@@ -2497,16 +2498,18 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
     {
-        Tot::remove_or_drop_root_opt(kws, conf.as_ref())
-            .map_ok_value(|tot| {
-                let s = offsets.header.final_offsets.as_dataset_offsets_2_0();
-                TEXTOffsets::new(s, tot)
-            })
-            .set_err_value(())
-            .switchable_into_commutative()
-            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
-            .map_errors(LookupTEXTOffsetsError::from)
-            .into_semigroup()
+        let (tot, te) = Tot::remove_or_drop_root_opt(kws, conf.as_ref());
+        let s = offsets.header.final_offsets.as_dataset_offsets_2_0();
+        let ret = TEXTOffsets::new(s, tot);
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let flag = rconf.process_optional_failure;
+        LogResult::new_ok(ret).extend_warnings_or_errors3(
+            te,
+            |_| (),
+            LookupTEXTOffsetsWarning::from,
+            LookupTEXTOffsetsError::from,
+            flag,
+        )
     }
 
     fn lookup_ro<C>(
@@ -3482,14 +3485,6 @@ impl<M: VersionedRootMeta> RootMeta<M> {
         M: LookupMetaroot<N>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        macro_rules! go {
-            ($x:expr) => {
-                $x.map_switchable_errors(LookupMetarootWarning::from)
-                    .switchable_into_commutative()
-                    .map_errors(LookupMetarootError::from)
-                    .into_semigroup()
-            };
-        }
         let com = Com::remove_root_opt_nofail(kws);
         let cells = Cells::remove_root_opt_nofail(kws);
         let exp = Exp::remove_root_opt_nofail(kws);
@@ -3501,15 +3496,26 @@ impl<M: VersionedRootMeta> RootMeta<M> {
         let src = Src::remove_root_opt_nofail(kws);
         let sys = Sys::remove_root_opt_nofail(kws);
 
-        let abrt_res = Abrt::remove_or_drop_root_opt(kws, conf.as_ref());
-        let lost_res = Lost::remove_or_drop_root_opt(kws, conf.as_ref());
-        let tr_res = Trigger::remove_or_drop_root_opt_with(kws, (), conf);
+        let (abrt, ae) = Abrt::remove_or_drop_root_opt(kws, conf.as_ref());
+        let (lost, le) = Lost::remove_or_drop_root_opt(kws, conf.as_ref());
+        let (tr_out, te) = Trigger::remove_or_drop_root_opt_with(kws, (), conf);
 
         let spec_res = M::lookup_specific(kws, ms, conf);
 
-        go!(abrt_res)
-            .zip4_commutative(go!(lost_res), go!(tr_res), spec_res)
-            .map_ok_value(|(abrt, lost, tr_out, mut meta)| {
+        let es = [
+            ae.map(LookupMetarootWarning::from),
+            le.map(LookupMetarootWarning::from),
+            te.map(LookupMetarootWarning::from),
+        ]
+        .into_iter()
+        .flatten();
+
+        let sconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let flag = sconf.process_optional_failure;
+
+        spec_res
+            .extend_warnings_or_errors3(es, |_| (), |w| w, LookupMetarootError::from, flag)
+            .map_ok_value(|mut meta| {
                 let (tr, tr_trimmed) = tr_out.into_opt_root_pair();
                 meta.diagnostic.trimmed.extend(tr_trimmed);
                 meta.first_once(|native| {
@@ -5750,10 +5756,29 @@ where
             let j = i.into();
             match match_time_pattern(j, wrapped) {
                 Ok(Element::Center(name)) => {
-                    let (ws, res) = Temporal::lookup_temporal(kws, j, conf)
-                        .group::<()>()
-                        .resolve_commutative(|ws| ws, |es| es.errors);
-                    warnings.extend(ws.into_iter().map(LookupMeasurementWarning::from));
+                    let (res, kw_es, tmp_opt_es) = Temporal::lookup_temporal(kws, j, conf);
+                    match dconf.process_optional_failure.is_error() {
+                        Some(true) => {
+                            errors.extend(
+                                kw_es
+                                    .into_warnings()
+                                    .map(LookupMeasurementWarning::from)
+                                    .map(LookupMeasurementError::from),
+                            );
+                        }
+                        Some(false) => {
+                            warnings
+                                .extend(kw_es.into_warnings().map(LookupMeasurementWarning::from));
+                        }
+                        None => (),
+                    }
+                    errors.extend(
+                        tmp_opt_es
+                            .errors()
+                            .map(LookupMeasurementWarning::from)
+                            .map(LookupMeasurementError::from),
+                    );
+                    warnings.extend(tmp_opt_es.warnings().map(LookupMeasurementWarning::from));
                     match res {
                         Ok(tdiag) => {
                             meas.push(Element::Center((name, tdiag.this)));
@@ -5762,9 +5787,7 @@ where
                             tmp_opt_pairs.extend(tdiag.tmp_opt_pairs);
                             timestep_added = timestep_added || tdiag.timestep_added;
                         }
-                        Err(es) => {
-                            errors.extend(es.into_iter().map(LookupMeasurementError::from));
-                        }
+                        Err(es) => errors.extend(es.into_iter().map(LookupMeasurementError::from)),
                     }
                 }
                 Ok(Element::NonCenter(k)) => {
@@ -5788,9 +5811,7 @@ where
                             scale_fixes.push(odiag.scale.into());
                             trimmed.extend(odiag.trimmed);
                         }
-                        Err(e) => {
-                            errors.push(LookupMeasurementError::from(e));
-                        }
+                        Err(e) => errors.push(LookupMeasurementError::from(e)),
                     }
                 }
                 Err(e) => errors.push(LookupMeasurementError::from(e)),
@@ -7201,19 +7222,17 @@ impl UnstainedData {
     fn lookup<C>(
         kws: &mut StdLookupTx,
         conf: &C,
-    ) -> DeferredSwitchableError<
+    ) -> (
         DiagnosedUnstainedData<Self>,
-        ProcessOptionalFailure,
-        OptStKeyError<UnstainedCenters>,
-    >
+        Option<OptStKeyError<UnstainedCenters>>,
+    )
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let i = UnstainedInfo::remove_root_opt_nofail(kws);
-        UnstainedCenters::remove_or_drop_root_opt_with(kws, (), conf).map_deferred_value(|out| {
-            let (c, t) = out.into_root_pair();
-            DiagnosedUnstainedData::new(Self::new(c, i), t)
-        })
+        let (out, ue) = UnstainedCenters::remove_or_drop_root_opt_with(kws, (), conf);
+        let (c, t) = out.into_root_pair();
+        (DiagnosedUnstainedData::new(Self::new(c, i), t), ue)
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
@@ -7228,16 +7247,19 @@ impl SubsetData {
         kws: &mut StdLookupTx,
         conf: &ReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupSubsetError, LookupSubsetError> {
-        let f = CSVFlags::lookup(kws, conf).map_warnings_and_errors(LookupSubsetError::from);
-        let b = CSVBits::remove_or_drop_root_opt(kws, conf)
-            .map_switchable_errors(LookupSubsetError::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let t = CSTot::remove_or_drop_root_opt(kws, conf)
-            .map_switchable_errors(LookupSubsetError::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        f.lift_f3_once(b, t, |flags, bits, tot| Self::new(bits, tot, flags))
+        let (bits, be) = CSVBits::remove_or_drop_root_opt(kws, conf);
+        let (tot, te) = CSTot::remove_or_drop_root_opt(kws, conf);
+        let es = [
+            be.map(LookupSubsetError::from),
+            te.map(LookupSubsetError::from),
+        ]
+        .into_iter()
+        .flatten();
+        let flag = conf.process_optional_failure;
+        CSVFlags::lookup(kws, conf)
+            .map_warnings_and_errors(LookupSubsetError::from)
+            .map_deferred_value(|flags| Self::new(bits, tot, flags))
+            .extend_warnings_or_errors3(es, |v| v, |w| w, |e| e, flag)
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
@@ -7255,28 +7277,29 @@ impl CSVFlags {
         kws: &mut StdLookupTx,
         conf: &ReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupCSVFlagsError, LookupCSVFlagsError> {
-        CSMode::remove_or_drop_root_opt(kws, conf)
-            .map_switchable_errors(LookupCSVFlagsError::from)
-            .switchable_into_commutative()
-            .into_semigroup()
-            .and_then_deferred(|m| {
-                // NOTE the standard seems to say that these flags are only
-                // required if the user wishes to encode a subset value using
-                // 0 as the identifier. This is in contrast to the paper it
-                // references (Redelman and Coder 1994) which seems to say
-                // they are required. Either way, I'm still not sure how these
-                // were ever supposed to be used. Good luck ;)
-                let n = m.map(|x| x.0).unwrap_or_default();
-                (0..n)
-                    .map(|i| {
-                        CSVFlag::remove_or_drop_meas_opt(kws, i.into(), conf)
-                            .map_switchable_errors(LookupCSVFlagsError::from)
-                            .switchable_into_commutative()
-                            .into_semigroup()
-                    })
-                    .sequence_def()
+        let mut es = vec![];
+        let flag = conf.process_optional_failure;
+        let (csmode, ce) = CSMode::remove_or_drop_root_opt(kws, conf);
+        es.extend(ce.map(LookupCSVFlagsError::from));
+        // .map_switchable_errors(LookupCSVFlagsError::from)
+        // .switchable_into_commutative()
+        // .into_semigroup()
+        // .and_then_deferred(|m| {
+        // NOTE the standard seems to say that these flags are only
+        // required if the user wishes to encode a subset value using
+        // 0 as the identifier. This is in contrast to the paper it
+        // references (Redelman and Coder 1994) which seems to say
+        // they are required. Either way, I'm still not sure how these
+        // were ever supposed to be used. Good luck ;)
+        let n = csmode.map(|x| x.0).unwrap_or_default();
+        let flags = (0..n)
+            .map(|i| {
+                let (f, fe) = CSVFlag::remove_or_drop_meas_opt(kws, i.into(), conf);
+                es.extend(fe.map(LookupCSVFlagsError::from));
+                f
             })
-            .map_deferred_value(Self)
+            .collect();
+        LogResult::new_ok(Self(flags)).extend_warnings_or_errors3(es, |v| v, |w| w, |e| e, flag)
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
@@ -7304,18 +7327,19 @@ impl ModificationData {
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let last_mod = LastModifier::remove_root_opt_nofail(kws);
-        let last_mod_date = LastModified::remove_or_drop_root_opt_with(kws, (), conf)
-            .map_switchable_errors(LookupModifiedDataError::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let ori = Originality::remove_or_drop_root_opt(kws, conf.as_ref())
-            .map_switchable_errors(LookupModifiedDataError::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        last_mod_date.lift_f2_once(ori, |d, o| {
-            let ret = Self::new(last_mod, d.inner, o);
-            Diagnosed::new(ret, d.diagnostic)
-        })
+        let (last_mod_date, de) = LastModified::remove_or_drop_root_opt_with(kws, (), conf);
+        let (ori, oe) = Originality::remove_or_drop_root_opt(kws, conf.as_ref());
+        let ret = Self::new(last_mod, last_mod_date.inner, ori);
+        let diag = Diagnosed::new(ret, last_mod_date.diagnostic);
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let flag = rconf.process_optional_failure;
+        let es = [
+            de.map(LookupModifiedDataError::from),
+            oe.map(LookupModifiedDataError::from),
+        ]
+        .into_iter()
+        .flatten();
+        LogResult::new_ok(diag).extend_warnings_or_errors3(es, |v| v, |w| w, |e| e, flag)
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {

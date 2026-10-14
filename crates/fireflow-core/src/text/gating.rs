@@ -530,31 +530,26 @@ impl GatedMeasurement {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        macro_rules! go {
-            ($x:expr) => {
-                $x.map_switchable_errors(LookupGatedMeasError::from)
-                    .switchable_into_commutative()
-                    .into_semigroup()
-            };
-        }
-        let scale = GateScale::remove_or_drop_meas_opt_with(kws, i, (), conf);
+        let (scale, se) = GateScale::remove_or_drop_meas_opt_with(kws, i, (), conf);
         let filter = GateFilter::remove_meas_opt_nofail(kws, i);
-        let sname = GateShortname::remove_or_drop_meas_opt(kws, i, conf.as_ref());
-        let pemit = GatePercentEmitted::remove_or_drop_meas_opt(kws, i, conf.as_ref());
-        let range = GateRange::remove_or_drop_meas_opt(kws, i, conf.as_ref());
+        let (sname, ne) = GateShortname::remove_or_drop_meas_opt(kws, i, conf.as_ref());
+        let (pemit, pe) = GatePercentEmitted::remove_or_drop_meas_opt(kws, i, conf.as_ref());
+        let (rng, re) = GateRange::remove_or_drop_meas_opt(kws, i, conf.as_ref());
         let lname = GateLongname::remove_meas_opt_nofail(kws, i);
         let dtype = GateDetectorType::remove_meas_opt_nofail(kws, i);
-        let dvolt = GateDetectorVoltage::remove_or_drop_meas_opt(kws, i, conf.as_ref());
-        go!(scale).lift_f5_once(
-            go!(sname),
-            go!(pemit),
-            go!(range),
-            go!(dvolt),
-            |s, n, p, r, v| {
-                let ret = Self::new(s.inner, filter, n, p, r, lname, dtype, v);
-                Diagnosed::new(ret, s.diagnostic)
-            },
-        )
+        let (dvolt, de) = GateDetectorVoltage::remove_or_drop_meas_opt(kws, i, conf.as_ref());
+        let es = [
+            se.map(LookupGatedMeasError::from),
+            pe.map(LookupGatedMeasError::from),
+            ne.map(LookupGatedMeasError::from),
+            re.map(LookupGatedMeasError::from),
+            de.map(LookupGatedMeasError::from),
+        ]
+        .into_iter()
+        .flatten();
+        let ret = Self::new(scale.inner, filter, sname, pemit, rng, lname, dtype, dvolt);
+        let diag = Diagnosed::new(ret, scale.diagnostic);
+        LogResult::new_deferred_from_err_iter(es, diag)
     }
 
     fn opt_keywords(&self, i: GateIndex) -> impl IntoIterator<Item = GateMeasKeyword<'_>> {
@@ -746,38 +741,38 @@ impl<I> GatingScheme<I> {
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
-        Gating::remove_or_drop_root_opt(kws, conf.as_ref())
-            .map_switchable_errors(LookupGatingSchemeError::Gating)
-            .switchable_into_commutative()
-            .into_semigroup()
-            .and_then_deferred(|gating| {
-                gating
-                    .as_ref()
-                    .map_or(LogResult::new_ok_default(), |g| {
-                        g.region_indices()
-                            .into_iter()
-                            .map(|ri| {
-                                Region::lookup(kws, ri, conf)
-                                    .map_deferred_value(|out| {
-                                        out.first_once(|r| r.map(|x| (ri, x)))
-                                    })
-                                    .map_errors(LookupGatingSchemeError::Region)
-                                    .map_commutative_warnings(LookupGatingSchemeError::Region)
-                            })
-                            .sequence_def()
+        let (gating, ge) = Gating::remove_or_drop_root_opt(kws, conf.as_ref());
+        gating
+            .as_ref()
+            .map_or(LogResult::new_ok_default(), |g| {
+                g.region_indices()
+                    .into_iter()
+                    .map(|ri| {
+                        Region::lookup(kws, ri, conf)
+                            .map_deferred_value(|out| out.first_once(|r| r.map(|x| (ri, x))))
+                            .map_errors(LookupGatingSchemeError::Region)
+                            .map_commutative_warnings(LookupGatingSchemeError::Region)
                     })
-                    .and_then_deferred_switchable_result3(flag, |rs| {
-                        let mut regions = HashMap::new();
-                        let mut trimmed = vec![];
-                        for r in rs {
-                            let _ = r.inner.map(|(k, v)| regions.insert(k, v));
-                            trimmed.extend(r.diagnostic);
-                        }
-                        Self::try_new(gating, regions)
-                            .map_err(LookupGatingSchemeError::Link)
-                            .map(|x| Diagnosed::new(x, trimmed))
-                    })
+                    .sequence_def()
             })
+            .and_then_deferred_switchable_result3(flag, |rs| {
+                let mut regions = HashMap::new();
+                let mut trimmed = vec![];
+                for r in rs {
+                    let _ = r.inner.map(|(k, v)| regions.insert(k, v));
+                    trimmed.extend(r.diagnostic);
+                }
+                Self::try_new(gating, regions)
+                    .map_err(LookupGatingSchemeError::Link)
+                    .map(|x| Diagnosed::new(x, trimmed))
+            })
+            .extend_warnings_or_errors3(
+                ge,
+                |v| v,
+                LookupGatingSchemeError::Gating,
+                LookupGatingSchemeError::Gating,
+                flag,
+            )
     }
 
     fn set_failure_flag(self, kws: &mut StdLookupTx, flag: ProcessOptionalFailure)
@@ -873,49 +868,48 @@ impl<I> Region<I> {
         RegionGateIndex<I>:
             ValueToStdKey<Index = RegionIndex> + OptValue<Outer = Option<RegionGateIndex<I>>>,
     {
-        let index_res = RegionGateIndex::remove_or_drop_meas_opt_with(kws, ri, (), conf)
-            .map_switchable_errors(LookupRegionError::Region)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let window_res = RegionWindow::remove_or_drop_meas_opt_with(kws, ri, (), conf)
-            .map_switchable_errors(LookupRegionError::Window)
-            .switchable_into_commutative()
-            .into_semigroup();
+        let (gi_out, ie) = RegionGateIndex::remove_or_drop_meas_opt_with(kws, ri, (), conf);
+        let (w_out, we) = RegionWindow::remove_or_drop_meas_opt_with(kws, ri, (), conf);
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
-        index_res
-            .zip_f2_once(window_res)
-            .and_then_deferred_switchable_result3(flag, |(gi_out, w_out)| {
-                // Try to combine the gateindex and window together to make a
-                // region. This will only work if both are present and
-                // they are both the same type (uni/bi-variate). If anything
-                // fails, return none, log an error (or warning if we allow
-                // dropping), and demote the keywords if applicable.
-                let (gi_val, gi_trimmed) = gi_out.into_opt_indexed_pair(&ri);
-                let (w_val, w_trimmed) = w_out.into_opt_indexed_pair(&ri);
-                let trimmed = gi_trimmed.into_iter().chain(w_trimmed).collect();
-                let res = match (gi_val, w_val) {
-                    (Some(gi), Some(w)) => match Self::try_new(gi, w) {
-                        Ok(x) => Ok(Some(x.fmap_into())),
-                        Err((old_gi, old_w)) => {
-                            kws.set_failure_flag(&old_gi.std_(&ri), flag);
-                            kws.set_failure_flag(&old_w.std_(&ri), flag);
-                            Err(IndexWindowMismatchError::Both(ri))
-                        }
-                    },
-                    (Some(old_gi), None) => {
-                        kws.set_failure_flag(&old_gi.std_(&ri), flag);
-                        Err(IndexWindowMismatchError::NoWindow(ri))
-                    }
-                    (None, Some(old_w)) => {
-                        kws.set_failure_flag(&old_w.std_(&ri), flag);
-                        Err(IndexWindowMismatchError::NoIndex(ri))
-                    }
-                    (None, None) => Ok(None),
-                };
-                res.map_err(LookupRegionError::Mismatch)
-                    .map(|x| Diagnosed::new(x, trimmed))
-            })
+        // Try to combine the gateindex and window together to make a
+        // region. This will only work if both are present and
+        // they are both the same type (uni/bi-variate). If anything
+        // fails, return none, log an error (or warning if we allow
+        // dropping), and demote the keywords if applicable.
+        let (gi_val, gi_trimmed) = gi_out.into_opt_indexed_pair(&ri);
+        let (w_val, w_trimmed) = w_out.into_opt_indexed_pair(&ri);
+        let trimmed = gi_trimmed.into_iter().chain(w_trimmed).collect();
+        let res = match (gi_val, w_val) {
+            (Some(gi), Some(w)) => match Self::try_new(gi, w) {
+                Ok(x) => Ok(Some(x.fmap_into())),
+                Err((old_gi, old_w)) => {
+                    kws.set_failure_flag(&old_gi.std_(&ri), flag);
+                    kws.set_failure_flag(&old_w.std_(&ri), flag);
+                    Err(IndexWindowMismatchError::Both(ri))
+                }
+            },
+            (Some(old_gi), None) => {
+                kws.set_failure_flag(&old_gi.std_(&ri), flag);
+                Err(IndexWindowMismatchError::NoWindow(ri))
+            }
+            (None, Some(old_w)) => {
+                kws.set_failure_flag(&old_w.std_(&ri), flag);
+                Err(IndexWindowMismatchError::NoIndex(ri))
+            }
+            (None, None) => Ok(None),
+        };
+        let es = [
+            ie.map(LookupRegionError::Region),
+            we.map(LookupRegionError::Window),
+        ]
+        .into_iter()
+        .flatten();
+        res.map_err(LookupRegionError::Mismatch)
+            .map(|x| Diagnosed::new(x, trimmed))
+            .into_deferred_switchable3(flag)
+            .extend_deferred_switchable_errors3(es)
+            .switchable_into_commutative()
     }
 
     pub(crate) fn set_failure_flag<'a>(
@@ -1097,27 +1091,31 @@ impl GatedMeasurements {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        Gate::remove_or_drop_root_opt(kws, conf.as_ref())
-            .map_switchable_errors(LookupGatedMeasurementsError::Gate)
-            .switchable_into_commutative()
-            .into_semigroup()
-            .and_then_deferred(|maybe| {
-                if let Some(n) = maybe {
-                    (0..n.0)
-                        .map(|i| {
-                            GatedMeasurement::lookup(kws, i.into(), conf)
-                                .map_commutative_warnings(LookupGatedMeasurementsError::Meas)
-                                .map_errors(LookupGatedMeasurementsError::Meas)
-                        })
-                        .sequence_def()
-                        .map_deferred_value(|xs| {
-                            let (gs, ds) = xs.into_iter().map(|x| (x.inner, x.diagnostic)).unzip();
-                            Diagnosed::new(Self(gs), ds)
-                        })
-                } else {
-                    LogResult::new_ok_default()
-                }
-            })
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let flag = rconf.process_optional_failure;
+        let (maybe_gate, ge) = Gate::remove_or_drop_root_opt(kws, conf.as_ref());
+        if let Some(n) = maybe_gate {
+            (0..n.0)
+                .map(|i| {
+                    GatedMeasurement::lookup(kws, i.into(), conf)
+                        .map_commutative_warnings(LookupGatedMeasurementsError::Meas)
+                        .map_errors(LookupGatedMeasurementsError::Meas)
+                })
+                .sequence_def()
+                .map_deferred_value(|xs| {
+                    let (gs, ds) = xs.into_iter().map(|x| (x.inner, x.diagnostic)).unzip();
+                    Diagnosed::new(Self(gs), ds)
+                })
+                .extend_warnings_or_errors3(
+                    ge,
+                    |v| v,
+                    LookupGatedMeasurementsError::Gate,
+                    LookupGatedMeasurementsError::Gate,
+                    flag,
+                )
+        } else {
+            LogResult::new_ok_default()
+        }
     }
 }
 

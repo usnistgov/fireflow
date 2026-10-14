@@ -140,38 +140,39 @@ impl Datetimes {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        macro_rules! go {
-            ($x:expr) => {
-                $x.map_switchable_errors(LookupDatetimesError::from)
-                    .switchable_into_commutative()
-                    .set_err_value(())
-                    .into_semigroup::<Vec<_>, _>()
-            };
-        }
-        let b = BeginDateTime::remove_or_drop_root_opt_with(kws, (), conf);
-        let e = EndDateTime::remove_or_drop_root_opt_with(kws, (), conf);
+        let (begin, be) = BeginDateTime::remove_or_drop_root_opt_with(kws, (), conf);
+        let (end, ee) = EndDateTime::remove_or_drop_root_opt_with(kws, (), conf);
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        go!(b)
-            .zip_commutative(go!(e))
-            .and_then_commutative(|(begin, end)| {
-                let diag = DatetimesDiagnostics::new(begin.diagnostic, end.diagnostic);
-                Self::try_new(begin.inner, end.inner)
-                    .map_ok_value(|x| Diagnosed::new(x, diag))
-                    .map_errors(LookupDatetimesError::from)
-                    .map_err_value(|(old_begin, old_end)| {
-                        // If creating the new datetime object failed,
-                        // optionally transfer component keys to nonstandard
-                        let bk = old_begin.map(|v| v.std0_());
-                        let ek = old_end.map(|v| v.std0_());
-                        let failed_kws = [bk, ek].into_iter().flatten();
-                        let flag = rconf.process_optional_failure;
-                        for k in failed_kws {
-                            kws.set_failure_flag(&k, flag);
-                        }
-                    })
-                    .into_semigroup()
-                    .nowarn_into_warn()
+        let diag = DatetimesDiagnostics::new(begin.diagnostic, end.diagnostic);
+        let es = [
+            be.map(LookupDatetimesError::from),
+            ee.map(LookupDatetimesError::from),
+        ]
+        .into_iter()
+        .flatten();
+        Self::try_new(begin.inner, end.inner)
+            .map_ok_value(|x| Diagnosed::new(x, diag))
+            .map_errors(LookupDatetimesError::from)
+            .map_err_value(|(old_begin, old_end)| {
+                // If creating the new datetime object failed,
+                // optionally transfer component keys to nonstandard
+                let bk = old_begin.map(|v| v.std0_());
+                let ek = old_end.map(|v| v.std0_());
+                let failed_kws = [bk, ek].into_iter().flatten();
+                let flag = rconf.process_optional_failure;
+                for k in failed_kws {
+                    kws.set_failure_flag(&k, flag);
+                }
             })
+            .into_semigroup()
+            .nowarn_into_warn()
+            .extend_warnings_or_errors3(
+                es,
+                |_| (),
+                |w| w,
+                LookupDatetimesError::from,
+                rconf.process_optional_failure,
+            )
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {

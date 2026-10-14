@@ -110,9 +110,9 @@ use crate::convert::{InstantExt as _, U64Ext as _, UsizeExt as _};
 use crate::io::AnyReader;
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
-    DeferredWarningAndError, ErrorGroup, ErrorsResult, IOErrorGroup, IOResult, ImpureError,
-    LogResult, ResultExt as _, SwitchableErrorResult, SwitchableErrorsResult, WarningOrErrorResult,
-    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult,
+    ErrorGroup, ErrorsResult, IOErrorGroup, IOResult, ImpureError, LogResult, ResultExt as _,
+    SwitchableErrorResult, SwitchableErrorsResult, WarningOrErrorResult, WarningsAndErrorResult,
+    WarningsAndErrorsResult, WarningsAndIOGroupResult,
 };
 use crate::macros::def_summary;
 use crate::match_many_to_one;
@@ -7087,13 +7087,9 @@ pub trait IsNumType: Sized {
         kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>>;
+    ) -> (Self, Option<OptKeyError<NumType>>);
 
-    fn lookup_datatype_ro(
-        kws: &StdLookupTx,
-        i: MeasIndex,
-        conf: &ReadDataKeywordsConfig,
-    ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>>;
+    fn lookup_datatype_ro(kws: &StdLookupTx, i: MeasIndex) -> (Self, Option<OptKeyError<NumType>>);
 
     fn lookup_all(
         kws: &mut StdLookupTx,
@@ -7123,8 +7119,8 @@ pub trait IsNumType: Sized {
     ) -> LookupOneMeasLayoutResult<Self> {
         let width = Width::remove_meas_req(kws, i);
         let range = TextRange::remove_meas_req(kws, i);
-        let datatype = Self::lookup_datatype(kws, i, conf);
-        Self::make_meas(width, range, datatype)
+        let (datatype, de) = Self::lookup_datatype(kws, i, conf);
+        Self::make_meas(width, range, datatype, de, conf)
     }
 
     #[must_use]
@@ -7135,22 +7131,23 @@ pub trait IsNumType: Sized {
     ) -> LookupOneMeasLayoutResult<Self> {
         let width = Width::get_meas_req(kws, i);
         let range = TextRange::get_meas_req(kws, i);
-        let datatype = Self::lookup_datatype_ro(kws, i, conf);
-        Self::make_meas(width, range, datatype)
+        let (datatype, de) = Self::lookup_datatype_ro(kws, i);
+        Self::make_meas(width, range, datatype, de, conf)
     }
 
     fn make_meas(
         width: Result<Width, ReqKeyError<Width>>,
         range: Result<TextRange, ReqKeyError<TextRange>>,
-        datatype: DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>>,
+        datatype: Self,
+        dt_err: Option<OptKeyError<NumType>>,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupOneMeasLayoutResult<Self> {
         let w = width.map_err(LookupMeasLayoutError::from).into_log();
         let r = range.map_err(LookupMeasLayoutError::from).into_log();
-        let d = datatype
-            .map_errors(LookupMeasLayoutError::from)
-            .into_semigroup();
-        w.zip3_commutative(r, d)
-            .map_ok_value(|(w_, r_, d_)| DataSchemaKeywordValues::new(w_, r_, d_))
+        let flag = conf.process_optional_failure;
+        w.zip_commutative(r)
+            .map_ok_value(|(w_, r_)| DataSchemaKeywordValues::new(w_, r_, datatype))
+            .extend_warnings_or_errors3(dt_err, |_| (), |ws| ws, LookupMeasLayoutError::from, flag)
     }
 }
 
@@ -7159,16 +7156,12 @@ impl IsNumType for Nothing<NumType> {
         _: &mut StdLookupTx,
         _: MeasIndex,
         _: &ReadDataKeywordsConfig,
-    ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>> {
-        LogResult::new_ok(Self::default())
+    ) -> (Self, Option<OptKeyError<NumType>>) {
+        (Self::default(), None)
     }
 
-    fn lookup_datatype_ro(
-        _: &StdLookupTx,
-        _: MeasIndex,
-        _: &ReadDataKeywordsConfig,
-    ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>> {
-        LogResult::new_ok(Self::default())
+    fn lookup_datatype_ro(_: &StdLookupTx, _: MeasIndex) -> (Self, Option<OptKeyError<NumType>>) {
+        (Self::default(), None)
     }
 }
 
@@ -7177,16 +7170,12 @@ impl IsNumType for Option<NumType> {
         kws: &mut StdLookupTx,
         i: MeasIndex,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>> {
-        NumType::remove_or_drop_meas_opt(kws, i, conf).switchable_into_commutative()
+    ) -> (Self, Option<OptKeyError<NumType>>) {
+        NumType::remove_or_drop_meas_opt(kws, i, conf)
     }
 
-    fn lookup_datatype_ro(
-        kws: &StdLookupTx,
-        i: MeasIndex,
-        conf: &ReadDataKeywordsConfig,
-    ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>> {
-        NumType::get_or_ignore_meas_opt(kws, i, conf).switchable_into_commutative()
+    fn lookup_datatype_ro(kws: &StdLookupTx, i: MeasIndex) -> (Self, Option<OptKeyError<NumType>>) {
+        NumType::get_or_ignore_meas_opt(kws, i)
     }
 }
 

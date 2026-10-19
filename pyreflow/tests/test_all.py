@@ -6686,15 +6686,18 @@ class TestReadWrite:
         pf.api.fcs_write_datasets(p, [core0, core1, core2])  # type: ignore
         offsets = pf.api.fcs_scan_dataset_boundaries(p, mmap)
         if version == "FCS2.0":
-            assert offsets == [(version, 0), (version, 258), (version, 516)]
-        elif version == "FCS3.0":
-            assert offsets == [(version, 0), (version, 474), (version, 948)]
-        elif version == "FCS3.1":
-            assert offsets == [(version, 0), (version, 474), (version, 948)]
+            dataset_len = 258
+        elif version == "FCS3.0" or version == "FCS3.1":
+            dataset_len = 474
         elif version == "FCS3.2":
-            assert offsets == [(version, 0), (version, 485), (version, 970)]
+            dataset_len = 485
         else:
             assert_never(version)
+        assert offsets == [
+            (version, 0),
+            (version, dataset_len),
+            (version, dataset_len * 2),
+        ]
 
     # TODO test other layouts such as var uint and s8, and also make this ascii
     # layout have variable width

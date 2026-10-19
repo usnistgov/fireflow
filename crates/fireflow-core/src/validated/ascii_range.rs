@@ -1,19 +1,18 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
 use crate::data::{
-    ColumnSchemaFromTextRange as _, ConvertedRange, IndexedError, IndexedRangeToAsciiError,
+    ColumnSchemaFromTextRange as _, IndexedError, IndexedRangeToAsciiError, RangeError,
 };
-use crate::logging::{ResultExt as _, WarningsAndErrorsResult};
 use crate::text::byteord::WidthToFixedError;
 use crate::text::keywords::{RangeToIntError, TextRange, Width};
 
 use fireflow_types::keys::raw_std::{MeasKeyId, ToStd as _};
-use fireflow_types::{config::DisallowRangeTrunc, index::MeasIndex, other_width::MAX_CHARS};
+use fireflow_types::{index::MeasIndex, other_width::MAX_CHARS};
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
 use thiserror::Error;
-use type_families::BifunctorOnce;
+use type_families::{BifunctorOnce as _, FunctorOnce as _};
 
 use std::fmt;
 use std::num::{NonZero, NonZeroU8};
@@ -138,14 +137,6 @@ impl FixedAsciiRange {
         }
     }
 
-    // /// Make new AsciiRange from a float or integer.
-    // ///
-    // /// The number of chars will be automatically selected as the minimum
-    // /// required to express the range.
-    // pub(crate) fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, IntRangeError> {
-    //     range.as_uint::<u64>(notrunc).map(AsciiRange::from)
-    // }
-
     /// Make new AsciiRange from $PnB and $PnR values.
     ///
     /// Will return an error if $PnB is too small to hold $PnR.
@@ -154,8 +145,8 @@ impl FixedAsciiRange {
         range: TextRange,
         i: MeasIndex,
     ) -> (
-        Result<ConvertedRange<Self>, AsciiRangeFromKeywordsError>,
-        Option<IndexedRangeToAsciiError>,
+        Result<Self, AsciiRangeFromKeywordsError>,
+        Option<RangeError<IndexedRangeToAsciiError>>,
     ) {
         let (rng, rng_err) = Self::from_range_indexed(range, i);
         let chars_res = Chars::try_from(width)
@@ -163,11 +154,10 @@ impl FixedAsciiRange {
             .map_err(IndexedWidthToCharsError)
             .map_err(AsciiRangeFromKeywordsError::from)
             .and_then(|chars| {
-                Self::try_new_from_chars(rng.native.value, chars)
+                Self::try_new_from_chars(rng.value, chars)
                     .map_err(|e| IndexedError::new(i, e))
                     .map_err(IndexedNotEnoughCharsError)
                     .map_err(AsciiRangeFromKeywordsError::from)
-                    .map(|ar| ConvertedRange::new(ar, rng.non_truncated))
             });
         (chars_res, rng_err)
     }
@@ -175,16 +165,13 @@ impl FixedAsciiRange {
     pub(crate) fn from_range_indexed(
         range: TextRange,
         i: MeasIndex,
-    ) -> (ConvertedRange<Self>, Option<IndexedRangeToAsciiError>) {
+    ) -> (Self, Option<RangeError<IndexedRangeToAsciiError>>) {
         Self::from_range(range).second_once(|x| {
-            x.map(|e| IndexedError::new(i, e))
-                .map(IndexedRangeToAsciiError)
+            x.map(|y| {
+                y.fmap_once(|e| IndexedError::new(i, e))
+                    .fmap_once(IndexedRangeToAsciiError)
+            })
         })
-        // .map_switchable_errors(|e| )
-        // .map_switchable_errors(IndexedRangeToAsciiError)
-        // .switchable_into_commutative()
-        // .map_errors(AsciiRangeFromKeywordsError::from)
-        // .into_semigroup()
     }
 
     pub(crate) fn chars(&self) -> Chars {
@@ -252,7 +239,6 @@ impl TryFrom<NonZeroU8> for Chars {
 pub enum AsciiRangeFromKeywordsError {
     New(IndexedNotEnoughCharsError),
     Width(IndexedWidthToCharsError),
-    // Range(IndexedRangeToAsciiError),
 }
 
 /// Error when $PnB could not be converted to number of characters

@@ -106,7 +106,7 @@ pub type ErrorsResult<V, P, E> = NowarnResult<V, P, E, Vec<E>>;
 pub(crate) type SwitchableErrorResult<V, P, X, E> = SwitchableResult<V, P, X, E, Nothing<E>>;
 pub(crate) type SwitchableErrorsResult<V, P, X, E> = SwitchableResult<V, P, X, E, Vec<E>>;
 
-pub(crate) type DeferredSwitchableError<V, X, E> = SwitchableErrorResult<V, V, X, E>;
+// pub(crate) type DeferredSwitchableError<V, X, E> = SwitchableErrorResult<V, V, X, E>;
 pub(crate) type DeferredSwitchableErrors<V, X, E> = SwitchableErrorsResult<V, V, X, E>;
 
 //
@@ -489,6 +489,7 @@ impl<E> FunctorOnce<E> for ImpureError<E> {
 
 impl_kind1!(pub ImpureErrorFamily, ImpureError);
 
+#[derive(Debug)]
 pub enum Error2<E0, E1> {
     Error0(E0),
     Error1(E1),
@@ -523,15 +524,15 @@ impl<E0, E1, E2> Error3<E0, E1, E2> {
         (e0, e1, e2)
     }
 
-    pub(crate) fn flatten_into3<E>(self) -> [Option<E>; 3]
-    where
-        E0: Into<E>,
-        E1: Into<E>,
-        E2: Into<E>,
-    {
-        let (e0, e1, e2) = self.flatten3();
-        [e0.map(Into::into), e1.map(Into::into), e2.map(Into::into)]
-    }
+    // pub(crate) fn flatten_into3<E>(self) -> [Option<E>; 3]
+    // where
+    //     E0: Into<E>,
+    //     E1: Into<E>,
+    //     E2: Into<E>,
+    // {
+    //     let (e0, e1, e2) = self.flatten3();
+    //     [e0.map(Into::into), e1.map(Into::into), e2.map(Into::into)]
+    // }
 }
 
 /// Type for IOErrorGroup

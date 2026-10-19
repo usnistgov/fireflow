@@ -830,21 +830,21 @@ pub type OverrangeColumn = Option<(usize, bool)>;
 
 /// Output of converting $PnR to native rust type.
 #[derive(new)]
-pub struct ConvertedRange<T> {
-    /// The native value
-    pub(crate) native: T,
+pub struct RangeError<E> {
+    /// The error itself.
+    pub(crate) error: E,
 
     /// Original range if it needed to be truncated to make the native value.
-    pub(crate) non_truncated: Option<TextRange>,
+    pub(crate) non_truncated: TextRange,
 }
 
-impl_kind1!(pub ConvertedRangeFamily, ConvertedRange);
+impl_kind1!(pub RangeErrorFamily, RangeError);
 
 impl_functor_once!(
-    ConvertedRange,
+    RangeError,
     self,
     mut f,
-    ConvertedRange::new(f(self.native), self.non_truncated)
+    RangeError::new(f(self.error), self.non_truncated)
 );
 
 /// Result of possibly truncated value
@@ -911,14 +911,6 @@ pub enum NewDataSchemaError {
     /// Error when looking up $PnR/$PnB
     ReqMeas(ReqMeasLayoutError),
 }
-
-// /// Error when $PnB or $PnR cannot be used for an [`AnyOrderedUintDataSchema`] (2.0/3.0)
-// #[derive(From, Display, Debug, Error, PartialEq, Clone)]
-// #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-// pub enum NewFixedIntLayoutError {
-//     Width(SingleFixedWidthError),
-//     Column(IndexedBitmaskError),
-// }
 
 /// Error when making a new 2.0/3.0 integer layout.
 #[derive(From, Error, Debug, Display, PartialEq, Clone)]
@@ -1176,7 +1168,11 @@ pub struct ZeroEventWidthError {
     event_width: u64,
 }
 
-#[derive(new)]
+/// Intermediate result of looking up measurement keywords.
+///
+/// This optimized for performance; the normal logging framework would involve
+/// too many allocations.
+#[derive(new, Debug)]
 pub struct LookupLayoutResult<T> {
     inner: Result<T, NewDataSchemaErrors>,
     optional_kw_errors: Vec<OptKeyError<NumType>>,
@@ -1195,61 +1191,6 @@ impl_functor_once!(
         self.range_truncation_errors
     )
 );
-
-impl<T> LookupLayoutResult<T> {
-    pub(crate) fn into_log<W, E>(
-        self,
-        conf: &ReadDataKeywordsConfig,
-    ) -> WarningsAndErrorsResult<T, (), W, E>
-    where
-        OptKeyError<NumType>: Into<E> + Into<W>,
-        NewMixedRangeWarning: Into<E> + Into<W>,
-        NewDataSchemaError: Into<E>,
-    {
-        let mut warnings = vec![];
-        let mut errors = vec![];
-        match conf.process_optional_failure.is_error() {
-            Some(true) => errors.extend(self.optional_kw_errors.into_iter().map(Into::into)),
-            Some(false) => warnings.extend(self.optional_kw_errors.into_iter().map(Into::into)),
-            None => (),
-        }
-        match conf.disallow_range_truncation.is_error() {
-            Some(true) => self.range_truncation_errors.push_errors(&mut errors),
-            Some(false) => self.range_truncation_errors.push_errors(&mut warnings),
-            None => (),
-        }
-        let mut ret = match self.inner {
-            Ok(x) => LogResult::new_ok(x),
-            Err(es) => {
-                es.push_errors(&mut errors);
-                let ne = NEVec::try_from_vec(errors).unwrap();
-                LogResult::new_from_ne_err_iter(ne, ())
-            }
-        };
-        ret.extend_commutative_warnings(warnings);
-        ret
-    }
-}
-
-// /// Error when looking up layout from key/value pairs
-// #[derive(From, Display, Debug, Error, PartialEq, Clone)]
-// #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-// pub enum LookupDataSchemaError {
-//     New(NewDataSchemaError),
-//     AlphaNumType(ReqKeyError<AlphaNumType>),
-//     ByteOrd2_0(ReqKeyError<ByteOrd2_0>),
-//     ByteOrd3_1(ReqKeyError<ByteOrd3_1>),
-//     Meas(ReqMeasLayoutError),
-// }
-
-// /// Warning when looking up layout from key/value pairs
-// #[derive(From, Display, Debug, Error, PartialEq, Clone)]
-// #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-// pub enum LookupDataSchemaWarning {
-//     New(NewMixedRangeWarning),
-//     Datatype(ReqKeyError<AlphaNumType>),
-//     Meas(OptKeyError<NumType>),
-// }
 
 type LookupMeasLayoutResult<T> = (
     Result<Vec<DataSchemaKeywordValues<T>>, NEVec<ReqMeasLayoutError>>,
@@ -1784,24 +1725,13 @@ enum Any8ByteType<F64, I64> {
     Uint64(I64),
 }
 
+/// Results for looking up keywords for ordered integer layout.
+///
+/// This is optimized for performance and bypasses the normal logging framework.
+#[derive(Debug)]
 pub enum OrderedUintDataSchemaErrors {
     ToFixed(NEVec<IndexedWidthToFixedError>),
     Single(SingleFixedWidthError),
-}
-
-impl OrderedUintDataSchemaErrors {
-    fn push_errors<I, E>(self, errors: &mut I)
-    where
-        NewDataSchemaError: Into<E>,
-        I: Extend<E>,
-    {
-        match self {
-            Self::ToFixed(es) => {
-                errors.extend(es.into_iter().map(NewDataSchemaError::from).map(Into::into));
-            }
-            Self::Single(e) => errors.extend(iter::once(NewDataSchemaError::from(e).into())),
-        }
-    }
 }
 
 // Make some nice macros to dispatch and/or map our type-specific enums
@@ -1925,7 +1855,7 @@ pub type TryNewDataSchemaResult<T> = (
     RangeTruncationErrors,
 );
 
-#[derive(From)]
+#[derive(From, Debug)]
 pub enum RangeTruncationErrors {
     Ascii(Vec<IndexedRangeToAsciiError>),
     Uint(Vec<IndexedBitmaskError>),
@@ -1933,34 +1863,7 @@ pub enum RangeTruncationErrors {
     Mixed(Vec<NewMixedRangeWarning>),
 }
 
-impl RangeTruncationErrors {
-    fn push_errors<I, E>(self, errors: &mut I)
-    where
-        I: Extend<E>,
-        NewMixedRangeWarning: Into<E>,
-    {
-        match self {
-            Self::Ascii(es) => errors.extend(
-                es.into_iter()
-                    .map(NewMixedRangeWarning::from)
-                    .map(Into::into),
-            ),
-            Self::Uint(es) => errors.extend(
-                es.into_iter()
-                    .map(NewMixedRangeWarning::from)
-                    .map(Into::into),
-            ),
-            Self::Float(es) => errors.extend(
-                es.into_iter()
-                    .map(NewMixedRangeWarning::from)
-                    .map(Into::into),
-            ),
-            Self::Mixed(es) => errors.extend(es.into_iter().map(Into::into)),
-        }
-    }
-}
-
-#[derive(From)]
+#[derive(From, Debug)]
 pub enum NewDataSchemaErrors {
     Req3_1(Error3<ReqKeyError<AlphaNumType>, ReqKeyError<ByteOrd3_1>, NEVec<ReqMeasLayoutError>>),
     Req2_0(Error3<ReqKeyError<AlphaNumType>, ReqKeyError<ByteOrd2_0>, NEVec<ReqMeasLayoutError>>),
@@ -1970,51 +1873,6 @@ pub enum NewDataSchemaErrors {
     Float(NEVec<FloatWidthError>),
     FixedInt(OrderedUintDataSchemaErrors),
     VariableInt(NEVec<IndexedWidthToBytesError>),
-}
-
-impl NewDataSchemaErrors {
-    fn push_errors<I, E>(self, errors: &mut I)
-    where
-        NewDataSchemaError: Into<E>,
-        I: Extend<E>,
-    {
-        match self {
-            Self::Req2_0(e) => {
-                let (e0, e1, es2) = e.flatten3();
-                errors.extend(
-                    e0.map(NewDataSchemaError::from)
-                        .into_iter()
-                        .chain(e1.map(NewDataSchemaError::from))
-                        .chain(es2.into_iter().flatten().map(NewDataSchemaError::from))
-                        .map(Into::into),
-                );
-            }
-            Self::Req3_1(e) => {
-                let (e0, e1, es2) = e.flatten3();
-                errors.extend(
-                    e0.map(NewDataSchemaError::from)
-                        .into_iter()
-                        .chain(e1.map(NewDataSchemaError::from))
-                        .chain(es2.into_iter().flatten().map(NewDataSchemaError::from))
-                        .map(Into::into),
-                );
-            }
-            Self::ByteOrd(e) => errors.extend(iter::once(NewDataSchemaError::from(e).into())),
-            Self::Ascii(es) => {
-                errors.extend(es.into_iter().map(NewDataSchemaError::from).map(Into::into));
-            }
-            Self::Mixed(es) => {
-                errors.extend(es.into_iter().map(NewDataSchemaError::from).map(Into::into));
-            }
-            Self::FixedInt(es) => es.push_errors(errors),
-            Self::VariableInt(es) => {
-                errors.extend(es.into_iter().map(NewDataSchemaError::from).map(Into::into));
-            }
-            Self::Float(es) => {
-                errors.extend(es.into_iter().map(NewDataSchemaError::from).map(Into::into));
-            }
-        }
-    }
 }
 
 /// A version-specific data layout with just data schema (no DATA).
@@ -7014,15 +6872,7 @@ impl<T, R> ColumnSchemaAsWidth for Series<DelimAsciiRange, T, R> {
 pub trait ColumnSchemaFromTextRange: Sized {
     type Error;
 
-    // #[must_use]
-    // fn from_range(
-    //     range: TextRange,
-    //     flag: DisallowRangeTrunc,
-    // ) -> DeferredSwitchableError<ConvertedRange<Self>, DisallowRangeTrunc, Self::Error> {
-    //     Self::from_range_inner(range).nowarn_into_switchable3(flag)
-    // }
-
-    fn from_range(range: TextRange) -> (ConvertedRange<Self>, Option<Self::Error>);
+    fn from_range(range: TextRange) -> (Self, Option<RangeError<Self::Error>>);
 }
 
 impl<T> ColumnSchemaFromTextRange for Bitmask<T>
@@ -7036,12 +6886,11 @@ where
 {
     type Error = RangeToBitmaskError;
 
-    fn from_range(range: TextRange) -> (ConvertedRange<Self>, Option<Self::Error>) {
+    fn from_range(range: TextRange) -> (Self, Option<RangeError<Self::Error>>) {
         let (value, err) = range.clone().into_uint();
+        let rng_err = err.map(|e| RangeError::new(RangeToBitmaskError::from(e), range));
         let bitmask = Self::from_native(value);
-        let old_range = err.is_some().then_some(range);
-        let converted = ConvertedRange::new(bitmask, old_range);
-        (converted, err.map(RangeToBitmaskError::from))
+        (bitmask, rng_err)
     }
 }
 
@@ -7052,11 +6901,10 @@ where
 {
     type Error = DecimalToFloatError;
 
-    fn from_range(range: TextRange) -> (ConvertedRange<Self>, Option<Self::Error>) {
+    fn from_range(range: TextRange) -> (Self, Option<RangeError<Self::Error>>) {
         let (value, err) = range.clone().into_float();
-        let old_range = err.is_some().then_some(range);
-        let converted = ConvertedRange::new(Self::new(value), old_range);
-        (converted, err)
+        let rng_err = err.map(|e| RangeError::new(e, range));
+        (Self::new(value), rng_err)
     }
 }
 
@@ -7067,11 +6915,10 @@ impl ColumnSchemaFromTextRange for AsciiRangeValue {
     ///
     /// The number of chars will be automatically selected as the minimum
     /// required to express the range.
-    fn from_range(range: TextRange) -> (ConvertedRange<Self>, Option<Self::Error>) {
+    fn from_range(range: TextRange) -> (Self, Option<RangeError<Self::Error>>) {
         let (value, err) = range.clone().into_ascii_uint();
-        let old_range = err.is_some().then_some(range);
-        let converted = ConvertedRange::new(value, old_range);
-        (converted, err.map(RangeToAsciiError::from))
+        let rng_err = err.map(|e| RangeError::new(RangeToAsciiError::from(e), range));
+        (value, rng_err)
     }
 }
 
@@ -7082,8 +6929,8 @@ impl ColumnSchemaFromTextRange for FixedAsciiRange {
     ///
     /// The number of chars will be automatically selected as the minimum
     /// required to express the range.
-    fn from_range(range: TextRange) -> (ConvertedRange<Self>, Option<Self::Error>) {
-        AsciiRangeValue::from_range(range).first_once(Functor::fmap_into)
+    fn from_range(range: TextRange) -> (Self, Option<RangeError<Self::Error>>) {
+        AsciiRangeValue::from_range(range).first_into_once()
     }
 }
 
@@ -7091,8 +6938,8 @@ impl ColumnSchemaFromTextRange for DelimAsciiRange {
     type Error = RangeToAsciiError;
 
     /// Make new [`DelimAsciiRange`] from a float or integer.
-    fn from_range(range: TextRange) -> (ConvertedRange<Self>, Option<Self::Error>) {
-        AsciiRangeValue::from_range(range).first_once(Functor::fmap_into)
+    fn from_range(range: TextRange) -> (Self, Option<RangeError<Self::Error>>) {
+        AsciiRangeValue::from_range(range).first_into_once()
     }
 }
 
@@ -8467,7 +8314,7 @@ impl<C, I, L, T, D, const ORD: bool> Layout<Vec<C>, VecFamily, I, L, ColumnMarke
     ) -> (Result<NewDataSchema<Self>, NEVec<E>>, Vec<W>)
     where
         D: IsNumType,
-        F: Fn(MeasIndex, DataSchemaKeywordValues<D>) -> (Result<ConvertedRange<C>, E>, Option<W>),
+        F: Fn(MeasIndex, DataSchemaKeywordValues<D>) -> (Result<C, E>, Option<RangeError<W>>),
     {
         Self::try_new(cs, byte_layout, None, None, start_time, new_col_f)
     }
@@ -8482,21 +8329,22 @@ impl<C, I, L, T, D, const ORD: bool> Layout<Vec<C>, VecFamily, I, L, ColumnMarke
     ) -> (Result<NewDataSchema<Self>, NEVec<E>>, Vec<W>)
     where
         D: IsNumType,
-        F: Fn(MeasIndex, DataSchemaKeywordValues<D>) -> (Result<ConvertedRange<C>, E>, Option<W>),
+        F: Fn(MeasIndex, DataSchemaKeywordValues<D>) -> (Result<C, E>, Option<RangeError<W>>),
     {
         let mut new_columns = Vec::with_capacity(cs.len());
-        let mut truncated = vec![];
+        let mut truncated = Vec::with_capacity(cs.len());
         let mut errors = vec![];
         let mut rng_errors = vec![];
         for (i, c) in cs.into_iter().enumerate() {
             let (res, rng_err) = new_col_f(i.into(), c);
-            rng_errors.extend(rng_err);
+            if let Some(w) = rng_err {
+                rng_errors.push(w.error);
+                truncated.push(Some(w.non_truncated));
+            } else {
+                truncated.push(None);
+            }
             match res {
-                Ok(converted) => {
-                    // TODO return old truncated value along with the truncated error
-                    new_columns.push(converted.native);
-                    truncated.push(converted.non_truncated);
-                }
+                Ok(converted) => new_columns.push(converted),
                 Err(e) => errors.push(e),
             }
         }
@@ -8525,16 +8373,20 @@ impl<C, I, L, T, D, const ORD: bool> Layout<Vec<C>, VecFamily, I, L, ColumnMarke
     ) -> (NewDataSchema<Self>, Vec<W>)
     where
         D: IsNumType,
-        F: Fn(MeasIndex, DataSchemaKeywordValues<D>) -> (ConvertedRange<C>, Option<W>),
+        F: Fn(MeasIndex, DataSchemaKeywordValues<D>) -> (C, Option<RangeError<W>>),
     {
         let mut new_columns = Vec::with_capacity(cs.len());
-        let mut truncated = vec![];
+        let mut truncated = Vec::with_capacity(cs.len());
         let mut rng_errors = vec![];
         for (i, c) in cs.into_iter().enumerate() {
             let (converted, rng_err) = new_col_f(i.into(), c);
-            rng_errors.extend(rng_err);
-            new_columns.push(converted.native);
-            truncated.push(converted.non_truncated);
+            if let Some(w) = rng_err {
+                rng_errors.push(w.error);
+                truncated.push(Some(w.non_truncated));
+            } else {
+                truncated.push(None);
+            }
+            new_columns.push(converted);
         }
         let now = Instant::now();
         let ns = now.duration_since1(start_time).as_nanos();
@@ -8858,7 +8710,10 @@ impl<T> AnyOrderedUintDataSchema<T> {
                     start_time,
                     |i, c| {
                         Bitmask::from_range(c.range).second_once(|x| {
-                            x.map(|e| IndexedError::new(i, e)).map(IndexedBitmaskError)
+                            x.map(|y| {
+                                y.fmap_once(|e| IndexedError::new(i, e))
+                                    .fmap_once(IndexedBitmaskError)
+                            })
                         })
                     },
                 )
@@ -8987,6 +8842,7 @@ where
         if cs.iter().all(|c| c.width == Width::Variable) {
             Layout::try_new_nofail(cs, NoByteOrd, None, None, start_time, |i, c| {
                 FixedAsciiRange::from_range_indexed(c.range, i)
+                    .first_once(|x| DelimAsciiRange::from(x.value()))
             })
             .first_once(|x| Ok(x.fmap_into_once()))
         } else {
@@ -9460,8 +9316,8 @@ impl<T> FloatRange<T> {
         range: TextRange,
         i: MeasIndex,
     ) -> (
-        Result<ConvertedRange<Self>, FloatWidthError>,
-        Option<IndexedFloatRangeError>,
+        Result<Self, FloatWidthError>,
+        Option<RangeError<IndexedFloatRangeError>>,
     )
     where
         BigDecimal: TryInto<FiniteFloat<T>, Error = DecimalToFloatError>,
@@ -9482,9 +9338,10 @@ impl<T> FloatRange<T> {
                     Err(FloatWidthError::from(e))
                 }
             });
-        let err = rng_err
-            .map(|e| IndexedError::new(i, e))
-            .map(IndexedFloatRangeError);
+        let err = rng_err.map(|y| {
+            y.fmap_once(|e| IndexedError::new(i, e))
+                .fmap_once(IndexedFloatRangeError)
+        });
         (width_res, err)
     }
 }
@@ -9507,17 +9364,14 @@ impl MixedRange {
         global_datatype: AlphaNumType,
         i: MeasIndex,
     ) -> (
-        Result<ConvertedRange<Self>, NewMixedRangeError>,
-        Option<NewMixedRangeWarning>,
+        Result<Self, NewMixedRangeError>,
+        Option<RangeError<NewMixedRangeWarning>>,
     ) {
         macro_rules! from {
             ($t:ident, $width:expr, $range:expr, $i:expr) => {
                 $t::from_width_and_range($width, $range, $i)
-                    .first_once(|x| {
-                        x.map(|y| y.fmap_once(Self::from))
-                            .map_err(NewMixedRangeError::from)
-                    })
-                    .second_once(|x| x.map(NewMixedRangeWarning::from))
+                    .first_once(|x| x.map(Self::from).map_err(NewMixedRangeError::from))
+                    .second_once(|x| x.map(|y| y.fmap_once(NewMixedRangeWarning::from)))
             };
         }
 
@@ -9580,8 +9434,8 @@ impl VariableBitmask {
         range: TextRange,
         i: MeasIndex,
     ) -> (
-        Result<ConvertedRange<Self>, IndexedWidthToBytesError>,
-        Option<IndexedBitmaskError>,
+        Result<Self, IndexedWidthToBytesError>,
+        Option<RangeError<IndexedBitmaskError>>,
     ) {
         let res = width
             .to_byte_width()
@@ -9605,10 +9459,10 @@ impl VariableBitmask {
         width: NumericByteWidth,
         range: TextRange,
         i: MeasIndex,
-    ) -> (ConvertedRange<Self>, Option<IndexedBitmaskError>) {
+    ) -> (Self, Option<RangeError<IndexedBitmaskError>>) {
         macro_rules! go {
             ($t:ident) => {
-                $t::from_range(range).first_once(FunctorOnce::fmap_into_once)
+                $t::from_range(range).first_into_once()
             };
         }
         let ret = match width {
@@ -9621,7 +9475,136 @@ impl VariableBitmask {
             NumericByteWidth::B7 => go!(Bitmask56),
             NumericByteWidth::B8 => go!(Bitmask64),
         };
-        ret.second_once(|x| x.map(|e| IndexedError::new(i, e)).map(IndexedBitmaskError))
+        ret.second_once(|x| {
+            x.map(|y| {
+                y.fmap_once(|e| IndexedError::new(i, e))
+                    .fmap_once(IndexedBitmaskError)
+            })
+        })
+    }
+}
+
+// Implement misc methods on results types
+
+impl<T> LookupLayoutResult<T> {
+    pub(crate) fn into_log<W, E>(
+        self,
+        conf: &ReadDataKeywordsConfig,
+    ) -> WarningsAndErrorsResult<T, (), W, E>
+    where
+        OptKeyError<NumType>: Into<E> + Into<W>,
+        NewMixedRangeWarning: Into<E> + Into<W>,
+        NewDataSchemaError: Into<E>,
+    {
+        let mut warnings = vec![];
+        let mut errors = vec![];
+        match conf.process_optional_failure.is_error() {
+            Some(true) => errors.extend(self.optional_kw_errors.into_iter().map(Into::into)),
+            Some(false) => warnings.extend(self.optional_kw_errors.into_iter().map(Into::into)),
+            None => (),
+        }
+        match conf.disallow_range_truncation.is_error() {
+            Some(true) => self.range_truncation_errors.push_errors(&mut errors),
+            Some(false) => self.range_truncation_errors.push_errors(&mut warnings),
+            None => (),
+        }
+        let mut ret = match self.inner {
+            Ok(x) => LogResult::new_from_err_iter(errors, x, ()),
+            Err(es) => {
+                es.push_errors(&mut errors);
+                let ne = NEVec::try_from_vec(errors).unwrap();
+                LogResult::new_from_ne_err_iter(ne, ())
+            }
+        };
+        ret.extend_commutative_warnings(warnings);
+        ret
+    }
+}
+
+impl RangeTruncationErrors {
+    fn push_errors<I, E>(self, errors: &mut I)
+    where
+        I: Extend<E>,
+        NewMixedRangeWarning: Into<E>,
+    {
+        match self {
+            Self::Ascii(es) => errors.extend(
+                es.into_iter()
+                    .map(NewMixedRangeWarning::from)
+                    .map(Into::into),
+            ),
+            Self::Uint(es) => errors.extend(
+                es.into_iter()
+                    .map(NewMixedRangeWarning::from)
+                    .map(Into::into),
+            ),
+            Self::Float(es) => errors.extend(
+                es.into_iter()
+                    .map(NewMixedRangeWarning::from)
+                    .map(Into::into),
+            ),
+            Self::Mixed(es) => errors.extend(es.into_iter().map(Into::into)),
+        }
+    }
+}
+
+impl NewDataSchemaErrors {
+    fn push_errors<I, E>(self, errors: &mut I)
+    where
+        NewDataSchemaError: Into<E>,
+        I: Extend<E>,
+    {
+        match self {
+            Self::Req2_0(e) => {
+                let (e0, e1, es2) = e.flatten3();
+                errors.extend(
+                    e0.map(NewDataSchemaError::from)
+                        .into_iter()
+                        .chain(e1.map(NewDataSchemaError::from))
+                        .chain(es2.into_iter().flatten().map(NewDataSchemaError::from))
+                        .map(Into::into),
+                );
+            }
+            Self::Req3_1(e) => {
+                let (e0, e1, es2) = e.flatten3();
+                errors.extend(
+                    e0.map(NewDataSchemaError::from)
+                        .into_iter()
+                        .chain(e1.map(NewDataSchemaError::from))
+                        .chain(es2.into_iter().flatten().map(NewDataSchemaError::from))
+                        .map(Into::into),
+                );
+            }
+            Self::ByteOrd(e) => errors.extend(iter::once(NewDataSchemaError::from(e).into())),
+            Self::Ascii(es) => {
+                errors.extend(es.into_iter().map(NewDataSchemaError::from).map(Into::into));
+            }
+            Self::Mixed(es) => {
+                errors.extend(es.into_iter().map(NewDataSchemaError::from).map(Into::into));
+            }
+            Self::FixedInt(es) => es.push_errors(errors),
+            Self::VariableInt(es) => {
+                errors.extend(es.into_iter().map(NewDataSchemaError::from).map(Into::into));
+            }
+            Self::Float(es) => {
+                errors.extend(es.into_iter().map(NewDataSchemaError::from).map(Into::into));
+            }
+        }
+    }
+}
+
+impl OrderedUintDataSchemaErrors {
+    fn push_errors<I, E>(self, errors: &mut I)
+    where
+        NewDataSchemaError: Into<E>,
+        I: Extend<E>,
+    {
+        match self {
+            Self::ToFixed(es) => {
+                errors.extend(es.into_iter().map(NewDataSchemaError::from).map(Into::into));
+            }
+            Self::Single(e) => errors.extend(iter::once(NewDataSchemaError::from(e).into())),
+        }
     }
 }
 

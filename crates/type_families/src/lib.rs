@@ -526,3 +526,24 @@ macro_rules! impl_pointed {
 
 impl_pointed!(Option, a, Some(a));
 impl_pointed!(Vec, a, vec![a]);
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub struct Tuple2Family;
+
+impl Kind2 for Tuple2Family {
+    type Type<A, B> = (A, B);
+}
+
+impl<A, B> IsKind2 for (A, B) {
+    type Family = Tuple2Family;
+}
+
+impl<A, B> BifunctorOnce<A, B> for (A, B) {
+    fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Sibling2<Self, C, B> {
+        (f(self.0), self.1)
+    }
+
+    fn second_once<F: FnOnce(B) -> C, C>(self, f: F) -> Sibling2<Self, A, C> {
+        (self.0, f(self.1))
+    }
+}

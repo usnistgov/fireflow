@@ -16,11 +16,10 @@ use crate::data::{
     DataSchema3_2, DataSchemaDiagnostics, DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame,
     EventOverRangeError, EventOverRangeSummary, EventsDiagnostics, IsTot, LayoutDatatype,
     LayoutHeight as _, LayoutInsert, LayoutInsertScaleCheck, LayoutKeywords, LayoutNormalize,
-    LayoutOptMeasKeywords, LayoutRemove, LayoutSize as _, LayoutWidth, LookupDataSchemaError,
-    LookupDataSchemaWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
-    NewDataSchemaError, OverrangeColumn, RangeAndSeries, ReadCheckedDataframeError,
-    ReadCheckedDataframeWarning, VersionedDataFrame as _, VersionedDataSchema,
-    WithPrimitiveDataFrame,
+    LayoutOptMeasKeywords, LayoutRemove, LayoutSize as _, LayoutWidth, MeasLayoutMismatchError,
+    MeasurementsWithLayoutError, NewDataSchemaError, NewMixedRangeWarning, OverrangeColumn,
+    RangeAndSeries, ReadCheckedDataframeError, ReadCheckedDataframeWarning,
+    VersionedDataFrame as _, VersionedDataSchema, WithPrimitiveDataFrame,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -83,9 +82,9 @@ use crate::text::keywords::{
     Abrt, AlphaNumType, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Carrierid, Carriertype,
     Cells, Com, Compensation2_0, Compensation3_0, Cyt, Cyt3_2, Cytsn, Exp, Feature, Fil, Flowrate,
     Gate, Inst, LastModified, LastModifier, Locationid, LookupComp2_0Error, Lost, Mode, Mode3_2,
-    ModeUpgradeError, Nextdata, NoCytError, Op, Originality, Par, Plateid, Platename, Proj,
-    ScaleFix, Smno, Src, Sys, Timestep, TimestepAdded, Tot, Trigger, Unicode, UnstainedCenters,
-    UnstainedInfo, ValueToStdKey as _, Vol, Wellid,
+    ModeUpgradeError, Nextdata, NoCytError, NumType, Op, Originality, Par, Plateid, Platename,
+    Proj, ScaleFix, Smno, Src, Sys, Timestep, TimestepAdded, Tot, Trigger, Unicode,
+    UnstainedCenters, UnstainedInfo, ValueToStdKey as _, Vol, Wellid,
 };
 use crate::text::lookup::{
     Diagnosed, OptKeyError, OptStKeyError, OptValue as _, ReqKeyError, ReqValue as _,
@@ -1396,9 +1395,11 @@ pub enum StdTEXTFromTxErrorInner {
     Metaroot(LookupMetarootError),
     Meas(LookupMeasurementError),
     Shortname(LookupShortnameError),
-    DataSchema(LookupDataSchemaError),
     Offsets(LookupTEXTOffsetsError),
     Extra(ExtraStdKeywordError),
+    PnDatatype(OptKeyError<NumType>),
+    Truncated(NewMixedRangeWarning),
+    Schema(NewDataSchemaError),
 }
 
 /// Warning when reading standardized TEXT from keyword pairs
@@ -1409,9 +1410,10 @@ pub enum StdTEXTFromTxWarning {
     Metaroot(LookupMetarootWarning),
     Meas(LookupMeasurementWarning),
     Shortname(OptKeyError<Shortname>),
-    DataSchema(LookupDataSchemaWarning),
     Offsets(LookupTEXTOffsetsWarning),
     Extra(ExtraStdKeywordError),
+    PnDatatype(OptKeyError<NumType>),
+    Truncated(NewMixedRangeWarning),
 }
 
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
@@ -1499,8 +1501,10 @@ pub enum MetarootConvertWarning {
 pub enum LookupAndReadDataAnalysisError {
     Par(ReqKeyError<Par>),
     Offsets(LookupTEXTOffsetsError),
-    DataSchema(LookupDataSchemaError),
     Dataframe(ReadCheckedDataframeError),
+    Truncation(NewMixedRangeWarning),
+    PnDatatype(OptKeyError<NumType>),
+    New(NewDataSchemaError),
 }
 
 /// Warning when reading DATA offsets from already-parsed keywords
@@ -1508,8 +1512,9 @@ pub enum LookupAndReadDataAnalysisError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisWarning {
     Offsets(LookupTEXTOffsetsWarning),
-    DataSchema(LookupDataSchemaWarning),
     Data(ReadCheckedDataframeWarning),
+    Truncation(NewMixedRangeWarning),
+    PnDatatype(OptKeyError<NumType>),
 }
 
 /// Error when looking up offsets for parsing DATA
@@ -2171,8 +2176,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
             .into_log()
             .and_then_commutative(|par| {
                 Self::DataSchema::lookup_ro(tx, par, start_time, conf.as_ref())
-                    .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
-                    .map_errors(LookupAndReadDataAnalysisError::from)
+                    .into_log(conf.as_ref())
             });
 
         layout_res
@@ -5949,13 +5953,14 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                 .and_then_commutative(|(dedup_names, original_names)| {
                     let schema_start_time = Instant::now();
                     let schema_res =
-                        V::DataSchema::lookup(&mut std, par, schema_start_time, conf.as_ref());
+                        V::DataSchema::lookup(&mut std, par, schema_start_time, conf.as_ref())
+                            .into_log(conf.as_ref());
 
                     let root_res =
                         RootMeta::<V::RootMeta>::lookup_metaroot(&mut std, &dedup_names[..], conf);
 
                     go_err!(root_res)
-                        .zip_commutative(go_err!(schema_res))
+                        .zip_commutative(schema_res)
                         .map_ok_value(|x| (x, dedup_names, (schema_start_time, original_names)))
                 })
                 // Lookup measurement array which depends on global datatype

@@ -2503,41 +2503,39 @@ impl_from_unaligned!(U48);
 impl_from_unaligned!(U56);
 
 impl TextRange {
-    pub(crate) fn into_uint<T>(self) -> DeferredError<BitmaskValue<T>, RangeToIntError<()>>
+    pub(crate) fn into_uint<T>(self) -> (BitmaskValue<T>, Option<RangeToIntError<()>>)
     where
         T: TryFrom<Self, Error = RangeToIntError<T>> + Bounded + Copy,
     {
-        (self - Self::from(1_u8))
-            .into_uint_inner()
-            .map_deferred_value(BitmaskValue)
+        let (x, y) = (self - Self::from(1_u8)).into_uint_inner();
+        (BitmaskValue(x), y)
     }
 
-    pub(crate) fn into_ascii_uint(self) -> DeferredError<AsciiRangeValue, RangeToIntError<()>> {
-        self.into_uint_inner::<u64>()
-            .map_deferred_value(AsciiRangeValue)
+    pub(crate) fn into_ascii_uint(self) -> (AsciiRangeValue, Option<RangeToIntError<()>>) {
+        let (x, y) = self.into_uint_inner::<u64>();
+        (AsciiRangeValue(x), y)
     }
 
-    fn into_uint_inner<T>(self) -> DeferredError<T, RangeToIntError<()>>
+    fn into_uint_inner<T>(self) -> (T, Option<RangeToIntError<()>>)
     where
         T: TryFrom<Self, Error = RangeToIntError<T>> + Bounded + Copy,
     {
-        let (b, err) = self.try_into().map_or_else(
+        self.try_into().map_or_else(
             |e: RangeToIntError<T>| match e.error_kind {
                 RangeToIntErrorKind::Overrange => (T::max_value(), Some(e.void())),
                 RangeToIntErrorKind::Underrange => (T::min_value(), Some(e.void())),
                 RangeToIntErrorKind::PrecisionLoss(y) => (y, Some(e.void())),
             },
             |x| (x, None),
-        );
-        LogResult::new_deferred_maybe(b, err)
+        )
     }
 
-    pub(crate) fn into_float<T>(self) -> DeferredError<FiniteFloat<T>, DecimalToFloatError>
+    pub(crate) fn into_float<T>(self) -> (FiniteFloat<T>, Option<DecimalToFloatError>)
     where
         BigDecimal: TryInto<FiniteFloat<T>, Error = DecimalToFloatError>,
         FiniteFloat<T>: Bounded,
     {
-        let (x, err) = self.0.try_into().map_or_else(
+        self.0.try_into().map_or_else(
             |e| {
                 let m = if e.over() {
                     FiniteFloat::<T>::max_value()
@@ -2547,8 +2545,7 @@ impl TextRange {
                 (m, Some(e))
             },
             |x| (x, None),
-        );
-        LogResult::new_deferred_maybe(x, err)
+        )
     }
 }
 

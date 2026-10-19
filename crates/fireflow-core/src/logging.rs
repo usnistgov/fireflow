@@ -489,6 +489,51 @@ impl<E> FunctorOnce<E> for ImpureError<E> {
 
 impl_kind1!(pub ImpureErrorFamily, ImpureError);
 
+pub enum Error2<E0, E1> {
+    Error0(E0),
+    Error1(E1),
+    Error01(E0, E1),
+}
+
+pub type Error3<E0, E1, E2> = Error2<Error2<E0, E1>, E2>;
+
+impl<E0, E1> Error2<E0, E1> {
+    pub(crate) fn flatten(self) -> (Option<E0>, Option<E1>) {
+        match self {
+            Self::Error0(e0) => (Some(e0), None),
+            Self::Error1(e1) => (None, Some(e1)),
+            Self::Error01(e0, e1) => (Some(e0), Some(e1)),
+        }
+    }
+
+    pub(crate) fn flatten_into<E>(self) -> [Option<E>; 2]
+    where
+        E0: Into<E>,
+        E1: Into<E>,
+    {
+        let (e0, e1) = self.flatten();
+        [e0.map(Into::into), e1.map(Into::into)]
+    }
+}
+
+impl<E0, E1, E2> Error3<E0, E1, E2> {
+    pub(crate) fn flatten3(self) -> (Option<E0>, Option<E1>, Option<E2>) {
+        let (e01, e2) = self.flatten();
+        let (e0, e1) = e01.map(Error2::flatten).unwrap_or_default();
+        (e0, e1, e2)
+    }
+
+    pub(crate) fn flatten_into3<E>(self) -> [Option<E>; 3]
+    where
+        E0: Into<E>,
+        E1: Into<E>,
+        E2: Into<E>,
+    {
+        let (e0, e1, e2) = self.flatten3();
+        [e0.map(Into::into), e1.map(Into::into), e2.map(Into::into)]
+    }
+}
+
 /// Type for IOErrorGroup
 pub struct IOErrorGroupFamily<G>(PhantomData<G>);
 
@@ -775,6 +820,25 @@ pub(crate) trait ResultExt: Sized {
             (Ok(_), Err(e)) | (Err(e), Ok(_)) => Err(OneOrTwo::One(e)),
             (Err(e0), Err(e1)) => Err(OneOrTwo::Two(e0, e1)),
         }
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn zip2<V1, E1>(self, a: Result<V1, E1>) -> Result<(Self::Ok, V1), Error2<Self::Error, E1>> {
+        match (self.into_result(), a) {
+            (Ok(x0), Ok(x1)) => Ok((x0, x1)),
+            (Err(e), Ok(_)) => Err(Error2::Error0(e)),
+            (Ok(_), Err(e)) => Err(Error2::Error1(e)),
+            (Err(e0), Err(e1)) => Err(Error2::Error01(e0, e1)),
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn zip3<V1, V2, E1, E2>(
+        self,
+        a: Result<V1, E1>,
+        b: Result<V2, E2>,
+    ) -> Result<(Self::Ok, V1, V2), Error3<Self::Error, E1, E2>> {
+        self.zip2(a).zip2(b).map(|((x0, x1), x2)| (x0, x1, x2))
     }
 
     // fn ungroup<E>(self) -> ErrorsResult<Self::Ok, (), E>

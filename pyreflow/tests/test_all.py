@@ -1,7 +1,7 @@
 import numpy as np
 import inspect as ins
 from itertools import product, chain
-from typing import cast, Any, NamedTuple, TypeVar, Callable
+from typing import cast, Any, NamedTuple, TypeVar, Callable, assert_never
 from datetime import date, datetime, time, timezone, timedelta
 from pathlib import Path
 from copy import deepcopy
@@ -6670,6 +6670,31 @@ class TestReadWrite:
         conf = pfp.PyreflowReadFlatDatasetConfig()
         smry = conf.summarize(p, mmap=mmap)
         assert len(smry) == 3
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
+    def test_scan_dataset_offsets(
+        self, tmp_path: Path, mmap: bool, core0: AnyCoreDataset
+    ) -> None:
+        """Test writing then getting the offsets/versions for each dataset."""
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "datasets.fcs"
+        core1 = deepcopy(core0)
+        core2 = deepcopy(core0)
+        version = core0.version
+        pf.api.fcs_write_datasets(p, [core0, core1, core2])  # type: ignore
+        offsets = pf.api.fcs_scan_dataset_boundaries(p, mmap)
+        if version == "FCS2.0":
+            assert offsets == [(version, 0), (version, 258), (version, 516)]
+        elif version == "FCS3.0":
+            assert offsets == [(version, 0), (version, 474), (version, 948)]
+        elif version == "FCS3.1":
+            assert offsets == [(version, 0), (version, 474), (version, 948)]
+        elif version == "FCS3.2":
+            assert offsets == [(version, 0), (version, 485), (version, 970)]
+        else:
+            assert_never(version)
 
     # TODO test other layouts such as var uint and s8, and also make this ascii
     # layout have variable width

@@ -745,7 +745,7 @@ where
     let mut buf = vec![];
     let mut file_offset = start_pos;
     let mut done = false;
-    reader.read_to_end_checked(BUF_SIZE, &mut buf)?;
+    reader.take(BUF_SIZE).read_to_end(&mut buf)?;
 
     while buf.len() >= BOUNDARY_MATCH_SIZE {
         for w in buf[..].array_windows() {
@@ -762,7 +762,7 @@ where
         buf.clear();
         buf.extend(tmp);
         let overlap_nbytes = BUF_SIZE - OVERLAP_SIZE.usize_to_u64();
-        reader.read_to_end_checked(overlap_nbytes, &mut buf)?;
+        reader.take(overlap_nbytes).read_to_end(&mut buf)?;
     }
     Ok(())
 }

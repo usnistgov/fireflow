@@ -140,6 +140,7 @@ macro_rules! make_args {
         pub const REPLACE_STD_KEY_VALS: &str = repair_kw_arg!(replace_standard_key_values);
         pub const APPEND_STD_KEYWORDS: &str = repair_kw_arg!(append_standard_keywords);
         pub const SUB_STD_KEY_VALS: &str = repair_kw_arg!(substitute_standard_key_values);
+        pub const PROMOTE_ALL_TO_STD: &str = repair_kw_arg!(promote_all_nonstandard_keys);
         pub const ALLOW_REPAIR_NON_UNIQUE: &str = repair_kw_arg!(allow_repair_non_unique);
 
         // read data config flags

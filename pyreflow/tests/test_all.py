@@ -5091,8 +5091,26 @@ class TestConfig:
             promote_nonstandard_keys=["OP"],
             allow_missing_crc="silent",
         )
-        print(out.keywords.std)
         assert out.keywords.std["$OP"] == "Derek Sherinian"
+
+    @all_versions
+    def test_promote_all_to_standard(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
+        """Test the promote_to_standard arg."""
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(
+            p, version, kws={"SYS": "Linux", "OP": "Solaris", "SPILL": "BSD"}
+        )
+
+        out = pf.api.fcs_read_flat_dataset(
+            p,
+            promote_all_nonstandard_keys=True,
+            allow_missing_crc="silent",
+        )
+        assert out.keywords.std["$SYS"] == "Linux"
+        assert out.keywords.std["$OP"] == "Solaris"
+        assert out.keywords.nonstd["SPILL"] == "BSD"
 
     @all_versions
     def test_demote_from_standard(self, version: pt.FCSVersion, tmp_path: Path) -> None:
@@ -6801,8 +6819,6 @@ class TestReadWrite:
             mmap=mmap,
         )
         self._assert_uncore_dataset_empty(un_core)
-        print(core.standard_keywords(req_or_opt="req_only", root_or_meas="both"))
-        print(nu_core.standard_keywords(req_or_opt="req_only", root_or_meas="both"))
         assert core.cyt == nu_core.cyt
         assert core == nu_core
         # supp text should have non-zero offsets in new file
@@ -6881,7 +6897,6 @@ class TestPydantic:
         for arg, default in zip(all_args[diff:], all_defaults):
             pyi_default = ast.unparse(default)
             name = arg.arg
-            print(name)
             if arg.annotation and name not in ignore:
                 try:
                     (t, d) = sigmap[name]

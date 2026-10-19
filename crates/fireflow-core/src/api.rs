@@ -2997,30 +2997,41 @@ impl ValidKeywords {
         let mut promote_non_unique = vec![];
         let mut promoted = vec![];
 
-        for (k, ()) in &match_promote.literals {
-            if let Some(v) = self.pnonstd.delete(k) {
+        if conf.promote_all_nonstandard_keys.is_set() {
+            self.pnonstd.retain(|k, v| {
                 if let Some(vf) = self.std.insert(k.rewrap_ref(), v) {
                     promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
                 } else {
                     promoted.push(*k);
                 }
-            }
-        }
-
-        if match_promote.has_wildcards() {
-            self.pnonstd.retain(|k, v| {
-                if match_promote.is_wildcard_match(&k.0) {
+                false
+            });
+        } else {
+            for (k, ()) in &match_promote.literals {
+                if let Some(v) = self.pnonstd.delete(k) {
                     if let Some(vf) = self.std.insert(k.rewrap_ref(), v) {
                         promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
-                        true
                     } else {
                         promoted.push(*k);
-                        false
                     }
-                } else {
-                    true
                 }
-            });
+            }
+
+            if match_promote.has_wildcards() {
+                self.pnonstd.retain(|k, v| {
+                    if match_promote.is_wildcard_match(&k.0) {
+                        if let Some(vf) = self.std.insert(k.rewrap_ref(), v) {
+                            promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
+                            true
+                        } else {
+                            promoted.push(*k);
+                            false
+                        }
+                    } else {
+                        true
+                    }
+                });
+            }
         }
 
         // replace

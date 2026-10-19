@@ -10511,6 +10511,7 @@ impl DocArgParam {
             Self::new_replace_standard_key_values(),
             Self::new_append_standard_keywords(),
             Self::new_substitute_standard_key_values(),
+            Self::new_promote_all_to_std_param(),
             Self::new_allow_repair_non_unique_param(),
         ];
         let js = ps.iter().map(IsDocArg::record_into).collect();
@@ -11226,6 +11227,22 @@ impl DocArgParam {
             ),
         )
         .def_auto()
+    }
+
+    fn new_promote_all_to_std_param() -> Self {
+        let d = format!(
+            "Promote all non-standard keywords to standard. \
+             Only keywords that are part of a given standard will be promoted. \
+             For instance, {cytns} will become {cyt}, but {spillns} will not \
+             become {spill} as the latter is not a valid standard keyword in any \
+             version. This will take precedence over {other}.",
+            cytns = code_str(sk::CYT_KW),
+            cyt = code_str(sk::CYT),
+            spillns = code_str("SPILL"),
+            spill = code_str("$SPILL"),
+            other = arg(ta::PROMOTE_TO_STD)
+        );
+        Self::new_bool_param(ta::PROMOTE_ALL_TO_STD, d)
     }
 
     fn new_allow_repair_non_unique_param() -> Self {

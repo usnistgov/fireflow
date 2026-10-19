@@ -325,6 +325,7 @@ pub(crate) fn eval_repair_conf(
                 replace_standard_key_values: replace,
                 append_standard_keywords: append,
                 substitute_standard_key_values: sub,
+                promote_all_nonstandard_keys: conf.promote_all_nonstandard_keys,
                 allow_repair_non_unique: conf.allow_repair_non_unique,
             },
         )

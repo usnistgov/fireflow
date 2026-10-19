@@ -110,6 +110,7 @@ class _ReadRepairKeywordsConfig(BaseModel):
     replace_standard_key_values: pft.AppendableSelector[pft.StdKeyValues] = {}
     append_standard_keywords: pft.AppendableSelector[pft.StdKeyValues] = {}
     substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {}
+    promote_all_nonstandard_keys: bool = False
     allow_repair_non_unique: pft.TriFlag = "false"
 
 

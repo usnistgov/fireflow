@@ -609,6 +609,15 @@ pub struct ReadRepairKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
     /// with a regexp will be replaced, possibly with captures.
     pub substitute_standard_key_values: SSKV,
 
+    /// Promote all non-standard keywords to standard.
+    ///
+    /// Only keywords that are part of a given standard will be promoted. For
+    /// instance, `"CYT"` will become `"$CYT"`, but `"SPILL"` will not become
+    /// `"$SPILL"` as the latter is not a valid standard keyword in any version.
+    ///
+    /// This will take precedence over [`Self::promote_nonstandard_keys`].
+    pub promote_all_nonstandard_keys: PromoteAllNonStd,
+
     /// Choose how to handle key collisions when repairing keywords.
     ///
     /// Non-unique keywords will not be kept in the final FCS file since each
@@ -854,6 +863,7 @@ _impl_config_flag!(FixLogScaleOffsets);
 _impl_config_flag!(DisallowLocaltime);
 _impl_config_flag!(ReadIntraSegmentDarkBytes);
 _impl_config_flag!(ReadPostDatasetDarkBytes);
+_impl_config_flag!(PromoteAllNonStd);
 
 _impl_config_flag!(SkipConversionCheck);
 _impl_config_flag!(BigOther);

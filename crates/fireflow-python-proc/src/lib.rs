@@ -700,6 +700,44 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn def_fcs_scan_dataset_boundaries(input: TokenStream) -> TokenStream {
+    let fun_path = parse_macro_input!(input as Path);
+
+    let path_arg = DocArg::new_path_param(false);
+    let mmap_arg = DocArg::new_mmap_param();
+
+    let ret = DocReturn::new(PyList::new1(
+        PyTuple::new1(PyAlias::new_version()).add(PyInt::new_dataset_offset()),
+    ))
+    .desc(format!(
+        "the value of {NEXTDATA} as written in the last dataset if written"
+    ));
+
+    let doc = DocString::new_fun("Scan FCS file to find starting offset for each dataset.")
+        .para(format!(
+            "This is useful for situations where the {NEXTDATA} keyword cannot \
+             be trusted and one suspects that there may be multiple datasets \
+             in a file."
+        ))
+        .arg(path_arg)
+        .arg(mmap_arg)
+        .returns(ret);
+
+    let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
+
+    quote! {
+        #[pyfunction]
+        #doc
+        #[allow(clippy::too_many_arguments)]
+        pub fn fcs_scan_dataset_boundaries(#fun_args) -> PyResult<#ret_path> {
+            Ok(#fun_path(&path, mmap)?)
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
 pub fn impl_config_defaults(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();

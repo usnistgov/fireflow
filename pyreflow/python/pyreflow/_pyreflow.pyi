@@ -3649,6 +3649,12 @@ def fcs_write_datasets(
     row_buffer_size: int = 28000,
 ) -> int | None: ...
 
+#
+def fcs_scan_dataset_boundaries(
+    path: Path,
+    mmap: bool = False,
+) -> list[tuple[pft.FCSVersion, int]]: ...
+
 __version__: str
 
 __all__ = [
@@ -3752,4 +3758,5 @@ __all__ = [
     "fcs_read_flat_dataset_with_keywords",
     "fcs_summarize",
     "fcs_write_datasets",
+    "fcs_scan_dataset_boundaries",
 ]

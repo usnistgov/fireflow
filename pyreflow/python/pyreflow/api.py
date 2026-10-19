@@ -14,6 +14,7 @@ from ._pyreflow import (
 )
 from ._pyreflow import fcs_summarize as fcs_summarize
 from ._pyreflow import fcs_write_datasets as fcs_write_datasets
+from ._pyreflow import fcs_scan_dataset_boundaries as fcs_scan_dataset_boundaries
 
 from ._pyreflow import Header as Header
 from ._pyreflow import FinalHeaderOffsets as FinalHeaderOffsets

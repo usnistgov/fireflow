@@ -105,6 +105,7 @@ fpp::def_fcs_read_flat_dataset!(
 fpp::def_fcs_read_std_dataset!(api::fcs_read_std_dataset, api::fcs_read_std_datasets);
 fpp::def_fcs_read_flat_dataset_with_keywords!(api::fcs_read_flat_dataset_with_keywords);
 fpp::def_fcs_write_datasets!(api::fcs_write_datasets);
+fpp::def_fcs_scan_dataset_boundaries!(api::fcs_scan_dataset_boundaries);
 
 fpp::impl_config_defaults!(cfg::ReadHeaderConfig);
 fpp::impl_config_defaults!(cfg::ReadFlatTEXTConfig);

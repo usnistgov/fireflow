@@ -763,6 +763,11 @@ fn run() -> AppResult<()> {
         ))
         .value_parser(ValueParser::new(parse_sub_pattern_pair));
 
+    let promote_to_std = flag_arg(
+        ta::PROMOTE_ALL_TO_STD,
+        "Promote all non-standard keys to standard where possible.",
+    );
+
     let allow_repair_non_unique = tri_flag_arg::<tc::AllowRepairNonUnique>(
         ta::ALLOW_REPAIR_NON_UNIQUE,
         "Choose how to handle key collisions when repairing keywords. \
@@ -778,6 +783,7 @@ fn run() -> AppResult<()> {
         replace_std_key_vals,
         append_std_key_vals,
         sub_key_vals,
+        promote_to_std,
         allow_repair_non_unique,
     ];
 
@@ -1545,7 +1551,7 @@ fn get_header_and_text_config(s: &ArgMatches) -> tc::ReadHeaderAndTEXTConfig {
     get_opt(s, ta::ALLOW_DUPLICATED_SUPP_TEXT, |x| {
         c.allow_duplicated_supp_text = x;
     });
-    get_flag(s, ta::IGNORE_SUPP_TEXT, |x| c.ignore_supp_text = x);
+    get_flag(s, ta::IGNORE_SUPP_TEXT, |x| c.process_supp_text = x);
     get_opt(s, ta::DELIM_ESCAPE_MODE, |x| c.delim_escape_mode = x);
     get_opt(s, ta::ALLOW_NON_ASCII_DELIM, |x| {
         c.allow_non_ascii_delim = x;
@@ -1675,6 +1681,10 @@ fn get_repair_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadRepairKeywordsCo
 
     get_many(s, ta::SUB_STD_KEY_VALS, |xs| {
         c.substitute_standard_key_values = AppendableSelector::root(xs);
+    });
+
+    get_opt(s, ta::PROMOTE_ALL_TO_STD, |x| {
+        c.promote_all_nonstandard_keys = x;
     });
 
     get_opt(s, ta::ALLOW_REPAIR_NON_UNIQUE, |x| {

@@ -3048,10 +3048,10 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
     );
 
     let skipped_pairs = DocArgROIvar::new_ivar_ro(
-        "skipped_pairs",
+        "empty_pairs",
         RsInt::Usize,
         "Number of key/value pairs that were skipped because both were blank.",
-        |_, _| quote!(self.0.skipped_pairs),
+        |_, _| quote!(self.0.empty_pairs),
     );
 
     let tokens_with_boundary_delims = DocArgROIvar::new_ivar_ro(

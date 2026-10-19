@@ -2300,7 +2300,7 @@ class SplitTEXTDiagnostics:
         keys_with_trimmed_values: list[tuple[pft.KeyOrBytes, pft.NEStr]],
         keys_with_blank_values: list[pft.NEStrOrBytes],
         values_with_blank_keys: list[pft.NEStrOrBytes],
-        skipped_pairs: int,
+        empty_pairs: int,
         tokens_with_boundary_delims: list[bytes | pft.NEStr],
         last_odd_token: bytes | str,
         has_even_delims: bool,
@@ -2339,7 +2339,7 @@ class SplitTEXTDiagnostics:
     @property
     def values_with_blank_keys(self) -> list[pft.NEStrOrBytes]: ...
     @property
-    def skipped_pairs(self) -> int: ...
+    def empty_pairs(self) -> int: ...
     @property
     def tokens_with_boundary_delims(self) -> list[bytes | pft.NEStr]: ...
     @property

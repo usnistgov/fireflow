@@ -657,9 +657,8 @@ pub struct SplitTEXTDiagnostics {
     /// Values with blank keys.
     pub values_with_blank_keys: Vec<NEStringOrBytes>,
 
-    // TODO rename to something like "empty_pairs"
     /// Number of key/value pairs that were skipped because both were blank.
-    pub skipped_pairs: usize,
+    pub empty_pairs: usize,
 
     /// Tokens with delimiters at their boundaries (without the delimiters).
     ///
@@ -1806,7 +1805,7 @@ impl SplitTEXTDiagnostics {
             keys_with_trimmed_values: common.keys_with_trimmed_values,
             keys_with_blank_values: specific.keys_with_blank_values,
             values_with_blank_keys: specific.values_with_blank_keys,
-            skipped_pairs: specific.skipped_pairs,
+            empty_pairs: specific.skipped_pairs,
             tokens_with_boundary_delims: specific.tokens_with_boundary_delims,
             last_odd_token: specific.last_odd_token,
             has_even_delims: specific.has_even_delims,
@@ -1968,7 +1967,7 @@ impl SplitTEXTDiagnostics {
             + self.non_unique_nonstd_keywords.len();
 
         let blank_pairs_error =
-            NonZeroUsize::new(self.skipped_pairs).map(|n| BlankPairError::new(tk, n));
+            NonZeroUsize::new(self.empty_pairs).map(|n| BlankPairError::new(tk, n));
         let last_odd_error = self
             .last_odd_token
             .clone()

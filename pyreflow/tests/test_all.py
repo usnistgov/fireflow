@@ -4882,7 +4882,7 @@ class TestConfig:
             out = pf.api.fcs_read_flat_text(
                 p, allow_empty_keys=f, delim_escape_mode="unescaped"
             )
-            return out.flat_diagnostics.primary_split.skipped_pairs
+            return out.flat_diagnostics.primary_split.empty_pairs
 
         self._test_tri_flag(go, 1, [pf.FileLayoutError])
 

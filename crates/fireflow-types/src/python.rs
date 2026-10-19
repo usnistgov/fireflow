@@ -247,6 +247,7 @@ pub const SUPP_OFFSET_ORIGIN_MALFORMED_LEVEL: &NEStr = ne_str!("malformed");
 pub const SUPP_OFFSET_ORIGIN_DUP_PTEXT_LEVEL: &NEStr = ne_str!("dup_ptext");
 pub const SUPP_OFFSET_ORIGIN_DUP_ANALYSIS_LEVEL: &NEStr = ne_str!("dup_analysis");
 pub const SUPP_OFFSET_ORIGIN_IGNORED_LEVEL: &NEStr = ne_str!("ignored");
+pub const SUPP_OFFSET_ORIGIN_OTHER_LEVEL: &NEStr = ne_str!("other");
 pub const SUPP_OFFSET_ORIGIN_DUP_OTHER_LEVEL: &NEStr = ne_str!("dup_other");
 pub const SUPP_OFFSET_ORIGIN_VALID_LEVEL: &NEStr = ne_str!("valid");
 
@@ -265,6 +266,7 @@ impl_str_enum!(
     DuplicatesPrimaryTEXT => SUPP_OFFSET_ORIGIN_DUP_PTEXT_LEVEL,
     DuplicatesAnalysis    => SUPP_OFFSET_ORIGIN_DUP_ANALYSIS_LEVEL,
     Ignored               => SUPP_OFFSET_ORIGIN_IGNORED_LEVEL,
+    Other                 => SUPP_OFFSET_ORIGIN_OTHER_LEVEL,
     DuplicatesOther       => SUPP_OFFSET_ORIGIN_DUP_OTHER_LEVEL,
     Valid                 => SUPP_OFFSET_ORIGIN_VALID_LEVEL
 );

@@ -17,7 +17,7 @@ use fireflow_types::other_width::OtherWidth;
 use fireflow_types::segment::{
     AnalysisSegmentId, DataSegmentId, OffsetsFromHeader, OtherSegmentId, PrimaryTextSegmentId,
 };
-use nonempty::{NESlice, NEVec};
+use nonempty::{NESlice, NEVec, nev};
 use type_families::BifunctorOnce as _;
 
 use derive_more::{AsRef, Display, From};
@@ -277,6 +277,25 @@ impl FinalHeaderOffsets {
     pub(crate) fn remove_other(&mut self, i: usize) {
         if let Some((xs, _)) = self.other.as_mut() {
             xs[i].offsets = Offsets::default();
+        }
+    }
+
+    /// Add OTHER offset using supplemental TEXT offset pair.
+    ///
+    /// Assumes overlaps have already been checked.
+    ///
+    /// Returns index of new OTHER offset pair.
+    pub(crate) fn push_other_unchecked(&mut self, supp: SupplementalTextOffsets) -> usize {
+        if let Some((xs, _)) = self.other.as_mut() {
+            let i = xs.len().get();
+            xs.push(IndexedOtherOffsets::new(i, supp.to_other()));
+            i
+        } else {
+            let seg = IndexedOtherOffsets::new(0, supp.to_other());
+            // TODO totally arbitrary other width value because there are no
+            // real other segments in this case.
+            self.other = Some((nev![seg], OtherWidth::default()));
+            0
         }
     }
 

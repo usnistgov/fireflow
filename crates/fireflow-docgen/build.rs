@@ -30,7 +30,7 @@ fn render_common_issues(tmpl_env: &Environment, outdir: &Path) -> Result<(), Box
         allow_header_text_offset_mismatch => fa::ALLOW_HEADER_TEXT_OFFSET_MISMATCH,
         ignore_text_data_offsets => fa::IGNORE_TEXT_DATA_OFFSETS,
         ignore_text_analysis_offsets => fa::IGNORE_TEXT_ANALYSIS_OFFSETS,
-        ignore_supp_text => fa::IGNORE_SUPP_TEXT,
+        process_supp_text => fa::PROCESS_SUPP_TEXT,
         allow_missing_supp_text => fa::ALLOW_MISSING_SUPP_TEXT,
         allow_missing_nextdata => fa::ALLOW_MISSING_NEXTDATA,
         scan => fa::SCAN,

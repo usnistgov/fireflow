@@ -2465,6 +2465,12 @@ impl CharType {
 
 // Implement methods for misc types
 
+impl SupplementalTextOffsets {
+    pub(crate) fn to_other(self) -> OtherOffsets20 {
+        Offsets::new(self.inner)
+    }
+}
+
 impl<I> HeaderOrTextOffsets<I> {
     pub(crate) fn into_any(self) -> (AnyOffsets<I>, TEXTOffsetsOrigin) {
         match self {

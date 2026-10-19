@@ -56,7 +56,7 @@ class _ReadFlatTEXTConfig(BaseModel):
     supp_text_correction: pft.OffsetCorrection = _DEFAULT_CORRECTION
     nextdata_correction: int = 0
     allow_duplicated_supp_text: pft.TriFlag = _DEFAULT_TRIFLAG
-    ignore_supp_text: bool = False
+    process_supp_text: pft.ProcessSuppText = "asis"
     delim_escape_mode: pft.DelimEscapeMode = "escaped"
     allow_non_ascii_delim: pft.TriFlag = _DEFAULT_TRIFLAG
     allow_nonunique: pft.TriFlag = _DEFAULT_TRIFLAG

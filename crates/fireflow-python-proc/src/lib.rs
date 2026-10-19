@@ -8856,6 +8856,11 @@ impl<E: From<PyException>> PyAlias<E> {
         Self::new_py(["typing"], "TriFlag").rstype(path)
     }
 
+    fn new_process_supp_text() -> Self {
+        let path = types_config_path("ProcessSuppText");
+        Self::new_py(["typing"], "ProcessSuppText").rstype(path)
+    }
+
     fn new_version_override() -> Self {
         let path = types_config_path("VersionOverride");
         Self::new_py(["typing"], "VersionOverride").rstype(path)
@@ -10428,7 +10433,7 @@ impl DocArgParam {
             Self::new_supp_text_correction(),
             Self::new_nextdata_correction(),
             Self::new_allow_duplicate_supp_text(),
-            Self::new_ignore_supp_text(),
+            Self::new_process_supp_text(),
             Self::new_delim_escape_mode(),
             Self::new_allow_non_ascii_delim(),
             Self::new_allow_nonunique(),
@@ -11028,9 +11033,10 @@ impl DocArgParam {
         Self::new_tri_flag_param(n, true, "AllowDuplicatedSuppTEXT", d, e)
     }
 
-    fn new_ignore_supp_text() -> Self {
-        let d = format!("If {TRUE}, ignore supplemental {TEXT} entirely.");
-        Self::new_bool_param(ta::IGNORE_SUPP_TEXT, d)
+    fn new_process_supp_text() -> Self {
+        let d = format!("Choose how to process supplemental {TEXT} offsets.");
+        Self::new_param(ta::PROCESS_SUPP_TEXT, PyAlias::new_process_supp_text(), d)
+            .def_str(tc::ProcessSuppText::first_str())
     }
 
     fn new_delim_escape_mode() -> Self {

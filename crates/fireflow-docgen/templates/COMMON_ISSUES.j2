@@ -115,7 +115,9 @@ both the *HEADER* and *TEXT*. To control what happens on mismatch, specify
 Offsets in *TEXT* can be ignored entirely with:
 * `{{ignore_text_data_offsets}}`
 * `{{ignore_text_analysis_offsets}}`
-* `{{ignore_supp_text}}`
+
+Supplemental *TEXT* can be ignored or converted to an *OTHER* segment with
+`{{process_supp_text}}`.
 
 In practice, supplemental *TEXT* can probably safely be ignored as it is often
 never used. One can also set `{{allow_missing_supp_text}}` to ignore these

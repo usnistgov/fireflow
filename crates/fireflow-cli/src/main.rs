@@ -350,10 +350,18 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let ignore_supp_text = override_flag_arg(
-        ta::IGNORE_SUPP_TEXT,
-        format!("Ignore {supp_text_seg} entirely."),
-    );
+    let process_supp_text = Arg::new(ta::PROCESS_SUPP_TEXT)
+        .long(ta::PROCESS_SUPP_TEXT)
+        .value_name("LEVEL")
+        .value_parser(value_parser!(tc::ProcessSuppText))
+        .help(format!(
+            "Choose how to process {supp_text_seg}. \
+             Set to {asis} to process as normal, {other} to convert \
+             it to an {other_seg}, or {ignore} to ignore entirely",
+            asis = fmt_val(tc::PROCESS_SUPP_TEXT_ASIS_LEVEL),
+            other = fmt_val(tc::PROCESS_SUPP_TEXT_OTHER_LEVEL),
+            ignore = fmt_val(tc::PROCESS_SUPP_TEXT_IGNORE_LEVEL),
+        ));
 
     let lit_delims = Arg::new(ta::DELIM_ESCAPE_MODE)
         .long(ta::DELIM_ESCAPE_MODE)
@@ -458,7 +466,7 @@ fn run() -> AppResult<()> {
         supp_text_correction,
         nextdata_correction,
         allow_overlapping_supp_text,
-        ignore_supp_text,
+        process_supp_text,
         lit_delims,
         non_ascii_delim,
         missing_final_delim,
@@ -763,7 +771,7 @@ fn run() -> AppResult<()> {
         ))
         .value_parser(ValueParser::new(parse_sub_pattern_pair));
 
-    let promote_to_std = flag_arg(
+    let promote_all_to_std = flag_arg(
         ta::PROMOTE_ALL_TO_STD,
         "Promote all non-standard keys to standard where possible.",
     );
@@ -783,7 +791,7 @@ fn run() -> AppResult<()> {
         replace_std_key_vals,
         append_std_key_vals,
         sub_key_vals,
-        promote_to_std,
+        promote_all_to_std,
         allow_repair_non_unique,
     ];
 
@@ -1551,7 +1559,7 @@ fn get_header_and_text_config(s: &ArgMatches) -> tc::ReadHeaderAndTEXTConfig {
     get_opt(s, ta::ALLOW_DUPLICATED_SUPP_TEXT, |x| {
         c.allow_duplicated_supp_text = x;
     });
-    get_flag(s, ta::IGNORE_SUPP_TEXT, |x| c.process_supp_text = x);
+    get_opt(s, ta::PROCESS_SUPP_TEXT, |x| c.process_supp_text = x);
     get_opt(s, ta::DELIM_ESCAPE_MODE, |x| c.delim_escape_mode = x);
     get_opt(s, ta::ALLOW_NON_ASCII_DELIM, |x| {
         c.allow_non_ascii_delim = x;

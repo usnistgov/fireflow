@@ -53,7 +53,7 @@ macro_rules! make_args {
         pub const SUPP_TEXT_COR: &str = header_text_arg!(supp_text_correction);
         pub const NEXTDATA_COR: &str = header_text_arg!(nextdata_correction);
         pub const ALLOW_DUPLICATED_SUPP_TEXT: &str = header_text_arg!(allow_duplicated_supp_text);
-        pub const IGNORE_SUPP_TEXT: &str = header_text_arg!(ignore_supp_text);
+        pub const PROCESS_SUPP_TEXT: &str = header_text_arg!(process_supp_text);
         pub const DELIM_ESCAPE_MODE: &str = header_text_arg!(delim_escape_mode);
         pub const ALLOW_NON_ASCII_DELIM: &str = header_text_arg!(allow_non_ascii_delim);
         pub const ALLOW_EVEN_DELIMS: &str = header_text_arg!(allow_even_delims);

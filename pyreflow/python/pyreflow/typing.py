@@ -65,6 +65,16 @@ There are some non-obvious edge cases for the version-matching algorithm:
 
 """
 
+type ProcessSuppText = Literal["asis", "other", "ignore"]
+"""Flag to choose how supplemental *TEXT* should be processed.
+
+
+* ``"asis"``: parse as supplemental *TEXT*.
+* ``"other"``: convert to *OTHER* segment offsets as if it were appended to
+  the existing offsets in *HEADER*.
+* ``"ignore"``: ignore supplemental *TEXT* entirely
+"""
+
 type DelimEscapeMode = Literal[
     "escaped",
     "unescaped",

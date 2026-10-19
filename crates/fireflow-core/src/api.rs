@@ -54,9 +54,9 @@ use crate::validated::read_state::{
 
 use fireflow_types::config::{
     AppendFlag, AppendableFlag, ConfigFlag as _, DelimEscapeMode, Encoding, OverlapCorrectionLimit,
-    ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadHeaderInnerConfig,
-    ReadOffsetConfig, TriErrorFlag as _, VersionOverride, WriteDatasetInnerConfig,
-    WriteMultiConfig,
+    ProcessSuppText, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
+    ReadHeaderInnerConfig, ReadOffsetConfig, TriErrorFlag as _, VersionOverride,
+    WriteDatasetInnerConfig, WriteMultiConfig,
 };
 use fireflow_types::keys::nonstd::{DollarWrap, NonStdKey};
 use fireflow_types::keys::raw_std::{RootKey, ToStd as _};
@@ -583,12 +583,36 @@ pub enum SuppTEXTOffsetsOutput {
     DuplicatesPrimaryTEXT,
     /// Offsets present but perfectly duplicated ANALYSIS and thus were ignored.
     DuplicatesAnalysis,
+    /// Offsets present but perfectly duplicated OTHER and were ignored.
+    ///
+    /// This will only happen if the user configuration regards supp TEXT as
+    /// another OTHER segment.
+    DuplicatesOther(usize),
     /// Offsets present but ignored by user configuration.
     Ignored(Option<OriginalOffsets>),
+    /// Offsets present and valid but converted to OTHER by user configuration.
+    Other(ConvertedSuppTEXTOffsets),
     /// Offsets present and valid.
     Valid(ValidSuppTEXTOffsets),
 }
 
+/// Supplemental TEXT offsets that read successfully and converted to OTHER.
+#[derive(Clone, PartialEq, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct ConvertedSuppTEXTOffsets {
+    /// The final offsets used to read supplemental TEXT.
+    final_: SupplementalTextOffsets,
+    /// The original offsets as written in the file.
+    original: OriginalOffsets,
+    /// The index of the new OTHER offsets created from this.
+    new_other: usize,
+    /// Overlaps between supp TEXT and other offsets in HEADER.
+    overlaps: Vec<SuppToHeaderOffsetsOverlap>,
+    /// Amount the offset exceeds $NEXTDATA or EOF if applicable
+    overflow: Option<SuppOffsetsOverflow>,
+}
+
+/// Supplemental TEXT offsets that were read successfully.
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ValidSuppTEXTOffsets {
@@ -2538,19 +2562,34 @@ impl SuppTEXTOffsetsOutput {
                     .validate_supp_text(&mut final_supp, overlap_limit)
                     .map_errors(STextOffsetsError::from)
                     .set_err_value(());
-                overflow_res
-                    .zip_commutative(overlap_res)
-                    .map_ok_value(|(overflow, overlaps)| {
-                        let valid = ValidSuppTEXTOffsets::new(
-                            final_supp,
-                            orig_supp,
-                            other_index,
-                            overlaps,
-                            overflow,
-                        );
-                        Self::Valid(valid)
-                    })
-                    .nowarn_into_warn()
+                match hconf.process_supp_text {
+                    ProcessSuppText::Ignore => panic!("should have been ignored earlier"),
+                    ProcessSuppText::Other => {
+                        let i = hdr.final_offsets.push_other_unchecked(final_supp);
+                        overflow_res
+                            .zip_commutative(overlap_res)
+                            .map_ok_value(|(overflow, overlaps)| {
+                                let converted = ConvertedSuppTEXTOffsets::new(
+                                    final_supp, orig_supp, i, overlaps, overflow,
+                                );
+                                Self::Other(converted)
+                            })
+                            .nowarn_into_warn()
+                    }
+                    ProcessSuppText::AsIs => overflow_res
+                        .zip_commutative(overlap_res)
+                        .map_ok_value(|(overflow, overlaps)| {
+                            let valid = ValidSuppTEXTOffsets::new(
+                                final_supp,
+                                orig_supp,
+                                other_index,
+                                overlaps,
+                                overflow,
+                            );
+                            Self::Valid(valid)
+                        })
+                        .nowarn_into_warn(),
+                }
             };
 
         // At this point, we have not yet overridden the version since we have
@@ -2601,7 +2640,7 @@ impl SuppTEXTOffsetsOutput {
                 match res {
                     Ok(x) => LogResult::new_ok(x),
                     Err((x, es)) => {
-                        if hconf.ignore_supp_text.is_set() {
+                        if hconf.process_supp_text.is_ignore() {
                             LogResult::new_ok(x)
                         } else {
                             let flag = hconf.allow_missing_supp_text;
@@ -2635,7 +2674,7 @@ impl SuppTEXTOffsetsOutput {
                 match res {
                     Ok(x) => LogResult::new_ok(x),
                     Err((x, es)) => {
-                        if hconf.ignore_supp_text.is_set() {
+                        if hconf.process_supp_text.is_ignore() {
                             LogResult::new_ok(x)
                         } else {
                             let mut out = DeferredWarningsAndErrors::new_ok(x);
@@ -2651,7 +2690,7 @@ impl SuppTEXTOffsetsOutput {
             match offset_res {
                 OffsetResult::Empty => LogResult::new_ok(Self::Empty),
                 OffsetResult::Malformed(uncorr) => {
-                    let out = if hconf.ignore_supp_text.is_set() {
+                    let out = if hconf.process_supp_text.is_ignore() {
                         Self::Ignored(Some(uncorr))
                     } else {
                         Self::Malformed(uncorr)
@@ -2659,7 +2698,7 @@ impl SuppTEXTOffsetsOutput {
                     LogResult::new_ok(out)
                 }
                 OffsetResult::Missing => {
-                    let out = if hconf.ignore_supp_text.is_set() {
+                    let out = if hconf.process_supp_text.is_ignore() {
                         Self::Ignored(None)
                     } else {
                         Self::Unparsed
@@ -2668,7 +2707,7 @@ impl SuppTEXTOffsetsOutput {
                 }
                 OffsetResult::Valid(final_supp, orig_supp) => {
                     // Return original without any processing if ignored
-                    if hconf.ignore_supp_text.is_set() {
+                    if hconf.process_supp_text.is_ignore() {
                         return LogResult::new_ok(Self::Ignored(Some(orig_supp)));
                     }
 
@@ -2703,27 +2742,37 @@ impl SuppTEXTOffsetsOutput {
                         // Supp and ANALYSIS are the same, keep latter
                         go(AnyRegion::Analysis, Self::DuplicatesAnalysis)
                     } else if let Some(i) = uncorr_others.iter().position(|s| s == &orig_supp) {
-                        // Supp and one OTHER offset are the same, keep Supp and
-                        // remove matching OTHER with the assumption that Supp
-                        // is actually a real supp text and not some binary
-                        // blob.
-                        //
-                        // TODO this assumption can be checked by reading the
-                        // segment but this would make this function way more
-                        // complex.
-                        //
-                        // See FR-FCM-ZZZ4/MVa2011-06-30_fcs31.fcs for an
-                        // example of this configuration
-                        header.final_offsets.remove_other(i);
-                        let flag = hconf.allow_duplicated_supp_text;
-                        let e = DuplicateSTextError::new(orig_supp, AnyRegion::Other, true);
-                        SwitchableErrorsResult::new_switchable3((), (), e, flag)
-                            .map_switchable_errors(STextOffsetsError::from)
-                            .switchable_into_commutative()
-                            .map_commutative_warnings(STextOffsetsWarning::from)
-                            .and_then_commutative(|()| {
-                                validate_offsets(header, final_supp, orig_supp, Some(i))
-                            })
+                        // Supp and one OTHER offset are the same. Choose what
+                        // to do based on if supp is regarded as-is or as an
+                        // OTHER segment.
+                        if matches!(hconf.process_supp_text, ProcessSuppText::Other) {
+                            go(AnyRegion::Other, Self::DuplicatesOther(i))
+                        } else {
+                            // ASSUME this will never be reached if
+                            // process_supp_text is "ignore"
+                            //
+                            // Supp text is considered as-is, keep Supp and
+                            // remove matching OTHER with the assumption that
+                            // Supp is actually a real supp text and not some
+                            // binary blob.
+                            //
+                            // TODO this assumption can be checked by reading
+                            // the segment but this would make this function way
+                            // more complex.
+                            //
+                            // See FR-FCM-ZZZ4/MVa2011-06-30_fcs31.fcs for an
+                            // example of this configuration
+                            header.final_offsets.remove_other(i);
+                            let flag = hconf.allow_duplicated_supp_text;
+                            let e = DuplicateSTextError::new(orig_supp, AnyRegion::Other, true);
+                            SwitchableErrorsResult::new_switchable3((), (), e, flag)
+                                .map_switchable_errors(STextOffsetsError::from)
+                                .switchable_into_commutative()
+                                .map_commutative_warnings(STextOffsetsWarning::from)
+                                .and_then_commutative(|()| {
+                                    validate_offsets(header, final_supp, orig_supp, Some(i))
+                                })
+                        }
                     } else {
                         // Supp not identical to anything else, check for
                         // overlaps and keep if there are none. ASSUME the
@@ -2775,8 +2824,14 @@ impl SuppTEXTOffsetsOutput {
             (py::SuppTEXTOffsetOriginType::Ignored, None, u, None, [], None) => {
                 Ok(Self::Ignored(u))
             }
+            (py::SuppTEXTOffsetOriginType::DuplicatesOther, None, None, Some(i), _, _) => {
+                Ok(Self::DuplicatesOther(i))
+            }
             (py::SuppTEXTOffsetOriginType::DuplicatesOther, Some(s), Some(u), Some(i), _, _) => Ok(
                 Self::Valid(ValidSuppTEXTOffsets::new(s, u, Some(i), overlaps, overflow)),
+            ),
+            (py::SuppTEXTOffsetOriginType::Other, Some(s), Some(u), Some(i), _, _) => Ok(
+                Self::Other(ConvertedSuppTEXTOffsets::new(s, u, i, overlaps, overflow)),
             ),
             (py::SuppTEXTOffsetOriginType::Valid, Some(s), Some(u), None, _, _) => Ok(Self::Valid(
                 ValidSuppTEXTOffsets::new(s, u, None, overlaps, overflow),
@@ -2797,7 +2852,9 @@ impl SuppTEXTOffsetsOutput {
             Self::Malformed(_) => py::SuppTEXTOffsetOriginType::Malformed,
             Self::DuplicatesPrimaryTEXT => py::SuppTEXTOffsetOriginType::DuplicatesPrimaryTEXT,
             Self::DuplicatesAnalysis => py::SuppTEXTOffsetOriginType::DuplicatesAnalysis,
+            Self::DuplicatesOther(_) => py::SuppTEXTOffsetOriginType::DuplicatesOther,
             Self::Ignored(_) => py::SuppTEXTOffsetOriginType::Ignored,
+            Self::Other(_) => py::SuppTEXTOffsetOriginType::Other,
             Self::Valid(x) => {
                 if x.duplicated_other.is_some() {
                     py::SuppTEXTOffsetOriginType::DuplicatesOther
@@ -2816,19 +2873,21 @@ impl SuppTEXTOffsetsOutput {
             Self::Empty
             | Self::Unparsed
             | Self::DuplicatesPrimaryTEXT
-            | Self::DuplicatesAnalysis => None,
-            Self::Malformed(x) => Some(*x),
+            | Self::DuplicatesAnalysis
+            | Self::DuplicatesOther(_) => None,
             Self::Ignored(x) => *x,
+            Self::Malformed(x) => Some(*x),
+            Self::Other(x) => Some(x.original),
             Self::Valid(x) => Some(x.original),
         }
     }
 
     /// The final offsets if they exist.
     pub(crate) fn final_offsets(&self) -> Option<SupplementalTextOffsets> {
-        if let Self::Valid(x) = self {
-            Some(x.final_)
-        } else {
-            None
+        match self {
+            Self::Other(x) => Some(x.final_),
+            Self::Valid(x) => Some(x.final_),
+            _ => None,
         }
     }
 
@@ -2843,10 +2902,10 @@ impl SuppTEXTOffsetsOutput {
     #[cfg(feature = "python")]
     #[must_use]
     pub fn py_other_index(&self) -> Option<usize> {
-        if let Self::Valid(x) = self {
-            x.duplicated_other
-        } else {
-            None
+        match self {
+            Self::Other(x) => Some(x.new_other),
+            Self::Valid(x) => x.duplicated_other,
+            _ => None,
         }
     }
 
@@ -2854,10 +2913,10 @@ impl SuppTEXTOffsetsOutput {
     #[cfg(feature = "python")]
     #[must_use]
     pub fn py_overlaps(&self) -> &[SuppToHeaderOffsetsOverlap] {
-        if let Self::Valid(x) = self {
-            &x.overlaps[..]
-        } else {
-            &[]
+        match self {
+            Self::Other(x) => &x.overlaps,
+            Self::Valid(x) => &x.overlaps,
+            _ => &[],
         }
     }
 
@@ -2865,10 +2924,10 @@ impl SuppTEXTOffsetsOutput {
     #[cfg(feature = "python")]
     #[must_use]
     pub fn py_overflow(&self) -> Option<SuppOffsetsOverflow> {
-        if let Self::Valid(x) = self {
-            x.overflow
-        } else {
-            None
+        match self {
+            Self::Other(x) => x.overflow,
+            Self::Valid(x) => x.overflow,
+            _ => None,
         }
     }
 }

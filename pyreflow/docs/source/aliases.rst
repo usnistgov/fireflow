@@ -8,6 +8,7 @@ These are types used to controlled how ``pyreflow`` parses FCS files.
 
 .. autotype:: pyreflow.typing.OffsetCorrection
 .. autotype:: pyreflow.typing.VersionOverride
+.. autotype:: pyreflow.typing.ProcessSuppText
 .. autotype:: pyreflow.typing.DelimEscapeMode
 .. autotype:: pyreflow.typing.StdKeyOrPattern
 .. autotype:: pyreflow.typing.KeyPairs

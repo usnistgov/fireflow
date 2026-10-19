@@ -4592,7 +4592,7 @@ class TestConfig:
             p,
             dataset_overflow_limit=1,
             allow_missing_nextdata="silent",
-            ignore_supp_text=True,
+            process_supp_text="ignore",
         )
         # note, second offset is next byte and not last byte
         assert out.flat_diagnostics.header_supp.header.final_offsets.text == (58, 59)
@@ -4690,7 +4690,7 @@ class TestConfig:
             self._test_tri_flag(go3, (comp, offsets), [pf.FileLayoutError])
 
             out3 = pf.api.fcs_read_flat_text(
-                p, ignore_supp_text=True
+                p, process_supp_text="ignore"
             ).flat_diagnostics.header_supp.supp_text
             assert out3.final_offsets is None
 
@@ -4732,7 +4732,7 @@ class TestConfig:
             comp1: Out3 = ("dup_other", real_stext_coords, 0)
             self._test_tri_flag(go3, comp1, [pf.FileLayoutError])
 
-            out = pf.api.fcs_read_flat_text(p, ignore_supp_text=True)
+            out = pf.api.fcs_read_flat_text(p, process_supp_text="ignore")
             sout = out.flat_diagnostics.header_supp.supp_text
             assert sout.origin_type == "ignored"
             assert sout.final_offsets is None
@@ -4743,6 +4743,8 @@ class TestConfig:
             assert out.flat_diagnostics.header_supp.header.final_offsets.others[0] == [
                 (0, real_stext_coords)
             ]
+
+    # TODO add test for supp test -> other conversion
 
     @all_versions
     def test_delim_escaped(self, version: pt.FCSVersion, tmp_path: Path) -> None:

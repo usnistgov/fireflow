@@ -236,11 +236,11 @@ pub struct ReadHeaderAndTEXTConfig {
     /// duplicated.
     pub allow_duplicated_supp_text: AllowDuplicatedSuppTEXT,
 
-    /// Totally ignore STEXT and its offsets.
+    /// Choose how to handle supplemental TEXT.
     ///
     /// This may be useful if STEXT is duplicated (or partly overlaps) with
     /// primary TEXT.
-    pub ignore_supp_text: IgnoreSuppTEXT,
+    pub process_supp_text: ProcessSuppText,
 
     /// Determine how to escape delims in TEXT.
     ///
@@ -850,7 +850,6 @@ macro_rules! _impl_config_flag {
 _impl_config_flag!(SquishOffsets);
 _impl_config_flag!(AllowPseudoempty);
 
-_impl_config_flag!(IgnoreSuppTEXT);
 _impl_config_flag!(IgnoreTEXTDataOffsets);
 _impl_config_flag!(IgnoreTEXTAnalysisOffsets);
 
@@ -1552,6 +1551,35 @@ impl_config_flag!(
     Silent => TRI_SILENT_LEVEL
 );
 
+pub const PROCESS_SUPP_TEXT_ASIS_LEVEL: &NEStr = ne_str!("asis");
+pub const PROCESS_SUPP_TEXT_OTHER_LEVEL: &NEStr = ne_str!("other");
+pub const PROCESS_SUPP_TEXT_IGNORE_LEVEL: &NEStr = ne_str!("ignore");
+
+impl_config_flag!(
+    /// Choose how to process supplemental TEXT offsets when found.
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
+    pub ProcessSuppText,
+    /// Error when parsing [`TriFlag`] from [`String`]
+    pub ProcessSuppTextError,
+    /// Process offsets as supplemental TEXT offsets.
+    AsIs   => PROCESS_SUPP_TEXT_ASIS_LEVEL,
+    /// Process offsets as OTHER offsets.
+    ///
+    /// It will be as if the offsets were appended to the end of the
+    /// OTHER offsets in HEADER.
+    Other  => PROCESS_SUPP_TEXT_OTHER_LEVEL,
+    /// Ignore the offsets entirely.
+    Ignore => PROCESS_SUPP_TEXT_IGNORE_LEVEL
+);
+
+impl ProcessSuppText {
+    #[must_use]
+    pub fn is_ignore(self) -> bool {
+        matches!(self, Self::Ignore)
+    }
+}
+
 pub const ENCODING_UTF8_LEVEL: &NEStr = ne_str!("utf8");
 pub const ENCODING_SINGLE_LEVEL: &NEStr = ne_str!("single");
 pub const ENCODING_GUESS_LEVEL: &NEStr = ne_str!("guess");
@@ -2236,7 +2264,7 @@ impl HasStrategy for ReadHeaderAndTEXTConfig {
     }
 
     fn with_sledgehammer(&mut self) {
-        self.ignore_supp_text = true.into();
+        self.process_supp_text = ProcessSuppText::Other;
     }
 }
 

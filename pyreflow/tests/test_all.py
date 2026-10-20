@@ -3362,7 +3362,6 @@ class TestCore:
         with pytest.raises(pf.EventDataError):
             core.to_dataset(d, b"", [])
 
-    # TODO why does f16 work here?
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
     @pytest.mark.parametrize(
         "dtype",

@@ -3650,13 +3650,15 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
         "req_or_opt",
         PyAlias::new_py(["typing"], "ReqOrOpt").rstype(req_or_opt_path),
         "Selects if required, optional, or both keywords should be returned",
-    );
+    )
+    .def_str(tc::STD_KW_REQ_AND_OPT_LEVEL);
 
     let root_or_meas = DocArg::new_param(
         "root_or_meas",
         PyAlias::new_py(["typing"], "RootOrMeas").rstype(root_or_meas_path),
         "Selects if required, optional, or both keywords should be returned",
-    );
+    )
+    .def_str(tc::STD_KW_REQ_AND_OPT_LEVEL);
 
     let doc = DocString::new_method("Return standard keywords as string pairs.")
         .para(format!("Each key will be prefixed with {DOLLAR_STR}."))

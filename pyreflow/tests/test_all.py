@@ -672,8 +672,7 @@ class TestCore:
     @parameterize_versions("core", ["2_0"], ["text", "dataset"])
     def test_standard_keywords_2_0(self, core: AnyCore) -> None:
         """Test keyword generator method. for 2.0."""
-        # TODO make these default
-        kws = core.standard_keywords("both", "both")
+        kws = core.standard_keywords()
         expected = {
             "$BYTEORD": "1,2,3,4",
             "$DATATYPE": "I",
@@ -694,7 +693,7 @@ class TestCore:
     @parameterize_versions("core", ["3_0"], ["text", "dataset"])
     def test_standard_keywords_3_0(self, core: AnyCore) -> None:
         """Test keyword generator method. for 3.0."""
-        kws = core.standard_keywords("both", "both")
+        kws = core.standard_keywords()
         expected = {
             "$BYTEORD": "1,2,3,4",
             "$DATATYPE": "I",
@@ -715,7 +714,7 @@ class TestCore:
     @parameterize_versions("core", ["3_1"], ["text", "dataset"])
     def test_standard_keywords_3_1(self, core: AnyCore) -> None:
         """Test keyword generator method. for 3.1."""
-        kws = core.standard_keywords("both", "both")
+        kws = core.standard_keywords()
         expected = {
             "$BYTEORD": "1,2,3,4",
             "$DATATYPE": "I",
@@ -736,7 +735,7 @@ class TestCore:
     @parameterize_versions("core", ["3_2"], ["text", "dataset"])
     def test_standard_keywords_3_2(self, core: AnyCore) -> None:
         """Test keyword generator method. for 3.2."""
-        kws = core.standard_keywords("both", "both")
+        kws = core.standard_keywords()
         expected = {
             "$BYTEORD": "1,2,3,4",
             "$DATATYPE": "I",

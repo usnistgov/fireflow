@@ -2078,18 +2078,20 @@ pub const STD_KW_REQ_AND_OPT_LEVEL: &NEStr = ne_str!("both");
 
 impl_str_enum!(
     /// Choose what kind of keywords to return (required vs optional).
+    #[derive(Default)]
     #[cfg_attr(feature = "python", derive(FromPyString))]
     pub IncludeReqOrOpt,
     /// Error when parsing [`IncludeReqOrOpt`] from [`String`]
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
     pub IncludeReqOrOptError,
+    /// Return both.
+    #[default]
+    Both => STD_KW_REQ_AND_OPT_LEVEL,
     /// Return required.
     Req_ => STD_KW_REQ_LEVEL,
     /// Return optional.
-    Opt_ => STD_KW_OPT_LEVEL,
-    /// Return both.
-    Both => STD_KW_REQ_AND_OPT_LEVEL
+    Opt_ => STD_KW_OPT_LEVEL
 );
 
 pub const STD_KW_ROOT_LEVEL: &NEStr = ne_str!("req_only");
@@ -2098,18 +2100,20 @@ pub const STD_KW_ROOT_AND_MEAS_LEVEL: &NEStr = ne_str!("both");
 
 impl_str_enum!(
     /// Choose what kind of keywords to return (required vs optional).
+    #[derive(Default)]
     #[cfg_attr(feature = "python", derive(FromPyString))]
     pub IncludeRootOrMeas,
     /// Error when parsing [`IncludeRootOrMeas`] from [`String`]
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
     pub IncludeRootOrMeasError,
+    /// Return both.
+    #[default]
+    Both => STD_KW_ROOT_AND_MEAS_LEVEL,
     /// Return root.
     Root => STD_KW_ROOT_LEVEL,
     /// Return meas.
-    Meas => STD_KW_MEAS_LEVEL,
-    /// Return both.
-    Both => STD_KW_ROOT_AND_MEAS_LEVEL
+    Meas => STD_KW_MEAS_LEVEL
 );
 
 pub const READ_STRATEGY_STRICT_LEVEL: &NEStr = ne_str!("strict");

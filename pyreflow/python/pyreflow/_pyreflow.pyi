@@ -428,8 +428,8 @@ class _CoreCommon:
     nonstandard_keywords: pft.NonStdKeywords
     def standard_keywords(
         self,
-        req_or_opt: pft.ReqOrOpt,
-        root_or_meas: pft.RootOrMeas,
+        req_or_opt: pft.ReqOrOpt = "both",
+        root_or_meas: pft.RootOrMeas = "both",
     ) -> dict[str, str]: ...
     @property
     def par(self) -> int: ...

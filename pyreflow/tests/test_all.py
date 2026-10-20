@@ -1,30 +1,28 @@
-import numpy as np
+import ast
 import inspect as ins
-from itertools import product, chain
-from typing import cast, Any, NamedTuple, TypeVar, Callable, assert_never
-from datetime import date, datetime, time, timezone, timedelta
-from pathlib import Path
 from copy import deepcopy
+from datetime import date, datetime, time, timedelta, timezone
+from itertools import chain, product
+from pathlib import Path
+from typing import Any, Callable, NamedTuple, TypeVar, assert_never, cast
 
-import pytest
-
-from pyreflow.typing import (
-    TriFlag,
-    AnyCoreTEXT,
-    AnyCoreDataset,
-    AnyOptical,
-    AnyCore,
-    AnyMeas,
-)
+import numpy as np
+import polars as pl
 import pyreflow as pf
 import pyreflow.api as pfa
-import pyreflow.typing as pt
 import pyreflow.pydantic as pfp
-import polars as pl
+import pyreflow.typing as pt
+import pytest
+from pyreflow.typing import (
+    AnyCore,
+    AnyCoreDataset,
+    AnyCoreTEXT,
+    AnyMeas,
+    AnyOptical,
+    TriFlag,
+)
 
 from .conftest import lazy_fixture
-
-import ast
 
 X = TypeVar("X")
 

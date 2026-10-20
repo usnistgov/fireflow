@@ -26,8 +26,7 @@ use crate::validated::read_state::{DatasetOffset, DatasetReader, HeaderReader, T
 
 use fireflow_types::config::{
     AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
-    ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderInnerConfig,
-    ReadOffsetConfig,
+    ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig,
 };
 use fireflow_types::keywords::Version;
 use fireflow_types::other_width::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth};
@@ -1303,8 +1302,7 @@ where
         let oconf: &ReadOffsetConfig = conf.as_ref();
         let (header_seg, uncorr_hdr) = Self::offset_pair(hdr_supp_offsets);
         let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);
-        // TODO configure this
-        let drop_flag = ProcessOptionalFailure(ProcessKeywordFailure::DropWarn);
+        let drop_flag = dconf.process_optional_failure;
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
         let overlap_limit = oconf.overlap_correction_limit;
 

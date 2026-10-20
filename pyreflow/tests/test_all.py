@@ -5926,8 +5926,7 @@ class TestConfig:
             assert go((0, 0)) == (0, 0)
             assert go((0, 1)) == (0, 0)
         elif version == "FCS3.2":
-            # TODO shouldn't this be an error?
-            with pytest.warns(pf.PyreflowWarning):
+            with pytest.RaisesGroup(pf.FileLayoutError):
                 assert go((0, 0)) == (0, 0)
             assert go((0, 1)) == (0, 0)
         else:
@@ -5975,8 +5974,7 @@ class TestConfig:
         if version == "FCS2.0":
             self._test_config_flag_nofail(go, (0, 0))
         elif version == "FCS3.2":
-            # TODO shouldn't this be an error?
-            with pytest.warns(pf.PyreflowWarning):
+            with pytest.RaisesGroup(pf.FileLayoutError):
                 assert go(False) == (0, 0)
             assert go(True) == (0, 0)
         else:

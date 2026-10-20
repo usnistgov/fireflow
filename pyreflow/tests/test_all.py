@@ -2126,10 +2126,16 @@ class TestCore:
     )
     def test_replace_optical_at(self, core: AnyCore, optical: Any) -> None:
         """Test replacing optical measurement at index."""
+        assert core.measurement_at(0).longname == ""
+        assert isinstance(core.measurement_at(0), type(optical))
         ln = "I am not living"
         optical.longname = ln
-        # TODO test return type
-        core.replace_optical_at(0, optical)
+        ret = core.replace_optical_at(0, optical)
+        assert not isinstance(
+            ret, pf.Temporal2_0 | pf.Temporal3_0 | pf.Temporal3_1 | pf.Temporal3_2
+        )
+        (meas, scale) = ret
+        assert isinstance(meas, type(optical))
         core.measurement_at(0).longname == ln
 
     @pytest.mark.parametrize(
@@ -2150,10 +2156,17 @@ class TestCore:
     )
     def test_replace_optical_named(self, core: AnyCore, optical: Any) -> None:
         """Test replacing optical measurement with a given $PnN."""
+        assert core.measurement_at(0).longname == ""
+        assert isinstance(core.measurement_at(0), type(optical))
         ln = "I'm asleep"
         optical.longname = ln
-        # TODO test return type
-        core.replace_optical_named(LINK_NAME1, optical)
+        ret = core.replace_optical_named(LINK_NAME1, optical)
+        assert not isinstance(
+            ret, pf.Temporal2_0 | pf.Temporal3_0 | pf.Temporal3_1 | pf.Temporal3_2
+        )
+        assert ret is not None
+        (meas, scale) = ret
+        assert isinstance(meas, type(optical))
         core.measurement_at(0).longname == ln
 
     @pytest.mark.parametrize(
@@ -2174,10 +2187,15 @@ class TestCore:
     )
     def test_replace_temporal_at(self, core: AnyCore, temporal: Any) -> None:
         """Test replacing temporal measurement at index."""
+        assert core.measurement_at(1).longname == ""
+        assert isinstance(core.measurement_at(1), type(temporal))
         ln = "show me wut u got"
         temporal.longname = ln
-        # TODO test return type
-        core.replace_temporal_at(1, temporal)
+        ret = core.replace_temporal_at(1, temporal)
+        assert not isinstance(
+            ret, pf.Optical2_0 | pf.Optical3_0 | pf.Optical3_1 | pf.Optical3_2
+        )
+        assert isinstance(ret, type(temporal))
         core.measurement_at(1).longname == ln
 
     @pytest.mark.parametrize(
@@ -2198,10 +2216,15 @@ class TestCore:
     )
     def test_replace_temporal_named(self, core: AnyCore, temporal: Any) -> None:
         """Test replacing temporal measurement with given $PnN."""
+        assert core.measurement_at(1).longname == ""
+        assert isinstance(core.measurement_at(1), type(temporal))
         ln = "the combination is... 1. 2. 3. 4. 5."
         temporal.longname = ln
-        # TODO test return type
-        core.replace_temporal_named(LINK_NAME2, temporal)
+        ret = core.replace_temporal_named(LINK_NAME2, temporal)
+        assert not isinstance(
+            ret, pf.Optical2_0 | pf.Optical3_0 | pf.Optical3_1 | pf.Optical3_2
+        )
+        assert isinstance(ret, type(temporal))
         core.measurement_at(1).longname == ln
 
     @all_core2

@@ -1691,7 +1691,7 @@ fn get_repair_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadRepairKeywordsCo
         c.substitute_standard_key_values = AppendableSelector::root(xs);
     });
 
-    get_opt(s, ta::PROMOTE_ALL_TO_STD, |x| {
+    get_flag(s, ta::PROMOTE_ALL_TO_STD, |x| {
         c.promote_all_nonstandard_keys = x;
     });
 

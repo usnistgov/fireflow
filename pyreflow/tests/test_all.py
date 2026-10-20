@@ -3552,9 +3552,8 @@ class TestMeas:
         new = (False, 0.0, 1.0)
         meas.display = new
         assert meas.display == new
-        # TODO this should fail
-        # with pytest.raises(pf.InvalidKeywordValueError):
-        #     meas.display = (False, 2.0, 1.0)
+        with pytest.raises(pf.InvalidKeywordValueError):
+            meas.display = (False, 2.0, 1.0)
         with pytest.raises(pf.InvalidKeywordValueError):
             meas.display = (True, 0.0, 1.0)
         with pytest.raises(pf.InvalidKeywordValueError):

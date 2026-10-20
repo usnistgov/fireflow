@@ -1424,7 +1424,7 @@ class TestCore:
         For temporal, this must always be '()'.
         """
         # TODO this should be an empty string rather than None
-        core.all_features == [None, ()]
+        assert core.all_features == [None, ()]
         core.all_features = ["Area", ()]
         assert core.all_features == ["Area", ()]
         # this is also allowed

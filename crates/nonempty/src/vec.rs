@@ -1021,13 +1021,6 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn debug_impl() {
-    //     let actual = format!("{:?}", nev![0, 1, 2, 3]);
-    //     let expected = format!("{:?}", vec![0, 1, 2, 3]);
-    //     assert_eq!(expected, actual);
-    // }
-
     #[test]
     fn sorting() {
         let mut n = nev![1, 5, 4, 3, 2, 1];

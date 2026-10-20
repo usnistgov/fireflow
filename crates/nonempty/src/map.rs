@@ -197,25 +197,6 @@ impl<K, V, S> NEMap<K, V, S> {
             inner: self.inner.values(),
         }
     }
-
-    // /// An iterator visiting all values mutably in arbitrary order. The iterator
-    // /// element type is `&'a mut V`.
-    // ///
-    // /// ```
-    // /// use nonempty::nem;
-    // ///
-    // /// let mut m = nem!["Valmar" => 10000, "Tirion" => 10000, "Alqualondë" =>
-    // 10000]; ///
-    // /// for v in m.values_mut() {
-    // ///     *v += 1000;
-    // /// }
-    // /// ```
-    // pub fn values_mut(&mut self) -> ValuesMut<'_, K, V> {
-    //     ValuesMut {
-    //         inner: self.iter_mut(),
-    //         head_val: todo!(),
-    //     }
-    // }
 }
 
 impl<K, V, S> NEMap<K, V, S>
@@ -590,26 +571,6 @@ impl<K: fmt::Debug, V: fmt::Debug, S> fmt::Debug for NEMap<K, V, S> {
     }
 }
 
-// /// A non-empty iterator over mutable values of an [`NEMap`].
-// pub struct ValuesMut<'a, K: 'a, V: 'a> {
-//     inner: IterMut<'a, K, V>,
-// }
-
-// impl<'a, K, V> NonEmptyIterator for ValuesMut<'a, K, V> {
-//     type Item = &'a mut V;
-
-//     type Iter = Skip<Chain<Once<&'a mut V>,
-// hash_map::IterMut<'a, K, V>>>;
-
-//     fn first(self) -> (Self::Item, Self::Iter) {
-//         (self.head_val, self.inner.skip(1))
-//     }
-
-//     fn next(&mut self) -> Option<Self::Item> {
-//         self.inner.next().map(|(_, v)| v)
-//     }
-// }
-
 impl<K, V> Singleton for NEMap<K, V>
 where
     K: Eq + Hash,
@@ -642,24 +603,6 @@ impl<K, V> HasNELen for NEMap<K, V> {
     }
 }
 
-// #[cfg(feature = "arbitrary")]
-// impl<'a, K, V> arbitrary::Arbitrary<'a> for NEMap<K, V>
-// where
-//     K: Eq + Hash + arbitrary::Arbitrary<'a>,
-//     V: arbitrary::Arbitrary<'a>,
-// {
-//     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-//         let key = K::arbitrary(u)?;
-//         let value = V::arbitrary(u)?;
-//         let tail = HashMap::<K, V>::arbitrary(u)?;
-
-//         let mut map = Self::new(key, value);
-//         map.extend(tail);
-
-//         Ok(map)
-//     }
-// }
-
 #[cfg(test)]
 mod test {
     use std::num::NonZeroUsize;
@@ -667,13 +610,6 @@ mod test {
     struct Foo {
         user: String,
     }
-
-    // #[test]
-    // fn debug_impl() {
-    //     let expected = format!("{:?}", hashmap! {0 => 10});
-    //     let actual = format!("{:?}", nem! {0 => 10});
-    //     assert_eq!(expected, actual);
-    // }
 
     #[test]
     fn macro_usage() {
@@ -697,21 +633,6 @@ mod test {
         assert_eq!('c', *map.get(&1).unwrap());
         assert_eq!('b', *map.get(&2).unwrap());
     }
-
-    // #[test]
-    // fn iter_mut() {
-    //     let mut v = nem! {"a" => 0, "b" => 1, "c" => 2};
-
-    //     v.iter_mut().for_each(|(_k, v)| {
-    //         *v += 1;
-    //     });
-    //     assert_eq!(nem! {"a" => 1, "b" => 2, "c" => 3}, v);
-
-    //     for (_k, v) in &mut v {
-    //         *v -= 1;
-    //     }
-    //     assert_eq!(nem! {"a" => 0, "b" => 1, "c" => 2}, v);
-    // }
 }
 
 // #[cfg(feature = "serde")]

@@ -21,20 +21,6 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::result::Result;
 
-// Iterator structs which _always_ have something if the source iterator is
-// non-empty:
-//
-// - [x] Chain (if one, the other, or both are nonempty)
-// - [x] Cloned
-// - [x] Copied
-// - [ ] Cycle
-// - [x] Enumerate
-// - [x] Map
-// - [x] Once
-// - [ ] Scan
-// - [x] Take
-// - [x] Zip (if both are nonempty)
-
 /// Creates an iterator that yields an element exactly once.
 ///
 /// See also [`iter::once`].
@@ -164,17 +150,6 @@ pub trait NonEmptyIterator: IntoIterator {
     /// Note that the second iterator need not be empty.
     ///
     /// See also [`Iterator::chain`].
-    // ///
-    // /// ```
-    // /// use nonempty::*;
-    // ///
-    // /// let v = nev![1, 2, 3];
-    // /// let s = nes![4, 5, 6];
-    // /// let mut r: Vec<_> = v.into_nonempty_iter().chain(s).collect();
-    // /// r.sort();
-    // ///
-    // /// assert_eq!(vec![1, 2, 3, 4, 5, 6], r);
-    // /// ```
     fn chain<U>(self, other: U) -> Chain<Self::IntoIter, U::IntoIter>
     where
         Self: Sized,
@@ -286,14 +261,6 @@ pub trait NonEmptyIterator: IntoIterator {
     /// well as the next value.
     ///
     /// See also [`Iterator::enumerate`].
-    // ///
-    // /// ```
-    // /// use nonempty::*;
-    // ///
-    // /// let s = nes!["Doriath", "Gondolin", "Nargothrond"];
-    // /// let total: usize = s.nonempty_iter().enumerate().map(|(c, _)| c).sum();
-    // /// assert_eq!(3, total);
-    // /// ```
     fn enumerate(self) -> Enumerate<Self>
     where
         Self: Sized,
@@ -405,15 +372,6 @@ pub trait NonEmptyIterator: IntoIterator {
         }
     }
 
-    // fn flatten<F, V>(self) -> FlatMap<Self, V, F>
-    // where
-    //     Self: Sized,
-    //     Self::Item: IntoNonEmptyIterator<IntoIter = V, Item = V::Item>,
-    //     V: NonEmptyIterator,
-    // {
-    //     self.flat_map(|ne| ne)
-    // }
-
     /// Folds every element into an accumulator by applying an operation,
     /// returning the final result.
     ///
@@ -485,16 +443,6 @@ pub trait NonEmptyIterator: IntoIterator {
     /// If `self` is a `NonEmptyIterator`, then so is [`Map`].
     ///
     /// See also [`Iterator::map`].
-    // ///
-    // /// ```
-    // /// use nonempty::NEVec;
-    // /// use nonempty::*;
-    // ///
-    // /// let s = nes![1, 2, 3];
-    // /// let mut v: NEVec<_> = s.nonempty_iter().map(|n| n * 2).collect();
-    // /// v.sort();
-    // /// assert_eq!(nev![2, 4, 6], v);
-    // /// ```
     #[inline]
     fn map<U, F>(self, f: F) -> Map<Self, F>
     where
@@ -845,19 +793,6 @@ pub trait NonEmptyIterator: IntoIterator {
     /// assert_eq!(a, nev!['a', 'b', 'c']);
     /// assert_eq!(b, nev![1, 2, 3]);
     /// ```
-    // ///
-    // /// Fortunately, the [`Extend`] impl of [`crate::NEMap`] naturally fits
-    // /// this, thus you can split keys and values cleanly:
-    // ///
-    // /// ```
-    // /// use nonempty::*;
-    // ///
-    // /// let m = nem!['a' => 1, 'b' => 2, 'c' => 3];
-    // /// let (a, b): (NESet<char>, NESet<usize>) = m.into_nonempty_iter().unzip();
-    // ///
-    // /// assert_eq!(a, nes!['a', 'b', 'c']);
-    // /// assert_eq!(b, nes![1, 2, 3]);
-    // /// ```
     fn unzip<A, B, FromA, FromB>(self) -> (FromA, FromB)
     where
         FromA: Singleton<Item = A> + Extend<A>,

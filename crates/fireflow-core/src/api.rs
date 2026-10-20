@@ -4254,39 +4254,6 @@ mod tests {
         assert_eq!(GuessedEscapeMode::test_both_modes(slice), comp);
     }
 
-    // #[test]
-    // fn split_text_escape() {
-    //     let mut kws = ParsedKeywords::default();
-    //     let conf = ReadHeaderAndTEXTConfig::default();
-    //     // NOTE should not start with delim
-    //     let bytes = b"$P4F/700//75 BP/";
-    //     let delim = b'/';
-    //     let raw_tokens: NEVec<_> = bytes
-    //         .split(|&x| x == delim)
-    //         .try_into_nonempty_iter()
-    //         .unwrap()
-    //         .collect();
-    //     let raw_slice = raw_tokens.as_nonempty_slice();
-    //     let out = SplitTEXTDiagnostics::parse_escaped(
-    //         &mut kws,
-    //         delim,
-    //         &raw_slice,
-    //         TEXTKind::Primary,
-    //         Encoding::Utf8,
-    //         &conf,
-    //     );
-    //     let (_, ws, es) = out.deconstruct();
-    //     let v = kws
-    //         .std
-    //         .iter()
-    //         .map(|(k, v)| (k.as_ne_string(), v.as_ref()))
-    //         .next()
-    //         .unwrap();
-    //     assert_eq!((ne_str!("$P4F").to_owned(), "700/75 BP"), v);
-    //     assert!(es.is_empty(), "errors: {es:?}");
-    //     assert!(ws.is_empty(), "warnings: {ws:?}");
-    // }
-
     #[test]
     fn guess_no_escaped() {
         assert_guessed_mode("aaa/bbb/ccc/ddd/", GuessedEscapeMode::Unescaped);

@@ -239,3 +239,58 @@ impl<const HAS_PRE: bool, T: fmt::Display + fmt::Debug> Serialize for DollarWrap
         serializer.collect_str(self)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::keys::keystring::PrintableAsciiStringError;
+
+    use proptest::prelude::*;
+
+    const NONSTD_KEY_STRAT: &str = "[[:print:]&&[^\\$]]\\$[[:print:]]*";
+
+    // impl Arbitrary for NonStdKey {
+    //     type Parameters = ();
+    //     type Strategy = BoxedStrategy<Self>;
+    //     fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
+    //         NONSTD_KEY_STRAT.prop_map(|s| s.parse().unwrap()).boxed()
+    //     }
+    // }
+
+    proptest! {
+        #[test]
+        fn fromstr_nonstd_key(s in NONSTD_KEY_STRAT) {
+            // nonstd key should always match the input
+            let k = s.parse::<NonStdKey>().expect("strategy should be valid");
+            let k_str: &str = k.as_ref().as_str();
+            assert_eq!(k_str, s);
+            // reverse process should produce same string
+            assert_eq!(k.to_string(), s);
+        }
+    }
+
+    #[test]
+    fn fromstr_nonstd_key_nonascii() {
+        let s = "花冷え。";
+        let e = NoDollarWrapError::Inner(KeyStringError::Ascii(PrintableAsciiStringError(
+            s.parse().unwrap(),
+        )));
+        assert_eq!(s.parse::<NonStdKey>(), Err(e));
+    }
+
+    #[test]
+    fn fromstr_nonstd_key_blank() {
+        let s = "";
+        let k = s.parse::<NonStdKey>();
+        let e = NoDollarWrapError::Empty(EmptyKeyStringError);
+        assert_eq!(Err(e), k);
+    }
+
+    #[test]
+    fn fromstr_nonstd_key_dollar() {
+        let s = "$サイ";
+        let k = s.parse::<NonStdKey>();
+        let e = NoDollarWrapError::Prefix(DollarPrefixError(s.parse().unwrap()));
+        assert_eq!(Err(e), k);
+    }
+}

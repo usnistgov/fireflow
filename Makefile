@@ -29,11 +29,20 @@ rs-lint:
 rs-fmt:
 	cargo fmt --all -- --check
 
-.PHONY: rs-test
-rs-test:
+.PHONY: rs-test-nonempty
+rs-test-nonempty:
 	cargo test -p nonempty
+
+.PHONY: rs-test-types
+rs-test-types:
 	cargo test -p fireflow-types
+
+.PHONY: rs-test-core
+rs-test-core:
 	cargo test -p fireflow-core
+
+.PHONY: rs-test
+rs-test: rs-test-nonempty rs-test-types rs-test-core
 
 .PHONY: rs-docs
 rs-docs:

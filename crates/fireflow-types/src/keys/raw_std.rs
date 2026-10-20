@@ -1232,7 +1232,7 @@ impl CsvFlagKey {
     pub const BLANK: &NEStr = ne_str!("CSVnFLAG");
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() >= 9
+        if bytes.len() >= 8
             && bytes[0..3].eq_ignore_ascii_case(b"CSV")
             && let Some((i, rest)) = split_index_and_suffix(&bytes[3..])
             && rest.eq_ignore_ascii_case(b"FLAG")
@@ -1329,112 +1329,178 @@ const fn is_zero_to_n_usize<X: NoUninit>(xs: &[X]) -> bool {
     true
 }
 
-// #[cfg(test)]
-// mod test {
-//     use super::*;
+#[cfg(test)]
+mod test {
+    use super::*;
 
-//     use proptest::prelude::*;
+    use proptest::prelude::*;
 
-//     const STD_KEY_STRAT: &str = "\\$[[:print:]]+";
+    // All these tests are more or less the same: make a "random" string of
+    // case insensitive values that match the pattern for a given keyword and
+    // test that it parses to the correct enum.
 
-// const NONSTD_KEY_STRAT: &str = "[[:print:]&&[^\\$]]\\$[[:print:]]*";
+    macro_rules! test_root_key {
+        ($name:ident, $pat:expr, $var:ident) => {
+            proptest! {
+                #[test]
+                fn $name(s in $pat) {
+                    let ne = NEStr::try_new(s.as_str()).unwrap();
+                    assert_eq!(RawStdKey::from_ne_str(ne), Some(RootKey::$var.into()));
+                }
+            }
+        };
+    }
 
-// impl Arbitrary for NonStdKey {
-//     type Parameters = ();
-//     type Strategy = BoxedStrategy<Self>;
-//     fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
-//         NONSTD_KEY_STRAT.prop_map(|s| s.parse().unwrap()).boxed()
-//     }
-// }
+    test_root_key!(byteord, "(?i-u)byteord", Byteord);
+    test_root_key!(datatype, "(?i-u)datatype", Datatype);
+    test_root_key!(mode, "(?i-u)mode", Mode);
+    test_root_key!(par, "(?i-u)par", Par);
+    test_root_key!(tot, "(?i-u)tot", Tot);
+    test_root_key!(cyt, "(?i-u)cyt", Cyt);
+    test_root_key!(abrt, "(?i-u)abrt", Abrt);
+    test_root_key!(cells, "(?i-u)cells", Cells);
+    test_root_key!(com, "(?i-u)com", Com);
+    test_root_key!(exp, "(?i-u)exp", Exp);
+    test_root_key!(fil, "(?i-u)fil", Fil);
+    test_root_key!(inst, "(?i-u)inst", Inst);
+    test_root_key!(lost, "(?i-u)lost", Lost);
+    test_root_key!(op, "(?i-u)op", Op);
+    test_root_key!(proj, "(?i-u)proj", Proj);
+    test_root_key!(smno, "(?i-u)smno", Smno);
+    test_root_key!(src, "(?i-u)src", Src);
+    test_root_key!(sys, "(?i-u)sys", Sys);
+    test_root_key!(tr, "(?i-u)tr", Tr);
+    test_root_key!(cytsn, "(?i-u)cytsn", Cytsn);
+    test_root_key!(timestep, "(?i-u)timestep", Timestep);
+    test_root_key!(vol, "(?i-u)vol", Vol);
+    test_root_key!(unicode, "(?i-u)unicode", Unicode);
+    test_root_key!(flowrate, "(?i-u)flowrate", Flowrate);
+    test_root_key!(begindata, "(?i-u)begindata", Begindata);
+    test_root_key!(beginanalysis, "(?i-u)beginanalysis", Beginanalysis);
+    test_root_key!(beginstext, "(?i-u)beginstext", Beginstext);
+    test_root_key!(enddata, "(?i-u)enddata", Enddata);
+    test_root_key!(endanalysis, "(?i-u)endanalysis", Endanalysis);
+    test_root_key!(endstext, "(?i-u)endstext", Endstext);
+    test_root_key!(nextdata, "(?i-u)nextdata", Nextdata);
+    test_root_key!(btim, "(?i-u)btim", Btim);
+    test_root_key!(etim, "(?i-u)etim", Etim);
+    test_root_key!(date, "(?i-u)date", Date);
+    test_root_key!(begindatetime, "(?i-u)begindatetime", Begindatetime);
+    test_root_key!(enddatetime, "(?i-u)enddatetime", Enddatetime);
+    test_root_key!(comp, "(?i-u)comp", Comp);
+    test_root_key!(spillover, "(?i-u)spillover", Spillover);
+    test_root_key!(lastmodified, "(?i-u)last_modified", LastModified);
+    test_root_key!(lastmodifier, "(?i-u)last_modifier", LastModifier);
+    test_root_key!(originality, "(?i-u)originality", Originality);
+    test_root_key!(plateid, "(?i-u)plateid", Plateid);
+    test_root_key!(platename, "(?i-u)platename", Platename);
+    test_root_key!(wellid, "(?i-u)wellid", Wellid);
+    test_root_key!(unstainedcenters, "(?i-u)unstainedcenters", UnstainedCenters);
+    test_root_key!(unstainedinfo, "(?i-u)unstainedinfo", UnstainedInfo);
+    test_root_key!(carrierid, "(?i-u)carrierid", CarrierId);
+    test_root_key!(carriertype, "(?i-u)carriertype", CarrierType);
+    test_root_key!(locationid, "(?i-u)locationid", LocationId);
+    test_root_key!(csmode, "(?i-u)csmode", Csmode);
+    test_root_key!(csvbits, "(?i-u)csvbits", Csvbits);
+    test_root_key!(cstot, "(?i-u)cstot", Cstot);
+    test_root_key!(gating, "(?i-u)gating", Gating);
+    test_root_key!(gate, "(?i-u)gate", Gate);
 
-//     impl Arbitrary for StdKey {
-//         type Parameters = ();
-//         type Strategy = BoxedStrategy<Self>;
-//         fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
-//             STD_KEY_STRAT.prop_map(|s| s.parse().unwrap()).boxed()
-//         }
-//     }
+    macro_rules! test_meas_key {
+        ($name:ident, $pat:expr, $var:ident) => {
+            proptest! {
+                #[test]
+                fn $name(s0 in "(?i)p", i in 0_usize..1000, s1 in $pat) {
+                    let s = format!("{s0}{}{s1}", i + 1);
+                    let ne = NEStr::try_new(s.as_str()).unwrap();
+                    let k = MeasKey::new(i.into(), MeasKeyId::$var);
+                    assert_eq!(RawStdKey::from_ne_str(ne), Some(k.into()));
+                }
+            }
+        };
+    }
 
-//     // TODO this is probably wrong
-//     proptest! {
-//         #[test]
-//         fn fromstr_std_key(s in STD_KEY_STRAT) {
-//             // std key should always be stored without the dollar sign
-//             let k = s.parse::<StdKey>().expect("strategy should be valid");
-//             let s_noprefix = s.as_str().split_at(1).1;
-//             let k_str: &str = k.as_ref();
-//             assert_eq!(k_str, s_noprefix);
-//             // reverse process should produce same string (with $)
-//             assert_eq!(k.to_string(), s);
-//         }
-//     }
+    test_meas_key!(pnn, "(?i-u)n", N);
+    test_meas_key!(pnr, "(?i-u)r", R);
+    test_meas_key!(pne, "(?i-u)e", E);
+    test_meas_key!(pns, "(?i-u)s", S);
+    test_meas_key!(pnf, "(?i-u)f", F);
+    test_meas_key!(pnt, "(?i-u)t", T);
+    test_meas_key!(pnp, "(?i-u)p", P);
+    test_meas_key!(pnv, "(?i-u)v", V);
+    test_meas_key!(pnb, "(?i-u)b", B);
+    test_meas_key!(pnl, "(?i-u)l", L);
+    test_meas_key!(pno, "(?i-u)o", O);
+    test_meas_key!(png, "(?i-u)g", G);
+    test_meas_key!(pnd, "(?i-u)d", D);
+    test_meas_key!(pndet, "(?i-u)det", Det);
+    test_meas_key!(pntag, "(?i-u)tag", Tag);
+    test_meas_key!(pntype, "(?i-u)type", Type);
+    test_meas_key!(pnfeature, "(?i-u)feature", Feature);
+    test_meas_key!(pnanalyte, "(?i-u)analyte", Analyte);
+    test_meas_key!(pndatatype, "(?i-u)datatype", Datatype);
+    test_meas_key!(pncalibration, "(?i-u)calibration", Calibration);
 
-//     #[test]
-//     fn fromstr_std_key_nonascii() {
-//         let s = "$花冷え。"; // sugarsugarsugarsugarsugarsugarrrrrrrrr...
-//         let k = s.parse::<StdKey>();
-//         let e = StdKeyError::Ascii(NEAsciiStringError::Ascii(s.parse().unwrap()));
-//         assert_eq!(Err(e), k);
-//     }
+    macro_rules! test_gate_key {
+        ($name:ident, $pat:expr, $var:ident) => {
+            proptest! {
+                #[test]
+                fn $name(s0 in "(?i)g", i in 0_usize..1000, s1 in $pat) {
+                    let s = format!("{s0}{}{s1}", i + 1);
+                    let ne = NEStr::try_new(s.as_str()).unwrap();
+                    let k = GateKey::new(i.into(), GateKeyId::$var);
+                    assert_eq!(RawStdKey::from_ne_str(ne), Some(k.into()));
+                }
+            }
+        };
+    }
 
-//     proptest! {
-//         #[test]
-//         fn fromstr_std_key_noprefix(s in "[[:print:]&&[^\\$]][[:print:]]") {
-//             let k = s.parse::<StdKey>();
-//             let e = StdKeyError::Prefix(s.parse().unwrap());
-//             assert_eq!(Err(e), k);
-//         }
-//     }
+    test_gate_key!(gnn, "(?i-u)n", N);
+    test_gate_key!(gnr, "(?i-u)r", R);
+    test_gate_key!(gne, "(?i-u)e", E);
+    test_gate_key!(gns, "(?i-u)s", S);
+    test_gate_key!(gnf, "(?i-u)f", F);
+    test_gate_key!(gnt, "(?i-u)t", T);
+    test_gate_key!(gnp, "(?i-u)p", P);
+    test_gate_key!(gnv, "(?i-u)v", V);
 
-//     #[test]
-//     fn fromstr_std_key_blank() {
-//         let s = "";
-//         let k = s.parse::<StdKey>();
-//         assert_eq!(Err(StdKeyError::Ascii(NEAsciiStringError::Empty)), k);
-//     }
+    proptest! {
+        #[test]
+        fn rni(s0 in "(?i)r", i in 0_usize..1000, s1 in "(?i-u)i") {
+            let s = format!("{s0}{}{s1}", i + 1);
+            let ne = NEStr::try_new(s.as_str()).unwrap();
+            let k = RegionKey::new(i.into(), RegionKeyId::I);
+            assert_eq!(RawStdKey::from_ne_str(ne), Some(k.into()));
+        }
+    }
 
-//     #[test]
-//     fn fromstr_std_key_onlyprefix() {
-//         let s = "$";
-//         let k = s.parse::<StdKey>();
-//         assert_eq!(Err(StdKeyError::Empty), k);
-//     }
+    proptest! {
+        #[test]
+        fn rnw(s0 in "(?i)r", i in 0_usize..1000, s1 in "(?i-u)w") {
+            let s = format!("{s0}{}{s1}", i + 1);
+            let ne = NEStr::try_new(s.as_str()).unwrap();
+            let k = RegionKey::new(i.into(), RegionKeyId::W);
+            assert_eq!(RawStdKey::from_ne_str(ne), Some(k.into()));
+        }
+    }
 
-// proptest! {
-//     #[test]
-//     fn fromstr_nonstd_key(s in NONSTD_KEY_STRAT) {
-//         // nonstd key should always match the input
-//         let k = s.parse::<NonStdKey>().expect("strategy should be valid");
-//         let k_str: &str = k.as_ref();
-//         assert_eq!(k_str, s);
-//         // reverse process should produce same string (without $)
-//         assert_eq!(k.to_string(), s);
-//     }
-// }
+    proptest! {
+        #[test]
+        fn csvflag(s0 in "(?i-u)csv", i in 0_usize..1000, s1 in "(?i-u)flag") {
+            let s = format!("{s0}{}{s1}", i + 1);
+            let ne = NEStr::try_new(s.as_str()).unwrap();
+            let k = CsvFlagKey::new(i.into());
+            assert_eq!(RawStdKey::from_ne_str(ne), Some(k.into()));
+        }
+    }
 
-// #[test]
-// fn fromstr_nonstd_key_nonascii() {
-//     let s = "サイ";
-//     let k = s.parse::<NonStdKey>();
-//     let e = NonStdKeyError::Ascii(NEAsciiStringError::Ascii(AsciiStringError(
-//         s.parse().unwrap(),
-//     )));
-//     assert_eq!(Err(e), k);
-// }
-
-// proptest! {
-//     #[test]
-//     fn fromstr_nonstd_key_hasprefix(s in "\\$[[:print:]]") {
-//         let k = s.parse::<NonStdKey>();
-//         let e = NonStdKeyError::Prefix(TruncatedNEString(s.parse().unwrap()));
-//         assert_eq!(Err(e), k);
-//     }
-// }
-
-// #[test]
-// fn fromstr_nonstd_key_blank() {
-//     let s = "";
-//     let k = s.parse::<NonStdKey>();
-//     assert_eq!(Err(NonStdKeyError::Ascii(NEAsciiStringError::Empty)), k);
-// }
-// }
+    proptest! {
+        #[test]
+        fn dfc(s0 in "(?i-u)dfc", i in 0_usize..1000, s1 in "(?i)to", j in 0_usize..1000) {
+            let s = format!("{s0}{}{s1}{}", i + 1, j + 1);
+            let ne = NEStr::try_new(s.as_str()).unwrap();
+            let k = DfcKey::new(BiMeasIndex::new(i.into(), j.into()));
+            assert_eq!(RawStdKey::from_ne_str(ne), Some(k.into()));
+        }
+    }
+}

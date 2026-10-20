@@ -8,10 +8,12 @@ use crate::segment::read::{IsOffsetPair as _, PrimaryTextOffsets};
 use crate::std_index::index::{LookupAction, StdLookupTx};
 use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
+use crate::text::display::Display;
 use crate::text::keyword_enum::DollarKey;
 use crate::text::lookup::{
-    Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, OptKeyError, OptValue as _,
-    ParseKeyError, ReqKeyError, ReqKeyErrorInner, ReqValue as _, Trimmed, impl_from_str_with_delim,
+    Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, MissingKeyError, OptKeyError,
+    OptValue as _, ParseKeyError, ReqKeyError, ReqKeyErrorInner, ReqValue as _, Trimmed,
+    impl_from_str_with_delim,
 };
 use crate::text::named_vec::{NameMapping, NamedSet, NamedSetMembership};
 use crate::text::optional::OptionalZST;
@@ -75,8 +77,6 @@ use std::str::FromStr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
-
-use super::lookup::MissingKeyError;
 
 #[cfg(feature = "python")]
 use {
@@ -731,89 +731,6 @@ pub struct Mode3_2Error;
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct ModeUpgradeError;
-
-/// The value for the $PnD key (3.1+)
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(test, derive(Arbitrary))]
-pub enum Display {
-    /// Linear display (value like `"Linear,<lower>,<upper>"`)
-    Lin { lower: f32, upper: f32 },
-
-    /// Logarithmic display (value like `"Logarithmic,<decades>,<offset>"`)
-    Log {
-        decades: PositiveFloat,
-        offset: PositiveFloat,
-    },
-}
-
-impl ToDisplayNE<'_> for Display {
-    type NE = NEConcat5<&'static NEStr, char, f32, char, f32>;
-    fn to_ne(&self) -> Self::NE {
-        let (m, x, y) = match self {
-            Self::Lin { lower, upper } => (ne_str!("Linear"), *lower, *upper),
-            Self::Log { offset, decades } => (
-                ne_str!("Logarithmic"),
-                f32::from(*decades),
-                f32::from(*offset),
-            ),
-        };
-        NEConcat::new(m, ',').append(x).append(',').append(y)
-    }
-}
-
-impl FromStrDelim for Display {
-    type Err = DisplayError;
-    const DELIM: char = ',';
-
-    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let x0 = iter.next();
-        let x1 = iter.next();
-        let x2 = iter.next();
-        let x3 = iter.next();
-        match (x0, x1, x2, x3) {
-            (Some(which), Some(s1), Some(s2), None) => {
-                let f1 = s1.parse().map_err(DisplayError::FloatError)?;
-                let f2 = s2.parse().map_err(DisplayError::FloatError)?;
-                match which {
-                    "Linear" => {
-                        if f1 > f2 {
-                            Err(DisplayError::Linear(f1, f2))
-                        } else {
-                            Ok(Self::Lin {
-                                lower: f1,
-                                upper: f2,
-                            })
-                        }
-                    }
-                    "Logarithmic" => match (f1.try_into(), f2.try_into()) {
-                        (Ok(decades), Ok(offset)) => Ok(Self::Log { decades, offset }),
-                        _ => Err(DisplayError::Log(f1, f2)),
-                    },
-                    _ => Err(DisplayError::InvalidType),
-                }
-            }
-            _ => Err(DisplayError::FormatError),
-        }
-    }
-}
-
-impl_from_str_with_delim!(Display, DisplayError);
-
-/// Error when parsing [`enum@Display`] from string
-#[derive(Debug, Error, PartialEq, Clone)]
-pub enum DisplayError {
-    #[error("{0}")]
-    FloatError(ParseFloatError),
-    #[error("Type must be either 'Logarithmic' or 'Linear'")]
-    InvalidType,
-    #[error("must be like 'string,f1,f2'")]
-    FormatError,
-    #[error("linear bounds out of order, got 'Linear,{0},{1}'")]
-    Linear(f32, f32),
-    #[error("log must only use positive floats, got 'Logarithmic,{0},{1}'")]
-    Log(f32, f32),
-}
 
 impl_str_enum_kw!(
     /// The three values for the $PnDATATYPE keyword (3.2+)
@@ -4013,42 +3930,6 @@ mod tests {
     }
 
     #[test]
-    fn pnd() {
-        let conf = EvaledReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Display>(ne_str!("Linear,0,1"), (), &conf);
-        assert_from_to_str_with::<Display>(ne_str!("Logarithmic,1,1"), (), &conf);
-        assert_from_to_str_with::<Display>(ne_str!("Logarithmic,1,0.1"), (), &conf);
-
-        macro_rules! go {
-            ($s:expr) => {
-                Display::from_str_with(ne_str!($s), (), &conf)
-            };
-        }
-
-        assert_matches!(go!("Linear,x,x"), Err(DisplayError::FloatError(_)));
-        assert_eq!(go!("LIN,0,1"), Err(DisplayError::InvalidType));
-        assert_eq!(go!("LOG,1,1"), Err(DisplayError::InvalidType));
-        assert_eq!(go!("Logicle,0,1,2,3"), Err(DisplayError::FormatError));
-        assert_eq!(go!("Linear,1.0,-1.0"), Err(DisplayError::Linear(1.0, -1.0)));
-        assert_eq!(
-            go!("Logarithmic,-1.0,1.0"),
-            Err(DisplayError::Log(-1.0, 1.0))
-        );
-    }
-
-    #[test]
-    fn pnd_commas() {
-        let v = ne_str!("Linear, 0 , 1");
-        let mut conf = EvaledReadStdKeywordsConfig::default();
-        assert_matches!(
-            Display::from_str_with(v, (), &conf),
-            Err(DisplayError::FloatError(_))
-        );
-        conf.trim_intra_value_whitespace = true.into();
-        assert_from_to_str_almost_with::<Display>(v, "Linear,0,1", (), &conf);
-    }
-
-    #[test]
     fn datatype() {
         assert_from_to_str::<NumType>("I");
         assert_from_to_str::<NumType>("F");
@@ -4770,7 +4651,7 @@ mod python {
     use crate::validated::shortname::Shortname;
 
     use super::{
-        ByteOrd2_0, Calibration3_1, Calibration3_2, Display, IndexPair, OpticalScaleFix, Scale,
+        ByteOrd2_0, Calibration3_1, Calibration3_2, IndexPair, OpticalScaleFix, Scale,
         TemporalScaleFix, Trigger, UniGate, Unicode, Vertex,
     };
 
@@ -4903,41 +4784,6 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             (self.page, self.kws).into_pyobject(py)
-        }
-    }
-
-    // $PnD (3.1+) as a tuple like (bool, f32, f32) in python where 'bool' is true
-    // if linear
-    impl<'py> FromPyObject<'_, 'py> for Display {
-        type Error = PyErr;
-        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let (is_log, x0, x1): (bool, f32, f32) = obj.extract()?;
-            let ret = if is_log {
-                Self::Log {
-                    offset: x0.try_into()?,
-                    decades: x1.try_into()?,
-                }
-            } else {
-                Self::Lin {
-                    lower: x0,
-                    upper: x1,
-                }
-            };
-            Ok(ret)
-        }
-    }
-
-    impl<'py> IntoPyObject<'py> for Display {
-        type Target = PyTuple;
-        type Output = Bound<'py, <(bool, f32, f32) as IntoPyObject<'py>>::Target>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            let ret = match self {
-                Self::Lin { lower, upper } => (false, lower, upper),
-                Self::Log { offset, decades } => (true, offset.into(), decades.into()),
-            };
-            ret.into_pyobject(py)
         }
     }
 

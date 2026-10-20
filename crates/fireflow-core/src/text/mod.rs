@@ -2,6 +2,7 @@
 
 pub mod byteord;
 pub mod datetimes;
+pub mod display;
 pub mod gating;
 pub mod keyword_enum;
 pub mod keywords;

@@ -230,7 +230,7 @@ macro_rules! impl_from_str_with_delim {
             ) -> Result<crate::text::lookup::Diagnosed<Self, Option<nonempty::NEString>>, Self::Err>
             {
                 let (res, trimmed) = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
-                res.map(|x| Diagnosed::new(x, trimmed))
+                res.map(|x| crate::text::lookup::Diagnosed::new(x, trimmed))
             }
         }
     };

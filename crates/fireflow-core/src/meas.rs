@@ -22,6 +22,7 @@ use crate::logging::{
 use crate::macros::{assert_eq_msg, def_summary};
 use crate::segment::read::AnyDataOffsets;
 use crate::std_index::index::{OpticalOnlyErrors, StdLookupTx};
+use crate::text::display::Display;
 use crate::text::keyword_enum::{
     AnyOpticalKeyLossError, AnyOpticalToTemporalKeyLossError, AnyTemporalKeyLossError,
     AnyTemporalToOpticalKeyLossError, DollarKey, HasMembership as _, Keyword1FromValue as _,
@@ -30,7 +31,7 @@ use crate::text::keyword_enum::{
 };
 use crate::text::keywords::{
     AlphaNumType, Analyte, Calibration3_1, Calibration3_2, CalibrationLossError, DetectorName,
-    DetectorType, DetectorVoltage, Display, Feature, Filter, Gain, LogScale, Longname,
+    DetectorType, DetectorVoltage, Feature, Filter, Gain, LogScale, Longname,
     LookupTemporalGainError, OpticalScaleFix, OpticalType, PeakBin, PeakIndex, PercentEmitted,
     Power, Scale, Tag, TemporalScale2_0, TemporalScale3_0, TemporalScaleFix, TemporalType,
     Timestep, TimestepAdded, Wavelength, Wavelengths, WavelengthsLossError,

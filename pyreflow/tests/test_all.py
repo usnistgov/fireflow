@@ -1567,8 +1567,8 @@ class TestCore:
         new: list[pt.Display | None] = [(False, -1.0, 2.0), (True, 4.0, 0.5)]
         core.all_displays = new
         assert core.all_displays == new
-        # TODO this should error
-        # core.all_displays = [(False, 2.0, 1.0), None]
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.all_displays = [(False, 2.0, 1.0), None]
         with pytest.raises(pf.InvalidKeywordValueError):
             core.all_displays = [(True, 0.0, 1.0), None]
         with pytest.raises(pf.InvalidKeywordValueError):

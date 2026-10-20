@@ -3980,7 +3980,6 @@ class TestApiFunctions:
         dataset2_3_2.write_text(p)
         _ = pf.api.fcs_read_flat_dataset(p, ignore_standard_keys=["$INST"])
         _ = pf.api.fcs_read_flat_dataset(p, ignore_standard_keys=["/$P[1-10]N/"])
-        # TODO blank should be an error since it will match anything
         with pytest.raises(pf.ParseKeyError):
             _ = pf.api.fcs_read_flat_dataset(p, ignore_standard_keys=[""])
         with pytest.raises(pf.ConfigError):
@@ -4105,7 +4104,7 @@ class TestApiFunctions:
                 },
             )
 
-    # TODO considering making this pattern/literal like the other regexp args
+    # TODO consider making this pattern/literal like the other regexp args
     def test_time_meas_pattern(
         self, tmp_path: Path, blank_dataset_3_2: pf.CoreDataset3_2
     ) -> None:

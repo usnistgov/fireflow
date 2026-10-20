@@ -2113,6 +2113,7 @@ impl<'a> ToDisplayNE<'a> for RegionWindow {
 #[derive(Clone)]
 pub enum RegionWindowRef<'a> {
     Univariate(&'a UniGate),
+    // TODO this should be checked to ensure we have at least 3 points
     Bivariate(&'a NESlice<Vertex>),
 }
 
@@ -2144,6 +2145,7 @@ impl<'a> ToDisplayNE<'a> for Vertex {
 /// A gate on one dimension with lower and upper bound
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+// TODO this should be checked to make sure lower <= upper
 pub struct UniGate {
     pub lower: BigDecimal,
     pub upper: BigDecimal,

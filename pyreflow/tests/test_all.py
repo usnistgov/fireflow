@@ -2034,7 +2034,7 @@ class TestCore:
         # non-mixed layout which means we don't get the type. This probably
         # isn't what the user expects.
         assert r1 == 2000
-        assert c0.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
+        assert c0.equals(pl.Series("unnamed", [1.0, 2.0, 3.0], dtype=pl.Float32))
         assert c1.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
         assert t0 == "F32"
         assert t1 is None

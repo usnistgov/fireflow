@@ -12473,6 +12473,7 @@ impl MeasKw {
             Self::PnV => "DetectorVoltage",
             Self::PnCALIBRATION3_1 => "Calibration3_1",
             Self::PnCALIBRATION3_2 => "Calibration3_2",
+            Self::PnD => "Display",
             Self::PnDET => "DetectorName",
             Self::PnTAG => "Tag",
             Self::PnTYPETemporal => "TemporalType",
@@ -12481,8 +12482,6 @@ impl MeasKw {
             Self::PnANALYTE => "Analyte",
             Self::PKn => "PeakBin",
             Self::PKNn => "PeakIndex",
-            // the one exception to the pattern
-            Self::PnD => return parse_quote!(fireflow_core::text::display::Display),
         };
         keyword_path(n)
     }

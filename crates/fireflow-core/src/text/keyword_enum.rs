@@ -5,7 +5,6 @@
 
 use crate::meas::GainLossError;
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
-use crate::text::display::Display;
 use crate::text::keywords as kws;
 use crate::text::keywords::ValueToStdKey;
 use crate::text::spillover::Spillover;
@@ -356,7 +355,7 @@ pub enum OptOpticalKeyword<'a> {
     PercentEmitted(SplitKeyword<kws::PercentEmitted>),
     DetectorVoltage(SplitKeyword<kws::DetectorVoltage>),
     Wavelength(SplitKeyword<kws::Wavelength>),
-    Display(SplitKeyword<Display>),
+    Display(SplitKeyword<kws::Display>),
     Feature(RefKeyword<'a, kws::Feature>),
     Calibration3_1(RefKeyword<'a, kws::Calibration3_1>),
     Calibration3_2(RefKeyword<'a, kws::Calibration3_2>),
@@ -385,7 +384,7 @@ pub enum OptMeasTemporalKeyword<'a> {
     Longname(NEStringKeyword<'a, kws::Longname>),
     TemporalType(OptZSTKeyword<kws::TemporalType, kws::TemporalTypeInner>),
     TemporalScale2_0(OptZSTKeyword<kws::TemporalScale2_0, kws::TemporalScaleInner>),
-    Display(SplitKeyword<Display>),
+    Display(SplitKeyword<kws::Display>),
     Peak(OptPeakKeyword),
 }
 
@@ -545,7 +544,7 @@ pub enum AnyOpticalKeyLossError {
     Analyte(KeyLossError<kws::Analyte>),
     Tag(KeyLossError<kws::Tag>),
     Gain(GainLossError),
-    Display(KeyLossError<Display>),
+    Display(KeyLossError<kws::Display>),
     DetectorName(KeyLossError<kws::DetectorName>),
     Feature(KeyLossError<kws::Feature>),
     Calibration3_1(KeyLossError<kws::Calibration3_1>),
@@ -558,7 +557,7 @@ pub enum AnyOpticalKeyLossError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyTemporalKeyLossError {
     TempType(KeyLossError<kws::TemporalType>),
-    Display(KeyLossError<Display>),
+    Display(KeyLossError<kws::Display>),
     Timestamp(TimestepLossError),
     Peak(PeakLossError),
 }

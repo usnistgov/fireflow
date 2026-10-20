@@ -6026,8 +6026,6 @@ class TestConfig:
                 pf.PyreflowWarning, match="missing required key|could not obtain"
             ):
                 assert go("true") == (0, 0)
-            # TODO this is misleading because emitting a warning isn't exactly "silent"
-            with pytest.warns(pf.PyreflowWarning, match="could not obtain"):
                 assert go("silent") == (0, 0)
 
     @all_versions
@@ -6059,8 +6057,6 @@ class TestConfig:
                 pf.PyreflowWarning, match="missing required key|could not obtain"
             ):
                 assert go("true") == (0, 0)
-            # TODO this is misleading because emitting a warning isn't exactly "silent"
-            with pytest.warns(pf.PyreflowWarning, match="could not obtain"):
                 assert go("silent") == (0, 0)
 
     @all_versions

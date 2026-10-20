@@ -26,7 +26,7 @@ use crate::validated::read_state::{DatasetOffset, DatasetReader, HeaderReader, T
 
 use fireflow_types::config::{
     AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
-    ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig,
+    ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig, TriErrorFlag as _,
 };
 use fireflow_types::keywords::Version;
 use fireflow_types::other_width::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth};
@@ -1021,13 +1021,16 @@ where
         let missing_flag = dconf.allow_missing_required_offsets;
         let overlap_limit = oconf.overlap_correction_limit;
 
-        let text_missing = |es: Vec<ReqOffsetsWithDefaultError<Self>>| {
+        let text_missing = |es: OneOrTwo<ReqOffsetsWithDefaultError<Self>>| {
             let hpair = header_pair(ChoseHeaderReason::Unparsed);
             let mut res = LogResult::new_switchable_iter3(hpair, (), es, missing_flag)
                 .switchable_into_commutative()
                 .map_commutative_warnings(ReqOffsetsWithDefaultWarning::from);
             let w = ReqOffsetsWithDefaultWarning::from(SegmentOffsetsDefaultWarning::default());
-            res.eval_warning(|_| Some(w));
+            // Only emit warning if flag is non-silent
+            if missing_flag.is_error().is_some() {
+                res.eval_warning(|_| Some(w));
+            }
             res
         };
 
@@ -1071,7 +1074,7 @@ where
                     res.extend_commutative_warnings(mismatch_warn);
                     res
                 }
-                Err(e) => text_missing(vec![ReqOffsetsWithDefaultErrorInner::from(e)]),
+                Err(e) => text_missing(OneOrTwo::One(ReqOffsetsWithDefaultErrorInner::from(e))),
             }
         };
 
@@ -1130,9 +1133,7 @@ where
                     // more enlightened person
                     let es0 = es
                         .fmap(ReqOffsetsError::Key)
-                        .fmap(ReqOffsetsWithDefaultErrorInner::from)
-                        .into_iter()
-                        .collect();
+                        .fmap(ReqOffsetsWithDefaultErrorInner::from);
                     text_missing(es0)
                 }
             }

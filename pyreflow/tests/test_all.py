@@ -1,8 +1,9 @@
 import ast
 import inspect as ins
+import struct
 from copy import deepcopy
 from datetime import date, datetime, time, timedelta, timezone
-from itertools import chain, product
+from itertools import chain, product, permutations
 from pathlib import Path
 from typing import Any, Callable, NamedTuple, TypeVar, assert_never, cast
 
@@ -25,7 +26,6 @@ from pyreflow.typing import (
 from .conftest import lazy_fixture
 
 X = TypeVar("X")
-
 
 INTEGER_WIDTHS: list[tuple[pt.AnyIntegerType, pt.IntRange]] = [
     ("U08", 1),
@@ -52,9 +52,59 @@ LINK_NAME3 = "silent man"
 
 DTYPE = pl.UInt8 | pl.UInt16 | pl.UInt32 | pl.UInt64 | pl.Float32 | pl.Float64
 
+
 # used for testing the pydantic model against the types in the pyi file
 with open("python/pyreflow/_pyreflow.pyi") as f:
     tree = ast.parse(f.read())
+
+
+def num_to_ordered_bytes(
+    x: int | float, fmt: str, width: int
+) -> list[tuple[list[int], bytes]]:
+    return [
+        ([p[0] for p in ps], bytes([p[1] for p in ps]))
+        for ps in permutations(
+            [(i + 1, b) for i, b in enumerate(struct.pack(fmt, x)[:width])]
+        )
+    ]
+
+
+def num_to_endian_bytes(
+    x: int | float, fmt: str, width: int
+) -> list[tuple[list[int], bytes]]:
+    little = struct.pack(f"<{fmt}", x)[:width]
+    big = little[::-1]
+    return [
+        ([4, 3, 2, 1], big),
+        ([1, 2, 3, 4], little),
+    ]
+
+
+def ordered_int_tests(
+    x: int,
+    fmt: str,
+    width: int,
+    data2: int,
+    data3: int,
+) -> list[tuple[str, int, bytes, list[int], str, int, int]]:
+    return [
+        (v, x, bytes(data), list(byteord), "I", width * 8, d)
+        for byteord, data in num_to_ordered_bytes(x, fmt, width)
+        for v, d in [("FCS2.0", data2), ("FCS3.0", data3)]
+    ]
+
+
+def endian_int_tests(
+    x: int,
+    fmt: str,
+    width: int,
+    data_start: int,
+) -> list[tuple[str, int, bytes, list[int], str, int, int]]:
+    return [
+        (v, x, bytes(data), list(byteord), "I", width * 8, data_start)
+        for byteord, data in num_to_endian_bytes(x, fmt, width)
+        for v in ["FCS3.1", "FCS3.2"]
+    ]
 
 
 @pytest.fixture
@@ -6456,6 +6506,213 @@ class TestConfig:
                 assert go(x, "trunc_warn") == [(0, True)]
             assert go(x, "trunc_silent") == [(0, True)]
             assert go(x, "none") == [None]
+
+    @pytest.mark.parametrize(
+        "version, truth, data, byteord, datatype, bits, data_begin",
+        # all 2.0/3.0 numeric byte layouts in any byte order (or for higher
+        # types, one representative mixed order so I don't create a
+        # combinatorial black hole and consume all the world's RAM (or what's
+        # left of it)
+        [
+            (v, 42, b"\x2a", [1], "I", 8, d)
+            for v, d in [("FCS2.0", 163), ("FCS3.0", 249)]
+        ]
+        + ordered_int_tests(4242, "L", 2, 168, 254)
+        + ordered_int_tests(424242, "L", 3, 172, 258)
+        + ordered_int_tests(42424242, "L", 4, 176, 262)
+        + [
+            (v, 424242424242, data, byteord, "I", 40, d)
+            for data, byteord in [
+                (b"\x62\xc6\xd1\xa9\xb2", [5, 4, 3, 2, 1]),
+                (b"\xb2\xa9\xd1\xc6\x62", [1, 2, 3, 4, 5]),
+                (b"\xd1\xc6\x62\xa9\xb2", [3, 4, 5, 2, 1]),
+            ]
+            for v, d in [("FCS2.0", 182), ("FCS3.0", 268)]
+        ]
+        + [
+            (v, 42424242424242, data, byteord, "I", 48, d)
+            for data, byteord in [
+                (b"\x26\x95\xa9\xe6\x49\xb2", [6, 5, 4, 3, 2, 1]),
+                (b"\xb2\x49\xe6\xa9\x95\x26", [1, 2, 3, 4, 5, 6]),
+                (b"\xe6\x49\xb2\xa9\x95\x26", [3, 2, 1, 4, 5, 6]),
+            ]
+            for v, d in [("FCS2.0", 186), ("FCS3.0", 272)]
+        ]
+        + [
+            (v, 4242424242424242, data, byteord, "I", 56, d)
+            for data, byteord in [
+                (b"\x0f\x12\x76\x5d\xf4\xc9\xb2", [7, 6, 5, 4, 3, 2, 1]),
+                (b"\xb2\xc9\xf4\x5d\x76\x12\x0f", [1, 2, 3, 4, 5, 6, 7]),
+                (b"\xf4\xc9\xb2\x5d\x76\x12\x0f", [3, 2, 1, 4, 5, 6, 7]),
+            ]
+            for v, d in [("FCS2.0", 190), ("FCS3.0", 276)]
+        ]
+        + [
+            (v, 424242424242424242, data, byteord, "I", 64, d)
+            for data, byteord in [
+                (b"\x05\xe3\x36\x3c\xb3\x9e\xc9\xb2", [8, 7, 6, 5, 4, 3, 2, 1]),
+                (b"\xb2\xc9\x9e\xb3\x3c\x36\xe3\x05", [1, 2, 3, 4, 5, 6, 7, 8]),
+                (b"\x9e\xc9\xb2\xb3\x3c\x36\xe3\x05", [3, 2, 1, 4, 5, 6, 7, 8]),
+            ]
+            for v, d in [("FCS2.0", 194), ("FCS3.0", 280)]
+        ]
+        + [
+            (v, 42.42, bytes(data), list(byteord), "F", 32, d)
+            for byteord, data in num_to_ordered_bytes(42.42, "F", 4)
+            for v, d in [("FCS2.0", 173), ("FCS3.0", 259)]
+        ]
+        + [
+            (v, 42.42, data, byteord, "D", 64, d)
+            for data, byteord in [
+                (b"\x40\x45\x35\xc2\x8f\x5c\x28\xf6", [8, 7, 6, 5, 4, 3, 2, 1]),
+                (b"\xf6\x28\x5c\x8f\xc2\x35\x45\x40", [1, 2, 3, 4, 5, 6, 7, 8]),
+                (b"\x5c\x28\xf6\x8f\xc2\x35\x45\x40", [3, 2, 1, 4, 5, 6, 7, 8]),
+            ]
+            for v, d in [("FCS2.0", 181), ("FCS3.0", 267)]
+        ]
+        + [
+            (v, 42, b"\x2a", e, "I", 8, 255)
+            for e in [[1, 2, 3, 4], [4, 3, 2, 1]]
+            for v in ["FCS3.1", "FCS3.2"]
+        ]
+        + endian_int_tests(4242, "H", 2, 258)
+        + endian_int_tests(424242, "L", 3, 260)
+        + endian_int_tests(42424242, "L", 4, 262)
+        + [
+            (v, 424242424242, data, byteord, "I", 40, 266)
+            for byteord, data in num_to_endian_bytes(424242424242, "Q", 5)
+            for v in ["FCS3.1", "FCS3.2"]
+        ]
+        + [
+            (v, 42424242424242, data, byteord, "I", 48, 268)
+            for byteord, data in num_to_endian_bytes(42424242424242, "Q", 6)
+            for v in ["FCS3.1", "FCS3.2"]
+        ]
+        + [
+            (v, 4242424242424242, data, byteord, "I", 56, 270)
+            for byteord, data in num_to_endian_bytes(4242424242424242, "Q", 7)
+            for v in ["FCS3.1", "FCS3.2"]
+        ]
+        + [
+            (v, 424242424242424242, data, byteord, "I", 64, 272)
+            for byteord, data in num_to_endian_bytes(424242424242424242, "Q", 8)
+            for v in ["FCS3.1", "FCS3.2"]
+        ]
+        + [
+            (v, 42.42, data, byteord, "F", 32, 259)
+            for byteord, data in num_to_endian_bytes(42.42, "F", 4)
+            for v in ["FCS3.1", "FCS3.2"]
+        ]
+        + [
+            (v, 42.42, data, byteord, "D", 64, 259)
+            for byteord, data in num_to_endian_bytes(42.42, "D", 8)
+            for v in ["FCS3.1", "FCS3.2"]
+        ],
+    )
+    def test_single_encoding(
+        self,
+        tmp_path: Path,
+        version: pt.FCSVersion,
+        truth: int | float,
+        data: bytes,
+        byteord: list[int],
+        datatype: pt.Datatype,
+        bits: int,
+        data_begin: int,
+    ) -> None:
+        """Test data encoding for single width/type data schemas."""
+        p = tmp_path / "thing.fcs"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": str(bits),
+            "$P1R": str(truth + 1),
+        }
+        tot = 1
+        data_offsets = (data_begin, data_begin + int(bits / 8 - 1))
+        self.mock_header_std_text(
+            p,
+            version,
+            kws=kws,
+            par=1,
+            tot=tot,
+            rest=data,
+            datatype=datatype,
+            byteord=list(byteord),
+            header_data=data_offsets,
+            text_data=data_offsets,
+        )
+
+        out = pf.api.fcs_read_flat_dataset(
+            p,
+            allow_missing_crc="silent",
+        )
+        dtype: type[
+            pl.UInt8 | pl.UInt16 | pl.UInt32 | pl.UInt64 | pl.Float32 | pl.Float64
+        ]
+        if bits == 8:
+            dtype = pl.UInt8
+        elif bits == 16:
+            dtype = pl.UInt16
+        elif bits in [24, 32] and datatype == "I":
+            dtype = pl.UInt32
+        elif bits in [40, 48, 56, 64] and datatype == "I":
+            dtype = pl.UInt64
+        elif bits == 32 and datatype == "F":
+            dtype = pl.Float32
+        elif bits == 64 and datatype == "D":
+            dtype = pl.Float64
+        else:
+            assert False
+        df = pl.DataFrame([[truth]], {"X0": dtype})
+        assert out.dataset.data.equals(df)
+
+    @pytest.mark.parametrize(
+        "data, byteord",
+        [
+            (b"\x00\x00\x00\x2a" + b"\x42\x28\x00\x00", [4, 3, 2, 1]),
+            (b"\x2a\x00\x00\x00" + b"\x00\x00\x28\x42", [1, 2, 3, 4]),
+        ],
+    )
+    def test_mixed_encoding(
+        self,
+        tmp_path: Path,
+        data: bytes,
+        byteord: list[int],
+    ) -> None:
+        """Test data encoding for mixed 3.2 layout."""
+        p = tmp_path / "thing.fcs"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "99",
+            "$P2N": "abc",
+            "$P2E": "0,0",
+            "$P2B": "32",
+            "$P2R": "99",
+            "$P2DATATYPE": "F",
+        }
+        tot = 1
+        data_offsets = (304, 311)
+        self.mock_header_std_text(
+            p,
+            "FCS3.2",
+            kws=kws,
+            par=2,
+            tot=tot,
+            rest=data,
+            byteord=list(byteord),
+            header_data=data_offsets,
+            text_data=data_offsets,
+        )
+
+        out = pf.api.fcs_read_flat_dataset(
+            p,
+            allow_missing_crc="silent",
+        )
+        df = pl.DataFrame([[42], [42.0]], {"X0": pl.UInt32, "X1": pl.Float32})
+        assert out.dataset.data.equals(df)
 
 
 class TestReadWrite:

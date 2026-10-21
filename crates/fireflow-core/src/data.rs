@@ -9193,8 +9193,8 @@ macro_rules! decl_mixed_read {
 }
 
 impl MixedVec {
-    decl_mixed_read!(read_le, read_le, from_be_slice);
-    decl_mixed_read!(read_be, read_be, from_le_slice);
+    decl_mixed_read!(read_le, read_le, from_le_slice);
+    decl_mixed_read!(read_be, read_be, from_be_slice);
 }
 
 macro_rules! decl_mixed_write {
@@ -9214,8 +9214,8 @@ macro_rules! decl_mixed_write {
 }
 
 impl MixedSeries {
-    decl_mixed_write!(write_le, write_le, to_be_slice);
-    decl_mixed_write!(write_be, write_be, to_le_slice);
+    decl_mixed_write!(write_le, write_le, to_le_slice);
+    decl_mixed_write!(write_be, write_be, to_be_slice);
 }
 
 macro_rules! decl_uint_read {

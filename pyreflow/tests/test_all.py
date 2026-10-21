@@ -5,7 +5,7 @@ from copy import deepcopy
 from datetime import date, datetime, time, timedelta, timezone
 from itertools import chain, product, permutations
 from pathlib import Path
-from typing import Any, Callable, NamedTuple, TypeVar, assert_never, cast
+from typing import Any, Callable, NamedTuple, TypeVar, assert_never, cast, Literal
 
 import numpy as np
 import polars as pl
@@ -6668,10 +6668,33 @@ class TestConfig:
         assert out.dataset.data.equals(df)
 
     @pytest.mark.parametrize(
-        "data, byteord",
+        "data, byteord, pndatatype, b1, b2, data_start",
         [
-            (b"\x00\x00\x00\x2a" + b"\x42\x28\x00\x00", [4, 3, 2, 1]),
-            (b"\x2a\x00\x00\x00" + b"\x00\x00\x28\x42", [1, 2, 3, 4]),
+            # These first two shouldn't trigger the mixed reader path since
+            # there is a fast path for reading different types with the same
+            # width as integers and casting some columns to floats after
+            (b"\x00\x00\x00\x2a" + b"\x42\x28\x00\x00", [4, 3, 2, 1], "F", 32, 32, 304),
+            (b"\x2a\x00\x00\x00" + b"\x00\x00\x28\x42", [1, 2, 3, 4], "F", 32, 32, 304),
+            # These have different widths and thus will trigger the slow
+            # per-column path
+            (b"\x00\x2a" + b"\x42\x28\x00\x00", [4, 3, 2, 1], "F", 16, 32, 304),
+            (b"\x2a\x00" + b"\x00\x00\x28\x42", [1, 2, 3, 4], "F", 16, 32, 304),
+            (
+                b"\x00\x00\x00\x2a" + b"\x40\x45\x00\x00\x00\x00\x00\x00",
+                [4, 3, 2, 1],
+                "D",
+                32,
+                64,
+                304,
+            ),
+            (
+                b"\x2a\x00\x00\x00" + b"\x00\x00\x00\x00\x00\x00\x45\x40",
+                [1, 2, 3, 4],
+                "D",
+                32,
+                64,
+                304,
+            ),
         ],
     )
     def test_mixed_encoding(
@@ -6679,22 +6702,27 @@ class TestConfig:
         tmp_path: Path,
         data: bytes,
         byteord: list[int],
+        pndatatype: Literal["F", "D", "I"],
+        b1: int,
+        b2: int,
+        data_start: int,
     ) -> None:
         """Test data encoding for mixed 3.2 layout."""
         p = tmp_path / "thing.fcs"
         kws = {
             "$P1N": "xyz",
             "$P1E": "0,0",
-            "$P1B": "32",
+            "$P1B": str(b1),
             "$P1R": "99",
             "$P2N": "abc",
             "$P2E": "0,0",
-            "$P2B": "32",
+            "$P2B": str(b2),
             "$P2R": "99",
-            "$P2DATATYPE": "F",
+            "$P2DATATYPE": pndatatype,
         }
         tot = 1
-        data_offsets = (304, 311)
+        data_len = int((b1 + b2) / 8)
+        data_offsets = (data_start, data_start + data_len - 1)
         self.mock_header_std_text(
             p,
             "FCS3.2",

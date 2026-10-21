@@ -1466,8 +1466,8 @@ mod test {
 
     proptest! {
         #[test]
-        fn pkn(s in "(?i-u)pk", i in 0_usize..1000) {
-            let s = format!("{s}{}", i + 1);
+        fn pkn(p in "(?i-u)pk", i in 0_usize..1000) {
+            let s = format!("{p}{}", i + 1);
             let ne = NEStr::try_new(s.as_str()).unwrap();
             let k = MeasKey::new(i.into(), MeasKeyId::Pk);
             assert_eq!(RawStdKey::from_ne_str(ne), Some(k.into()));
@@ -1476,8 +1476,8 @@ mod test {
 
     proptest! {
         #[test]
-        fn pknn(s in "(?i-u)pkn", i in 0_usize..1000) {
-            let s = format!("{s}{}", i + 1);
+        fn pknn(p in "(?i-u)pkn", i in 0_usize..1000) {
+            let s = format!("{p}{}", i + 1);
             let ne = NEStr::try_new(s.as_str()).unwrap();
             let k = MeasKey::new(i.into(), MeasKeyId::Pkn);
             assert_eq!(RawStdKey::from_ne_str(ne), Some(k.into()));

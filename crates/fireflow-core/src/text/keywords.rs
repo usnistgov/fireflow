@@ -3330,7 +3330,7 @@ kw_opt_meas!(PeakIndex, Pkn, Option<Self>);
 // 2.0-3.1 gating parameters
 kw_opt_root_int!(Gate, usize, Gate);
 
-kw_opt_gate_other!(GateScale, S);
+kw_opt_gate_other!(GateScale, E);
 kw_opt_gate_string!(GateFilter, F);
 kw_opt_gate_other!(GatePercentEmitted, P);
 kw_opt_gate_other!(GateRange, R);

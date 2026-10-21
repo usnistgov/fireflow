@@ -2190,7 +2190,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
                 let t0 = layout_out.end_time;
                 layout_out
                     .data_schema
-                    .h_read_df(reader.inner_mut(), offsets.tot, fd, t0, conf.as_ref())
+                    .read_df(reader.inner_mut(), offsets.tot, fd, t0, conf.as_ref())
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
                     .and_then_commutative(|df_out| {

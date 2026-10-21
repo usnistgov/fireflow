@@ -3830,7 +3830,7 @@ where
         V::DataSchema: VersionedDataSchema + DataSchemaToEmptyDataFrame<DfTarget = V::DataFrame>,
     {
         self.data
-            .h_read_df(reader, tot, seg, start_time, conf)
+            .read_df(reader, tot, seg, start_time, conf)
             .map_ok_value(|df_out| {
                 // New dataframe should have same metadata and column number
                 // compared to old schema, so calling new with no checks should

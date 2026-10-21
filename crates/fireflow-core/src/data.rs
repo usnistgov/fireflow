@@ -1915,7 +1915,7 @@ where
         conf: &ReadDataKeywordsConfig,
     ) -> TryNewDataSchemaResult<Self>;
 
-    fn h_read_df(
+    fn read_df(
         &mut self,
         reader: &mut AnyReader,
         tot: Self::Tot,
@@ -3264,7 +3264,7 @@ where
             })
             .and_then_commutative(|(tot_not_eq, nrow_out)| {
                 let n = nrow_out.total_events.u64_to_usize();
-                self.h_read_fixed_df(reader, start_pos, n, conf)
+                self.read_fixed_df(reader, start_pos, n, conf)
                     .map_err(IOErrorGroup::from)
                     .map(|df| {
                         let out = PreEventsDiagnostics::new(
@@ -3664,7 +3664,7 @@ impl<const ORD: bool, TotType, Dtype> DataFrameWriteOps
 trait DataSchemaReadFixed {
     type DfTarget;
 
-    fn h_read_fixed_df(
+    fn read_fixed_df(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3683,7 +3683,7 @@ where
 {
     type DfTarget = Layout<DataFrame<NativeSeries<C>>, DataFrameFamily, I, L, M, ORD>;
 
-    fn h_read_fixed_df(
+    fn read_fixed_df(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3718,7 +3718,7 @@ impl<M, const ORD: bool> DataSchemaReadFixed
         ORD,
     >;
 
-    fn h_read_fixed_df(
+    fn read_fixed_df(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3750,7 +3750,7 @@ impl<M> DataSchemaReadFixed for Layout<Vec<VariableBitmask>, VecFamily, UvarCol,
     type DfTarget =
         Layout<DataFrame<VariableUintSeries>, DataFrameFamily, UvarCol, Endian, M, false>;
 
-    fn h_read_fixed_df(
+    fn read_fixed_df(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,
@@ -3773,7 +3773,7 @@ impl<M> DataSchemaReadFixed for Layout<Vec<VariableBitmask>, VecFamily, UvarCol,
 impl<M> DataSchemaReadFixed for Layout<Vec<MixedRange>, VecFamily, MixedCol, Endian, M, false> {
     type DfTarget = Layout<DataFrame<MixedSeries>, DataFrameFamily, MixedCol, Endian, M, false>;
 
-    fn h_read_fixed_df(
+    fn read_fixed_df(
         &self,
         reader: &mut AnyReader,
         start_pos: u64,

@@ -7067,6 +7067,15 @@ class TestReadWrite:
         self._test_attr_roundtrip(tmp_path, mmap, core, attr, test)
 
     @pytest.mark.parametrize("mmap", [False, True])
+    @pytest.mark.parametrize("attr", ["all_peak_bins", "all_peak_sizes"])
+    @parameterize_versions("core", ["2_0", "3_0", "3_1"], ["text"])
+    def test_rw_meas_peak(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT, attr: str
+    ) -> None:
+        test = [0]
+        self._test_attr_roundtrip(tmp_path, mmap, core, attr, test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core", ["2_0", "3_0"], ["text"])
     def test_rw_meas_wavelength2(
         self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT

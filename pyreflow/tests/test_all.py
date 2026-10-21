@@ -6976,6 +6976,15 @@ class TestReadWrite:
         self._test_attr_roundtrip(tmp_path, mmap, core, "date", test)
 
     @pytest.mark.parametrize("mmap", [False, True])
+    @pytest.mark.parametrize("attr", ["begindatetime", "enddatetime"])
+    @parameterize_versions("core", ["3_2"], ["blank_text"])
+    def test_rw_datetime(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT, attr: str
+    ) -> None:
+        test = datetime(2112, 1, 2, tzinfo=timezone(timedelta(hours=-5)))
+        self._test_attr_roundtrip(tmp_path, mmap, core, attr, test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core", ["3_0"], ["blank_text"])
     def test_rw_unicode(self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT) -> None:
         test = (1, ["bla", "blub"])
@@ -7033,6 +7042,79 @@ class TestReadWrite:
         self._test_attr_roundtrip(tmp_path, mmap, core, "unstainedcenters", test)
 
     # TODO add spillover/comp/dfc keywords
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["2_0"], ["text"])
+    def test_rw_applied_gates2_0(
+        self,
+        tmp_path: Path,
+        mmap: bool,
+        core: AnyCoreTEXT,
+        blank_gated_meas: pf.GatedMeasurement,
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "text.fcs"
+        ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
+        blank_gated_meas.longname = "marty"
+        blank_gated_meas.filter = "kiko"
+        blank_gated_meas.shortname = "chris"
+        blank_gated_meas.detector_type = "teemu"
+        blank_gated_meas.scale = ()
+        blank_gated_meas.percent_emitted = 101
+        blank_gated_meas.range = 420
+        blank_gated_meas.detector_voltage = 9.75
+        test: pt.AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "(NOT R1)")
+        core.applied_gates = test
+        core.write_text(p)
+        nu_core, un_core = pf.api.fcs_read_std_text(p, mmap=mmap, time_meas_pattern="")
+        assert nu_core.applied_gates == test
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_0", "3_1"], ["text"])
+    def test_rw_applied_gates3_0(
+        self,
+        tmp_path: Path,
+        mmap: bool,
+        core: AnyCoreTEXT,
+        blank_gated_meas: pf.GatedMeasurement,
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "text.fcs"
+        blank_gated_meas.longname = "marty"
+        blank_gated_meas.filter = "kiko"
+        blank_gated_meas.shortname = "chris"
+        blank_gated_meas.detector_type = "teemu"
+        blank_gated_meas.scale = ()
+        blank_gated_meas.percent_emitted = 101
+        blank_gated_meas.range = 420
+        blank_gated_meas.detector_voltage = 9.75
+        ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
+        test: pt.AppliedGates3_0 = ([blank_gated_meas], {0: ur}, "(NOT R1)")
+        core.applied_gates = test
+        core.write_text(p)
+        nu_core, un_core = pf.api.fcs_read_std_text(p, mmap=mmap, time_meas_pattern="")
+        assert nu_core.applied_gates == test
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_2"], ["text"])
+    def test_rw_applied_gates3_2(
+        self,
+        tmp_path: Path,
+        mmap: bool,
+        core: AnyCoreTEXT,
+        blank_gated_meas: pf.GatedMeasurement,
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "text.fcs"
+        ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
+        test: pt.AppliedGates3_2 = ({0: ur}, "(NOT R1)")
+        core.applied_gates = test
+        core.write_text(p)
+        nu_core, un_core = pf.api.fcs_read_std_text(p, mmap=mmap, time_meas_pattern="")
+        assert nu_core.applied_gates == test
 
     @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])

@@ -645,7 +645,7 @@ impl RawStdKey {
                 if let Some((b1, bs1)) = bs.split_first()
                     && b1.eq_ignore_ascii_case(&b'K')
                 {
-                    if let Some((b2, bs2)) = bs.split_first()
+                    if let Some((b2, bs2)) = bs1.split_first()
                         && b2.eq_ignore_ascii_case(&b'N')
                         && let Some((i, rest)) = split_index_and_suffix(bs2)
                         && rest.is_empty()
@@ -1463,6 +1463,26 @@ mod test {
     test_gate_key!(gnt, "(?i-u)t", T);
     test_gate_key!(gnp, "(?i-u)p", P);
     test_gate_key!(gnv, "(?i-u)v", V);
+
+    proptest! {
+        #[test]
+        fn pkn(s in "(?i-u)pk", i in 0_usize..1000) {
+            let s = format!("{s}{}", i + 1);
+            let ne = NEStr::try_new(s.as_str()).unwrap();
+            let k = MeasKey::new(i.into(), MeasKeyId::Pk);
+            assert_eq!(RawStdKey::from_ne_str(ne), Some(k.into()));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn pknn(s in "(?i-u)pkn", i in 0_usize..1000) {
+            let s = format!("{s}{}", i + 1);
+            let ne = NEStr::try_new(s.as_str()).unwrap();
+            let k = MeasKey::new(i.into(), MeasKeyId::Pkn);
+            assert_eq!(RawStdKey::from_ne_str(ne), Some(k.into()));
+        }
+    }
 
     proptest! {
         #[test]

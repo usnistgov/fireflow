@@ -3450,12 +3450,13 @@ pub(crate) fn read_delim_with_rows_from_iter(
     if !buf.is_empty() {
         go!();
     }
-    if !(col == 0 && row == nrows) {
+    if col == 0 && row == nrows {
+        Ok(data)
+    } else {
         let e = DelimIncompleteError { col, row, nrows };
         let ee = ImpureError::Pure(ReadDelimWithRowsAsciiError::Incomplete(e));
-        return Err(ee);
+        Err(ee)
     }
-    Ok(data)
 }
 
 pub(crate) fn read_delim_without_rows_from_iter(
@@ -3486,8 +3487,8 @@ pub(crate) fn read_delim_without_rows_from_iter(
         if is_ascii_delim(byte) {
             if !last_was_delim {
                 last_was_delim = true;
-                buf.clear();
                 go(&mut data, col, &buf)?;
+                buf.clear();
                 if col == ncols - 1 {
                     col = 0;
                 } else {
@@ -3499,16 +3500,17 @@ pub(crate) fn read_delim_without_rows_from_iter(
             last_was_delim = false;
         }
     }
-    if data.iter().map(Vec::len).unique().count() > 1 {
-        return Err(ImpureError::Pure(ReadDelimAsciiUnequalColumnsError.into()));
-    }
     // The spec isn't clear if the last value should be a delim or
     // not, so flush the buffer if it has anything in it since we
     // only try to parse if we hit a delim above.
     if !buf.is_empty() {
         go(&mut data, col, &buf)?;
     }
-    Ok(data)
+    if data.iter().map(Vec::len).unique().count() == 1 {
+        Ok(data)
+    } else {
+        Err(ImpureError::Pure(ReadDelimAsciiUnequalColumnsError.into()))
+    }
 }
 
 fn is_ascii_delim(x: u8) -> bool {

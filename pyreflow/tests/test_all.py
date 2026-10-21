@@ -6742,6 +6742,87 @@ class TestConfig:
         df = pl.DataFrame([[42], [42.0]], {"X0": pl.UInt32, "X1": pl.Float32})
         assert out.dataset.data.equals(df)
 
+    @pytest.mark.parametrize(
+        "version, data_start",
+        [
+            ("FCS2.0", 202),
+            ("FCS3.0", 288),
+            ("FCS3.1", 288),
+            ("FCS3.2", 288),
+        ],
+    )
+    def test_delim_ascii_encoding(
+        self, tmp_path: Path, version: pt.FCSVersion, data_start: int
+    ) -> None:
+        """Test data encoding for mixed 3.2 layout."""
+        p = tmp_path / "thing.fcs"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "*",
+            "$P1R": "99",
+            "$P2N": "abc",
+            "$P2E": "0,0",
+            "$P2B": "*",
+            "$P2R": "99",
+        }
+        tot = 1
+        data = b"42,24"
+        data_offsets = (data_start, data_start + len(data) - 1)
+        self.mock_header_std_text(
+            p,
+            version,
+            kws=kws,
+            par=2,
+            tot=tot,
+            rest=data,
+            datatype="A",
+            header_data=data_offsets,
+            text_data=data_offsets,
+        )
+
+        out = pf.api.fcs_read_flat_dataset(
+            p,
+            allow_missing_crc="silent",
+        )
+        df = pl.DataFrame([[42], [24]], {"X0": pl.UInt32, "X1": pl.UInt32})
+        assert out.dataset.data.equals(df)
+
+    def test_delim_ascii_no_tot_encoding(self, tmp_path: Path) -> None:
+        """Test data encoding for mixed 3.2 layout."""
+        p = tmp_path / "thing.fcs"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "*",
+            "$P1R": "99",
+            "$P2N": "abc",
+            "$P2E": "0,0",
+            "$P2B": "*",
+            "$P2R": "99",
+        }
+        data = b"42,24"
+        data_start = 195
+        data_offsets = (data_start, data_start + len(data) - 1)
+        self.mock_header_std_text(
+            p,
+            "FCS2.0",
+            kws=kws,
+            par=2,
+            tot=None,
+            rest=data,
+            datatype="A",
+            header_data=data_offsets,
+            text_data=data_offsets,
+        )
+
+        out = pf.api.fcs_read_flat_dataset(
+            p,
+            allow_missing_crc="silent",
+        )
+        df = pl.DataFrame([[42], [24]], {"X0": pl.UInt32, "X1": pl.UInt32})
+        assert out.dataset.data.equals(df)
+
 
 class TestReadWrite:
     @staticmethod

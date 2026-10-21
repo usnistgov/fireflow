@@ -7044,6 +7044,99 @@ class TestReadWrite:
     # TODO add spillover/comp/dfc keywords
 
     @pytest.mark.parametrize("mmap", [False, True])
+    @pytest.mark.parametrize(
+        "attr", ["all_shortnames", "all_longnames", "all_filters", "all_detector_types"]
+    )
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
+    def test_rw_meas_str(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT, attr: str
+    ) -> None:
+        test = ["vic"]
+        self._test_attr_roundtrip(tmp_path, mmap, core, attr, test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @pytest.mark.parametrize(
+        "attr",
+        ["all_powers", "all_percents_emitted", "all_detector_voltages"],
+    )
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
+    def test_rw_meas_int(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT, attr: str
+    ) -> None:
+        test = [13]
+        self._test_attr_roundtrip(tmp_path, mmap, core, attr, test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["2_0", "3_0"], ["text"])
+    def test_rw_meas_wavelength2(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT
+    ) -> None:
+        test = [355]
+        self._test_attr_roundtrip(tmp_path, mmap, core, "all_wavelengths", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_1", "3_2"], ["text"])
+    def test_rw_meas_wavelength31(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT
+    ) -> None:
+        test = [[355, 405]]
+        self._test_attr_roundtrip(tmp_path, mmap, core, "all_wavelengths", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_1", "3_2"], ["text"])
+    def test_rw_meas_displays(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT
+    ) -> None:
+        test = [(False, 1, 666)]
+        self._test_attr_roundtrip(tmp_path, mmap, core, "all_displays", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_1"], ["text"])
+    def test_rw_meas_cal31(self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT) -> None:
+        test = [(1, "imperial light year")]
+        self._test_attr_roundtrip(tmp_path, mmap, core, "all_calibrations", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_2"], ["text"])
+    def test_rw_meas_cal32(self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT) -> None:
+        test = [(1, -666, "monarchical milligrams")]
+        self._test_attr_roundtrip(tmp_path, mmap, core, "all_calibrations", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_2"], ["text"])
+    def test_rw_meas_det(self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT) -> None:
+        test = ["gravity wave detector"]
+        self._test_attr_roundtrip(tmp_path, mmap, core, "all_detector_names", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_2"], ["text"])
+    def test_rw_meas_tag(self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT) -> None:
+        test = ["234098ed3098fa80f09e02308f0d0e0d043908709a0f08f"]
+        self._test_attr_roundtrip(tmp_path, mmap, core, "all_tags", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_2"], ["text"])
+    def test_rw_meas_types(self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT) -> None:
+        test = ["flagella counts"]
+        self._test_attr_roundtrip(tmp_path, mmap, core, "all_measurement_types", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_2"], ["text"])
+    def test_rw_meas_features(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT
+    ) -> None:
+        test = ["Area"]
+        self._test_attr_roundtrip(tmp_path, mmap, core, "all_features", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_2"], ["text"])
+    def test_rw_meas_analyte(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT
+    ) -> None:
+        test = ["anti-CD9-3/4"]
+        self._test_attr_roundtrip(tmp_path, mmap, core, "all_analytes", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core", ["2_0"], ["text"])
     def test_rw_applied_gates2_0(
         self,

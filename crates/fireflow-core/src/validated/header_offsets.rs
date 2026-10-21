@@ -541,6 +541,7 @@ impl FinalHeaderOffsets {
 }
 
 /// Any mutable reference to offsets from HEADER.
+#[derive(Debug)]
 enum AnyHeaderOffsetsMut<'a> {
     Text(NonEmptyOffsetsMut<'a, PrimaryTextSegmentId, OffsetsFromHeader>),
     Data(NonEmptyOffsetsMut<'a, DataSegmentId, OffsetsFromHeader>),

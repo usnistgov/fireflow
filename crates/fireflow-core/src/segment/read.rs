@@ -103,7 +103,7 @@ pub struct OffsetsOverflow<N> {
     pub overflow: NonZeroU64,
     /// The length of the dataset that was exceeded.
     pub dataset_len: u64,
-    /// `true` if the upper dataset bound is imposed by $NEXTDATA or EOF
+    /// `true` if upper dataset bound is imposed by $NEXTDATA (EOF otherwise).
     pub bound_is_nextdata: bool,
 }
 
@@ -303,6 +303,7 @@ pub struct NonEmptyOffsets<I, S>(Offsets<I, S>);
 ///
 /// This needs to wrap the entire struct since one of the operations this will
 /// permit will be truncating offsets, possibly down to empty.
+#[derive(Debug)]
 pub struct NonEmptyOffsetsMut<'a, I, S>(&'a mut Offsets<I, S>);
 
 pub(crate) type AnyNonEmptyDataOffsets<'a> =
@@ -746,20 +747,15 @@ pub(crate) trait IsOffsetPair {
             self.begin() <= other.begin(),
             "other pair must start after this pair"
         );
-        NonZeroU64::new((self.end()).saturating_sub(other.begin()))
+        NonZeroU64::new(self.end().saturating_sub(other.begin()))
     }
 
     /// Get the overlap between this pair and another offset.
     ///
-    /// Will panic if `other` offset is less than first offset of `self`.
+    /// If `other` is less than beginning of this offset, return entire
+    /// length of segment if non-empty.
     fn tail_overlap_offset(&self, other: u64) -> Option<NonZeroU64> {
-        assert!(
-            self.begin() <= other,
-            "other ({other}) must start after this pair ({}, {})",
-            self.begin(),
-            self.end()
-        );
-        NonZeroU64::new((self.end()).saturating_sub(other))
+        NonZeroU64::new(self.end().saturating_sub(other).min(self.nbytes()))
     }
 }
 
@@ -1728,6 +1724,7 @@ impl NonEmptyOffsetsInner {
         self.length
     }
 
+    /// Return length by which the segment was already truncated.
     pub(crate) fn truncated_len(&self) -> u64 {
         let o = self.original_length.get();
         let l = self.length.get();
@@ -1835,7 +1832,17 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
     }
 
     /// Return amount to be truncated if over limit.
+    ///
+    /// Will panic if other offset is less than the beginning of this offset
+    /// pair. This implies the other offset is from another segment offset pair
+    /// and that said pairs are sorted.
     pub(crate) fn exceeds_limit(&self, offset: u64, limit: u64) -> Option<NonZeroU64> {
+        assert!(
+            self.begin() <= offset,
+            "other ({offset}) must start after this pair ({}, {})",
+            self.begin(),
+            self.end()
+        );
         if let Some(n) = self.tail_overlap_offset(offset) {
             let to_truncate = n.saturating_add(self.inner().truncated_len());
             let trunc_limit = limit.min(self.inner().length.get());
@@ -1845,6 +1852,11 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
         }
     }
 
+    /// Get overlap and possibly truncate if this offset overlaps another.
+    ///
+    /// Will panic if beginning of other offset is less than beginning of
+    /// this offset. In other words, the offsets must be sorted before calling
+    /// this.
     pub(crate) fn tail_overlap_pair_and_truncate<P, N0, N1>(
         self,
         other: &P,
@@ -1855,6 +1867,13 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
         I: AreNamedOffsets<N0>,
         P: IsOffsetPair + HasOneName<N1>,
     {
+        assert!(
+            self.begin() <= other.begin(),
+            "other ({}) must start after this pair ({}, {})",
+            other.begin(),
+            self.begin(),
+            self.end()
+        );
         let truncated_len = self.tail_overlap_offset(other.begin())?;
         let named1 = other.as_named1();
         let n0 = self.segname(args0);

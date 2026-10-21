@@ -6891,6 +6891,149 @@ class TestReadWrite:
         assert uncore.dataset.std_diagnostics.hyper_par == []
         assert uncore.dataset.std_diagnostics.other_version == []
 
+    @staticmethod
+    def _test_attr_roundtrip(
+        tmp_path: Path,
+        mmap: bool,
+        core: Any,
+        attr: str,
+        test: Any,
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "text.fcs"
+        setattr(core, attr, test)
+        core.write_text(p)
+        nu_core, un_core = pf.api.fcs_read_std_text(p, mmap=mmap, time_meas_pattern="")
+        assert getattr(nu_core, attr) == test
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @pytest.mark.parametrize(
+        "attr",
+        ["cyt", "cells", "com", "exp", "fil", "inst", "op", "proj", "smno", "sys"],
+    )
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])
+    def test_rw_str(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT, attr: str
+    ) -> None:
+        test = "tomato"
+        self._test_attr_roundtrip(tmp_path, mmap, core, attr, test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @pytest.mark.parametrize("attr", ["abrt", "lost"])
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])
+    def test_rw_int(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT, attr: str
+    ) -> None:
+        test = 42
+        self._test_attr_roundtrip(tmp_path, mmap, core, attr, test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @pytest.mark.parametrize(
+        "attr", ["last_modifier", "plateid", "platename", "wellid"]
+    )
+    @parameterize_versions("core", ["3_1", "3_2"], ["blank_text"])
+    def test_rw_str_31(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT, attr: str
+    ) -> None:
+        test = "bruno"
+        self._test_attr_roundtrip(tmp_path, mmap, core, attr, test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @pytest.mark.parametrize(
+        "attr", ["unstainedinfo", "carrierid", "carriertype", "locationid", "flowrate"]
+    )
+    @parameterize_versions("core", ["3_2"], ["blank_text"])
+    def test_rw_str_32(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT, attr: str
+    ) -> None:
+        test = "mickey"
+        self._test_attr_roundtrip(tmp_path, mmap, core, attr, test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
+    def test_rw_tr(self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT) -> None:
+        test = (LINK_NAME1, 42)
+        self._test_attr_roundtrip(tmp_path, mmap, core, "tr", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @pytest.mark.parametrize("attr", ["btim", "etim"])
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])
+    def test_rw_time(
+        self,
+        tmp_path: Path,
+        mmap: bool,
+        core: AnyCoreTEXT,
+        attr: str,
+    ) -> None:
+        test = time(23, 58)
+        self._test_attr_roundtrip(tmp_path, mmap, core, attr, test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])
+    def test_rw_date(self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT) -> None:
+        test = date(1991, 8, 25)
+        self._test_attr_roundtrip(tmp_path, mmap, core, "date", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_0"], ["blank_text"])
+    def test_rw_unicode(self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT) -> None:
+        test = (1, ["bla", "blub"])
+        self._test_attr_roundtrip(tmp_path, mmap, core, "unicode", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_1", "3_2"], ["blank_text"])
+    def test_rw_vol(self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT) -> None:
+        test = 42.0
+        self._test_attr_roundtrip(tmp_path, mmap, core, "vol", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["blank_text"])
+    def test_rw_cytsn(self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT) -> None:
+        test = "0xdeadbeef"
+        self._test_attr_roundtrip(tmp_path, mmap, core, "cytsn", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_1", "3_2"], ["text"])
+    def test_rw_originality(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT
+    ) -> None:
+        test = "Original"
+        self._test_attr_roundtrip(tmp_path, mmap, core, "originality", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_1", "3_2"], ["text"])
+    def test_rw_last_modified(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT
+    ) -> None:
+        test = datetime(2112, 1, 1, 0, 0)
+        self._test_attr_roundtrip(tmp_path, mmap, core, "last_modified", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @pytest.mark.parametrize("attr", ["cstot", "csvbits"])
+    @parameterize_versions("core", ["3_0", "3_1"], ["text"])
+    def test_rw_csvbits(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT, attr: str
+    ) -> None:
+        test = 1
+        self._test_attr_roundtrip(tmp_path, mmap, core, attr, test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_0", "3_1"], ["text"])
+    def test_rw_csvflag(self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT) -> None:
+        test = [1, 1, 2, 3, 5, 8]
+        self._test_attr_roundtrip(tmp_path, mmap, core, "csvflags", test)
+
+    @pytest.mark.parametrize("mmap", [False, True])
+    @parameterize_versions("core", ["3_2"], ["text"])
+    def test_rw_unstained_centers(
+        self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT
+    ) -> None:
+        test = {LINK_NAME1: 42.0}
+        self._test_attr_roundtrip(tmp_path, mmap, core, "unstainedcenters", test)
+
+    # TODO add spillover/comp/dfc keywords
+
     @pytest.mark.parametrize("mmap", [False, True])
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])
     def test_text_empty(self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT) -> None:

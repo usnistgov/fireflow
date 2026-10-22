@@ -1314,6 +1314,10 @@ impl<T, Raw> InternalSeries<T, Raw> {
 }
 
 fn float_is_uint<F: Float + 'static, I: Bounded + AsPrimitive<F>>(x: F) -> bool {
+    // NOTE: this is fuzzy at the max bound of the integer since many
+    // combinations of float/int don't have an exact floating point equivalent
+    // for the integer max. For example, u32::MAX is 4294967395 but the closest
+    // f32 is 4294967300, which is numerically 5 above the integer max.
     let upper: F = I::max_value().as_();
     !x.is_nan() && !x.is_infinite() && !x.is_sign_negative() && x.fract().is_zero() && x <= upper
 }

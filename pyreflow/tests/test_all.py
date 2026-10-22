@@ -620,6 +620,8 @@ class TestCore:
         assert core.tr == tr
         with pytest.raises(TypeError):
             core.tr = cast(pt.Trigger, "over,9000")
+        with pytest.raises(pf.ParseKeywordValueError):
+            core.tr = ("", 0)
 
     @all_core
     def test_trigger_threshold(self, core: AnyCore) -> None:

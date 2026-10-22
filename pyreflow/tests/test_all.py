@@ -6602,12 +6602,12 @@ class TestConfig:
         ]
         + [
             (v, 42.42, data, byteord, "F", 32, 259)
-            for byteord, data in num_to_endian_bytes(42.42, "F", 4)
+            for byteord, data in num_to_endian_bytes(42.42, "f", 4)
             for v in ["FCS3.1", "FCS3.2"]
         ]
         + [
             (v, 42.42, data, byteord, "D", 64, 259)
-            for byteord, data in num_to_endian_bytes(42.42, "D", 8)
+            for byteord, data in num_to_endian_bytes(42.42, "d", 8)
             for v in ["FCS3.1", "FCS3.2"]
         ],
     )

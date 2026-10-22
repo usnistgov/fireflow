@@ -7077,7 +7077,45 @@ class TestReadWrite:
         assert nu_core.comp is not None
         assert np.array_equal(nu_core.comp, test)
 
-    # TODO add spillover/comp/dfc keywords
+    @pytest.mark.parametrize("mmap", [False, True])
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(t), lazy_fixture(o))
+            for t, o in [
+                ("blank_text_3_1", "blank_optical_3_1"),
+                ("blank_text_3_2", "blank_optical_3_2"),
+            ]
+        ],
+    )
+    def test_rw_spillover(
+        self,
+        tmp_path: Path,
+        mmap: bool,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2,
+        optical: pf.Optical3_2 | pf.Optical3_2,
+    ) -> None:
+        core.push_optical("robert", optical, 9001)  # type: ignore
+        core.push_optical("jimmy", optical, 9002)  # type: ignore
+        core.push_optical("john paul", optical, 9003)  # type: ignore
+        core.push_optical("john", optical, 9004)  # type: ignore
+        meas = ["robert", "jimmy", "john"]
+        arr = np.array(
+            [[1, 0.5, 0], [0, 1, 0], [0, 0, 1]],
+            dtype=np.float32,
+        )
+        test = (meas, arr)
+
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "text.fcs"
+        core.spillover = test
+        core.write_text(p)
+        nu_core, un_core = pf.api.fcs_read_std_text(p, mmap=mmap, time_meas_pattern="")
+        assert isinstance(nu_core, pf.CoreTEXT3_1 | pf.CoreTEXT3_2)
+        assert nu_core.spillover is not None
+        assert nu_core.spillover[0] == meas
+        assert np.array_equal(nu_core.spillover[1], arr)
 
     @pytest.mark.parametrize("mmap", [False, True])
     @pytest.mark.parametrize(

@@ -6560,7 +6560,7 @@ class TestConfig:
         ]
         + [
             (v, 42.42, bytes(data), list(byteord), "F", 32, d)
-            for byteord, data in num_to_ordered_bytes(42.42, "F", 4)
+            for byteord, data in num_to_ordered_bytes(42.42, "f", 4)
             for v, d in [("FCS2.0", 173), ("FCS3.0", 259)]
         ]
         + [

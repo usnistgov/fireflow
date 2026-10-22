@@ -374,45 +374,6 @@ mod tests {
     }
 
     #[test]
-    fn spillover_indexed_malformed() {
-        let conf = EvaledReadStdKeywordsConfig {
-            spillover_measurement_mode: SpilloverMeasurementMode::Indexed,
-            ..Default::default()
-        };
-        let ns = [
-            &"X".parse::<Shortname>().unwrap(),
-            &"Y".parse::<Shortname>().unwrap(),
-        ];
-        let v = ne_str!("2,one,2,0,0,0,0");
-        // let res = Spillover::from_str_with(v, &ns, &conf);
-        // let spill = res.unwrap().native.as_string();
-        // assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
-
-        // let v = ne_str!("3,Y,Y,Z,0,0,0,0,0,0,0,0,0");
-        assert_matches!(
-            Spillover::from_str_with(v, &ns, &conf),
-            Err(ParseSpilloverError::BadIndex(MalformedIndexError(_)))
-        );
-    }
-
-    #[test]
-    fn spillover_indexed_badlink() {
-        let conf = EvaledReadStdKeywordsConfig {
-            spillover_measurement_mode: SpilloverMeasurementMode::Indexed,
-            ..Default::default()
-        };
-        let ns = [
-            &"X".parse::<Shortname>().unwrap(),
-            &"Y".parse::<Shortname>().unwrap(),
-        ];
-        let v = ne_str!("2,3,2,0,0,0,0");
-        assert_matches!(
-            Spillover::from_str_with(v, &ns, &conf),
-            Err(ParseSpilloverError::IndexLink(_))
-        );
-    }
-
-    #[test]
     fn spillover_guess_indexed() {
         let conf = EvaledReadStdKeywordsConfig {
             spillover_measurement_mode: SpilloverMeasurementMode::Guess,
@@ -456,6 +417,59 @@ mod tests {
         let res = Spillover::from_str_with(v, &ns, &conf);
         let spill = res.unwrap().inner.as_string();
         assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
+    }
+
+    #[test]
+    fn spillover_indexed_malformed() {
+        let conf = EvaledReadStdKeywordsConfig {
+            spillover_measurement_mode: SpilloverMeasurementMode::Indexed,
+            ..Default::default()
+        };
+        let ns = [
+            &"X".parse::<Shortname>().unwrap(),
+            &"Y".parse::<Shortname>().unwrap(),
+        ];
+        let v = ne_str!("2,one,2,0,0,0,0");
+        // let res = Spillover::from_str_with(v, &ns, &conf);
+        // let spill = res.unwrap().native.as_string();
+        // assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
+
+        // let v = ne_str!("3,Y,Y,Z,0,0,0,0,0,0,0,0,0");
+        assert_matches!(
+            Spillover::from_str_with(v, &ns, &conf),
+            Err(ParseSpilloverError::BadIndex(MalformedIndexError(_)))
+        );
+    }
+
+    #[test]
+    fn spillover_indexed_badlink() {
+        let conf = EvaledReadStdKeywordsConfig {
+            spillover_measurement_mode: SpilloverMeasurementMode::Indexed,
+            ..Default::default()
+        };
+        let ns = [
+            &"X".parse::<Shortname>().unwrap(),
+            &"Y".parse::<Shortname>().unwrap(),
+        ];
+        let v = ne_str!("2,3,2,0,0,0,0");
+        assert_matches!(
+            Spillover::from_str_with(v, &ns, &conf),
+            Err(ParseSpilloverError::IndexLink(_))
+        );
+    }
+
+    #[test]
+    fn spillover_name_empty() {
+        let conf = EvaledReadStdKeywordsConfig::default();
+        let ns = [
+            &"Khn".parse::<Shortname>().unwrap(),
+            &"Klek".parse::<Shortname>().unwrap(),
+        ];
+        let v = ne_str!("3,Khn,,Klek,0,0,0,0,0,0,0,0,0");
+        assert_eq!(
+            Spillover::from_str_with(v, &ns, &conf),
+            Err(ParseSpilloverError::Shortname(NonEmptyStringError))
+        );
     }
 
     #[test]
@@ -508,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn spillover_name_badn() {
+    fn spillover_badn() {
         let conf = EvaledReadStdKeywordsConfig::default();
         let ns = [
             &"X".parse::<Shortname>().unwrap(),
@@ -524,7 +538,7 @@ mod tests {
     }
 
     #[test]
-    fn spillover_name_bad_float() {
+    fn spillover_bad_float() {
         let conf = EvaledReadStdKeywordsConfig::default();
         let ns = [
             &"X".parse::<Shortname>().unwrap(),

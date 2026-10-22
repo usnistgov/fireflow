@@ -4009,6 +4009,26 @@ mod tests {
     }
 
     #[test]
+    fn tr_empty_name() {
+        let v = ne_str!(",666");
+        let mut conf = EvaledReadStdKeywordsConfig::default();
+        assert_matches!(
+            Trigger::from_str_with(v, (), &conf),
+            Err(TriggerError::Shortname(NonEmptyStringError))
+        );
+    }
+
+    #[test]
+    fn tr_wrong_field_number() {
+        let v = ne_str!("Pegleg of Mirth,66,6");
+        let mut conf = EvaledReadStdKeywordsConfig::default();
+        assert_matches!(
+            Trigger::from_str_with(v, (), &conf),
+            Err(TriggerError::WrongFieldNumber)
+        );
+    }
+
+    #[test]
     fn mode() {
         assert_from_to_str::<Mode>("C");
         assert_from_to_str::<Mode>("L");
@@ -4475,6 +4495,15 @@ mod tests {
         let t = UnstainedCenters::from_str_with(v, (), &conf).unwrap();
         let s = t.inner.try_ne().unwrap().to_ne().to_ne_string();
         assert_eq!(s.as_str(), "1,X,0");
+    }
+
+    #[test]
+    fn unstained_centers_empty_name() {
+        let conf = EvaledReadStdKeywordsConfig::default();
+        assert_eq!(
+            UnstainedCenters::from_str_with(ne_str!("2,,0"), (), &conf),
+            Err(ParseUnstainedCenterError::Shortname(NonEmptyStringError))
+        );
     }
 
     #[test]

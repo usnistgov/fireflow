@@ -24,6 +24,9 @@ use std::slice::Iter;
 #[cfg(feature = "python")]
 use {crate::python as py, fireflow_core_proc::DisplayAsPyErr};
 
+#[cfg(feature = "testutil")]
+use proptest_derive::Arbitrary;
+
 /// A key defined in the FCS standard.
 ///
 /// The '$' is not included or implied by any string conversions.
@@ -43,6 +46,7 @@ pub enum RawStdKey {
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
 )]
 #[repr(usize)]
+#[cfg_attr(feature = "testutil", derive(Arbitrary))]
 pub enum RootKey {
     Byteord,
     Datatype,
@@ -119,6 +123,7 @@ pub type RegionKey = IndexedKey<N_REGION, RegionIndex, RegionKeyId>;
 
 /// An FCS keyword with an index.
 #[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "testutil", derive(Arbitrary))]
 pub struct IndexedKey<const LEN: usize, I, K> {
     pub index: I,
     pub id: K,
@@ -126,12 +131,14 @@ pub struct IndexedKey<const LEN: usize, I, K> {
 
 /// A $CSVnFLAG key.
 #[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "testutil", derive(Arbitrary))]
 pub struct CsvFlagKey {
     pub index: SubsetIndex,
 }
 
 /// A $DFCmTOn key.
 #[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "testutil", derive(Arbitrary))]
 pub struct DfcKey {
     pub index: BiMeasIndex,
 }
@@ -149,6 +156,7 @@ pub struct DfcKeyMarker;
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
 )]
 #[repr(usize)]
+#[cfg_attr(feature = "testutil", derive(Arbitrary))]
 pub enum MeasKeyId {
     N,
     R,
@@ -211,6 +219,7 @@ pub enum PeakMeasKeyId {
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
 )]
 #[repr(usize)]
+#[cfg_attr(feature = "testutil", derive(Arbitrary))]
 pub enum GateKeyId {
     N,
     R,
@@ -227,6 +236,7 @@ pub enum GateKeyId {
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
 )]
 #[repr(usize)]
+#[cfg_attr(feature = "testutil", derive(Arbitrary))]
 pub enum RegionKeyId {
     I,
     W,

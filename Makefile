@@ -35,7 +35,7 @@ rs-test-nonempty:
 
 .PHONY: rs-test-types
 rs-test-types:
-	cargo test -p fireflow-types
+	cargo test -p fireflow-types --features testutil
 
 .PHONY: rs-test-core
 rs-test-core:

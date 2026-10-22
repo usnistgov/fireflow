@@ -93,6 +93,7 @@ newtype_index!(
 
 /// The 'm' and 'n' in keywords with two indices
 #[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "testutil", derive(Arbitrary))]
 pub struct BiMeasIndex {
     pub i0: MeasIndex,
     pub i1: MeasIndex,

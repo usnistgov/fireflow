@@ -8,7 +8,7 @@ use std::str::FromStr;
 /// Assert that ToDisplayNE and FromStr are perfect inverses for given input
 pub fn assert_from_to_str<T>(s: &str)
 where
-    T: FromStr + for<'a> DisplayableNE<'a>,
+    T: FromStr,
     <T as FromStr>::Err: Display,
 {
     match s.parse::<T>() {

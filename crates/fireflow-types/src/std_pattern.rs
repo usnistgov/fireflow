@@ -568,11 +568,129 @@ mod serialize {
     }
 }
 
-#[cfg(test)]
-mod test {
+#[cfg(all(test, feature = "testutil"))]
+mod tests {
     use super::*;
 
+    use crate::keys::raw_std::{GateKey, MeasKey, RegionKey, RootKey, ToStd as _};
+
     use nonempty::nev;
+
+    use proptest::prelude::*;
+
+    use std::fmt::Display;
+    use std::str::FromStr;
+
+    // TODO not DRY
+    fn assert_from_to_str<T>(s: &str)
+    where
+        T: FromStr + Display,
+        <T as FromStr>::Err: Display,
+    {
+        match s.parse::<T>() {
+            Ok(x) => {
+                let ss = x.to_string();
+                assert_eq!(s, ss.as_str());
+            }
+            Err(e) => panic!("could not parse {s}, got error: {e}"),
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_root_dollar(key in any::<RootKey>()) {
+            let s = key.to_std0::<true>().to_string();
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_root_nodollar(key in any::<RootKey>()) {
+            let s = key.to_std0::<false>().to_string();
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_meas_dollar(key in any::<MeasKey>()) {
+            let s = DollarWrap::<true, _>(RawStdKey::from(key)).to_string();
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_meas_nodollar(key in any::<MeasKey>()) {
+            let s = DollarWrap::<false, _>(RawStdKey::from(key)).to_string();
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_gate_dollar(key in any::<GateKey>()) {
+            let s = DollarWrap::<true, _>(RawStdKey::from(key)).to_string();
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_gate_nodollar(key in any::<GateKey>()) {
+            let s = DollarWrap::<false, _>(RawStdKey::from(key)).to_string();
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_region_dollar(key in any::<RegionKey>()) {
+            let s = DollarWrap::<true, _>(RawStdKey::from(key)).to_string();
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_region_nodollar(key in any::<RegionKey>()) {
+            let s = DollarWrap::<false, _>(RawStdKey::from(key)).to_string();
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_csvflag_dollar(key in any::<CsvFlagKey>()) {
+            let s = DollarWrap::<true, _>(RawStdKey::from(key)).to_string();
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_csvflag_nodollar(key in any::<CsvFlagKey>()) {
+            let s = DollarWrap::<false, _>(RawStdKey::from(key)).to_string();
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_dfc_dollar(key in any::<DfcKey>()) {
+            let s = DollarWrap::<true, _>(RawStdKey::from(key)).to_string();
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_dfc_nodollar(key in any::<DfcKey>()) {
+            let s = DollarWrap::<false, _>(RawStdKey::from(key)).to_string();
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
 
     #[test]
     fn str_indices1() {

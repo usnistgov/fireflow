@@ -253,8 +253,11 @@ pub trait NonEmptyIterator: IntoIterator {
     where
         Self: Sized,
     {
-        // SAFETY: length is always non-zero
-        unsafe { NonZeroUsize::new_unchecked(self.into_iter().count()) }
+        // NOTE: we could use unsafe here but that would make the entire trait
+        // unsafe, which isn't worth it. It should be enough to simply document
+        // the trait as requiring an iterator that is actually non-empty.
+        NonZeroUsize::new(self.into_iter().count())
+            .expect("implementer must guarantee iterator is actually non-empty")
     }
 
     /// Creates a non-empty iterator which gives the current iteration count as

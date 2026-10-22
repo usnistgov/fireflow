@@ -343,12 +343,6 @@ impl<K, V, S> AsRef<HashMap<K, V, S>> for NEMap<K, V, S> {
     }
 }
 
-impl<K, V, S> AsMut<HashMap<K, V, S>> for NEMap<K, V, S> {
-    fn as_mut(&mut self) -> &mut HashMap<K, V, S> {
-        &mut self.inner
-    }
-}
-
 impl<K, V, S> PartialEq for NEMap<K, V, S>
 where
     K: Eq + Hash,

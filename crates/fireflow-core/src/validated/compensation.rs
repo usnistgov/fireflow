@@ -76,6 +76,7 @@ impl Compensation {
         }
         new[(i, i)] = 1.0;
         self.matrix = new;
+        self.dim = self.dim.saturating_add(1);
     }
 
     pub(crate) fn matrix(&self) -> &Array2<f32> {

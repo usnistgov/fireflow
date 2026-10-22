@@ -4939,8 +4939,8 @@ mod python {
             let (is_log, x0, x1): (bool, f32, f32) = obj.extract()?;
             let ret = if is_log {
                 Self::Log {
-                    offset: x0.try_into()?,
-                    decades: x1.try_into()?,
+                    decades: x0.try_into()?,
+                    offset: x1.try_into()?,
                 }
             } else {
                 Self::Lin(LinearDisplay::try_new(x0, x1)?)
@@ -4957,7 +4957,7 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             let ret = match self {
                 Self::Lin(x) => (false, x.lower(), x.upper()),
-                Self::Log { offset, decades } => (true, offset.into(), decades.into()),
+                Self::Log { decades, offset } => (true, decades.into(), offset.into()),
             };
             ret.into_pyobject(py)
         }

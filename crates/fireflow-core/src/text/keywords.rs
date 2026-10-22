@@ -143,6 +143,7 @@ impl Nextdata {
     where
         C: AsRef<ReadHeaderAndTEXTConfig>,
     {
+        let dso = reader.dataset_offset().0;
         Self::lookup_ro_inner(index, conf.as_ref())
             .map_errors(LookupNextdataError::from)
             .and_then_nowarn_commutative(|nextdata| {
@@ -163,7 +164,7 @@ impl Nextdata {
                     {
                         let e = NextdataInPrimaryError(nd, ptext_end);
                         Err(LookupNextdataError::PrimaryTEXT(e))
-                    } else if n >= f {
+                    } else if n + dso >= f {
                         let e = NextdataEOFError(nd, f);
                         Err(LookupNextdataError::FileLength(e))
                     } else {

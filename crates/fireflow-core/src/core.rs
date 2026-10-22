@@ -2804,7 +2804,7 @@ impl ConvertFromMetaroot<InnerRootMeta3_1> for InnerRootMeta3_0 {
             value.timestamps.map(Into::into),
             value.cytsn,
             None,
-            SubsetData::default(),
+            value.subset,
             value.applied_gates,
         ))
     }

@@ -5262,8 +5262,10 @@ where
     where
         L: LayoutInsert<C>,
     {
+        // Read $PAR before push since the inner insertion would be off-by-one
+        // otherwise.
+        let i = self.par().0.into();
         self.meas.push_temporal_inner(n, m, r).when_ok(|| {
-            let i = self.par().0.into();
             self.rootmeta.specific.insert_meas_index_inner(i);
         })
     }
@@ -5293,10 +5295,12 @@ where
     where
         L: LayoutInsert<C> + LayoutInsertScaleCheck<C>,
     {
+        // Read $PAR before push since the inner insertion would be off-by-one
+        // otherwise.
+        let i = self.par().0.into();
         self.meas
             .push_optical_inner(name, opt, scale, data_column)
             .map_ok_value(|ret| {
-                let i = self.par().0.into();
                 self.rootmeta.specific.insert_meas_index_inner(i);
                 ret
             })

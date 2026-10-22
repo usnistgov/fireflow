@@ -7146,7 +7146,7 @@ class TestReadWrite:
         self._test_attr_roundtrip(tmp_path, mmap, core, "all_analytes", test)
 
     @pytest.mark.parametrize("mmap", [False, True])
-    @parameterize_versions("core", ["2_0"], ["text"])
+    @parameterize_versions("core", ["2_0"], ["text2"])
     def test_rw_applied_gates2_0(
         self,
         tmp_path: Path,
@@ -7158,6 +7158,7 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "text.fcs"
         ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
+        br = pf.BivariateRegion2_0((0, 1), [(0.0, 1.0), (2.0, 3.0), (4.0, 5.0)])
         blank_gated_meas.longname = "marty"
         blank_gated_meas.filter = "kiko"
         blank_gated_meas.shortname = "chris"
@@ -7166,7 +7167,11 @@ class TestReadWrite:
         blank_gated_meas.percent_emitted = 101
         blank_gated_meas.range = 420
         blank_gated_meas.detector_voltage = 9.75
-        test: pt.AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "(NOT R1)")
+        test: pt.AppliedGates2_0 = (
+            [blank_gated_meas],
+            {0: ur, 1: br},
+            "((NOT R1) AND R2)",
+        )
         core.applied_gates = test
         core.write_text(p)
         nu_core, un_core = pf.api.fcs_read_std_text(p, mmap=mmap, time_meas_pattern="")
@@ -7193,7 +7198,12 @@ class TestReadWrite:
         blank_gated_meas.range = 420
         blank_gated_meas.detector_voltage = 9.75
         ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
-        test: pt.AppliedGates3_0 = ([blank_gated_meas], {0: ur}, "(NOT R1)")
+        br = pf.BivariateRegion3_0(("P1", "P2"), [(0.0, 1.0), (2.0, 3.0), (4.0, 5.0)])
+        test: pt.AppliedGates3_0 = (
+            [blank_gated_meas],
+            {0: ur, 1: br},
+            "((NOT R1) AND R2)",
+        )
         core.applied_gates = test
         core.write_text(p)
         nu_core, un_core = pf.api.fcs_read_std_text(p, mmap=mmap, time_meas_pattern="")
@@ -7212,7 +7222,8 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "text.fcs"
         ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
-        test: pt.AppliedGates3_2 = ({0: ur}, "(NOT R1)")
+        br = pf.BivariateRegion3_2((0, 1), [(0.0, 1.0), (2.0, 3.0), (4.0, 5.0)])
+        test: pt.AppliedGates3_2 = ({0: ur, 1: br}, "((NOT R1) AND R2)")
         core.applied_gates = test
         core.write_text(p)
         nu_core, un_core = pf.api.fcs_read_std_text(p, mmap=mmap, time_meas_pattern="")

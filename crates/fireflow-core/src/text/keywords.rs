@@ -2118,11 +2118,11 @@ pub enum RegionWindowRef<'a> {
 }
 
 impl<'a> ToDisplayNE<'a> for RegionWindowRef<'_> {
-    type NE = NEAlt<ToNE<&'a UniGate>, &'a NESlice<ToNE<Vertex>>>;
+    type NE = NEAlt<ToNE<&'a UniGate>, NEDelim<&'a NESlice<ToNE<Vertex>>>>;
     fn to_ne(&'a self) -> Self::NE {
         match self {
             Self::Univariate(x) => NEAlt::Left(ToNE(x)),
-            Self::Bivariate(x) => NEAlt::Right(ToNE::on_inner_slice(x)),
+            Self::Bivariate(x) => NEAlt::Right(NEDelim::new(';', ToNE::on_inner_slice(x))),
         }
     }
 }

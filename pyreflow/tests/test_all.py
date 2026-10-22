@@ -7372,6 +7372,7 @@ class TestReadWrite:
         p = d / "text.fcs"
         ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
         br = pf.BivariateRegion2_0((0, 1), [(0.0, 1.0), (2.0, 3.0), (4.0, 5.0)])
+        gm2 = deepcopy(blank_gated_meas)
         blank_gated_meas.longname = "marty"
         blank_gated_meas.filter = "kiko"
         blank_gated_meas.shortname = "chris"
@@ -7381,7 +7382,7 @@ class TestReadWrite:
         blank_gated_meas.range = 420
         blank_gated_meas.detector_voltage = 9.75
         test: pt.AppliedGates2_0 = (
-            [blank_gated_meas],
+            [blank_gated_meas, gm2],
             {0: ur, 1: br},
             "((NOT R1) AND R2)",
         )
@@ -7391,7 +7392,7 @@ class TestReadWrite:
         assert nu_core.applied_gates == test
 
     @pytest.mark.parametrize("mmap", [False, True])
-    @parameterize_versions("core", ["3_0", "3_1"], ["text"])
+    @parameterize_versions("core", ["3_0", "3_1"], ["text3"])
     def test_rw_applied_gates3_0(
         self,
         tmp_path: Path,
@@ -7411,7 +7412,7 @@ class TestReadWrite:
         blank_gated_meas.range = 420
         blank_gated_meas.detector_voltage = 9.75
         ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
-        br = pf.BivariateRegion3_0(("P1", "P2"), [(0.0, 1.0), (2.0, 3.0), (4.0, 5.0)])
+        br = pf.BivariateRegion3_0(("P1", "P3"), [(0.0, 1.0), (2.0, 3.0), (4.0, 5.0)])
         test: pt.AppliedGates3_0 = (
             [blank_gated_meas],
             {0: ur, 1: br},
@@ -7419,11 +7420,13 @@ class TestReadWrite:
         )
         core.applied_gates = test
         core.write_text(p)
-        nu_core, un_core = pf.api.fcs_read_std_text(p, mmap=mmap, time_meas_pattern="")
+        nu_core, un_core = pf.api.fcs_read_std_text(
+            p, mmap=mmap, time_meas_pattern=LINK_NAME2
+        )
         assert nu_core.applied_gates == test
 
     @pytest.mark.parametrize("mmap", [False, True])
-    @parameterize_versions("core", ["3_2"], ["text"])
+    @parameterize_versions("core", ["3_2"], ["text3"])
     def test_rw_applied_gates3_2(
         self,
         tmp_path: Path,
@@ -7435,11 +7438,13 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "text.fcs"
         ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
-        br = pf.BivariateRegion3_2((0, 1), [(0.0, 1.0), (2.0, 3.0), (4.0, 5.0)])
+        br = pf.BivariateRegion3_2((0, 2), [(0.0, 1.0), (2.0, 3.0), (4.0, 5.0)])
         test: pt.AppliedGates3_2 = ({0: ur, 1: br}, "((NOT R1) AND R2)")
         core.applied_gates = test
         core.write_text(p)
-        nu_core, un_core = pf.api.fcs_read_std_text(p, mmap=mmap, time_meas_pattern="")
+        nu_core, un_core = pf.api.fcs_read_std_text(
+            p, mmap=mmap, time_meas_pattern=LINK_NAME2
+        )
         assert nu_core.applied_gates == test
 
     @pytest.mark.parametrize("mmap", [False, True])

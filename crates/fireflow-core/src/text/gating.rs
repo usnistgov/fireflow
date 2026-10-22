@@ -981,7 +981,7 @@ impl<I> Region<I> {
     pub(crate) fn indices(&self) -> OneOrTwo<&I> {
         match self {
             Self::Univariate(r) => OneOrTwo::One(&r.index),
-            Self::Bivariate(r) => OneOrTwo::Two(&r.index.x, &r.index.x),
+            Self::Bivariate(r) => OneOrTwo::Two(&r.index.x, &r.index.y),
         }
     }
 

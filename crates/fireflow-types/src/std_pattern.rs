@@ -441,7 +441,7 @@ impl StdIndices {
                     .parse::<IndexFromOne>()
                     .ok()
                     .map(usize::from)
-                    .map(|y| y..y),
+                    .map(|y| y..(y + 1)),
                 [x0, x1] => {
                     let y0 = x0.parse::<IndexFromOne>().ok()?;
                     let y1 = x1.parse::<IndexFromOne>().ok()?;
@@ -565,6 +565,64 @@ mod serialize {
         {
             serializer.collect_str(self)
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use nonempty::nev;
+
+    #[test]
+    fn str_indices1() {
+        assert_eq!(StdIndices::from_str("1"), Some(StdIndices(nev![0.into()])));
+    }
+
+    #[test]
+    fn str_indices2() {
+        assert_eq!(
+            StdIndices::from_str("1,2"),
+            Some(StdIndices(nev![0.into(), 1.into()]))
+        );
+    }
+
+    #[test]
+    fn str_indices2_sort() {
+        // out of order indices should sort
+        assert_eq!(
+            StdIndices::from_str("2,1"),
+            Some(StdIndices(nev![0.into(), 1.into()]))
+        );
+    }
+
+    #[test]
+    fn str_indices_range() {
+        assert_eq!(
+            StdIndices::from_str("2-4"),
+            Some(StdIndices(nev![1.into(), 2.into()]))
+        );
+    }
+
+    #[test]
+    fn str_indices_range_nil() {
+        assert_eq!(StdIndices::from_str("2-2"), None);
+    }
+
+    #[test]
+    fn str_indices_single_and_range() {
+        assert_eq!(
+            StdIndices::from_str("2-4,6"),
+            Some(StdIndices(nev![1.into(), 2.into(), 5.into()]))
+        );
+    }
+
+    #[test]
+    fn str_indices_single_and_range_dup() {
+        assert_eq!(
+            StdIndices::from_str("2-4,3"),
+            Some(StdIndices(nev![1.into(), 2.into()]))
+        );
     }
 }
 

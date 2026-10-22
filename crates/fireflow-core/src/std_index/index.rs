@@ -257,14 +257,14 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
                 }
                 RawStdKey::Dfc(dk) => {
                     dfc_n_bytes += n_bytes;
-                    let i0 = usize::from(dk.index.i0);
-                    let i1 = usize::from(dk.index.i1);
+                    let i0 = usize::from(dk.index.i0) + 1;
+                    let i1 = usize::from(dk.index.i1) + 1;
                     dfc_matrix_size = dfc_matrix_size.max(i0.max(i1));
                 }
             }
         }
 
-        let dfc_size = NestedStringSize::new(dfc_n_bytes, dfc_matrix_size * dfc_matrix_size + 1);
+        let dfc_size = NestedStringSize::new(dfc_n_bytes, dfc_matrix_size * dfc_matrix_size);
 
         let mut root = NestedRoot::init_array(root_n_bytes);
         let mut meas = NestedVariableString::init_var(&meas_size, ());

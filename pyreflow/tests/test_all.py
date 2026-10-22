@@ -7041,6 +7041,42 @@ class TestReadWrite:
         test = {LINK_NAME1: 42.0}
         self._test_attr_roundtrip(tmp_path, mmap, core, "unstainedcenters", test)
 
+    @pytest.mark.parametrize("mmap", [False, True])
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(t), lazy_fixture(o))
+            for t, o in [
+                ("blank_text_2_0", "blank_optical_2_0"),
+                ("blank_text_3_0", "blank_optical_3_0"),
+            ]
+        ],
+    )
+    def test_rw_comp(
+        self,
+        tmp_path: Path,
+        mmap: bool,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0,
+        optical: pf.Optical2_0 | pf.Optical3_0,
+    ) -> None:
+        core.push_optical("freddie", optical, 9001)  # type: ignore
+        core.push_optical("brian", optical, 9002)  # type: ignore
+        core.push_optical("john", optical, 9003)  # type: ignore
+        core.push_optical("roger", optical, 9004)  # type: ignore
+        test = np.array(
+            [[1, 0.5, 0, 1], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]], dtype=np.float32
+        )
+
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "text.fcs"
+        core.comp = test
+        core.write_text(p)
+        nu_core, un_core = pf.api.fcs_read_std_text(p, mmap=mmap, time_meas_pattern="")
+        assert isinstance(nu_core, pf.CoreTEXT2_0 | pf.CoreTEXT3_0)
+        assert nu_core.comp is not None
+        assert np.array_equal(nu_core.comp, test)
+
     # TODO add spillover/comp/dfc keywords
 
     @pytest.mark.parametrize("mmap", [False, True])

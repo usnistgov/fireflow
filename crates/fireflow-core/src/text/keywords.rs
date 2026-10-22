@@ -2358,7 +2358,9 @@ pub enum GatingToken {
 impl GatingToken {
     fn from_str(s: &str) -> Result<Gating, GatingError> {
         if s.is_ascii() {
-            match Self::tokenize_str(s) {
+            // SAFETY: we checked that the input is Ascii
+            let res = unsafe { Self::tokenize_ascii_str(s.as_bytes()) };
+            match res {
                 Ok(ts) => Self::match_expression(&ts[..]),
                 Err(bad) => Err(GatingError::BadToken(bad)),
             }
@@ -2367,34 +2369,42 @@ impl GatingToken {
         }
     }
 
-    fn tokenize_str(s: &str) -> Result<Vec<Self>, String> {
+    unsafe fn tokenize_ascii_str(bytes: &[u8]) -> Result<Vec<Self>, String> {
         let mut acc = vec![];
-        for x in s.split(['.', ' ']).filter(|x| !x.is_empty()) {
-            for y in x.split('(') {
-                if y.is_empty() {
-                    acc.push(Self::LParen);
+        for bs in bytes
+            .split(|&x| x == b'.' || x == b' ')
+            .filter(|bs| !bs.is_empty())
+        {
+            // count parens on either side of token
+            let lparens = bs.iter().take_while(|&&x| x == b'(').count();
+            let rparens = bs.iter().rev().take_while(|&&x| x == b')').count();
+            // add the left parens
+            for _ in 0..lparens {
+                acc.push(Self::LParen);
+            }
+            // figure out what is in the middle (if anything) and push
+            let mid = &bs[lparens..bs.len() - rparens];
+            if mid == b"NOT" {
+                acc.push(Self::Not);
+            } else if mid == b"AND" {
+                acc.push(Self::And);
+            } else if mid == b"OR" {
+                acc.push(Self::Or);
+            } else if !mid.is_empty() {
+                if let (b"R", rest) = mid.split_at(1)
+                    // SAFETY: function is unsafe
+                    && let Ok(r) = unsafe { str::from_utf8_unchecked(rest) }.parse()
+                {
+                    acc.push(Self::Region(r));
                 } else {
-                    for z in y.split(')') {
-                        if z.is_empty() {
-                            acc.push(Self::RParen);
-                        } else {
-                            match z {
-                                "NOT" => acc.push(Self::Not),
-                                "AND" => acc.push(Self::And),
-                                "OR" => acc.push(Self::Or),
-                                other => {
-                                    if let ("R", rest) = z.split_at(1)
-                                        && let Ok(r) = rest.parse()
-                                    {
-                                        acc.push(Self::Region(r));
-                                    } else {
-                                        return Err(other.to_owned());
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // SAFETY: function is unsafe
+                    let s = unsafe { str::from_utf8_unchecked(mid) };
+                    return Err(s.to_owned());
                 }
+            }
+            // add the right parens (order matters since we are pushing)
+            for _ in 0..rparens {
+                acc.push(Self::RParen);
             }
         }
         Ok(acc)
@@ -2404,7 +2414,7 @@ impl GatingToken {
         if let Some((t, ts)) = tokens.split_first() {
             match t {
                 Self::LParen => {
-                    if let Some(i) = ts.iter().rposition(|x| matches!(x, Self::RParen)) {
+                    if let Some(i) = Self::find_closing_paren(ts) {
                         let inner = Self::match_expression(&ts[..i])?;
                         Self::extend_expression(inner, &ts[i + 1..])
                     } else {
@@ -2418,6 +2428,24 @@ impl GatingToken {
         } else {
             Err(GatingError::EmptyExpr)
         }
+    }
+
+    fn find_closing_paren(tokens: &[Self]) -> Option<usize> {
+        let mut depth = 0_usize;
+        for (i, t) in tokens.iter().enumerate() {
+            match t {
+                Self::RParen => {
+                    if depth > 0 {
+                        depth -= 1;
+                    } else {
+                        return Some(i);
+                    }
+                }
+                Self::LParen => depth += 1,
+                _ => (),
+            }
+        }
+        None
     }
 
     fn extend_expression(new: Gating, rest: &[Self]) -> Result<Gating, GatingError> {
@@ -4011,7 +4039,7 @@ mod tests {
     #[test]
     fn tr_empty_name() {
         let v = ne_str!(",666");
-        let mut conf = EvaledReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_matches!(
             Trigger::from_str_with(v, (), &conf),
             Err(TriggerError::Shortname(NonEmptyStringError))
@@ -4021,7 +4049,7 @@ mod tests {
     #[test]
     fn tr_wrong_field_number() {
         let v = ne_str!("Pegleg of Mirth,66,6");
-        let mut conf = EvaledReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_matches!(
             Trigger::from_str_with(v, (), &conf),
             Err(TriggerError::WrongFieldNumber)
@@ -4456,6 +4484,8 @@ mod tests {
         assert_from_to_str::<Gating>("R1");
         assert_from_to_str_almost::<Gating>("R1 AND (R2.OR.R3)", "(R1 AND (R2 OR R3))");
         assert_from_to_str::<Gating>("((NOT R1) AND R2)");
+        assert_from_to_str::<Gating>("((NOT R1) AND (NOT R2))");
+        assert_from_to_str_almost::<Gating>("(NOT R1 )", "(NOT R1)");
 
         assert_eq!(Gating::from_str(""), Err(GatingError::EmptyExpr));
         assert_eq!(

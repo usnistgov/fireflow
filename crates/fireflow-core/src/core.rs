@@ -5379,9 +5379,8 @@ where
                 self.meas
                     .meta()
                     .opt_names()
-                    .flatten()
                     .enumerate()
-                    .map(|(i, v)| OptMeasKeyword::from_ref(v, i.into()))
+                    .filter_map(|(i, x)| x.map(|v| OptMeasKeyword::from_ref(v, i.into())))
             })
             .into_iter()
             .flatten();
@@ -7313,9 +7312,8 @@ impl CSVFlags {
         let xs = &self.0;
         let mode = (!xs.is_empty()).then_some(OptRootKeyword::from_value(CSMode(xs.len())));
         xs.iter()
-            .flatten()
             .enumerate()
-            .map(|(i, k)| SplitKeyword::from_value1(*k, i.into()))
+            .filter_map(|(i, x)| x.map(|k| SplitKeyword::from_value1(k, i.into())))
             .map(OptRootKeyword::from)
             .chain(mode)
     }

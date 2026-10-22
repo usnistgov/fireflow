@@ -14,8 +14,8 @@ use fireflow_types::config::{ConfigFlag as _, SpilloverMeasurementMode, TrimIntr
 use fireflow_types::index::MeasIndex;
 use fireflow_types::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 use nonempty::{
-    IntoIteratorExt as _, NEConcat, NEConcat5, NEDelim, NESlice, NEStr, NEVec,
-    NonEmptyIterator as _, ToDisplayNE, ToNE,
+    IntoIteratorExt as _, NEConcat, NEConcat5, NEDelim, NESlice, NEStr, NEString, NEVec,
+    NonEmptyIterator as _, NonEmptyStringError, ToDisplayNE, ToNE,
 };
 
 use derive_more::{AsRef, Display, From};
@@ -252,6 +252,10 @@ impl FromStrWith for Spillover {
         let use_indices = match conf.spillover_measurement_mode {
             SpilloverMeasurementMode::Guess => m.measurements.iter().all(|x| {
                 if let Ok(i) = x.parse::<MeasIndex>() {
+                    // We can use the unchecked version here since we know that
+                    // MeasIndex types will serialize to digits which don't
+                    // contain commas and will always have at least one
+                    // character.
                     let n = Shortname::new_unchecked(i.to_string());
                     !ordered_names.contains(&&n)
                 } else {
@@ -269,11 +273,14 @@ impl FromStrWith for Spillover {
                 .collect::<Result<Vec<_>, _>>()?;
             GenericSpillover::new(new_ms, m.matrix).try_into_named(ordered_names)?
         } else {
+            // Here we only need to check that the measurement names are
+            // non-empty since we are splitting by commas and therefore no
+            // commas will be in any names.
             let new_ms = m
                 .measurements
                 .into_iter()
-                .map(Shortname::new_unchecked)
-                .collect();
+                .map(|n| n.parse::<NEString>().map(Shortname::from_ne_unchecked))
+                .collect::<Result<Vec<_>, _>>()?;
             Self::new(new_ms, m.matrix)
         };
         let diag = SpilloverDiagnostics::new(trimmed, Some(use_indices));
@@ -302,6 +309,7 @@ pub enum ParseSpilloverError {
     Generic(ParseGenericSpilloverError),
     BadIndex(MalformedIndexError),
     IndexLink(KeyToIndexLinkError<Spillover>),
+    Shortname(NonEmptyStringError),
 }
 
 /// Error when parsing [`GenericSpillover`] from string

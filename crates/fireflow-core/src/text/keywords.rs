@@ -29,7 +29,7 @@ use crate::validated::bitmask::BitmaskValue;
 use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
 use crate::validated::read_state::{HeaderReader, TEXTReader};
-use crate::validated::shortname::{Shortname, ShortnameError};
+use crate::validated::shortname::Shortname;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use fireflow_types::byteord::ConfigByteOrd;
@@ -53,7 +53,8 @@ use fireflow_types::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 use nonempty::{
     DisplayableNE as _, IntoIteratorExt as _, IntoNonEmptyIterator as _, NEAlt, NEConcat,
     NEConcat3, NEConcat5, NEDelim, NEMap, NESlice, NEStr, NEString, NEVec, NonEmptyArrayExt as _,
-    NonEmptyIterator as _, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE, ne_str, once,
+    NonEmptyIterator as _, NonEmptyStringError, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
+    ne_str, once,
 };
 
 use type_families::{BifunctorOnce, impl_functor, impl_kind1};
@@ -645,7 +646,13 @@ impl FromStrDelim for Trigger {
         let x2 = iter.next();
         match (x0, x1, x2) {
             (Some(p), Some(n1), None) => {
-                let measurement = p.parse().map_err(TriggerError::Shortname)?;
+                // Here we only need to check that the measurement name is
+                // non-empty since we are splitting by commas and therefore no
+                // commas will be in the name.
+                let measurement = p
+                    .parse::<NEString>()
+                    .map(Shortname::from_ne_unchecked)
+                    .map_err(TriggerError::Shortname)?;
                 let threshold = n1.parse().map_err(TriggerError::IntFormat)?;
                 Ok(Self {
                     measurement,
@@ -667,7 +674,7 @@ pub enum TriggerError {
     #[error("{0}")]
     IntFormat(ParseIntError),
     #[error("{0}")]
-    Shortname(ShortnameError),
+    Shortname(NonEmptyStringError),
 }
 
 impl_str_enum_kw!(
@@ -2780,6 +2787,8 @@ pub enum ParseUnstainedCenterError {
     BadN,
     #[error("Error parsing float value(s)")]
     BadFloat,
+    #[error("{0}")]
+    Shortname(NonEmptyStringError),
 }
 
 impl UnstainedCenters {
@@ -2848,12 +2857,15 @@ impl FromStrDelim for UnstainedCenters {
         // (ie the string "0") so do not enforce here. However, if empty we will
         // not save the keyword when writing the file.
         if let Some(n) = iter.next().and_then(|x| x.parse().ok()) {
-            // This should be safe since we are splitting by commas
-            let measurements: Vec<_> = iter
+            // Here we only need to check that the measurement names are
+            // non-empty since we are splitting by commas and therefore no
+            // commas will be in any names.
+            let measurements = iter
                 .by_ref()
                 .take(n)
-                .map(Shortname::new_unchecked)
-                .collect();
+                .map(|s| s.parse::<NEString>().map(Shortname::from_ne_unchecked))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(ParseUnstainedCenterError::Shortname)?;
             if measurements.iter().unique().count() < measurements.len() {
                 return Err(ParseUnstainedCenterError::NonUnique);
             }

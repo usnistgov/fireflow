@@ -29,11 +29,16 @@ use {
 pub struct Shortname(NEString);
 
 impl Shortname {
+    pub(crate) fn from_ne_unchecked(s: NEString) -> Self {
+        assert!(
+            !s.as_str().contains(','),
+            "shortname has at least one comma"
+        );
+        Self(s)
+    }
+
     pub(crate) fn new_unchecked<T: AsRef<str>>(s: T) -> Self {
-        let ss: &str = s.as_ref();
-        assert!(!ss.contains(','), "shortname has at least one comma");
-        let ne = ss.parse().unwrap();
-        Self(ne)
+        Self(s.as_ref().parse().unwrap())
     }
 
     pub(crate) fn increment(&self, i: usize) -> Self {

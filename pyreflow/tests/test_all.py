@@ -6914,6 +6914,100 @@ class TestConfig:
         with pytest.RaisesGroup(error):  # type: ignore
             core, uncore = pf.api.fcs_read_std_text(p, time_meas_pattern="")
 
+    @pytest.mark.parametrize("version", ["FCS3.1", "FCS3.2"])
+    def test_read_spillover(self, tmp_path: Path, version: pt.FCSVersion) -> None:
+        """Test $TR parsing."""
+        p = tmp_path / "thing.fcs"
+        key = "$SPILLOVER"
+        value = "2,xyz,abc,1.0,0,0,1.0"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "99",
+            "$P2N": "abc",
+            "$P2E": "0,0",
+            "$P2B": "32",
+            "$P2R": "99",
+            key: value,
+        }
+        self.mock_header_std_text(p, version, kws=kws, par=2)
+        core, uncore = pf.api.fcs_read_std_text(p, time_meas_pattern="")
+        assert isinstance(core, pf.CoreTEXT3_1 | pf.CoreTEXT3_2)
+        assert core.spillover is not None
+        assert core.spillover[0] == ["xyz", "abc"]
+        assert np.array_equal(
+            core.spillover[1], np.array([[1.0, 0], [0, 1.0]], dtype=np.float32)
+        )
+
+    @pytest.mark.parametrize("version", ["FCS3.1", "FCS3.2"])
+    @pytest.mark.parametrize(
+        "name, error", [("", pf.ParseKeywordValueError), ("xxx", pf.RelationalError)]
+    )
+    def test_read_spillover_errors(
+        self,
+        tmp_path: Path,
+        version: pt.FCSVersion,
+        name: str,
+        error: pf.PyreflowError,
+    ) -> None:
+        """Test $TR parsing."""
+        p = tmp_path / "thing.fcs"
+        key = "$SPILLOVER"
+        value = f"2,xyz,{name},1.0,0,0,1.0"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "99",
+            "$P2N": "abc",
+            "$P2E": "0,0",
+            "$P2B": "32",
+            "$P2R": "99",
+            key: value,
+        }
+        self.mock_header_std_text(p, version, kws=kws, par=2)
+        with pytest.RaisesGroup(error):  # type: ignore
+            core, uncore = pf.api.fcs_read_std_text(p, time_meas_pattern="")
+
+    def test_read_unstained_centers(self, tmp_path: Path) -> None:
+        """Test $TR parsing."""
+        p = tmp_path / "thing.fcs"
+        key = "$UNSTAINEDCENTERS"
+        value = "1,xyz,1.0"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "99",
+            key: value,
+        }
+        self.mock_header_std_text(p, "FCS3.2", kws=kws, par=1)
+        core, uncore = pf.api.fcs_read_std_text(p, time_meas_pattern="")
+        assert isinstance(core, pf.CoreTEXT3_2)
+        assert core.unstainedcenters == {"xyz": 1.0}
+
+    @pytest.mark.parametrize(
+        "name, error", [("", pf.ParseKeywordValueError), ("xxx", pf.RelationalError)]
+    )
+    def test_read_unstained_centers_errors(
+        self, tmp_path: Path, name: str, error: pf.PyreflowError
+    ) -> None:
+        """Test $TR parsing."""
+        p = tmp_path / "thing.fcs"
+        key = "$UNSTAINEDCENTERS"
+        value = f"1,{name},1.0"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "99",
+            key: value,
+        }
+        self.mock_header_std_text(p, "FCS3.2", kws=kws, par=1)
+        with pytest.RaisesGroup(error):  # type: ignore
+            core, uncore = pf.api.fcs_read_std_text(p, time_meas_pattern="")
+
 
 class TestReadWrite:
     @staticmethod

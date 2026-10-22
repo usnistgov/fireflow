@@ -29,7 +29,7 @@ use crate::validated::bitmask::BitmaskValue;
 use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
 use crate::validated::read_state::{HeaderReader, TEXTReader};
-use crate::validated::shortname::Shortname;
+use crate::validated::shortname::{Shortname, ShortnameError};
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use fireflow_types::byteord::ConfigByteOrd;
@@ -645,12 +645,12 @@ impl FromStrDelim for Trigger {
         let x2 = iter.next();
         match (x0, x1, x2) {
             (Some(p), Some(n1), None) => {
-                n1.parse()
-                    .map_err(TriggerError::IntFormat)
-                    .map(|threshold| Self {
-                        measurement: Shortname::new_unchecked(p),
-                        threshold,
-                    })
+                let measurement = p.parse().map_err(TriggerError::Shortname)?;
+                let threshold = n1.parse().map_err(TriggerError::IntFormat)?;
+                Ok(Self {
+                    measurement,
+                    threshold,
+                })
             }
             _ => Err(TriggerError::WrongFieldNumber),
         }
@@ -666,6 +666,8 @@ pub enum TriggerError {
     WrongFieldNumber,
     #[error("{0}")]
     IntFormat(ParseIntError),
+    #[error("{0}")]
+    Shortname(ShortnameError),
 }
 
 impl_str_enum_kw!(

@@ -34,7 +34,7 @@ pub struct FromNEUtf8Error {
 }
 
 /// Error when parsing [`NonEmptyString`] from empty [`String`]
-#[derive(Error, Debug, PartialEq, Clone)]
+#[derive(Error, Debug, PartialEq, Eq, Clone)]
 #[error("string cannot be empty")]
 pub struct NonEmptyStringError;
 

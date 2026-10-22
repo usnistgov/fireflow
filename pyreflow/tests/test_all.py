@@ -6871,6 +6871,49 @@ class TestConfig:
         df = pl.DataFrame([[42], [24]], {"X0": pl.UInt32, "X1": pl.UInt32})
         assert out.dataset.data.equals(df)
 
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    def test_read_trigger(self, tmp_path: Path, version: pt.FCSVersion) -> None:
+        """Test $TR parsing."""
+        p = tmp_path / "thing.fcs"
+        key = "$TR"
+        value = "xyz,1"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "99",
+            key: value,
+        }
+        self.mock_header_std_text(p, version, kws=kws, par=1)
+        core, uncore = pf.api.fcs_read_std_text(p, time_meas_pattern="")
+        core.tr = ("xyz", 1)
+
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @pytest.mark.parametrize(
+        "name, error", [("", pf.ParseKeywordValueError), ("xxx", pf.RelationalError)]
+    )
+    def test_read_trigger_error(
+        self,
+        tmp_path: Path,
+        version: pt.FCSVersion,
+        name: str,
+        error: pf.PyreflowError,
+    ) -> None:
+        """Test $TR parsing (error cases)."""
+        p = tmp_path / "thing.fcs"
+        key = "$TR"
+        value = f"{name},1"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "99",
+            key: value,
+        }
+        self.mock_header_std_text(p, version, kws=kws, par=1)
+        with pytest.RaisesGroup(error):  # type: ignore
+            core, uncore = pf.api.fcs_read_std_text(p, time_meas_pattern="")
+
 
 class TestReadWrite:
     @staticmethod

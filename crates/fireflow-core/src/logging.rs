@@ -950,6 +950,7 @@ pub(crate) trait CommutativeResultIter<T, P, WC, E, EC>:
         }
         if let Some(h) = error_head {
             let mut es = h.errors;
+            ws = ws.sappend(h.warnings);
             for x in self {
                 match x {
                     Succ(y) => {
@@ -1009,6 +1010,7 @@ pub(crate) trait DeferredIter<T, WC, E, EC>:
         if let Some(h) = error_head {
             vs.push(h.value);
             let mut es = h.errors;
+            ws = ws.sappend(h.warnings);
             for x in self {
                 match x {
                     Succ(y) => {

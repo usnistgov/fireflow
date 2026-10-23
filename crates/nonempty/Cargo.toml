@@ -16,6 +16,7 @@ derive-new = { workspace = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 proptest = { workspace = true, optional = true }
 hashbrown = { workspace = true }
+bytemuck = { workspace = true, features = ["derive"] }
 type_families = { path = "../type_families" }
 
 [features]

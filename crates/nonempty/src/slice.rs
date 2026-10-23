@@ -3,6 +3,7 @@
 use crate::vec::Iter;
 use crate::{HasNELen, IntoNonEmptyIterator, NEString, NEVec, NonEmptyIterator};
 
+use bytemuck::TransparentWrapper;
 use derive_more::{AsRef, Display};
 
 use std::{hash::Hash, iter, num::NonZeroUsize, ptr::from_ref, slice};
@@ -127,6 +128,13 @@ impl<T> NESlice<T> {
 
     pub fn as_slice(&self) -> &[T] {
         self.as_ref()
+    }
+
+    pub fn wrap_ne_slice<W>(&self) -> &NESlice<W>
+    where
+        W: TransparentWrapper<T>,
+    {
+        NESlice::new_unchecked(TransparentWrapper::wrap_slice(self.as_ref()))
     }
 }
 

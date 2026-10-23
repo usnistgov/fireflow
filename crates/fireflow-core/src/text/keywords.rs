@@ -29,7 +29,7 @@ use crate::validated::bitmask::BitmaskValue;
 use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
 use crate::validated::read_state::{HeaderReader, TEXTReader};
-use crate::validated::shortname::Shortname;
+use crate::validated::shortname::{NoCommaNEString, Shortname};
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use fireflow_types::byteord::ConfigByteOrd;
@@ -61,6 +61,7 @@ use type_families::{BifunctorOnce, impl_functor, impl_kind1};
 
 use ambassador::Delegate;
 use bigdecimal::{BigDecimal, ParseBigDecimalError, Signed as _};
+use bytemuck::TransparentWrapper as _;
 use chrono::{NaiveDateTime, Timelike as _};
 use derive_more::{Add, AsMut, AsRef, Display, From, FromStr, Into, Sub};
 use derive_new::new;
@@ -1100,13 +1101,13 @@ pub enum TemporalScaleError {
 #[cfg_attr(test, derive(Arbitrary))]
 pub struct Calibration3_1 {
     pub slope: PositiveFloat,
-    pub unit: NEString,
+    pub unit: NoCommaNEString,
 }
 
 impl<'a> ToDisplayNE<'a> for Calibration3_1 {
-    type NE = NEConcat3<ToNE<PositiveFloat>, char, &'a NEString>;
+    type NE = NEConcat3<ToNE<PositiveFloat>, char, &'a ToNE<NoCommaNEString>>;
     fn to_ne(&'a self) -> Self::NE {
-        NEConcat::new(ToNE(self.slope), ',').append(&self.unit)
+        NEConcat::new(ToNE(self.slope), ',').append(ToNE::wrap_ref(&self.unit))
     }
 }
 
@@ -1174,17 +1175,17 @@ impl From<Calibration3_1> for Calibration3_2 {
 pub struct Calibration3_2 {
     pub slope: PositiveFloat,
     pub offset: f32,
-    pub unit: NEString,
+    pub unit: NoCommaNEString,
 }
 
 impl<'a> ToDisplayNE<'a> for Calibration3_2 {
-    type NE = NEConcat5<ToNE<PositiveFloat>, char, f32, char, &'a NEString>;
+    type NE = NEConcat5<ToNE<PositiveFloat>, char, f32, char, &'a ToNE<NoCommaNEString>>;
     fn to_ne(&'a self) -> Self::NE {
         // NOTE offset will always be written even if it is zero
         NEConcat::new(ToNE(self.slope), ',')
             .append(self.offset)
             .append(',')
-            .append(&self.unit)
+            .append(ToNE::wrap_ref(&self.unit))
     }
 }
 
@@ -1715,14 +1716,16 @@ pub enum ParseCompError {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Unicode {
     pub page: u32,
-    pub kws: Vec<NEString>,
+    pub kws: Vec<NoCommaNEString>,
 }
 
 impl<'a> ToDisplayNE<'a> for Unicode {
-    type NE = NEAlt<u32, NEConcat3<u32, char, NEDelim<&'a NESlice<NEString>>>>;
+    type NE = NEAlt<u32, NEConcat3<u32, char, NEDelim<&'a NESlice<ToNE<NoCommaNEString>>>>>;
     fn to_ne(&'a self) -> Self::NE {
         if let Some(kws) = NESlice::try_from_slice(&self.kws[..]) {
-            NEAlt::Right(NEConcat::new(self.page, ',').append(NEDelim::new(',', kws)))
+            NEAlt::Right(
+                NEConcat::new(self.page, ',').append(NEDelim::new(',', kws.wrap_ne_slice())),
+            )
         } else {
             NEAlt::Left(self.page)
         }
@@ -1743,7 +1746,7 @@ impl FromStrDelim for Unicode {
         if let Some(page) = iter.next().and_then(|x| x.parse().ok()) {
             let kws = iter
                 .map(str::parse)
-                .collect::<Result<Vec<NEString>, _>>()
+                .collect::<Result<Vec<NoCommaNEString>, _>>()
                 .map_err(|_| UnicodeError::EmptyKws)?;
             if kws.is_empty() {
                 Err(UnicodeError::Empty)
@@ -4880,7 +4883,7 @@ mod tests {
 mod python {
     use crate::text::display::LinearDisplay;
     use crate::text::keywords::ScaleFix;
-    use crate::validated::shortname::Shortname;
+    use crate::validated::shortname::{NoCommaNEString, Shortname};
 
     use super::{
         ByteOrd2_0, Calibration3_1, Calibration3_2, Display, IndexPair, OpticalScaleFix, Scale,
@@ -4962,14 +4965,14 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for Calibration3_1 {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let (slope, unit): (PositiveFloat, NEString) = obj.extract()?;
+            let (slope, unit): (PositiveFloat, NoCommaNEString) = obj.extract()?;
             Ok(Self { slope, unit })
         }
     }
 
     impl<'py> IntoPyObject<'py> for Calibration3_1 {
         type Target = PyTuple;
-        type Output = Bound<'py, <(PositiveFloat, NEString) as IntoPyObject<'py>>::Target>;
+        type Output = Bound<'py, <(PositiveFloat, NoCommaNEString) as IntoPyObject<'py>>::Target>;
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
@@ -4981,7 +4984,7 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for Calibration3_2 {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let (slope, offset, unit): (PositiveFloat, f32, NEString) = obj.extract()?;
+            let (slope, offset, unit): (PositiveFloat, f32, NoCommaNEString) = obj.extract()?;
             Ok(Self {
                 slope,
                 offset,
@@ -4992,7 +4995,8 @@ mod python {
 
     impl<'py> IntoPyObject<'py> for Calibration3_2 {
         type Target = PyTuple;
-        type Output = Bound<'py, <(PositiveFloat, f32, NEString) as IntoPyObject<'py>>::Target>;
+        type Output =
+            Bound<'py, <(PositiveFloat, f32, NoCommaNEString) as IntoPyObject<'py>>::Target>;
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
@@ -5004,14 +5008,14 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for Unicode {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let (page, kws): (u32, Vec<NEString>) = obj.extract()?;
+            let (page, kws): (u32, Vec<NoCommaNEString>) = obj.extract()?;
             Ok(Self { page, kws })
         }
     }
 
     impl<'py> IntoPyObject<'py> for Unicode {
         type Target = PyTuple;
-        type Output = Bound<'py, <(u32, Vec<NEString>) as IntoPyObject<'py>>::Target>;
+        type Output = Bound<'py, <(u32, Vec<NoCommaNEString>) as IntoPyObject<'py>>::Target>;
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {

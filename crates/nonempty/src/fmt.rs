@@ -2,6 +2,7 @@ use crate::{NESlice, NEStr, NEString, NEVec, NonEmptyArrayExt, NonEmptyIterator 
 
 use ambassador::delegatable_trait;
 use bigdecimal::BigDecimal;
+use bytemuck::TransparentWrapper;
 use derive_more::From;
 use derive_new::new;
 
@@ -23,7 +24,7 @@ impl<T: DisplayNE> fmt::Display for NEWrap<T> {
 }
 
 /// Allows a type with [`ToDisplayNE`] to be displayed with [`DisplayNE`].
-#[derive(From)]
+#[derive(From, TransparentWrapper)]
 #[repr(transparent)]
 pub struct ToNE<T>(pub T);
 

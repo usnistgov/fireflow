@@ -51,18 +51,34 @@ pub type StdKeyPatterns<const HAS_PRE: bool> = StdKeysOrPatterns<HAS_PRE, ()>;
 /// A list of substitutions that match [`StdKey`]s.
 pub type SubPatterns = StdKeysOrPatterns<true, SubPattern>;
 
-#[derive(From, Clone, PartialEq, Eq, Hash, Display, Debug)]
-#[display(bound(DollarWrap0<HAS_PRE, StdKey>: fmt::Display))]
-#[display(bound(DollarWrap0<HAS_PRE, StdIndexPattern>: fmt::Display))]
+#[derive(From, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum StdKeyOrPattern<const HAS_PRE: bool> {
     Key(DollarStdKey<HAS_PRE>),
     Pattern(StdIndexPattern<HAS_PRE>),
 }
 
+impl<const HAS_PRE: bool> fmt::Display for StdKeyOrPattern<HAS_PRE> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Key(x) => write!(f, "{x}"),
+            Self::Pattern(x) => {
+                // Manually add the dollar prefix rather than using the
+                // wrapper's display impl since we need the dollar to go inside
+                // the '/'...'/'.
+                let dollar = if HAS_PRE {
+                    char::from(STD_PREFIX).into()
+                } else {
+                    String::new()
+                };
+                write!(f, "{PATTERN_DELIMITER}{dollar}{}{PATTERN_DELIMITER}", x.0)
+            }
+        }
+    }
+}
+
 pub type StdIndexPattern<const HAS_PRE: bool> = DollarWrap<HAS_PRE, StdIndexPattern_>;
 
 #[derive(From, Clone, PartialEq, Eq, Hash, Display, Debug)]
-#[display("{PATTERN_DELIMITER}{_0}{PATTERN_DELIMITER}")]
 pub enum StdIndexPattern_ {
     Discrete(StdIndexedKeys),
     Wildcard(StdWildcard),
@@ -690,6 +706,84 @@ mod tests {
             let s = DollarWrap::<false, _>(RawStdKey::from(key)).to_string();
             assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
         }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_meas_wildcard(key in any::<NonPeakMeasKeyId>()) {
+            let suffix = key.suffix();
+            let s = format!("/$P[*]{suffix}/");
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_gate_wildcard(key in any::<GateKeyId>()) {
+            let suffix = key.suffix();
+            let s = format!("/$G[*]{suffix}/");
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_region_wildcard(key in any::<RegionKeyId>()) {
+            let suffix = key.suffix();
+            let s = format!("/$R[*]{suffix}/");
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
+    }
+
+    #[test]
+    fn std_pattern_csv_wildcard() {
+        let s = format!("/$CSV[*]FLAG/");
+        assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+    }
+
+    #[test]
+    fn std_pattern_dfc_wildcard() {
+        let s = format!("/$DFC[*]TO[*]/");
+        assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_meas_wildcard_nodollar(key in any::<NonPeakMeasKeyId>()) {
+            let suffix = key.suffix();
+            let s = format!("/P[*]{suffix}/");
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_gate_wildcard_nodollar(key in any::<GateKeyId>()) {
+            let suffix = key.suffix();
+            let s = format!("/G[*]{suffix}/");
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_region_wildcard_nodollar(key in any::<RegionKeyId>()) {
+            let suffix = key.suffix();
+            let s = format!("/R[*]{suffix}/");
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
+
+    #[test]
+    fn std_pattern_csv_wildcard_nodollar() {
+        let s = format!("/CSV[*]FLAG/");
+        assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+    }
+
+    #[test]
+    fn std_pattern_dfc_wildcard_nodollar() {
+        let s = format!("/DFC[*]TO[*]/");
+        assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
     }
 
     #[test]

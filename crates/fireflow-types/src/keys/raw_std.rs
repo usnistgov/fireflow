@@ -184,6 +184,7 @@ pub enum MeasKeyId {
 
 /// An identifier corresponding to a $Pn* keyword (sans peaks)
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "testutil", derive(Arbitrary))]
 pub enum NonPeakMeasKeyId {
     N,
     R,
@@ -209,6 +210,7 @@ pub enum NonPeakMeasKeyId {
 
 /// An identifier corresponding to a peak $Pn* keyword
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "testutil", derive(Arbitrary))]
 pub enum PeakMeasKeyId {
     Pk,
     Pkn,

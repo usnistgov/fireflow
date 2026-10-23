@@ -20,6 +20,7 @@ use num_traits::cast::ToPrimitive as _;
 use regex::Regex;
 use thiserror::Error;
 
+use std::cmp::Ordering;
 use std::mem;
 use std::str::FromStr;
 use std::sync::LazyLock;
@@ -336,7 +337,7 @@ pub struct ConfigFCSDateError(String);
 pub struct StdFCSDateError;
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
-#[derive(Clone, Copy, Eq, PartialOrd, From, Into, Debug)]
+#[derive(Clone, Copy, Eq, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 pub struct FCSTime(pub NaiveTime);
@@ -349,13 +350,25 @@ impl<'a> ToDisplayNE<'a> for FCSTime {
     }
 }
 
+// For Eq/Ord, only compare h/m/s and not subseconds to guarantee that any
+// non-zero subseconds. This must be done in both place to guarantee we won't
+// have any contradictions such as a == b && a > b being true.
+
 impl PartialEq for FCSTime {
     fn eq(&self, other: &Self) -> bool {
-        // ignore sub-seconds since these timestamps do not have this level of
-        // precision in FCS files
-        self.0.second() == other.0.second()
-            && self.0.minute() == other.0.minute()
-            && self.0.hour() == other.0.hour()
+        self.tuple() == other.tuple()
+    }
+}
+
+impl PartialOrd for FCSTime {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for FCSTime {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.tuple().cmp(&other.tuple())
     }
 }
 
@@ -366,6 +379,12 @@ impl FromStr for FCSTime {
         NaiveTime::parse_from_str(s, DEFAULT_TIME_FORMAT_2_0)
             .map(FCSTime)
             .or(Err(FCSTimeError))
+    }
+}
+
+impl FCSTime {
+    fn tuple(self) -> (u32, u32, u32) {
+        (self.0.hour(), self.0.minute(), self.0.second())
     }
 }
 
@@ -385,23 +404,46 @@ pub enum FCSFixedTimeError<E> {
 pub struct FCSTimeError;
 
 /// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
-#[derive(Clone, Copy, Eq, PartialOrd, From, Into, Debug)]
+#[derive(Clone, Copy, Eq, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 pub struct FCSTime60(pub NaiveTime);
 
+// For Eq/Ord, only compare h/m/s and not subseconds to guarantee that any
+// non-zero subseconds. This must be done in both place to guarantee we won't
+// have any contradictions such as a == b && a > b being true.
+
 impl PartialEq for FCSTime60 {
     fn eq(&self, other: &Self) -> bool {
-        // compare both timestamps with the precision used on disk when writing
-        // a file, which means we need to put in 1/60 seconds to truncate any
-        // extra precision the timestamps may have
-        let go = |s: &Self| u64::from(s.0.nanosecond()) * 60 / 1_000_000_000;
-        let cc0 = go(self);
-        let cc1 = go(other);
-        cc0 == cc1
-            && self.0.second() == other.0.second()
-            && self.0.minute() == other.0.minute()
-            && self.0.hour() == other.0.hour()
+        self.tuple() == other.tuple()
+    }
+}
+
+impl PartialOrd for FCSTime60 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for FCSTime60 {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.tuple().cmp(&other.tuple())
+    }
+}
+
+impl FCSTime60 {
+    fn tuple(self) -> (u32, u32, u32, u64) {
+        (
+            self.0.hour(),
+            self.0.minute(),
+            self.0.second(),
+            self.subseconds(),
+        )
+    }
+
+    fn subseconds(self) -> u64 {
+        // first mod is to filter out leap seconds
+        u64::from(self.0.nanosecond()) % 1_000_000_000 * 60 / 1_000_000_000
     }
 }
 
@@ -409,33 +451,43 @@ impl FromStr for FCSTime60 {
     type Err = FCSTime60Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NaiveTime::parse_from_str(s, BASE_TIME_FORMAT)
-            .or_else(|_| {
-                let xs = s.split(':').collect::<Vec<_>>();
-                match &xs[..] {
-                    [s1, s2, s3, s4] => {
-                        let hh: u32 = s1.parse().or(Err(FCSTime60Error))?;
-                        let mm: u32 = s2.parse().or(Err(FCSTime60Error))?;
-                        let ss: u32 = s3.parse().or(Err(FCSTime60Error))?;
-                        let tt: u32 = s4.parse().or(Err(FCSTime60Error))?;
-                        if tt > 59 {
-                            return Err(FCSTime60Error);
-                        }
-                        // Use ceiling to map 1/60 seconds to nanoseconds to exactly
-                        // mirror what we do in the Display impl where we use floor
+        if s.starts_with("24") || s.starts_with("23:60") | s.starts_with("23:59:60") {
+            // Pre-filter out these edge case since chrono will actually parse
+            // these and return as if they are valid (which they aren't or at
+            // least they shouldn't be in this context)
+            Err(FCSTime60Error)
+        } else if let Ok(ts) = NaiveTime::parse_from_str(s, BASE_TIME_FORMAT) {
+            Ok(Self(ts))
+        } else {
+            let xs = s.split(':').collect::<Vec<_>>();
+            match &xs[..] {
+                [s1, s2, s3, s4] => {
+                    let hh: u32 = s1.parse().or(Err(FCSTime60Error))?;
+                    let mm: u32 = s2.parse().or(Err(FCSTime60Error))?;
+                    let ss: u32 = s3.parse().or(Err(FCSTime60Error))?;
+                    let tt: u32 = s4.parse().or(Err(FCSTime60Error))?;
+                    if tt > 59 {
+                        Err(FCSTime60Error)
+                    } else {
+                        // Use ceiling to map 1/60 seconds to
+                        // nanoseconds to exactly mirror what we do in
+                        // the Display impl where we use floor
                         //
-                        // ASSUME this will not fail because we only allow 0-59
-                        // which will map exactly to f32. Also, multiplying by 1e6
-                        // should not overflow since the max exact integer of f32 is
-                        // 2^23 (~8e6)
+                        // ASSUME this will not fail because we only
+                        // allow 0-59 which will map exactly to f32.
+                        // Also, multiplying by 1e6 should not overflow
+                        // since the max exact integer of f32 is 2^23
+                        // (~8e6)
                         let nn = tt.to_f32().unwrap() * 1_000_000.0 / 60.0;
                         let nn_ = nn.ceil().to_u32().unwrap();
-                        NaiveTime::from_hms_micro_opt(hh, mm, ss, nn_).ok_or(FCSTime60Error)
+                        NaiveTime::from_hms_micro_opt(hh, mm, ss, nn_)
+                            .ok_or(FCSTime60Error)
+                            .map(Self)
                     }
-                    _ => Err(FCSTime60Error),
                 }
-            })
-            .map(FCSTime60)
+                _ => Err(FCSTime60Error),
+            }
+        }
     }
 }
 
@@ -444,7 +496,7 @@ impl<'a> ToDisplayNE<'a> for FCSTime60 {
     fn to_ne(&'a self) -> Self::NE {
         let mut s = NEString::try_from(self.0.format(BASE_TIME_FORMAT).to_string())
             .expect("time format should never be empty");
-        let cc = format!("{:02}", u64::from(self.0.nanosecond()) * 60 / 1_000_000_000);
+        let cc = format!("{:02}", self.subseconds());
         s.push(':');
         s.push_str(cc.as_str());
         s
@@ -461,23 +513,46 @@ impl<'a> ToDisplayNE<'a> for FCSTime60 {
 pub struct FCSTime60Error;
 
 /// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
-#[derive(Clone, Copy, Eq, PartialOrd, From, Into, Debug)]
+#[derive(Clone, Copy, Eq, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 pub struct FCSTime100(pub NaiveTime);
 
+// For Eq/Ord, only compare h/m/s and not subseconds to guarantee that any
+// non-zero subseconds. This must be done in both place to guarantee we won't
+// have any contradictions such as a == b && a > b being true.
+
 impl PartialEq for FCSTime100 {
     fn eq(&self, other: &Self) -> bool {
-        // compare both timestamps with the precision used on disk when writing
-        // a file, which means we need to put in centiseconds to truncate any
-        // extra precision the timestamps may have
-        let go = |s: &Self| s.0.nanosecond() / 10_000_000;
-        let cc0 = go(self);
-        let cc1 = go(other);
-        cc0 == cc1
-            && self.0.second() == other.0.second()
-            && self.0.minute() == other.0.minute()
-            && self.0.hour() == other.0.hour()
+        self.tuple() == other.tuple()
+    }
+}
+
+impl PartialOrd for FCSTime100 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for FCSTime100 {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.tuple().cmp(&other.tuple())
+    }
+}
+
+impl FCSTime100 {
+    fn tuple(self) -> (u32, u32, u32, u64) {
+        (
+            self.0.hour(),
+            self.0.minute(),
+            self.0.second(),
+            self.centiseconds(),
+        )
+    }
+
+    fn centiseconds(self) -> u64 {
+        // first mod is to filter out leap seconds
+        u64::from(self.0.nanosecond()) % 1_000_000_000 / 10_000_000
     }
 }
 
@@ -485,21 +560,28 @@ impl FromStr for FCSTime100 {
     type Err = FCSTime100Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NaiveTime::parse_from_str(s, BASE_TIME_FORMAT)
-            .or_else(|_| {
-                static RE: LazyLock<Regex> = LazyLock::new(|| {
-                    Regex::new(r"^([0-9]{2}):([0-9]{2}):([0-9]{2})\.([0-9]{2})$").unwrap()
-                });
-                let cap = RE.captures(s).ok_or(FCSTime100Error)?;
-                let [s1, s2, s3, s4] = cap.extract().1;
-                // ASSUME these will never fail because we matched only digits above
-                let hh: u32 = s1.parse().unwrap();
-                let mm: u32 = s2.parse().unwrap();
-                let ss: u32 = s3.parse().unwrap();
-                let tt: u32 = s4.parse().unwrap();
-                NaiveTime::from_hms_milli_opt(hh, mm, ss, tt * 10).ok_or(FCSTime100Error)
-            })
-            .map(FCSTime100)
+        if s.starts_with("24") || s.starts_with("23:60") | s.starts_with("23:59:60") {
+            // Pre-filter out these edge case since chrono will actually parse
+            // these and return as if they are valid (which they aren't or at
+            // least they shouldn't be in this context)
+            Err(FCSTime100Error)
+        } else if let Ok(ts) = NaiveTime::parse_from_str(s, BASE_TIME_FORMAT) {
+            Ok(Self(ts))
+        } else {
+            static RE: LazyLock<Regex> = LazyLock::new(|| {
+                Regex::new(r"^([0-9]{2}):([0-9]{2}):([0-9]{2})\.([0-9]{2})$").unwrap()
+            });
+            let cap = RE.captures(s).ok_or(FCSTime100Error)?;
+            let [s1, s2, s3, s4] = cap.extract().1;
+            // ASSUME these will never fail because we matched only digits above
+            let hh: u32 = s1.parse().unwrap();
+            let mm: u32 = s2.parse().unwrap();
+            let ss: u32 = s3.parse().unwrap();
+            let tt: u32 = s4.parse().unwrap();
+            NaiveTime::from_hms_milli_opt(hh, mm, ss, tt * 10)
+                .ok_or(FCSTime100Error)
+                .map(Self)
+        }
     }
 }
 
@@ -508,7 +590,7 @@ impl<'a> ToDisplayNE<'a> for FCSTime100 {
     fn to_ne(&'a self) -> Self::NE {
         let mut s = NEString::try_from(self.0.format(BASE_TIME_FORMAT).to_string())
             .expect("time format should never be empty");
-        let cc = format!("{:02}", self.0.nanosecond() / 10_000_000);
+        let cc = format!("{:02}", self.centiseconds());
         s.push('.');
         s.push_str(cc.as_str());
         s
@@ -628,8 +710,26 @@ mod tests {
     }
 
     #[test]
-    fn str_timestamps3_0_overflow() {
+    fn str_timestamps3_0_overflow_subseconds() {
         assert_eq!("23:58:00:60".parse::<FCSTime60>(), Err(FCSTime60Error));
+    }
+
+    #[test]
+    fn str_timestamps3_0_overflow_seconds_long() {
+        assert_eq!("23:59:60".parse::<FCSTime60>(), Err(FCSTime60Error));
+        assert_eq!("23:59:60:00".parse::<FCSTime60>(), Err(FCSTime60Error));
+    }
+
+    #[test]
+    fn str_timestamps3_0_overflow_minutes_long() {
+        assert_eq!("23:60:00".parse::<FCSTime60>(), Err(FCSTime60Error));
+        assert_eq!("23:60:00:00".parse::<FCSTime60>(), Err(FCSTime60Error));
+    }
+
+    #[test]
+    fn str_timestamps3_0_overflow_hours() {
+        assert_eq!("24:00:00".parse::<FCSTime60>(), Err(FCSTime60Error));
+        assert_eq!("24:00:00:00".parse::<FCSTime60>(), Err(FCSTime60Error));
     }
 
     proptest! {
@@ -646,6 +746,24 @@ mod tests {
     #[test]
     fn str_timestamps3_1_overflow() {
         assert_eq!("23:58:00.100".parse::<FCSTime100>(), Err(FCSTime100Error));
+    }
+
+    #[test]
+    fn str_timestamps3_1_overflow_seconds_long() {
+        assert_eq!("23:59:60".parse::<FCSTime100>(), Err(FCSTime100Error));
+        assert_eq!("23:59:60.00".parse::<FCSTime100>(), Err(FCSTime100Error));
+    }
+
+    #[test]
+    fn str_timestamps3_1_overflow_minutes_long() {
+        assert_eq!("23:60:00".parse::<FCSTime100>(), Err(FCSTime100Error));
+        assert_eq!("23:60:00.00".parse::<FCSTime100>(), Err(FCSTime100Error));
+    }
+
+    #[test]
+    fn str_timestamps3_1_overflow_hours() {
+        assert_eq!("24:00:00".parse::<FCSTime100>(), Err(FCSTime100Error));
+        assert_eq!("24:00:00.00".parse::<FCSTime100>(), Err(FCSTime100Error));
     }
 }
 

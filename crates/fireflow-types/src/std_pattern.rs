@@ -584,7 +584,7 @@ mod serialize {
     }
 }
 
-#[cfg(all(test, feature = "testutil"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -741,14 +741,14 @@ mod tests {
 
     #[test]
     fn std_pattern_csv_wildcard() {
-        let s = format!("/$CSV[*]FLAG/");
-        assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        let s = "/$CSV[*]FLAG/";
+        assert_from_to_str::<StdKeyOrPattern<true>>(s);
     }
 
     #[test]
     fn std_pattern_dfc_wildcard() {
-        let s = format!("/$DFC[*]TO[*]/");
-        assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        let s = "/$DFC[*]TO[*]/";
+        assert_from_to_str::<StdKeyOrPattern<true>>(s);
     }
 
     proptest! {
@@ -776,6 +776,18 @@ mod tests {
             let s = format!("/R[*]{suffix}/");
             assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
         }
+    }
+
+    #[test]
+    fn std_pattern_csv_wildcard_nodollar() {
+        let s = "/CSV[*]FLAG/";
+        assert_from_to_str::<StdKeyOrPattern<false>>(s);
+    }
+
+    #[test]
+    fn std_pattern_dfc_wildcard_nodollar() {
+        let s = "/DFC[*]TO[*]/";
+        assert_from_to_str::<StdKeyOrPattern<false>>(s);
     }
 
     // explicit patterns

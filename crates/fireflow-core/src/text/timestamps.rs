@@ -459,33 +459,36 @@ impl FromStr for FCSTime60 {
         } else if let Ok(ts) = NaiveTime::parse_from_str(s, BASE_TIME_FORMAT) {
             Ok(Self(ts))
         } else {
-            let xs = s.split(':').collect::<Vec<_>>();
-            match &xs[..] {
-                [s1, s2, s3, s4] => {
-                    let hh: u32 = s1.parse().or(Err(FCSTime60Error))?;
-                    let mm: u32 = s2.parse().or(Err(FCSTime60Error))?;
-                    let ss: u32 = s3.parse().or(Err(FCSTime60Error))?;
-                    let tt: u32 = s4.parse().or(Err(FCSTime60Error))?;
-                    if tt > 59 {
-                        Err(FCSTime60Error)
-                    } else {
-                        // Use ceiling to map 1/60 seconds to
-                        // nanoseconds to exactly mirror what we do in
-                        // the Display impl where we use floor
-                        //
-                        // ASSUME this will not fail because we only
-                        // allow 0-59 which will map exactly to f32.
-                        // Also, multiplying by 1e6 should not overflow
-                        // since the max exact integer of f32 is 2^23
-                        // (~8e6)
-                        let nn = tt.to_f32().unwrap() * 1_000_000.0 / 60.0;
-                        let nn_ = nn.ceil().to_u32().unwrap();
-                        NaiveTime::from_hms_micro_opt(hh, mm, ss, nn_)
-                            .ok_or(FCSTime60Error)
-                            .map(Self)
-                    }
-                }
-                _ => Err(FCSTime60Error),
+            let mut it = s.split(':');
+            if let (Some(s1), Some(s2), Some(s3), Some(s4), None) = (
+                it.by_ref().next(),
+                it.by_ref().next(),
+                it.by_ref().next(),
+                it.by_ref().next(),
+                it.next(),
+            ) && s4.len() == 2
+                && let Ok(hh) = s1.parse::<u32>()
+                && let Ok(mm) = s2.parse::<u32>()
+                && let Ok(ss) = s3.parse::<u32>()
+                && let Ok(tt) = s4.parse::<u32>()
+                && tt < 60
+            {
+                // Use ceiling to map 1/60 seconds to
+                // nanoseconds to exactly mirror what we do in
+                // the Display impl where we use floor
+                //
+                // ASSUME this will not fail because we only
+                // allow 0-59 which will map exactly to f32.
+                // Also, multiplying by 1e6 should not overflow
+                // since the max exact integer of f32 is 2^23
+                // (~8e6)
+                let nn = tt.to_f32().unwrap() * 1_000_000.0 / 60.0;
+                let nn_ = nn.ceil().to_u32().unwrap();
+                NaiveTime::from_hms_micro_opt(hh, mm, ss, nn_)
+                    .ok_or(FCSTime60Error)
+                    .map(Self)
+            } else {
+                Err(FCSTime60Error)
             }
         }
     }
@@ -560,6 +563,9 @@ impl FromStr for FCSTime100 {
     type Err = FCSTime100Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"^([0-9]{2}):([0-9]{2}):([0-9]{2})\.([0-9]{2})$").unwrap()
+        });
         if s.starts_with("24") || s.starts_with("23:60") | s.starts_with("23:59:60") {
             // Pre-filter out these edge case since chrono will actually parse
             // these and return as if they are valid (which they aren't or at
@@ -567,12 +573,7 @@ impl FromStr for FCSTime100 {
             Err(FCSTime100Error)
         } else if let Ok(ts) = NaiveTime::parse_from_str(s, BASE_TIME_FORMAT) {
             Ok(Self(ts))
-        } else {
-            static RE: LazyLock<Regex> = LazyLock::new(|| {
-                Regex::new(r"^([0-9]{2}):([0-9]{2}):([0-9]{2})\.([0-9]{2})$").unwrap()
-            });
-            let cap = RE.captures(s).ok_or(FCSTime100Error)?;
-            let [s1, s2, s3, s4] = cap.extract().1;
+        } else if let Some([s1, s2, s3, s4]) = RE.captures(s).map(|cap| cap.extract().1) {
             // ASSUME these will never fail because we matched only digits above
             let hh: u32 = s1.parse().unwrap();
             let mm: u32 = s2.parse().unwrap();
@@ -581,6 +582,8 @@ impl FromStr for FCSTime100 {
             NaiveTime::from_hms_milli_opt(hh, mm, ss, tt * 10)
                 .ok_or(FCSTime100Error)
                 .map(Self)
+        } else {
+            Err(FCSTime100Error)
         }
     }
 }
@@ -710,6 +713,11 @@ mod tests {
     }
 
     #[test]
+    fn str_timestamps3_0_too_few_digits() {
+        assert_eq!("23:58:00:1".parse::<FCSTime60>(), Err(FCSTime60Error));
+    }
+
+    #[test]
     fn str_timestamps3_0_overflow_subseconds() {
         assert_eq!("23:58:00:60".parse::<FCSTime60>(), Err(FCSTime60Error));
     }
@@ -741,6 +749,11 @@ mod tests {
         {
             assert_from_to_str::<FCSTime100>(s.as_str());
         }
+    }
+
+    #[test]
+    fn str_timestamps3_1_too_few_digits() {
+        assert_eq!("23:58:00.1".parse::<FCSTime100>(), Err(FCSTime100Error));
     }
 
     #[test]

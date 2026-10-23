@@ -1382,34 +1382,39 @@ impl FromStrWith for LastModified {
 
     fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         if let Some(pat) = conf.last_modified_pattern.as_ref() {
-            return NaiveDateTime::parse_from_str(s.as_ref(), pat.as_str())
+            NaiveDateTime::parse_from_str(s.as_ref(), pat.as_str())
                 .map(Self)
                 .map(|x| Diagnosed::new(x, Some(pat.clone())))
-                .map_err(|_| LastModifiedError::AltFormat(pat.to_owned()));
-        }
-        let mut it = s.as_str().split('.');
-        let (t, cc) = match (it.by_ref().next(), it.by_ref().next(), it.next()) {
-            (Some(t), None, None) => (t, ""),
-            (Some(t), Some(cc), None) => (t, cc),
-            _ => return Err(LastModifiedError::Format),
-        };
-        NaiveDateTime::parse_from_str(t, DATETIME_FMT)
-            .or(Err(LastModifiedError::Format))
-            .and_then(|dt| {
-                if cc.is_empty() {
-                    Ok(dt)
-                } else {
-                    let tt = cc.parse::<u32>().or(Err(LastModifiedError::Format))?;
-                    if tt > 100 {
-                        Err(LastModifiedError::Format)
+                .map_err(|_| LastModifiedError::AltFormat(pat.to_owned()))
+        } else if s.as_str().contains("23:59:60")
+            || s.as_str().contains("23:60:00")
+            || s.as_str().contains("24:00:00")
+        {
+            // Filter out overflow times that chrono may parse as valid even
+            // though they don't make sense
+            Err(LastModifiedError::Format)
+        } else {
+            let mut it = s.as_str().split('.');
+            if let (Some(t), s1, None) = (it.by_ref().next(), it.by_ref().next(), it.next())
+                && let Ok(dt) = NaiveDateTime::parse_from_str(t, DATETIME_FMT)
+            {
+                if let Some(cc) = s1 {
+                    if cc.len() == 2
+                        && let Ok(tt) = cc.parse::<u32>()
+                        && tt < 100
+                        && let Some(dtn) = dt.with_nanosecond(tt * 10_000_000)
+                    {
+                        Ok(Diagnosed::new(Self(dtn), None))
                     } else {
-                        dt.with_nanosecond(tt * 10_000_000)
-                            .ok_or(LastModifiedError::Format)
+                        Err(LastModifiedError::Format)
                     }
+                } else {
+                    Ok(Diagnosed::new(Self(dt), None))
                 }
-            })
-            .map(Self)
-            .map(|x| Diagnosed::new(x, None))
+            } else {
+                Err(LastModifiedError::Format)
+            }
+        }
     }
 }
 
@@ -4274,6 +4279,37 @@ mod tests {
         );
         conf.last_modified_pattern = Some("%d-%b-%Y %H:%M".into());
         assert_from_to_str_almost_with::<LastModified>(v, "01-Jan-2112 00:00:00.00", (), &conf);
+    }
+
+    fn assert_last_modified_format_error(v: &NEStr) {
+        let conf = EvaledReadStdKeywordsConfig::default();
+        assert_matches!(
+            LastModified::from_str_with(v, (), &conf),
+            Err(LastModifiedError::Format)
+        );
+    }
+
+    #[test]
+    fn last_modified_too_few_digits() {
+        assert_last_modified_format_error(ne_str!("01-Jan-2112 00:00:00.1"));
+    }
+
+    #[test]
+    fn last_modified_overflow_seconds() {
+        assert_last_modified_format_error(ne_str!("01-Jan-2112 23:59:60"));
+        assert_last_modified_format_error(ne_str!("01-Jan-2112 23:59:60.00"));
+    }
+
+    #[test]
+    fn last_modified_overflow_minutes() {
+        assert_last_modified_format_error(ne_str!("01-Jan-2112 23:60:00"));
+        assert_last_modified_format_error(ne_str!("01-Jan-2112 23:60:00.00"));
+    }
+
+    #[test]
+    fn last_modified_overflow_hours() {
+        assert_last_modified_format_error(ne_str!("01-Jan-2112 24:00:00"));
+        assert_last_modified_format_error(ne_str!("01-Jan-2112 24:00:00.00"));
     }
 
     #[test]

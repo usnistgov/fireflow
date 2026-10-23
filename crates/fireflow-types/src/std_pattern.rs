@@ -547,7 +547,7 @@ const CSV_FLAG_PATTERN: &str = formatcp!("^CSV{INDEX_PATTERN}FLAG$");
 
 const DFC_PATTERN: &str = formatcp!("^DFC{INDEX_PATTERN}TO{INDEX_PATTERN}$");
 
-const INDEX_PATTERN: &str = "\\[([0-9,-\\\\*]+)\\]";
+const INDEX_PATTERN: &str = "\\[([0-9,\\\\*-]+)\\]";
 
 #[cfg(feature = "serde")]
 mod serialize {

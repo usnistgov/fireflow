@@ -152,7 +152,7 @@ pub enum StdKeyOrPatternError {
 /// Error when parsing [`StdIndexPattern`] from [`String`].
 #[derive(Debug, Error, PartialEq, Clone)]
 #[error(
-    "could make indexed standard key pattern, must be like \
+    "could not make indexed standard key pattern, must be like \
      '<prefix>[x0-x1]<suffix>' or '<prefix>[x0-x1]<middle>[y0-y1]<suffix>'"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

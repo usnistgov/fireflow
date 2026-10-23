@@ -612,6 +612,8 @@ mod tests {
         }
     }
 
+    // literal matchers
+
     proptest! {
         #[test]
         fn std_pattern_root_dollar(key in any::<RootKey>()) {
@@ -708,6 +710,8 @@ mod tests {
         }
     }
 
+    // wildcard patterns
+
     proptest! {
         #[test]
         fn std_pattern_meas_wildcard(key in any::<NonPeakMeasKeyId>()) {
@@ -774,17 +778,127 @@ mod tests {
         }
     }
 
-    #[test]
-    fn std_pattern_csv_wildcard_nodollar() {
-        let s = format!("/CSV[*]FLAG/");
-        assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+    // explicit patterns
+
+    proptest! {
+        #[test]
+        fn std_pattern_meas_explicit(key in any::<NonPeakMeasKeyId>(), i in 1_usize..1000) {
+            let suffix = key.suffix();
+            let s = format!("/$P[{i}]{suffix}/");
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
     }
 
-    #[test]
-    fn std_pattern_dfc_wildcard_nodollar() {
-        let s = format!("/DFC[*]TO[*]/");
-        assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+    proptest! {
+        #[test]
+        fn std_pattern_gate_explicit(key in any::<GateKeyId>(), i in 1_usize..1000) {
+            let suffix = key.suffix();
+            let s = format!("/$G[{i}]{suffix}/");
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
     }
+
+    proptest! {
+        #[test]
+        fn std_pattern_region_explicit(key in any::<RegionKeyId>(), i in 1_usize..1000) {
+            let suffix = key.suffix();
+            let s = format!("/$R[{i}]{suffix}/");
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_csv_explicit(i in 1_usize..1000) {
+            let s = format!("/$CSV[{i}]FLAG/");
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_dfc_explicit0(i in 1_usize..1000) {
+            let s = format!("/$DFC[{i}]TO[*]/");
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_dfc_explicit1(i in 1_usize..1000) {
+            let s = format!("/$DFC[*]TO[{i}]/");
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_dfc_explicit01(i in 1_usize..1000, j in 1_usize..1000) {
+            let s = format!("/$DFC[{i}]TO[{j}]/");
+            assert_from_to_str::<StdKeyOrPattern<true>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_meas_explicit_nodollar(key in any::<NonPeakMeasKeyId>(), i in 1_usize..1000) {
+            let suffix = key.suffix();
+            let s = format!("/P[{i}]{suffix}/");
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_gate_explicit_nodollar(key in any::<GateKeyId>(), i in 1_usize..1000) {
+            let suffix = key.suffix();
+            let s = format!("/G[{i}]{suffix}/");
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_region_explicit_nodollar(key in any::<RegionKeyId>(), i in 1_usize..1000) {
+            let suffix = key.suffix();
+            let s = format!("/R[{i}]{suffix}/");
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_csv_explicit_nodollar(i in 1_usize..1000) {
+            let s = format!("/CSV[{i}]FLAG/");
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_dfc_explicit_nodollar(i in 1_usize..1000) {
+            let s = format!("/DFC[{i}]TO[*]/");
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_dfc_explicit1_nodollar(i in 1_usize..1000) {
+            let s = format!("/DFC[*]TO[{i}]/");
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn std_pattern_dfc_explicit01_nodollar(i in 1_usize..1000, j in 1_usize..1000) {
+            let s = format!("/DFC[{i}]TO[{j}]/");
+            assert_from_to_str::<StdKeyOrPattern<false>>(s.as_str());
+        }
+    }
+
+    // index tests
 
     #[test]
     fn str_indices1() {

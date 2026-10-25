@@ -6264,7 +6264,7 @@ pub fn impl_new_single_uint_data_schema(input: TokenStream) -> TokenStream {
     let width_param = DocArg::new_byte_width_ivar();
     let is_big_param = DocArgROIvar::new_endian_param();
 
-    let doc = DocString::new_class("A mixed-width integer data schema.")
+    let doc = DocString::new_class("A single-width integer data schema.")
         .arg(ranges_param)
         .arg(width_param)
         .arg(is_big_param);

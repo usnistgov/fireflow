@@ -312,20 +312,17 @@ impl TEXTReader {
         let remaining = next_dataset_abs_offset
             .checked_sub(abs_crc_start)
             .expect("CRC start should be within dataset boundaries");
+        let to_read = remaining.min(CRC_LEN.into());
         let buf = match &mut self.inner {
             AnyReader::Buffered(r) => {
                 r.seek(io::SeekFrom::Start(abs_crc_start))?;
                 let mut buf = vec![];
-                // If the file is shorter for some reason this will return fewer
-                // bytes than either remaining or CRC_LEN, but we check later so
-                // this should turn into an error if it happens.
-                r.take(remaining.min(CRC_LEN.into()))
-                    .read_to_end(&mut buf)?;
+                r.take(to_read).read_to_end(&mut buf)?;
                 buf
             }
             AnyReader::Mmap(r) => {
                 let p0 = abs_crc_start.u64_to_usize();
-                let p1 = p0 + remaining.u64_to_usize();
+                let p1 = p0 + to_read.u64_to_usize();
                 r.as_ref()[p0..p1].to_vec()
             }
         };

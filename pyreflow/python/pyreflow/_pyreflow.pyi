@@ -536,7 +536,6 @@ class _CoreTEXTRemove2_0:
         Optical2_0 | Temporal2_0,
         pft.Range,
         pft.OpticalScale2_0,
-        pft.ByteWidth | None,
     ]: ...
     def remove_measurement_by_index(
         self, index: pft.MeasIndex
@@ -545,7 +544,6 @@ class _CoreTEXTRemove2_0:
         Optical2_0 | Temporal2_0,
         pft.Range,
         pft.OpticalScale2_0,
-        pft.ByteWidth | None,
     ]: ...
 
 class _CoreTEXTRemove3_0:
@@ -556,7 +554,6 @@ class _CoreTEXTRemove3_0:
         Optical3_0 | Temporal3_0,
         pft.Range,
         pft.OpticalScale3_0 | None,
-        pft.ByteWidth | None,
     ]: ...
     def remove_measurement_by_index(
         self, index: pft.MeasIndex
@@ -565,7 +562,6 @@ class _CoreTEXTRemove3_0:
         Optical3_0 | Temporal3_0,
         pft.Range,
         pft.OpticalScale3_0 | None,
-        pft.ByteWidth | None,
     ]: ...
 
 class _CoreTEXTRemove3_1:

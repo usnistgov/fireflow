@@ -3927,7 +3927,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
     let version = split_ident_version_pycore(&ident).1;
 
     let make_doc = |has_timestep: bool, has_index: bool| {
-        let name = DocArg::new_name_param("Name to set to temporal.");
+        let name = DocArg::new_name_param("Name to set to temporal.", false);
         let index = DocArg::new_param("index", PyAlias::new_meas_index(), "Index to set.");
         let (i, p) = if has_index {
             ("index", index)
@@ -4078,7 +4078,7 @@ pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
     let exc =
         PyException::new_pyreflow(PyreflowError::Relational).desc("if name is already present");
     let doc = DocString::new_method("Rename temporal measurement if present.")
-        .arg(DocArg::new_name_param("New name to assign."))
+        .arg(DocArg::new_name_param("New name to assign.", false))
         .returns(
             DocReturn::new(PyOpt::new1(PyAlias::new_shortname()))
                 .desc("Previous name if present.")
@@ -4267,7 +4267,7 @@ pub fn impl_core_get_named_measurement(input: TokenStream) -> TokenStream {
 
     let exc = PyException::new_key().desc(format!("If {name} not found", name = arg("name")));
     let doc = DocString::new_method("Return measurement with name.")
-        .arg(DocArg::new_name_param("Name to retrieve."))
+        .arg(DocArg::new_name_param("Name to retrieve.", false))
         .returns(DocReturn::new(PyUnion::new_measurement(version)).exc([exc]));
 
     let fun_args = doc.fun_args();
@@ -4344,8 +4344,9 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
         let col_param = hasdata.then_some(DocArg::new_col_param());
         let scale_param = is_optical.then(|| DocArg::new_scale_param(version));
         let summary = format!("Push {what} measurement to end of measurement vector.");
+        let optional = version < Version::FCS3_1 && is_optical;
         DocString::new_method(summary)
-            .arg(DocArg::new_name_param("Name of new measurement."))
+            .arg(DocArg::new_name_param("Name of new measurement.", optional))
             .arg(param_meas)
             .arg(rng.clone())
             .args(col_param)
@@ -4460,7 +4461,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     };
 
     let by_name_doc = DocString::new_method("Remove a measurement with a given name.")
-        .arg(DocArg::new_name_param("Name to remove."))
+        .arg(DocArg::new_name_param("Name to remove.", false))
         .returns(make_ret(false));
 
     let by_index_doc = DocString::new_method("Remove a measurement with a given index.")
@@ -4578,11 +4579,12 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
         let col_param = hasdata.then(DocArg::new_col_param);
         let scale_param = is_optical.then(|| DocArg::new_scale_param(version));
         let summary = format!("Insert {what} measurement at position in measurement vector.");
+        let optional = version < Version::FCS3_1 && is_optical;
         DocString::new_method(summary)
             .arg(DocArg::new_index_param(
                 "Position at which to insert new measurement.",
             ))
-            .arg(DocArg::new_name_param("Name of new measurement."))
+            .arg(DocArg::new_name_param("Name of new measurement.", optional))
             .arg(param_meas)
             .arg(rng.clone())
             .args(col_param)
@@ -4669,7 +4671,7 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
             )
         } else {
             (
-                DocArg::new_name_param("Name to replace."),
+                DocArg::new_name_param("Name to replace.", false),
                 "named measurement",
                 PyException::new_key(),
             )
@@ -4759,7 +4761,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
             )
         } else {
             (
-                DocArg::new_name_param("Name to replace."),
+                DocArg::new_name_param("Name to replace.", false),
                 "named measurement",
                 PyException::new_key(),
             )
@@ -10339,9 +10341,14 @@ impl DocArgParam {
         Self::new_param("col", PyClass::new_series(), d)
     }
 
-    fn new_name_param(short_desc: &str) -> Self {
+    fn new_name_param(short_desc: &str, optional: bool) -> Self {
+        let pt = if optional {
+            PyOpt::new1(PyAlias::new_shortname()).into()
+        } else {
+            PyType::from(PyAlias::new_shortname())
+        };
         let desc = format!("{short_desc} Corresponds to {PNN}.");
-        Self::new_param("name", PyAlias::new_shortname(), desc)
+        Self::new_param("name", pt, desc)
     }
 
     fn new_any_range_param(version: Version) -> Self {

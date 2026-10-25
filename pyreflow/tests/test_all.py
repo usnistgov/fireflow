@@ -2378,6 +2378,100 @@ class TestCore:
     # into weirder layouts as well
 
     @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("text_2_0", "blank_optical_2_0"),
+                ("text_3_0", "blank_optical_3_0"),
+            ]
+        ],
+    )
+    def test_text_push_optical_noname(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0,
+        optical: Any,
+    ) -> None:
+        """Test float schema insertion.
+
+        Schema should not change when inserting a decimal range.
+        """
+        core.data_schema = pf.OrderedF32DataSchema([9001.0])
+        core.push_optical(None, optical, 9001)
+        assert isinstance(core.measurement_at(1), type(optical))
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("dataset_2_0", "blank_optical_2_0"),
+                ("dataset_3_0", "blank_optical_3_0"),
+            ]
+        ],
+    )
+    def test_dataset_push_optical_noname(
+        self,
+        core: pf.CoreDataset2_0 | pf.CoreDataset3_0,
+        optical: Any,
+        series1: pl.Series,
+    ) -> None:
+        """Test float schema insertion.
+
+        Schema should not change when inserting a decimal range.
+        """
+        core.data_schema = pf.OrderedF32DataSchema([9001.0])
+        core.push_optical(None, optical, 9001, series1)
+        assert isinstance(core.measurement_at(1), type(optical))
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("text_2_0", "blank_optical_2_0"),
+                ("text_3_0", "blank_optical_3_0"),
+            ]
+        ],
+    )
+    def test_text_insert_optical_noname(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0,
+        optical: Any,
+    ) -> None:
+        """Test float schema insertion.
+
+        Schema should not change when inserting a decimal range.
+        """
+        core.data_schema = pf.OrderedF32DataSchema([9001.0])
+        core.insert_optical(0, None, optical, 9001)
+        assert isinstance(core.measurement_at(1), type(optical))
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("dataset_2_0", "blank_optical_2_0"),
+                ("dataset_3_0", "blank_optical_3_0"),
+            ]
+        ],
+    )
+    def test_dataset_insert_optical_noname(
+        self,
+        core: pf.CoreDataset2_0 | pf.CoreDataset3_0,
+        optical: Any,
+        series1: pl.Series,
+    ) -> None:
+        """Test float schema insertion.
+
+        Schema should not change when inserting a decimal range.
+        """
+        core.data_schema = pf.OrderedF32DataSchema([9001.0])
+        core.insert_optical(0, None, optical, 9001, series1)
+        assert isinstance(core.measurement_at(1), type(optical))
+
+    @pytest.mark.parametrize(
         "core, optical, data_schema",
         [
             (lazy_fixture(c), lazy_fixture(o), t)

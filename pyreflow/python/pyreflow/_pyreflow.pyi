@@ -615,8 +615,8 @@ class _CoreDatasetRemove2_0:
         pft.MeasIndex,
         Optical2_0 | Temporal2_0,
         Series,
-        pft.OpticalScale2_0,
         pft.Range,
+        pft.OpticalScale2_0,
     ]: ...
     def remove_measurement_by_index(
         self, index: pft.MeasIndex
@@ -624,8 +624,8 @@ class _CoreDatasetRemove2_0:
         pft.Shortname | None,
         Optical2_0 | Temporal2_0,
         Series,
-        pft.OpticalScale2_0,
         pft.Range,
+        pft.OpticalScale2_0,
     ]: ...
 
 class _CoreDatasetRemove3_0:
@@ -635,8 +635,8 @@ class _CoreDatasetRemove3_0:
         pft.MeasIndex,
         Optical3_0 | Temporal3_0,
         Series,
-        pft.OpticalScale3_0 | None,
         pft.Range,
+        pft.OpticalScale3_0 | None,
     ]: ...
     def remove_measurement_by_index(
         self, index: pft.MeasIndex
@@ -644,8 +644,8 @@ class _CoreDatasetRemove3_0:
         pft.Shortname | None,
         Optical3_0 | Temporal3_0,
         Series,
-        pft.OpticalScale3_0 | None,
         pft.Range,
+        pft.OpticalScale3_0 | None,
     ]: ...
 
 class _CoreDatasetRemove3_1:

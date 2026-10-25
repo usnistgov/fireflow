@@ -1729,19 +1729,22 @@ class TestCore:
         assert core.temporal[1] == LINK_NAME1
 
     @pytest.mark.parametrize(
-        "core, optical",
+        "core, optical, scale",
         [
-            (lazy_fixture(c), o)
-            for c, o in [
-                ("text_2_0", pf.Optical2_0),
-                ("text_3_0", pf.Optical3_0),
-                ("text_3_1", pf.Optical3_1),
-                ("text_3_2", pf.Optical3_2),
+            (lazy_fixture(c), o, s)
+            for c, o, s in [
+                ("text_2_0", pf.Optical2_0, ()),
+                ("text_3_0", pf.Optical3_0, 1.0),
+                ("text_3_1", pf.Optical3_1, 1.0),
+                ("text_3_2", pf.Optical3_2, 1.0),
             ]
         ],
     )
     def test_text_remove_uint_meas_by_name(
-        self, core: AnyCoreTEXT, optical: type
+        self,
+        core: AnyCoreTEXT,
+        optical: type,
+        scale: Any,
     ) -> None:
         """Test removing measurement from integer data schema by name (TEXT)."""
         assert len(core.measurements) == 1
@@ -1749,24 +1752,28 @@ class TestCore:
         assert ret[0] == 0
         assert isinstance(ret[1], optical)
         assert ret[2] == 9001
+        assert ret[3] == scale
         assert len(core.measurements) == 0
         with pytest.raises(KeyError):
             core.remove_measurement_by_name(LINK_NAME1)
 
     @pytest.mark.parametrize(
-        "core, optical",
+        "core, optical, scale",
         [
-            (lazy_fixture(c), o)
-            for c, o in [
-                ("dataset_2_0", pf.Optical2_0),
-                ("dataset_3_0", pf.Optical3_0),
-                ("dataset_3_1", pf.Optical3_1),
-                ("dataset_3_2", pf.Optical3_2),
+            (lazy_fixture(c), o, s)
+            for c, o, s in [
+                ("dataset_2_0", pf.Optical2_0, ()),
+                ("dataset_3_0", pf.Optical3_0, 1.0),
+                ("dataset_3_1", pf.Optical3_1, 1.0),
+                ("dataset_3_2", pf.Optical3_2, 1.0),
             ]
         ],
     )
     def test_dataset_remove_uint_meas_by_name(
-        self, core: AnyCoreDataset, optical: type
+        self,
+        core: AnyCoreDataset,
+        optical: type,
+        scale: Any,
     ) -> None:
         """Test removing measurement from integer data schema by name (Dataset)."""
         assert len(core.measurements) == 1
@@ -1775,24 +1782,28 @@ class TestCore:
         assert isinstance(ret[1], optical)
         assert ret[2].equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
         assert ret[3] == 9001
+        assert ret[4] == scale
         assert len(core.measurements) == 0
         with pytest.raises(KeyError):
             core.remove_measurement_by_name(LINK_NAME1)
 
     @pytest.mark.parametrize(
-        "core, optical",
+        "core, optical, scale",
         [
-            (lazy_fixture(c), o)
-            for c, o in [
-                ("text_2_0", pf.Optical2_0),
-                ("text_3_0", pf.Optical3_0),
-                ("text_3_1", pf.Optical3_1),
-                ("text_3_2", pf.Optical3_2),
+            (lazy_fixture(c), o, s)
+            for c, o, s in [
+                ("text_2_0", pf.Optical2_0, ()),
+                ("text_3_0", pf.Optical3_0, 1.0),
+                ("text_3_1", pf.Optical3_1, 1.0),
+                ("text_3_2", pf.Optical3_2, 1.0),
             ]
         ],
     )
     def test_text_remove_uint_meas_by_index(
-        self, core: AnyCoreTEXT, optical: type
+        self,
+        core: AnyCoreTEXT,
+        optical: type,
+        scale: Any,
     ) -> None:
         """Test removing measurement from integer data schema by index (TEXT)."""
         assert len(core.measurements) == 1
@@ -1800,23 +1811,27 @@ class TestCore:
         assert ret[0] == LINK_NAME1
         assert isinstance(ret[1], optical)
         assert ret[2] == 9001
+        assert ret[3] == scale
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
 
     @pytest.mark.parametrize(
-        "core, optical",
+        "core, optical, scale",
         [
-            (lazy_fixture(c), o)
-            for c, o in [
-                ("dataset_2_0", pf.Optical2_0),
-                ("dataset_3_0", pf.Optical3_0),
-                ("dataset_3_1", pf.Optical3_1),
-                ("dataset_3_2", pf.Optical3_2),
+            (lazy_fixture(c), o, s)
+            for c, o, s in [
+                ("dataset_2_0", pf.Optical2_0, ()),
+                ("dataset_3_0", pf.Optical3_0, 1.0),
+                ("dataset_3_1", pf.Optical3_1, 1.0),
+                ("dataset_3_2", pf.Optical3_2, 1.0),
             ]
         ],
     )
     def test_dataset_remove_uint_meas_by_index(
-        self, core: AnyCoreDataset, optical: type
+        self,
+        core: AnyCoreDataset,
+        optical: type,
+        scale: Any,
     ) -> None:
         """Test removing measurement from integer data schema by index (Dataset)."""
         assert len(core.measurements) == 1
@@ -1825,6 +1840,7 @@ class TestCore:
         assert isinstance(ret[1], optical)
         assert ret[2].equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
         assert ret[3] == 9001
+        assert ret[4] == scale
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
 
@@ -1833,16 +1849,19 @@ class TestCore:
     # (arbitrarily choose index removal)
 
     @pytest.mark.parametrize(
-        "core, optical, data_schema",
+        "core, optical, data_schema, scale",
         [
-            (lazy_fixture(c), o, s)
-            for (c, o), s in chain(
+            (lazy_fixture(c), o, s, e)
+            for (c, o, e), s in chain(
                 product(
-                    [("text_2_0", pf.Optical2_0), ("text_3_0", pf.Optical3_0)],
+                    [("text_2_0", pf.Optical2_0, ()), ("text_3_0", pf.Optical3_0, 1.0)],
                     [pf.OrderedF32DataSchema, pf.OrderedF32DataSchema],
                 ),
                 product(
-                    [("text_3_1", pf.Optical3_1), ("text_3_2", pf.Optical3_2)],
+                    [
+                        ("text_3_1", pf.Optical3_1, 1.0),
+                        ("text_3_2", pf.Optical3_2, 1.0),
+                    ],
                     [pf.BigLittleF32DataSchema, pf.BigLittleF32DataSchema],
                 ),
             )
@@ -1853,6 +1872,7 @@ class TestCore:
         core: AnyCoreTEXT,
         optical: type,
         data_schema: type,
+        scale: Any,
     ) -> None:
         """Test removing measurement from float data schema (TEXT)."""
         assert len(core.measurements) == 1
@@ -1861,21 +1881,28 @@ class TestCore:
         assert ret[0] == LINK_NAME1
         assert isinstance(ret[1], optical)
         assert ret[2] == 1000.0
+        assert ret[3] == scale
         assert len(core.measurements) == 0
         with pytest.raises(KeyError):
             core.remove_measurement_by_name(LINK_NAME1)
 
     @pytest.mark.parametrize(
-        "core, optical, data_schema",
+        "core, optical, data_schema, scale",
         [
-            (lazy_fixture(c), o, s)
-            for (c, o), s in chain(
+            (lazy_fixture(c), o, s, e)
+            for (c, o, e), s in chain(
                 product(
-                    [("dataset_2_0", pf.Optical2_0), ("dataset_3_0", pf.Optical3_0)],
+                    [
+                        ("dataset_2_0", pf.Optical2_0, ()),
+                        ("dataset_3_0", pf.Optical3_0, 1.0),
+                    ],
                     [pf.OrderedF32DataSchema, pf.OrderedF32DataSchema],
                 ),
                 product(
-                    [("dataset_3_1", pf.Optical3_1), ("dataset_3_2", pf.Optical3_2)],
+                    [
+                        ("dataset_3_1", pf.Optical3_1, 1.0),
+                        ("dataset_3_2", pf.Optical3_2, 1.0),
+                    ],
                     [pf.BigLittleF32DataSchema, pf.BigLittleF32DataSchema],
                 ),
             )
@@ -1886,6 +1913,7 @@ class TestCore:
         core: AnyCoreDataset,
         optical: type,
         data_schema: type,
+        scale: Any,
     ) -> None:
         """Test removing measurement from float data schema (Dataset)."""
         assert len(core.measurements) == 1
@@ -1897,19 +1925,20 @@ class TestCore:
         # numeric values are the same
         assert ret[2].equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
         assert ret[3] == 1000.0
+        assert ret[4] == scale
         assert len(core.measurements) == 0
         with pytest.raises(KeyError):
             core.remove_measurement_by_name(LINK_NAME1)
 
     @pytest.mark.parametrize(
-        "core, optical, data_schema",
+        "core, optical, data_schema, scale",
         [
-            (lazy_fixture(c), o, s)
-            for c, o in [
-                ("text_2_0", pf.Optical2_0),
-                ("text_3_0", pf.Optical3_0),
-                ("text_3_1", pf.Optical3_1),
-                ("text_3_2", pf.Optical3_2),
+            (lazy_fixture(c), o, s, e)
+            for c, o, e in [
+                ("text_2_0", pf.Optical2_0, ()),
+                ("text_3_0", pf.Optical3_0, 1.0),
+                ("text_3_1", pf.Optical3_1, 1.0),
+                ("text_3_2", pf.Optical3_2, 1.0),
             ]
             for s in [pf.FixedAsciiDataSchema, pf.DelimAsciiDataSchema]
         ],
@@ -1919,6 +1948,7 @@ class TestCore:
         core: AnyCoreTEXT,
         optical: type,
         data_schema: type,
+        scale: Any,
     ) -> None:
         """Test removing measurement from ASCII data schema (TEXT)."""
         assert len(core.measurements) == 1
@@ -1927,18 +1957,19 @@ class TestCore:
         assert ret[0] == LINK_NAME1
         assert isinstance(ret[1], optical)
         assert ret[2] == 1000
+        assert ret[3] == scale
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
 
     @pytest.mark.parametrize(
-        "core, optical, data_schema",
+        "core, optical, data_schema, scale",
         [
-            (lazy_fixture(c), o, s)
-            for c, o in [
-                ("dataset_2_0", pf.Optical2_0),
-                ("dataset_3_0", pf.Optical3_0),
-                ("dataset_3_1", pf.Optical3_1),
-                ("dataset_3_2", pf.Optical3_2),
+            (lazy_fixture(c), o, s, e)
+            for c, o, e in [
+                ("dataset_2_0", pf.Optical2_0, ()),
+                ("dataset_3_0", pf.Optical3_0, 1.0),
+                ("dataset_3_1", pf.Optical3_1, 1.0),
+                ("dataset_3_2", pf.Optical3_2, 1.0),
             ]
             for s in [pf.FixedAsciiDataSchema, pf.DelimAsciiDataSchema]
         ],
@@ -1948,6 +1979,7 @@ class TestCore:
         core: AnyCoreDataset,
         optical: type,
         data_schema: type,
+        scale: Any,
     ) -> None:
         """Test removing measurement from ASCII data schema (Dataset)."""
         assert len(core.measurements) == 1
@@ -1957,6 +1989,7 @@ class TestCore:
         assert isinstance(ret[1], optical)
         assert ret[2].equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
         assert ret[3] == 1000
+        assert ret[4] == scale
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
 

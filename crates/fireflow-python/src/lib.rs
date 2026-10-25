@@ -1087,6 +1087,17 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
             if ser.null_count() > 0 {
                 Err(SeriesToColumnError::HasNull(ser.name().clone()))
             } else {
+                // This rejection is deliberate. Rechunking is a potentially
+                // expensive memory operation depending on the size of the
+                // dataframe. It makes sense to push control to the user/caller
+                // in order to manage memory the most optimal way. The
+                // alternative is that this function rechunks internally, which
+                // violates the Principle of Least Surprise given that this
+                // function will be called when assigning a dataframe to an FCS
+                // dataset. Assignment is intuitively zero-copy and therefore
+                // should have no impact on memory. Polars itself also seems to
+                // follow this precedent by calling rechunk sparingly in its own
+                // code.
                 let nchunks = ser.chunks().len();
                 if nchunks > 1 {
                     return Err(SeriesToColumnError::MultiChunk(ser.name().clone(), nchunks));

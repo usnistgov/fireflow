@@ -6194,7 +6194,7 @@ pub fn impl_new_endian_float_data_schema(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.columns().iter().map(|c| c.clone()).collect()),
     );
 
-    let is_big_param = DocArgROIvar::new_endian_param(4, false);
+    let is_big_param = DocArgROIvar::new_endian_param();
 
     let doc = DocString::new_class(format!("{nbits}-bit endian float data schema"))
         .args([range_param, is_big_param]);
@@ -6262,7 +6262,7 @@ pub fn impl_new_single_uint_data_schema(input: TokenStream) -> TokenStream {
 
     let ranges_param = DocArg::new_uint_ranges_ivar();
     let width_param = DocArg::new_byte_width_ivar();
-    let is_big_param = DocArgROIvar::new_endian_param(4, false);
+    let is_big_param = DocArgROIvar::new_endian_param();
 
     let doc = DocString::new_class("A mixed-width integer data schema.")
         .arg(ranges_param)
@@ -6297,7 +6297,7 @@ pub fn impl_new_variable_uint_data_schema(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.columns().iter().map(|c| (*c).into()).collect()),
     );
 
-    let is_big_param = DocArgROIvar::new_endian_param(4, false);
+    let is_big_param = DocArgROIvar::new_endian_param();
 
     let doc = DocString::new_class("A mixed-width integer data schema.")
         .args([ranges_param, is_big_param]);
@@ -6342,7 +6342,7 @@ pub fn impl_new_mixed_data_schema(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.columns().iter().map(|c| c.clone()).collect()),
     );
 
-    let is_big_param = DocArgROIvar::new_endian_param(4, false);
+    let is_big_param = DocArgROIvar::new_endian_param();
 
     let doc = DocString::new_class("A mixed-type data schema.").args([types_param, is_big_param]);
 
@@ -9887,18 +9887,11 @@ impl DocArgROIvar {
         Self::new_ivar_ro("version", p, d, |_, _| quote!(self.0.version))
     }
 
-    fn new_endian_param(n: usize, is_ord: bool) -> Self {
+    fn new_endian_param() -> Self {
+        let n = 4_usize;
         let xs = (1..=n).join(",");
         let ys = (1..=n).rev().join(",");
-        let body = if is_ord {
-            let sizedbyteord_path = quote!(fireflow_core::text::byteord::ArrayByteOrd);
-            quote! {
-                let m: #sizedbyteord_path<[u8; 2]> = *self.0.as_ref();
-                m.endian()
-            }
-        } else {
-            quote!(self.0.byte_order())
-        };
+        let body = quote!(self.0.byte_order());
         let d = format!(
             "If {BYTEORD_BIG_STR} use big endian ({bigval}) for encoding values; \
              if {BYTEORD_LITTLE_STR} use little endian ({littleval}).",

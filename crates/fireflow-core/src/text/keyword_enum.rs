@@ -25,6 +25,7 @@ use ambassador::{Delegate, delegatable_trait};
 use derive_more::{Display, From};
 use derive_new::new;
 use derive_where::derive_where;
+use memchr::memchr_iter;
 use num_traits::One as _;
 use thiserror::Error;
 
@@ -1344,21 +1345,27 @@ impl EscapedFormatter<'_, '_> {
 
 impl fmt::Write for EscapedFormatter<'_, '_> {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        let d = self.delim;
-        // Check if delim is in str before trying to escape it. This is
-        // a massive optimization since encoding and decoding to chars
-        // on the fly is extremely expensive as opposed to checking if
-        // any single byte in the string is equal to some value.
-        if s.contains(char::from(d)) {
-            for c in s.bytes() {
-                if c == u8::from(d) {
-                    // if delimiter found, write it twice
-                    write!(self.inner, "{x}{x}", x = self.delim)?;
-                } else {
-                    // otherwise write non-delim once
-                    self.inner.write_char(char::from(c))?;
-                }
+        let d = u8::from(self.delim);
+        let bs = s.as_bytes();
+        // TODO it is generally faster to run this contains pretest before
+        // memchr. It doesn't seem like it should be faster despite memchr
+        // having SIMD runtime detection. Something else might be going on that
+        // could be exploited. First guess is that we might be able to make some
+        // sane guesses on the fastest path based on input length since memchr
+        // has slightly worse latency than "simple" std methods like contains.
+        if bs.contains(&d) {
+            let mut start = 0;
+            for end in memchr_iter(d, bs) {
+                // SAFETY: delim is ASCII so splitting won't break UTF8
+                let sub = unsafe { str::from_utf8_unchecked(&bs[start..end]) };
+                self.inner.write_str(sub)?;
+                self.inner.write_char(char::from(d))?;
+                self.inner.write_char(char::from(d))?;
+                start = end + 1;
             }
+            // SAFETY: delim is ASCII so splitting won't break UTF8
+            let subf = unsafe { str::from_utf8_unchecked(&bs[start..]) };
+            self.inner.write_str(subf)?;
         } else {
             self.inner.write_str(s)?;
         }
@@ -1398,5 +1405,46 @@ impl DisplayEscaped for NonStdKeyword<'_> {
         xf.write_with_delim(self.key, true)?;
         xf.write_with_delim(&self.value, true)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use proptest::prelude::*;
+
+    impl DisplayEscaped for NEStr {
+        fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let mut xf = EscapedFormatter { delim, inner: f };
+            xf.write_with_delim(&self, true)?;
+            Ok(())
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn no_delim(s in "\\PC+") {
+            let delim = char::from(TEXTDelim::default());
+            let ne = NEStr::try_new(&s).unwrap();
+            let esc = Escaped::new(TEXTDelim::default(), ne);
+            let mut dst0 = NEString::from(delim);
+            esc.write_str(&mut dst0);
+            let dst1 = format!("{delim}{ne}{delim}");
+            assert_eq!(dst0, NEString::try_from(dst1).unwrap());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn delim(s0 in "\\PC+", s1 in "\\PC+") {
+            let delim = char::from(TEXTDelim::default());
+            let src = NEString::try_from(format!("{s0}{delim}{s1}")).unwrap();
+            let esc = Escaped::new(TEXTDelim::default(), src.as_ne_str());
+            let mut dst0 = NEString::from(delim);
+            esc.write_str(&mut dst0);
+            let dst1 = format!("{delim}{s0}{delim}{delim}{s1}{delim}");
+            assert_eq!(dst0, NEString::try_from(dst1).unwrap());
+        }
     }
 }

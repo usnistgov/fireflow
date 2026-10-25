@@ -443,7 +443,7 @@ class _CoreCommon:
         override_fil: bool = False,
         appendable: bool = False,
         append: bool = False,
-    ) -> None: ...
+    ) -> int: ...
     @classmethod
     def write_texts(
         cls,
@@ -453,7 +453,7 @@ class _CoreCommon:
         big_other: bool = False,
         compute_crc: bool = False,
         override_fil: bool = False,
-    ) -> None: ...
+    ) -> int | None: ...
     @property
     def version(self) -> pft.FCSVersion: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
@@ -471,7 +471,7 @@ class _CoreDatasetCommon:
         row_buffer_size: int = 28000,
         appendable: bool = False,
         append: bool = False,
-    ) -> None: ...
+    ) -> int: ...
 
 class _CoreShortnamesMaybe:
     all_shortnames_maybe: list[pft.Shortname | None]

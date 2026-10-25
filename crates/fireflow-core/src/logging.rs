@@ -31,7 +31,9 @@ use crate::fixed_vec::OneOrTwo;
 use crate::text::optional::Nothing;
 
 use fireflow_types::config::{ReadSharedConfig, TriErrorFlag, TriFlag};
-use nonempty::{FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator as _, nev};
+use nonempty::{
+    self, FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator as _, nev,
+};
 
 use type_families::{
     ApplyOnce, Functor, FunctorOnce, IsKind1, IsKind2, Kind1, Kind2, Monoid, Pointed, Semigroup,
@@ -865,7 +867,9 @@ pub(crate) trait ResultExt: Sized {
     ) -> Result<NEVec<Self::Ok>, NEVec<Self::Error>> {
         let (first, rest) = rs.into_nonempty_iter().next();
         match first.into_result() {
-            Err(e) => Err(nev![e]),
+            Err(e) => Err(nonempty::once(e)
+                .chain(rest.filter_map(|res| res.into_result().err()))
+                .collect()),
             Ok(x) => {
                 let mut new = nev![x];
                 let mut errors = vec![];

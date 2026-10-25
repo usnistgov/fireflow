@@ -709,9 +709,7 @@ pub fn def_fcs_scan_dataset_boundaries(input: TokenStream) -> TokenStream {
     let ret = DocReturn::new(PyList::new1(
         PyTuple::new1(PyAlias::new_version()).add(PyInt::new_dataset_offset()),
     ))
-    .desc(format!(
-        "the value of {NEXTDATA} as written in the last dataset if written"
-    ));
+    .desc("A list of pairs (version and offset) corresponding to each dataset in the file.");
 
     let doc = DocString::new_fun("Scan FCS file to find starting offset for each dataset.")
         .para(format!(
@@ -3658,7 +3656,7 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
         PyAlias::new_py(["typing"], "RootOrMeas").rstype(root_or_meas_path),
         "Selects if required, optional, or both keywords should be returned",
     )
-    .def_str(tc::STD_KW_REQ_AND_OPT_LEVEL);
+    .def_str(tc::STD_KW_ROOT_AND_MEAS_LEVEL);
 
     let doc = DocString::new_method("Return standard keywords as string pairs.")
         .para(format!("Each key will be prefixed with {DOLLAR_STR}."))

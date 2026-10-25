@@ -259,12 +259,12 @@ class Optical3_2(
     _MeasDisplay,
 ):
     calibration: pft.Calibration3_2 | None
-    detector_name: str | None
-    tag: str | None
+    detector_name: str
+    tag: str
     measurement_type: str
-    feature: str | None
+    feature: str
     awh_feature: pft.Feature | None
-    analyte: str | None
+    analyte: str
 
     def __new__(
         cls,

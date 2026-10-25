@@ -420,7 +420,7 @@ class _CoreCommon:
 
     all_filters: pft.OpticalKeyVals[str]
     all_powers: pft.OpticalKeyVals[float]
-    all_percents_emitted: pft.OpticalKeyVals[int]
+    all_percents_emitted: pft.OpticalKeyVals[float]
     all_detector_types: pft.OpticalKeyVals[str]
     all_detector_voltages: pft.OpticalKeyVals[float]
 

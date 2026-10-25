@@ -7322,10 +7322,10 @@ class TestReadWrite:
         ["all_powers", "all_percents_emitted", "all_detector_voltages"],
     )
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
-    def test_rw_meas_int(
+    def test_rw_meas_floats(
         self, tmp_path: Path, mmap: bool, core: AnyCoreTEXT, attr: str
     ) -> None:
-        test = [13]
+        test = [13.0]
         self._test_attr_roundtrip(tmp_path, mmap, core, attr, test)
 
     @pytest.mark.parametrize("mmap", [False, True])
@@ -7427,7 +7427,7 @@ class TestReadWrite:
         blank_gated_meas.shortname = "chris"
         blank_gated_meas.detector_type = "teemu"
         blank_gated_meas.scale = ()
-        blank_gated_meas.percent_emitted = 101
+        blank_gated_meas.percent_emitted = 101.0
         blank_gated_meas.range = 420
         blank_gated_meas.detector_voltage = 9.75
         test: pt.AppliedGates2_0 = (
@@ -7457,7 +7457,7 @@ class TestReadWrite:
         blank_gated_meas.shortname = "chris"
         blank_gated_meas.detector_type = "teemu"
         blank_gated_meas.scale = ()
-        blank_gated_meas.percent_emitted = 101
+        blank_gated_meas.percent_emitted = 101.0
         blank_gated_meas.range = 420
         blank_gated_meas.detector_voltage = 9.75
         ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))

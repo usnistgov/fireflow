@@ -3559,7 +3559,7 @@ def fcs_read_flat_dataset_with_keywords(
     dataset_offset: int = 0,
     dataset_len: int | None = None,
     mmap: bool = False,
-) -> FlatDatasetFromKwsOutput: ...
+) -> NewFlatDatasetFromKwsOutput: ...
 
 #
 def fcs_summarize(

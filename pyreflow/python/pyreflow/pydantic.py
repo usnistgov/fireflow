@@ -433,12 +433,16 @@ class PyreflowReadFlatDatasetFromKeywordsConfig(
     def read_flat_dataset_with_keywords(
         self,
         path: Path,
+        header: pfa.Header,
+        std: pft.StdKeywords,
         dataset_offset: int = 0,
         dataset_len: int | None = None,
-    ) -> pfa.FlatDatasetFromKwsOutput:
+    ) -> pfa.NewFlatDatasetFromKwsOutput:
         """Wrapper for :py::func:`~pyreflow.api.fcs_read_flat_dataset_with_keywords`."""
         return pfa.fcs_read_flat_dataset_with_keywords(
             path,
+            header,
+            std,
             dataset_offset=dataset_offset,
             dataset_len=dataset_len,
             **self.model_dump(),

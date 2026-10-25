@@ -1349,10 +1349,12 @@ fn run() -> AppResult<()> {
             let (read_ws, read_res) =
                 api::fcs_read_std_datasets(ipath, skip, limit, scan, mmap, &read_conf)
                     .resolve_commutative(|ws| ws, |s| s);
+            // order matters, print warnings before unpacking the result which
+            // will short-circuit on error
+            print_warnings(read_ws, &mut stderr)?;
             let (cores, outs): (Vec<_>, Vec<_>) = read_res?.into_iter().unzip();
             let (write_ws, write_res) = api::fcs_write_datasets(opath, &cores[..], &write_conf)
                 .resolve_commutative(|ws| ws, |e| e);
-            print_warnings(read_ws, &mut stderr)?;
             print_warnings(write_ws, &mut stderr)?;
             let _ = write_res?;
             to_writer(stdout, &outs[..])?;

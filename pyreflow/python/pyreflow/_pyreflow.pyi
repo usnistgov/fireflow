@@ -753,7 +753,7 @@ class _CoreTEXTInsertMeas3_0[
     ) -> None: ...
     def insert_optical(
         self,
-        index: N,
+        index: pft.MeasIndex,
         name: N,
         meas: O,
         range: R,

@@ -747,12 +747,12 @@ where
     let mut done = false;
     reader.take(BUF_SIZE).read_to_end(&mut buf)?;
 
-    while buf.len() >= BOUNDARY_MATCH_SIZE {
+    'outer: while buf.len() >= BOUNDARY_MATCH_SIZE {
         for w in buf[..].array_windows() {
             if let Some(v) = match_bytes_version(w) {
                 f(v, DatasetOffset(file_offset), &mut done);
                 if done {
-                    break;
+                    break 'outer;
                 }
             }
             file_offset += 1;

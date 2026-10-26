@@ -19,6 +19,12 @@ use {crate::python as py, fireflow_core_proc::DisplayAsPyErr, pyo3::prelude::*};
 #[into(NonZeroU8, u8, NonZeroUsize)]
 pub struct OtherWidth(NonZeroU8);
 
+impl From<OtherWidth> for usize {
+    fn from(value: OtherWidth) -> Self {
+        value.0.get().into()
+    }
+}
+
 impl Default for OtherWidth {
     fn default() -> Self {
         const N: NonZeroU8 = NonZeroU8::new(8).unwrap();

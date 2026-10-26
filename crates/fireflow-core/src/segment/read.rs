@@ -58,7 +58,7 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::iter::repeat;
 use std::marker::PhantomData;
 use std::mem;
-use std::num::{NonZeroU64, NonZeroUsize, ParseIntError};
+use std::num::{NonZeroU64, ParseIntError};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -2121,12 +2121,12 @@ impl OtherOffsets20 {
         };
 
         // Only consider bytes which are spaces, nulls, minus sign, or digits
-        // where a minus sign must always immediately precede a digit
+        // where a minus sign must always immediately precede a digit.
+        let chartypes: Vec<_> = buf.iter().map(|&x| CharType::from(x)).collect();
         let mut n_valid_bytes = 0;
         let mut prev_was_minus = false;
-        for &c in buf.as_ref() {
-            let t = CharType::from(c);
-            if prev_was_minus && t != CharType::Digit {
+        for &c in &chartypes {
+            if prev_was_minus && c != CharType::Digit {
                 // Char is not a digit following a minus sign, decrement by one
                 // byte before breaking loop since the previous minus sign does
                 // not go with a digit. ASSUME this will not underflow because
@@ -2134,7 +2134,7 @@ impl OtherOffsets20 {
                 n_valid_bytes -= 1;
                 break;
             }
-            match t {
+            match c {
                 CharType::Minus => prev_was_minus = true,
                 CharType::Null | CharType::Digit => prev_was_minus = false,
                 CharType::Other => break,
@@ -2142,19 +2142,27 @@ impl OtherOffsets20 {
             n_valid_bytes += 1;
         }
 
-        // Exit early if there are no valid chars or all bytes are null or space
-        let valid_buf = if let Some(ne) = NESlice::try_from_slice(&buf[0..n_valid_bytes])
-            && !(ne.iter().all(|&x| x == 0) | ne.iter().all(|&x| x == 32))
-        {
-            ne
-        } else {
+        // Find the last digit in the buffer. If there are none then we are done
+        // because digits are necessary to make offsets.
+        let Some(last_digit_pos) = chartypes[..n_valid_bytes]
+            .iter()
+            .rposition(|&x| x == CharType::Digit)
+        else {
             return LogResult::new_ok(OtherOffsetOutput::new(None, DarkBytes::try_from_bytes(buf)));
         };
+
+        // Make the buffer of valid bytes from which offsets can be parsed.
+        // This buffer is guaranteed to have:
+        // * only space, null, minus, and digits
+        // * a space at the end
+        // * minus signs that always have digits after them
+        let valid_buf = NESlice::try_from_slice(&buf[..=last_digit_pos]).unwrap();
+        let valid_chartypes = NESlice::try_from_slice(&chartypes[..=last_digit_pos]).unwrap();
 
         // Guess offset width if desired.
         let guess_maybe = DummyTriFlag::from_guess_other_width(hconf.guess_other_width);
         let width_res = if let Some(guess) = guess_maybe {
-            match Self::guess_other_width(valid_buf, max_other) {
+            match Self::guess_other_width(valid_chartypes, max_other) {
                 Ok(w) => WarningsAndErrorsResult::new_ok(w),
                 Err(e) => {
                     let w = hconf.other_width;
@@ -2273,133 +2281,75 @@ impl OtherOffsets20 {
             })
     }
 
-    #[allow(clippy::too_many_lines)]
     fn guess_other_width(
-        xs: &NESlice<u8>,
+        xs: &NESlice<CharType>,
         max_other: Option<NonZeroU64>,
     ) -> Result<OtherWidth, GuessOtherWidthError> {
         #[cfg(debug_assertions)]
         {
-            let cs: NEVec<_> = xs.nonempty_iter().copied().map(CharType::from).collect();
             assert!(
-                cs.iter().all(|&x| x != CharType::Other),
+                xs.iter().all(|&x| x != CharType::Other),
                 "stream must be all one of null, space, minus sign, or a digit"
             );
             assert!(
-                !cs.iter()
+                !xs.iter()
                     .tuple_windows()
                     .any(|(&prev, &this)| prev == CharType::Minus && this != CharType::Digit),
                 "stream has minus sign which is not followed by digit"
             );
-            assert!(cs.last() != &CharType::Minus, "stream ends with minus sign");
+            assert!(xs.last() == &CharType::Digit, "stream must end with digit");
         }
 
-        // Indices where chars changed (false = null->digit, true = digit->null)
-        let mut digit_starts: Vec<usize> = vec![];
-        let mut digit_ends: Vec<usize> = vec![];
+        // A valid offset has 0 or more null characters followed by 0 or 1 minus
+        // character followed by at least one digit and nothing else after.
+        let is_offset = |bs: &[CharType]| {
+            if let Some(non_null_pos) = bs.iter().position(|&x| x != CharType::Null) {
+                let first_digit = if bs[non_null_pos] == CharType::Minus {
+                    non_null_pos + 1
+                } else {
+                    non_null_pos
+                };
+                bs[first_digit..].iter().all(|&x| x == CharType::Digit)
+            } else {
+                false
+            }
+        };
+
+        let n = xs.len().get();
 
         // Iterate through all possible widths and test if the width is
         // compatible with the bytestring.
-        let mut go = |w: OtherWidth| {
-            digit_starts.clear();
-            digit_ends.clear();
-
+        let go = |w: OtherWidth| {
+            let ww = usize::from(w) * 2;
             // Limit bytes if limit for maximum segment number is given.
-            let total_bytes = if let Some(n) = max_other {
-                const N: NonZeroUsize = NonZeroUsize::new(2).unwrap();
-                NonZeroUsize::try_from(n)
-                    .expect("overflow")
-                    .checked_mul(NonZeroUsize::from(w))
-                    .expect("overflow")
-                    .checked_mul(N)
-                    .expect("overflow")
+            let total_bytes = if let Some(m) = max_other {
+                (m.get().u64_to_usize() * ww).min(n)
             } else {
-                xs.len()
+                n
             };
 
-            // Get boundaries of "digit streams" which are contiguous streams of
-            // digit characters separated by at least one space or null char
-            // which may or may not have a minus sign in front. The boundaries
-            // will be constructed as intervals like (start, end) where start
-            // and end are the indices of the start and end of the stream.
-            let (x0, rest) = xs.nonempty_iter().take(total_bytes).next();
-            let mut prev_char_type = CharType::from(*x0);
-            // If first char is digit or minus, push start boundary to balance the ends
-            if prev_char_type.is_digit_or_minus() {
-                digit_starts.push(0);
-            }
-            for (i, &x) in rest.enumerate() {
-                let this_char_type = CharType::from(x);
-                if prev_char_type != this_char_type {
-                    if this_char_type == CharType::Null {
-                        digit_ends.push(i + 1);
-                    } else if prev_char_type == CharType::Null {
-                        digit_starts.push(i);
-                    }
-                }
-                prev_char_type = this_char_type;
-            }
-            if prev_char_type == CharType::Digit {
-                // If previous was a digit, add a boundary to the end
-                digit_ends.push(usize::from(total_bytes));
-            } else if prev_char_type == CharType::Minus {
-                // If previous was a minus, the last char in the last digit is
-                // a minus for this width, which is invalid.
-                return false;
-            }
-            let final_digit_position = digit_ends.iter().copied().last().unwrap_or_default();
-            debug_assert!(digit_starts.len() == digit_ends.len(), "start != end");
-
-            // Compute number of segments that fit into digits. Use the last
-            // found digit as the end of the bytes to be considered. If segment
-            // number is odd, this width is not valid since offsets come in
-            // pairs.
-            let ww = usize::from(NonZeroUsize::from(w));
-            let n_segs = final_digit_position / ww;
-            if n_segs & 1 == 1 {
-                return false;
-            }
-
-            // Match intervals of digits computed by positions of digit bytes
-            // themselves with offset boundaries as defined by the width.
+            // This test is very simple if we take advantage of some key
+            // assumptions:
             //
-            // Criteria for passing width
-            // - the right position of all digit streams should correspond to
-            //   an offset boundary
-            // - all offset boundaries should be in a digit stream
-            let mut seg_ends = (0..n_segs).map(|x| (x + 1) * ww);
-            let mut cur_end = seg_ends.by_ref().next();
-            let digit_intervals = digit_starts.iter().copied().zip(digit_ends.iter().copied());
-            for (a, b) in digit_intervals {
-                if let Some(s) = cur_end {
-                    if s == b {
-                        // offset end and digit end are equal, this digit stream
-                        // is satisfied
-                        cur_end = seg_ends.by_ref().next();
-                        continue;
-                    } else if a < s && s < b {
-                        // offset end is in digit stream, which is allowed but
-                        // we still need to match the current digit stream's
-                        // ending offset. Advance until we either find a match
-                        // (pass) or we overshoot (fail)
-                        while cur_end.is_some_and(|s0| s0 < b) {
-                            cur_end = seg_ends.by_ref().next();
-                        }
-                        if cur_end.is_some_and(|s0| s0 == b) {
-                            cur_end = seg_ends.by_ref().next();
-                            continue;
-                        }
-                        return false;
-                    }
-                    // offset end is before the start of digit stream, invalid
-                    return false;
-                }
-                // we ran out of segment ends, this digit stream is not
-                // matched which is a fail
-                return false;
+            // 1. We know the input ends with a digit, and we need to include
+            //    all digits for a given width to succeed. Therefore the width *
+            //    2 (since offsets come in pairs) must evenly divide the input.
+            //
+            // 2. We know that offsets are right aligned, therefore the right-
+            //    most character in a given chunk must be a digit to be valid.
+            //
+            // 3. We know that the only characters in the input are digits,
+            //    nulls/spaces, and possibly minus signs. We also know that
+            //    minus signs are always followed by digits. Using (2), a valid
+            //    offset can be found by trimming nulls/spaces, followed by zero
+            //    or one minus signs, followed by the digits themselves.
+            if total_bytes.is_multiple_of(ww) {
+                xs.as_slice().chunks_exact(usize::from(w)).all(is_offset)
+            } else {
+                false
             }
-            true
         };
+
         // TODO use NZU8 directly (this is not yet stable)
         let candidates = (MIN_OTHER_WIDTH.get()..=MAX_CHARS.get())
             .filter_map(|w| OtherWidth::try_from(w).ok())
@@ -2449,7 +2399,7 @@ impl OtherOffsetOutput {
 }
 
 /// A valid ASCII char in an OTHER segment.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum CharType {
     /// Minus sign ('-')
     Minus,
@@ -2472,12 +2422,6 @@ impl From<u8> for CharType {
         } else {
             Self::Other
         }
-    }
-}
-
-impl CharType {
-    fn is_digit_or_minus(self) -> bool {
-        matches!(self, Self::Digit | Self::Minus)
     }
 }
 
@@ -2515,91 +2459,77 @@ impl<I> HeaderOrTextOffsets<I> {
 mod tests {
     use super::*;
 
+    fn wrap_guess_other_width(
+        xs: &NESlice<u8>,
+        max_other: Option<NonZeroU64>,
+    ) -> Result<OtherWidth, GuessOtherWidthError> {
+        let cs: NEVec<_> = xs
+            .into_nonempty_iter()
+            .map(|&x| CharType::from(x))
+            .collect();
+        OtherOffsets20::guess_other_width(cs.as_nonempty_slice(), max_other)
+    }
+
     #[test]
     fn other_width_2x8() {
         let s = NESlice::try_from_slice(b"       0       0").unwrap();
-        assert_eq!(
-            OtherOffsets20::guess_other_width(s, None).map(u8::from),
-            Ok(8)
-        );
+        assert_eq!(wrap_guess_other_width(s, None).map(u8::from), Ok(8));
     }
 
     #[test]
     fn other_width_2x8_minus() {
         let s = NESlice::try_from_slice(b"       0      -1").unwrap();
-        assert_eq!(
-            OtherOffsets20::guess_other_width(s, None).map(u8::from),
-            Ok(8)
-        );
+        assert_eq!(wrap_guess_other_width(s, None).map(u8::from), Ok(8));
     }
 
     #[test]
     fn other_width_2x8_big_minus() {
         let s = NESlice::try_from_slice(b"       0-1000000").unwrap();
-        assert_eq!(
-            OtherOffsets20::guess_other_width(s, None).map(u8::from),
-            Ok(8)
-        );
+        assert_eq!(wrap_guess_other_width(s, None).map(u8::from), Ok(8));
     }
 
     #[test]
     fn other_width_2x8_first_minus() {
         let s = NESlice::try_from_slice(b"-1000000       0").unwrap();
-        assert_eq!(
-            OtherOffsets20::guess_other_width(s, None).map(u8::from),
-            Ok(8)
-        );
+        assert_eq!(wrap_guess_other_width(s, None).map(u8::from), Ok(8));
     }
 
     #[test]
     fn other_width_4x8() {
         let s = NESlice::try_from_slice(b"       0       0    2112   90125").unwrap();
-        assert_eq!(
-            OtherOffsets20::guess_other_width(s, None).map(u8::from),
-            Ok(8)
-        );
+        assert_eq!(wrap_guess_other_width(s, None).map(u8::from), Ok(8));
     }
 
     #[test]
     fn other_width_4x8_minus() {
         let s = NESlice::try_from_slice(b"       0       0    2112  -90125").unwrap();
-        assert_eq!(
-            OtherOffsets20::guess_other_width(s, None).map(u8::from),
-            Ok(8)
-        );
+        assert_eq!(wrap_guess_other_width(s, None).map(u8::from), Ok(8));
     }
 
     #[test]
     fn other_width_4x8_hidden() {
         let s = NESlice::try_from_slice(b"       010000000       1       2").unwrap();
-        assert_eq!(
-            OtherOffsets20::guess_other_width(s, None).map(u8::from),
-            Ok(8)
-        );
+        assert_eq!(wrap_guess_other_width(s, None).map(u8::from), Ok(8));
     }
 
     #[test]
     fn other_width_4x8_spaceballs() {
-        // random space after than should be ignored
-        let s = NESlice::try_from_slice(b"       0       0       0   12345              ").unwrap();
-        assert_eq!(
-            OtherOffsets20::guess_other_width(s, None).map(u8::from),
-            Ok(8)
-        );
+        let s = NESlice::try_from_slice(b"       0       0       0   12345").unwrap();
+        assert_eq!(wrap_guess_other_width(s, None).map(u8::from), Ok(8));
     }
 
     #[test]
     fn other_width_uneven() {
         // 8 then 9
         let s = NESlice::try_from_slice(b"       0        0").unwrap();
-        assert!(OtherOffsets20::guess_other_width(s, None).is_err());
+        assert!(wrap_guess_other_width(s, None).is_err());
     }
 
     #[test]
     fn other_width_nobound() {
         // this can either be 8 or 16
         let s = NESlice::try_from_slice(b"00000000000000000000000000000000").unwrap();
-        assert!(OtherOffsets20::guess_other_width(s, None).is_err());
+        assert!(wrap_guess_other_width(s, None).is_err());
     }
 }
 

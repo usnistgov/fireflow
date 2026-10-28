@@ -706,7 +706,7 @@ fn run() -> AppResult<()> {
 
     let ignore_std_key = make_key_str_args(
         ta::IGNORE_STD_KEYS,
-        "Ignore standard keys exactly matching KEY_OR_PAT. The leading '$' is implied.",
+        "Ignore standard keys exactly matching KEY_OR_PAT.",
     )
     .value_parser(ValueParser::new(parse_std_key_or_pattern_list::<true>));
 
@@ -718,7 +718,7 @@ fn run() -> AppResult<()> {
 
     let demote_from_std = make_key_str_args(
         ta::DEMOTE_FROM_STD,
-        "Demote standard keys matching KEY_OR_PAT to non-standard. The leading '$' is implied.",
+        "Demote standard keys matching KEY_OR_PAT to non-standard.",
     )
     .value_parser(ValueParser::new(parse_std_key_or_pattern_list::<true>));
 
@@ -729,7 +729,6 @@ fn run() -> AppResult<()> {
         .value_parser(ValueParser::new(parse_two_keystring_pair))
         .help(
             "Rename standard keys from OLD to NEW. \
-             The leading '$' is implied. \
              First character is considered to be the delimiter (<#>) for \
              separating OLD and NEW as well as multiple pairs of OLD/NEW. \
              An empty list or single delimiter encodes an empty list.",
@@ -741,7 +740,6 @@ fn run() -> AppResult<()> {
         .value_name("<#>KEY<#>VAL[<#>KEY<#>VAL..]<#>")
         .help(
             "Replace values of standard keys matching KEY with VAl. \
-             The leading '$' is implied for the key. \
              First character is considered to be the delimiter (<#>) for \
              separating KEY and VAL as well as multiple pairs of KEY/VAL. \
              An empty list or single delimiter encodes an empty list.",
@@ -753,8 +751,7 @@ fn run() -> AppResult<()> {
         .action(ArgAction::Append)
         .value_name("<#>KEY<#>VAL[<#>KEY<#>VAL..]<#>")
         .help(
-            "Append standard keys with KEY and VAL to list of existing standard \
-             keys. The leading '$' is implied for KEY. \
+            "Append standard keys with KEY and VAL to list of existing standard keys. \
              First character is considered to be the delimiter (<#>) for \
              separating KEY and VAL as well as multiple pairs of KEY/VAL. \
              An empty list or single delimiter encodes an empty list.",
@@ -766,8 +763,7 @@ fn run() -> AppResult<()> {
         .action(ArgAction::Append)
         .value_name("<#>KEY<#>SUB[<#>KEY<#>SUB..]<#>")
         .help(format!(
-            "Edit standard key values using KEY and SUB. The leading '$' \
-             is implied for KEY. See {sub_header} for details. \
+            "Edit standard key values using KEY and SUB. See {sub_header} for details. \
              First character is considered to be the delimiter (<#>) for \
              separating KEY and SUB as well as multiple pairs of KEY/SUB. \
              An empty list or single delimiter encodes an empty list.",

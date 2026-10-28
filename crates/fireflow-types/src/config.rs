@@ -548,8 +548,7 @@ pub struct ReadStdKeywordsConfig_<TMP, DP, TP, DTP, LMP> {
 pub struct ReadRepairKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
     /// Remove standard keys from TEXT.
     ///
-    /// Comparisons will be case-insensitive. Members of this list should not
-    /// try to match the leading "$" as this is implied.
+    /// Comparisons will be case-insensitive.
     ///
     /// This will be applied before [`Self::rename_standard_keys`],
     /// [`Self::promote_nonstandard_keys`], and [`Self::demote_standard_keys`].
@@ -573,8 +572,7 @@ pub struct ReadRepairKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
 
     /// A list of standard keywords to be "demoted" to non-standard.
     ///
-    /// Only keywords starting with "$" will be considered. The "$" is implied
-    /// when matching, so members of this list should not include it. Matching
+    /// Only keywords starting with "$" will be considered. Matching
     /// will be case-insensitive.
     ///
     /// Matching keywords will be taken out of the pool of standard keywords

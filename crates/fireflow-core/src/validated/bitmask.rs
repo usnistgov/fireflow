@@ -127,7 +127,7 @@ impl<T> Bitmask<T> {
         assert!(T::min_value().into() == 0_u64, "min must be zero");
         let value64: u64 = value.0.into();
         let max_bits = u32::from(u8::from(T::FILE_BYTES)) * 8;
-        let value_bits = u64::BITS - value64.leading_zeros();
+        let value_bits = value64.bit_width();
         let mask = if value_bits == 0 {
             T::min_value()
         } else if value_bits == max_bits {

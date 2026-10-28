@@ -50,7 +50,6 @@ pub trait NonEmptyIterator: IntoIterator {
     /// Advances this non-empty iterator, consuming its ownership. Yields the
     /// first item and a possibly empty iterator containing the rest of the
     /// elements.
-    #[must_use]
     fn next(self) -> (Self::Item, Self::IntoIter)
     where
         Self: Sized,

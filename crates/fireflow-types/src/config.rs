@@ -1529,7 +1529,6 @@ pub trait EnumStrIter<const LEN: usize>: Sized {
         Self::ITEMS.into_iter()
     }
 
-    #[must_use]
     fn iter_str() -> impl Iterator<Item = &'static str> {
         Self::iter().map(|x| Self::as_str(&x))
     }

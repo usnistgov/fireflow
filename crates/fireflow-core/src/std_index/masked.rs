@@ -127,16 +127,16 @@ impl<'a, I, S, K, C> MaskedString<'a, I, S, K, C, LookupMask> {
         K: EnumIndex<SubDimension = S>,
         C: IndexMut<usize, Output = LookupMask>,
     {
-        if self.get_value(k).is_none() {
-            panic!("attempted to set lookup action on empty value")
-        } else {
-            match self.get_mask_mut(k) {
-                Some(LookupMask::Unseen) => {
-                    panic!("attempted to set lookup action on unseen value")
-                }
-                Some(LookupMask::Seen(s)) => *s = a,
-                None => panic!("index out of bounds"),
+        assert!(
+            self.get_value(k).is_some(),
+            "attempted to set lookup action on empty value"
+        );
+        match self.get_mask_mut(k) {
+            Some(LookupMask::Unseen) => {
+                panic!("attempted to set lookup action on unseen value")
             }
+            Some(LookupMask::Seen(s)) => *s = a,
+            None => panic!("index out of bounds"),
         }
     }
 

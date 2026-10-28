@@ -1907,18 +1907,21 @@ mod tests {
                 CastValueResult::new(int_one, true)
             );
             assert_eq!($int::from_value(&neg), CastValueResult::new(int_zero, true));
-            assert_eq!(
-                $int::from_value(&$float::NAN),
-                CastValueResult::new(int_zero, true)
-            );
-            assert_eq!(
-                $int::from_value(&$float::NEG_INFINITY),
-                CastValueResult::new(int_zero, true)
-            );
-            assert_eq!(
-                $int::from_value(&$float::INFINITY),
-                CastValueResult::new(int_max, true)
-            );
+            #[allow(deprecated, reason = "false positives for associated constants")]
+            {
+                assert_eq!(
+                    $int::from_value(&$float::NAN),
+                    CastValueResult::new(int_zero, true)
+                );
+                assert_eq!(
+                    $int::from_value(&$float::NEG_INFINITY),
+                    CastValueResult::new(int_zero, true)
+                );
+                assert_eq!(
+                    $int::from_value(&$float::INFINITY),
+                    CastValueResult::new(int_max, true)
+                );
+            }
         };
     }
 

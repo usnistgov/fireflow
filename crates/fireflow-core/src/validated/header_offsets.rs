@@ -1,3 +1,4 @@
+use crate::convert::UsizeExt as _;
 use crate::core::{DatasetOffsets, OthersReader, TEXTOffsetsOrigin};
 use crate::logging::{DeferredErrors, ErrorGroup, ErrorsResult, LogResult};
 use crate::macros::def_summary;
@@ -513,8 +514,8 @@ impl FinalHeaderOffsets {
 
     fn other_offset_nbytes(&self) -> u64 {
         self.other.as_ref().map_or(0, |(os, width)| {
-            let n = u64::try_from(usize::from(os.len())).expect("usize overflow");
-            n * u64::from(u8::from(*width))
+            let n = os.len().get().usize_to_u64();
+            n * 2 * u64::from(u8::from(*width))
         })
     }
 

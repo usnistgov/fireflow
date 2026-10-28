@@ -221,7 +221,6 @@ fn run() -> AppResult<()> {
     let other_correction = Arg::new(ta::OTHER_CORRS)
         .long(ta::OTHER_CORRS)
         .value_name(formatcp!("BEGIN,END[{OFFSET_DELIM}..]"))
-        .action(ArgAction::Append)
         .value_parser(ValueParser::new(parse_offsets))
         .help(format!(
             "Correction for {other_seg} offsets. \

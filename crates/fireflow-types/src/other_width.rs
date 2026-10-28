@@ -25,10 +25,11 @@ impl From<OtherWidth> for usize {
     }
 }
 
+pub const OTHER_WIDTH_DEFAULT: OtherWidth = OtherWidth(NonZeroU8::new(8).unwrap());
+
 impl Default for OtherWidth {
     fn default() -> Self {
-        const N: NonZeroU8 = NonZeroU8::new(8).unwrap();
-        Self(N)
+        OTHER_WIDTH_DEFAULT
     }
 }
 

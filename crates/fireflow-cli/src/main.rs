@@ -15,7 +15,7 @@ use fireflow_types::datepattern::DatePattern;
 use fireflow_types::keys::raw_std as sk;
 use fireflow_types::keys::{AnyKey, StdKey};
 use fireflow_types::keywords as tk;
-use fireflow_types::other_width::OtherWidth;
+use fireflow_types::other_width::{OTHER_WIDTH_DEFAULT, OtherWidth};
 use fireflow_types::segment::OffsetsCorrection;
 use fireflow_types::std_pattern::PATTERN_DELIMITER;
 use fireflow_types::sub_pattern::SubPattern;
@@ -236,11 +236,13 @@ fn run() -> AppResult<()> {
         format!("Max number of {other_seg} segments to parse."),
     );
 
-    let other_width = opt_arg_nonstr::<OtherWidth>(
-        ta::OTHER_WIDTH,
-        "WIDTH",
-        format!("Width of {other_seg} segments."),
-    );
+    let other_width = Arg::new(ta::OTHER_WIDTH)
+        .long(ta::OTHER_WIDTH)
+        .value_name("WIDTH")
+        .value_parser(value_parser!(OtherWidth))
+        .help(format!(
+            "Width of {other_seg} segments. Defaults to {OTHER_WIDTH_DEFAULT}"
+        ));
 
     let guess_other_width = Arg::new(ta::GUESS_OTHER_WIDTH)
         .long(ta::GUESS_OTHER_WIDTH)

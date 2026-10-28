@@ -1952,10 +1952,12 @@ where
             .map_err(|e| e.to_string())
     };
     let single = || Ok(vec![go(s)?]);
-    if let Some(ne) = NEStr::try_new(s) {
-        if ne.first() == ne.last() && ne.len().get() > 2 {
-            let delim = ne.first();
-            if delim == PATTERN_DELIMITER {
+    if let Some(b0) = s.as_bytes().first() {
+        let delim = char::from(*b0);
+        if !b0.is_ascii() {
+            Err(format!("delimiter must be an ASCII character, got {delim}"))
+        } else if s.strip_prefix(delim).unwrap().strip_suffix(delim).is_some() {
+            if b0 == &PATTERN_DELIMITER {
                 // String starts and ends with delimiter but delimiter is the
                 // same as the regex pattern specifier; treat as a single
                 // pattern.
@@ -2003,13 +2005,12 @@ where
     Fk: Fn(&str) -> StrResult<K>,
     Fv: Fn(&str) -> StrResult<V>,
 {
-    if let Some(ne) = NEStr::try_new(s)
-        && ne.len().get() > 1
-    {
-        if ne.first() == ne.last() {
+    if let Some(b0) = s.as_bytes().first() {
+        let delim = char::from(*b0);
+        if !b0.is_ascii() {
+            Err(format!("delimiter must be an ASCII character, got {delim}"))
+        } else if let Some(mid) = s.strip_prefix(delim).unwrap().strip_suffix(delim) {
             let go = |a: &str, b: &str| Ok((fk(a)?, fv(b)?));
-            let delim = ne.first();
-            let mid = s.strip_prefix(delim).unwrap().strip_suffix(delim).unwrap();
             let mut it = mid.split(delim).tuples();
             let out = it.by_ref().map(|(a, b)| go(a, b)).collect();
             if it.into_buffer().next().is_some() {

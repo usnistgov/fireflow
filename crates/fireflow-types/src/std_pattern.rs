@@ -65,12 +65,12 @@ impl<const HAS_PRE: bool> fmt::Display for StdKeyOrPattern<HAS_PRE> {
                 // Manually add the dollar prefix rather than using the
                 // wrapper's display impl since we need the dollar to go inside
                 // the '/'...'/'.
-                let dollar = if HAS_PRE {
-                    char::from(STD_PREFIX).into()
+                let delim = char::from(PATTERN_DELIMITER);
+                if HAS_PRE {
+                    write!(f, "{delim}${}{delim}", x.0)
                 } else {
-                    String::new()
-                };
-                write!(f, "{PATTERN_DELIMITER}{dollar}{}{PATTERN_DELIMITER}", x.0)
+                    write!(f, "{delim}{}{delim}", x.0)
+                }
             }
         }
     }
@@ -338,8 +338,8 @@ impl FromStr for StdKeyOrPattern<true> {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(inner) = s
-            .strip_prefix(PATTERN_DELIMITER)
-            .and_then(|x| x.strip_suffix(PATTERN_DELIMITER))
+            .strip_prefix(char::from(PATTERN_DELIMITER))
+            .and_then(|x| x.strip_suffix(char::from(PATTERN_DELIMITER)))
         {
             if let Some((b, bs)) = inner.as_bytes().split_first()
                 && *b == STD_PREFIX
@@ -361,8 +361,8 @@ impl FromStr for StdKeyOrPattern<false> {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(inner) = s
-            .strip_prefix(PATTERN_DELIMITER)
-            .and_then(|x| x.strip_suffix(PATTERN_DELIMITER))
+            .strip_prefix(char::from(PATTERN_DELIMITER))
+            .and_then(|x| x.strip_suffix(char::from(PATTERN_DELIMITER)))
         {
             if inner.as_bytes().first().is_some_and(|b| STD_PREFIX != *b) {
                 let p = StdIndexPattern_::from_str(inner).ok_or(StdIndexPatternError)?;
@@ -531,7 +531,7 @@ fn build_regex(pat: &str) -> Regex {
         .unwrap()
 }
 
-pub const PATTERN_DELIMITER: char = '/';
+pub const PATTERN_DELIMITER: u8 = b'/';
 
 const MEAS_PATTERN: &str = formatcp!("^P{INDEX_PATTERN}([A-Z]+)$");
 

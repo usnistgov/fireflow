@@ -380,6 +380,7 @@ impl FromStr for ValueRegex {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         regex::RegexBuilder::new(s)
+            .case_insensitive(true)
             .build()
             .map(|inner| Self { inner })
             .map_err(ValueRegexError)

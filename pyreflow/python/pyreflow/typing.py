@@ -394,7 +394,8 @@ value exactly equal to the second argument.
 If ``"key_matches"``, return true if the indicated key (first argument)
 has a value which matches the regular expression (second argument). The
 regexp must follow the syntax of the rust `regexp crate
-<https://docs.rs/regex-syntax/latest/regex_syntax/>`__.
+<https://docs.rs/regex-syntax/latest/regex_syntax/>`__. Regular expressions will
+always be matched without case sensitivity.
 
 Keys can either be standard (start with ``"$"``) or non-standard (no
 ``"$"``).

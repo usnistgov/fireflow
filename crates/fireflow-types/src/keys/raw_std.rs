@@ -1149,20 +1149,6 @@ impl GateKeyId {
         }
     }
 
-    #[must_use]
-    pub const fn blank(self) -> &'static NEStr {
-        match self {
-            Self::N => PNN,
-            Self::R => PNR,
-            Self::E => PNE,
-            Self::S => PNS,
-            Self::F => PNF,
-            Self::T => PNT,
-            Self::P => PNP,
-            Self::V => PNV,
-        }
-    }
-
     const fn membership() -> VersionMembership {
         VersionMembership::Three([Version::FCS2_0, Version::FCS3_0, Version::FCS3_1])
     }

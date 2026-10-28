@@ -192,7 +192,7 @@ fn run() -> AppResult<()> {
             base60 = fmt_val(tc::BASE60_SECOND_SPEC),
             base100 = fmt_val(tc::BASE100_SECOND_SPEC),
             fmt2_0 = fmt_val(tc::DEFAULT_TIME_FORMAT_2_0),
-            fmt3_0 = fmt_val(tc::DEFAULT_TIME_FORMAT_2_0),
+            fmt3_0 = fmt_val(tc::DEFAULT_TIME_FORMAT_3_0),
             fmt3_1 = fmt_val(tc::DEFAULT_TIME_FORMAT_3_1)
         )],
     );

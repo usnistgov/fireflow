@@ -248,8 +248,9 @@ impl AnyReader {
         let mut outputs = vec![];
         let mut warnings = vec![];
         let mut this_reader = self;
+        let abs_limit = limit.map(|x| skip.unwrap_or_default() + x);
         while let Some(dso) = dataset_offset
-            && limit.is_none_or(|x| count < x)
+            && abs_limit.is_none_or(|x| count < x)
         {
             let res = Self::read_flat_text(this_reader, dso, start_time, conf);
             let succ = split_log!(res);
@@ -297,6 +298,7 @@ impl AnyReader {
         let mut outputs = vec![];
         let mut warnings = vec![];
         let mut this_reader = self;
+        let abs_limit = limit.map(|x| skip.unwrap_or_default() + x);
         let rconf = ReadFlatTEXTConfig {
             header: AsRef::<ReadHeaderInnerConfig>::as_ref(conf).clone(),
             flat: AsRef::<ReadHeaderAndTEXTConfig>::as_ref(conf).clone(),
@@ -313,7 +315,7 @@ impl AnyReader {
             };
         }
         while let Some(dso) = dataset_offset
-            && limit.is_none_or(|x| count < x)
+            && abs_limit.is_none_or(|x| count < x)
         {
             let nextdata_res = if skip.is_some_and(|s| count < s) {
                 let res = Self::read_flat_text(this_reader, dso, start_time, &rconf)
@@ -465,14 +467,16 @@ impl AnyReader {
         let mut outputs = vec![];
         let mut warnings = vec![];
         let mut this_reader = self;
+        let abs_limit = limit.map(|x| skip.unwrap_or_default() + x);
         let rconf = ReadFlatTEXTConfig {
             header: AsRef::<ReadHeaderInnerConfig>::as_ref(conf).clone(),
             flat: AsRef::<ReadHeaderAndTEXTConfig>::as_ref(conf).clone(),
             offset: *conf.as_ref(),
             shared: *conf.as_ref(),
         };
+
         while let Some(dso) = dataset_offset
-            && limit.is_none_or(|x| count < x)
+            && abs_limit.is_none_or(|x| count < x)
         {
             let nextdata_res = if skip.is_some_and(|s| count < s) {
                 let res = Self::read_flat_text(this_reader, dso, start_time, &rconf)

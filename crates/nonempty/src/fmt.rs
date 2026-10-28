@@ -151,7 +151,7 @@ mod sealed {
 
             impl fmt::Write for CheckedFormatter<'_, '_> {
                 fn write_str(&mut self, s: &str) -> fmt::Result {
-                    self.not_empty = !s.is_empty();
+                    self.not_empty |= !s.is_empty();
                     self.inner.write_str(s)
                 }
             }

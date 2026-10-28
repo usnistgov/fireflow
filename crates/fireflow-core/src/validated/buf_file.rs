@@ -64,7 +64,8 @@ impl Seek for BufFileReader {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         let err = io::Error::from(io::ErrorKind::InvalidInput);
         let new_pos = match pos {
-            SeekFrom::Current(p) | SeekFrom::End(p) => self.pos.checked_add_signed(p).ok_or(err)?,
+            SeekFrom::Current(p) => self.pos.checked_add_signed(p).ok_or(err)?,
+            SeekFrom::End(p) => self.file_len.checked_add_signed(p).ok_or(err)?,
             SeekFrom::Start(p) => p,
         };
         self.seek_to(new_pos)?;

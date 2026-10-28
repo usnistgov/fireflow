@@ -474,7 +474,7 @@ fn run() -> AppResult<()> {
     let make_key_str_args = |name, help| {
         let more = format!(
             "If first and last character are the same, they are treated as \
-             delimiters (<#> which can be used to \
+             delimiters (<#>) which can be used to \
              separate multiple values. If a single value starts and ends with \
              the same value, encapsulate this with two delimiters. \
              Values that start and end with {delim} will be \
@@ -487,7 +487,6 @@ fn run() -> AppResult<()> {
         let more_help = format!("{help} {more}");
         Arg::new(name)
             .long(name)
-            .action(ArgAction::Append)
             .value_name("<#>KEY_OR_PAT[<#>KEY_OR_PAT..]<#>")
             .help(more_help)
     };
@@ -544,7 +543,6 @@ fn run() -> AppResult<()> {
 
     let ignore_time_optical_keys = Arg::new(ta::IGNORE_OPTICAL_ONLY_KEYS)
         .long(ta::IGNORE_OPTICAL_ONLY_KEYS)
-        .action(ArgAction::Append)
         .value_name("SYMS")
         .help(format!(
             "Ignore optical keyword for temporal measurement. Must be a \
@@ -713,7 +711,6 @@ fn run() -> AppResult<()> {
 
     let rename_standard_keys = Arg::new(ta::RENAME_STD_KEYS)
         .long(ta::RENAME_STD_KEYS)
-        .action(ArgAction::Append)
         .value_name("<#>OLD<#>NEW[<#>OLD<#>NEW]<#>")
         .value_parser(ValueParser::new(parse_two_keystring_pair))
         .help(
@@ -725,7 +722,6 @@ fn run() -> AppResult<()> {
 
     let replace_std_key_vals = Arg::new(ta::REPLACE_STD_KEY_VALS)
         .long(ta::REPLACE_STD_KEY_VALS)
-        .action(ArgAction::Append)
         .value_name("<#>KEY<#>VAL[<#>KEY<#>VAL..]<#>")
         .help(
             "Replace values of standard keys matching KEY with VAl. \
@@ -737,7 +733,6 @@ fn run() -> AppResult<()> {
 
     let append_std_key_vals = Arg::new(ta::APPEND_STD_KEYWORDS)
         .long(ta::APPEND_STD_KEYWORDS)
-        .action(ArgAction::Append)
         .value_name("<#>KEY<#>VAL[<#>KEY<#>VAL..]<#>")
         .help(
             "Append standard keys with KEY and VAL to list of existing standard keys. \
@@ -749,7 +744,6 @@ fn run() -> AppResult<()> {
 
     let sub_key_vals = Arg::new(ta::SUB_STD_KEY_VALS)
         .long(ta::SUB_STD_KEY_VALS)
-        .action(ArgAction::Append)
         .value_name("<#>KEY<#>SUB[<#>KEY<#>SUB..]<#>")
         .help(format!(
             "Edit standard key values using KEY and SUB. See {sub_header} for details. \

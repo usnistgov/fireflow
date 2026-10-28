@@ -225,3 +225,6 @@ cargo_common_metadata = "allow"
 
 # try and fix these; dependencies might make this impossible
 multiple_crate_versions = "allow"
+
+# this causes lots of noise with "derive_new"
+redundant_field_names = "allow"

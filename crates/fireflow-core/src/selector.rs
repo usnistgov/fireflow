@@ -331,7 +331,8 @@ impl<T> Cond<T> {
     {
         self.forms
             .iter()
-            .find_map(|(c, s)| if c.eval(kws) { s.eval_inner(kws) } else { None })
+            .find(|(c, _)| c.eval(kws))
+            .and_then(|(_, s)| s.eval_inner(kws))
     }
 }
 

@@ -301,20 +301,10 @@ fn run() -> AppResult<()> {
             "Limit by which ending segment offset can be truncated if they overlap another offset.",
         );
 
-    let data_remainder_limit = Arg::new(ta::DATA_REMAINDER_LIMIT)
-        .long(ta::DATA_REMAINDER_LIMIT)
-        .value_name("LIMIT")
-        .value_parser(value_parser!(tc::DataRemainderLimit))
-        .help(format!(
-            "Limit by which ending {data_seg} offset can be truncated if \
-             its length modulo event width produces a remainder."
-        ));
-
     let all_read_offset_args = [
         allow_pseudoempty,
         truncate_offset_limit,
         overlap_correction_limit,
-        data_remainder_limit,
     ];
 
     // "flat" args
@@ -458,12 +448,6 @@ fn run() -> AppResult<()> {
             silent = fmt_val(tc::TRIM_BLANK_SILENT_LEVEL),
         ));
 
-    let process_pseudostandard = proc_kw_fail_arg(
-        ta::PROCESS_PSEUDOSTANDARD,
-        "Process non-standard keywords that start with a '$'.",
-    )
-    .value_parser(value_parser!(tc::ProcessPseudostandard));
-
     let all_read_flat_args = vec![
         version_override,
         supp_text_correction,
@@ -484,7 +468,6 @@ fn run() -> AppResult<()> {
         allow_supp_text_own_delim,
         allow_missing_nextdata,
         trim_value_whitespace,
-        process_pseudostandard,
     ];
 
     // std args
@@ -542,7 +525,7 @@ fn run() -> AppResult<()> {
     let add_missing_timestep = opt_arg_nonstr::<Timestep>(
         ta::ADD_MISSING_TIMESTEP,
         "TIMESTEP",
-        "Add {timestep) if it is missing.",
+        format!("Add {timestep} if it is missing."),
     );
 
     let force_linear_scale = Arg::new(ta::FORCE_LINEAR_SCALE)
@@ -570,6 +553,12 @@ fn run() -> AppResult<()> {
         ))
         .value_delimiter(',')
         .value_parser(value_parser!(tc::OpticalOnlyKey));
+
+    let process_pseudostandard = proc_kw_fail_arg(
+        ta::PROCESS_PSEUDOSTANDARD,
+        "Process non-standard keywords that start with a '$'.",
+    )
+    .value_parser(value_parser!(tc::ProcessPseudostandard));
 
     let process_time_optical_keys = Arg::new(ta::PROCESS_OPTICAL_ONLY_KEYS)
         .long(ta::PROCESS_OPTICAL_ONLY_KEYS)
@@ -688,6 +677,7 @@ fn run() -> AppResult<()> {
         add_missing_timestep,
         force_linear_scale,
         ignore_time_optical_keys,
+        process_pseudostandard,
         process_time_optical_keys,
         spillover_measurement_mode,
         date_pattern,
@@ -888,6 +878,15 @@ fn run() -> AppResult<()> {
 
     // dataset args
 
+    let data_remainder_limit = Arg::new(ta::DATA_REMAINDER_LIMIT)
+        .long(ta::DATA_REMAINDER_LIMIT)
+        .value_name("LIMIT")
+        .value_parser(value_parser!(tc::DataRemainderLimit))
+        .help(format!(
+            "Limit by which ending {data_seg} offset can be truncated if \
+             its length modulo event width produces a remainder."
+        ));
+
     let allow_uneven_event_width = tri_flag_arg::<tc::AllowUnevenEventWidth>(
         ta::ALLOW_UNEVEN_EVENT_WIDTH,
         format!("Allow event width to not evenly divide length of {data_seg}."),
@@ -966,6 +965,7 @@ fn run() -> AppResult<()> {
         ));
 
     let all_read_dataset_args = [
+        data_remainder_limit,
         allow_uneven_event_width,
         allow_tot_mismatch,
         over_bitmask_action,
@@ -1361,7 +1361,7 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_SUMMARIZE, sargs)) => {
-            let subcmd = cmd.find_subcommand_mut(SUBCMD_REPAIR).unwrap();
+            let subcmd = cmd.find_subcommand_mut(SUBCMD_SUMMARIZE).unwrap();
             let conf = get_read_flat_dataset_config(subcmd, sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_skip(sargs);
@@ -2214,7 +2214,7 @@ const DATASET_INDEX: &str = "dataset-index";
 
 const WRITE_DELIM: &str = "write-delim";
 
-const BIG_OTHER: &str = "skip-conversion-check";
+const BIG_OTHER: &str = "big-other";
 
 const INPUT_PATH: &str = "input-path";
 

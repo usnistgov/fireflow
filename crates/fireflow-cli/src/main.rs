@@ -717,7 +717,8 @@ fn run() -> AppResult<()> {
             "Rename standard keys from OLD to NEW. \
              First character is considered to be the delimiter (<#>) for \
              separating OLD and NEW as well as multiple pairs of OLD/NEW. \
-             An empty list or single delimiter encodes an empty list.",
+             An empty list or single delimiter encodes an empty list. \
+             If duplicate OLD keys are found, only the last is kept.",
         );
 
     let replace_std_key_vals = Arg::new(ta::REPLACE_STD_KEY_VALS)
@@ -727,7 +728,8 @@ fn run() -> AppResult<()> {
             "Replace values of standard keys matching KEY with VAl. \
              First character is considered to be the delimiter (<#>) for \
              separating KEY and VAL as well as multiple pairs of KEY/VAL. \
-             An empty list or single delimiter encodes an empty list.",
+             An empty list or single delimiter encodes an empty list. \
+             If duplicate keys are found, only the last is kept.",
         )
         .value_parser(ValueParser::new(parse_keystring_string_pair));
 
@@ -738,7 +740,8 @@ fn run() -> AppResult<()> {
             "Append standard keys with KEY and VAL to list of existing standard keys. \
              First character is considered to be the delimiter (<#>) for \
              separating KEY and VAL as well as multiple pairs of KEY/VAL. \
-             An empty list or single delimiter encodes an empty list.",
+             An empty list or single delimiter encodes an empty list. \
+             If duplicate keys are found, only the last is kept.",
         )
         .value_parser(ValueParser::new(parse_keystring_string_pair));
 
@@ -749,7 +752,8 @@ fn run() -> AppResult<()> {
             "Edit standard key values using KEY and SUB. See {sub_header} for details. \
              First character is considered to be the delimiter (<#>) for \
              separating KEY and SUB as well as multiple pairs of KEY/SUB. \
-             An empty list or single delimiter encodes an empty list.",
+             An empty list or single delimiter encodes an empty list. \
+             If duplicate keys are found, only the last is kept.",
         ))
         .value_parser(ValueParser::new(parse_sub_pattern_pair));
 

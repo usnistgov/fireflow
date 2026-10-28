@@ -24,6 +24,7 @@ itertools = { workspace = true }
 itoa = { workspace = true }
 zmij = { workspace = true }
 hashbrown = { workspace = true }
+const_format = { workspace = true }
 
 [lints]
 workspace = true

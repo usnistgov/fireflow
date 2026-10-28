@@ -29,6 +29,7 @@ use clap::builder::{IntoResettable, StyledStr, ValueParser};
 use clap::error::ErrorKind;
 use clap::value_parser;
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use const_format::formatcp;
 use hashbrown::HashMap;
 use itertools::Itertools as _;
 use itoa::Buffer as IBuf;
@@ -219,15 +220,15 @@ fn run() -> AppResult<()> {
 
     let other_correction = Arg::new(ta::OTHER_CORRS)
         .long(ta::OTHER_CORRS)
-        .value_name("BEGIN,END[/..]")
+        .value_name(formatcp!("BEGIN,END[{OFFSET_DELIM}..]"))
         .action(ArgAction::Append)
         .value_parser(ValueParser::new(parse_offsets))
         .help(format!(
             "Correction for {other_seg} offsets. \
              Pairs are separated by a comma. \
-             Multiple pairs are separated by a {slash}. \
+             Multiple pairs are separated by a {delim}. \
              An empty string represents an empty list.",
-            slash = fmt_val("\\"),
+            delim = fmt_val(OFFSET_DELIM),
         ));
 
     let max_other = opt_arg_nonstr::<usize>(
@@ -1926,7 +1927,7 @@ fn parse_offsets(s: &str) -> StrResult<Vec<(i32, i32)>> {
     if s.is_empty() {
         Ok(vec![])
     } else {
-        s.split('/').map(parse_offset_pair).collect()
+        s.split(OFFSET_DELIM).map(parse_offset_pair).collect()
     }
 }
 
@@ -2232,3 +2233,7 @@ const CHRONO_REF: &str = "https://docs.rs/chrono/latest/chrono/format/strftime/i
 const REGEXP_REF: &str = "https://docs.rs/regex/latest/regex/#syntax";
 
 const REGEXP_REP_REF: &str = "https://docs.rs/regex/latest/regex/struct.Regex.html#method.replace";
+
+// misc
+
+const OFFSET_DELIM: char = '/';

@@ -837,6 +837,7 @@ version = "0.1.1"
 dependencies = [
  "ansi_term",
  "clap",
+ "const_format",
  "fireflow-core",
  "fireflow-types",
  "hashbrown 0.16.1",

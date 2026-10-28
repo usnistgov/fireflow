@@ -5525,7 +5525,7 @@ where
             MeasKeyId::S.blank(),
             MeasKeyId::B.blank(),
             MeasKeyId::R.blank(),
-            MeasKeyId::S.blank(),
+            MeasKeyId::E.blank(),
             MeasKeyId::F.blank(),
             MeasKeyId::L.blank(),
             MeasKeyId::O.blank(),
@@ -5561,7 +5561,7 @@ where
                 header.push(MeasKeyId::Type.blank());
                 header.push(MeasKeyId::Feature.blank());
                 header.push(MeasKeyId::Analyte.blank());
-                header.push(MeasKeyId::Type.blank());
+                header.push(MeasKeyId::Datatype.blank());
             }
         }
 

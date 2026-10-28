@@ -2106,7 +2106,9 @@ pub fn print_parsed_data<W: Write>(w: &mut W, core: &AnyCoreDataset, delim: u8) 
     }
     writeln!(w)?;
 
-    let rows_per_buf = BUF_SIZE / ncols;
+    // Max to always ensure there is one row, which only matters if we ever
+    // encounter a machine with more than 4096 parameters.
+    let rows_per_buf = (BUF_SIZE / ncols).max(1);
     let real_buf_size = ncols * rows_per_buf;
     let buf_reads = nrows.div_ceil(rows_per_buf);
     let buf_tail_rows = nrows % rows_per_buf;

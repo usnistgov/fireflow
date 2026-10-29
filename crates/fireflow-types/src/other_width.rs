@@ -7,6 +7,8 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+use crate::config::MAX_U64_CHARS;
+
 #[cfg(feature = "python")]
 use {crate::python as py, fireflow_core_proc::DisplayAsPyErr, pyo3::prelude::*};
 
@@ -38,7 +40,7 @@ impl TryFrom<u8> for OtherWidth {
 
     fn try_from(x: u8) -> Result<Self, Self::Error> {
         if let Some(n) = NonZeroU8::new(x)
-            && (MIN_OTHER_WIDTH..=MAX_CHARS).contains(&n)
+            && (MIN_OTHER_WIDTH..=MAX_U64_CHARS).contains(&n)
         {
             Ok(Self(n))
         } else {
@@ -65,14 +67,10 @@ pub enum ParseOtherWidthError {
 
 /// Error when creating [`OtherWidth`] for configuration struct
 #[derive(Debug, Error, PartialEq, Clone)]
-#[error("OTHER width should be integer b/t {MIN_OTHER_WIDTH} and {MAX_CHARS}, got {0}")]
+#[error("OTHER width should be integer b/t {MIN_OTHER_WIDTH} and {MAX_U64_CHARS}, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct OtherWidthError(u8);
-
-// TODO this is awkward to include here since it also applies to characters in
-// general for PnB
-pub const MAX_CHARS: NonZeroU8 = NonZeroU8::new(20).unwrap();
 
 pub const MIN_OTHER_WIDTH: NonZeroU8 = NonZeroU8::new(8).unwrap();
 

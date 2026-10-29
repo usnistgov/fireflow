@@ -6,8 +6,9 @@ use crate::data::{
 use crate::text::byteord::WidthToFixedError;
 use crate::text::keywords::{RangeToIntError, TextRange, Width};
 
+use fireflow_types::config::MAX_U64_CHARS;
+use fireflow_types::index::MeasIndex;
 use fireflow_types::keys::raw_std::{MeasKeyId, ToStd as _};
-use fireflow_types::{index::MeasIndex, other_width::MAX_CHARS};
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
@@ -226,7 +227,7 @@ impl TryFrom<NonZeroU8> for Chars {
     /// 20 is the maximum number of digits representable by an unsigned integer,
     /// which is the numeric type used to back ASCII data.
     fn try_from(value: NonZeroU8) -> Result<Self, Self::Error> {
-        if value <= MAX_CHARS {
+        if value <= MAX_U64_CHARS {
             Ok(Self(value))
         } else {
             Err(CharsError(u8::from(value)))
@@ -289,7 +290,7 @@ pub(crate) struct NotEnoughCharsError {
 ///
 /// This is a helper type meant to be used in making more specific errors.
 #[derive(Debug, Display, PartialEq, Clone)]
-#[display("bits must be <= {MAX_CHARS} to be used as number of characters, got {_0}")]
+#[display("bits must be <= {MAX_U64_CHARS} to be used as number of characters, got {_0}")]
 pub(crate) struct CharsError(u8);
 
 #[cfg(test)]

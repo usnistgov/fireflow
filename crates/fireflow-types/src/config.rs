@@ -2350,6 +2350,9 @@ pub const BYTEORD_OVERRIDE_ENDIAN_LEVEL: &NEStr = ne_str!("endian");
 pub const FIX_INT_WIDTH_NEVER_LEVEL: &NEStr = ne_str!("never");
 pub const FIX_INT_WIDTH_NEXT_BYTE_LEVEL: &NEStr = ne_str!("next_byte");
 
+/// The maximum number of chars that must be used to write a u64 in ASCII.
+pub const MAX_U64_CHARS: NonZeroU8 = NonZeroU8::new(20).unwrap();
+
 // internal constants, many are shared between enums to keep the API simpler
 
 const NONE_LEVEL: &NEStr = ne_str!("none");

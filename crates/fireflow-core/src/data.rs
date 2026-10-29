@@ -159,8 +159,8 @@ use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
 use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
 use fireflow_types::config::{
     AllowOverBitmask, AllowTotMismatch, ByteordOverride, DisallowOverRange, DummyTriFlag,
-    IntWidthOverride, NumericByteWidth, OverBitmaskAction, OverLimitMode, OverRangeAction,
-    ReadDataKeywordsConfig, ReadDatasetConfig, RowBufferSize, TriErrorFlag as _,
+    IntWidthOverride, MAX_U64_CHARS, NumericByteWidth, OverBitmaskAction, OverLimitMode,
+    OverRangeAction, ReadDataKeywordsConfig, ReadDatasetConfig, RowBufferSize, TriErrorFlag as _,
     WriteDatasetInnerConfig,
 };
 use fireflow_types::index::MeasIndex;
@@ -5980,6 +5980,7 @@ pub trait DataFrameCheckRanges {
         let mut warnings = vec![];
         for e in rs.into_iter().filter_map(|c| c.map(|r| r.error)) {
             match e.trunc_type {
+                ExceededRange::Characters => errors.push(e),
                 ExceededRange::Bitmask => match bitmask_flag {
                     Some(true) => errors.push(e),
                     Some(false) => warnings.push(e),
@@ -7255,6 +7256,7 @@ enum ExceededRange {
     Bitmask,
     Range,
     RangeAndBitmask,
+    Characters,
 }
 
 impl<T> ColumnSchemaAsRange for Bitmask<T>
@@ -7326,18 +7328,118 @@ pub(crate) trait CheckRange {
 // having no out of range values, it is probabilistically worth using this
 // shortcut. Most FCS files will have ranges/columns above this cutoff in
 // practice.
-impl<C> CheckRange for NativeSeries<C>
-where
-    C: Clone + ColumnHasNativeType + ColumnHasDatatype + ColumnSchemaAsRange,
-    <<C as ColumnHasNativeType>::Native as FCSRepr>::Prim: Copy + PartialOrd + Bounded,
-    C::Native: FCSRepr + Into<<<C as ColumnHasNativeType>::Native as FCSRepr>::Prim>,
-{
+macro_rules! impl_native_check_range {
+    ($t:ident) => {
+        impl CheckRange for NativeSeries<$t> {
+            fn check_range(
+                &self,
+                i: MeasIndex,
+                bitmask_flag: AllowOverBitmask,
+                range_flag: DisallowOverRange,
+            ) -> Result<(), EventOverRangeError> {
+                self.check_range_native(i, bitmask_flag, range_flag)
+            }
+
+            fn check_range_mut(
+                &mut self,
+                i: MeasIndex,
+                bitmask_trunc: OverLimitMode,
+                range_trunc: OverLimitMode,
+            ) -> Option<TruncatedValueResult> {
+                self.check_range_native_mut(i, bitmask_trunc, range_trunc)
+            }
+        }
+    };
+}
+
+impl_native_check_range!(Bitmask08);
+impl_native_check_range!(Bitmask16);
+impl_native_check_range!(Bitmask24);
+impl_native_check_range!(Bitmask32);
+impl_native_check_range!(Bitmask40);
+impl_native_check_range!(Bitmask48);
+impl_native_check_range!(Bitmask56);
+impl_native_check_range!(Bitmask64);
+impl_native_check_range!(F32Range);
+impl_native_check_range!(F64Range);
+impl_native_check_range!(DelimAsciiRange);
+
+impl CheckRange for NativeSeries<FixedAsciiRange> {
     fn check_range(
         &self,
         i: MeasIndex,
         bitmask_flag: AllowOverBitmask,
         range_flag: DisallowOverRange,
     ) -> Result<(), EventOverRangeError> {
+        self.check_range_ascii(i, bitmask_flag, range_flag)
+    }
+
+    fn check_range_mut(
+        &mut self,
+        i: MeasIndex,
+        bitmask_trunc: OverLimitMode,
+        range_trunc: OverLimitMode,
+    ) -> Option<TruncatedValueResult> {
+        self.check_range_native_mut(i, bitmask_trunc, range_trunc)
+    }
+}
+
+impl CheckRange for VariableUintSeries {
+    fn check_range(
+        &self,
+        i: MeasIndex,
+        bitmask_flag: AllowOverBitmask,
+        range_flag: DisallowOverRange,
+    ) -> Result<(), EventOverRangeError> {
+        match_any_uint!(self, x, x.check_range(i, bitmask_flag, range_flag))
+    }
+
+    fn check_range_mut(
+        &mut self,
+        i: MeasIndex,
+        bitmask_trunc: OverLimitMode,
+        range_trunc: OverLimitMode,
+    ) -> Option<TruncatedValueResult> {
+        match_any_uint!(self, x, x.check_range_mut(i, bitmask_trunc, range_trunc))
+    }
+}
+
+impl CheckRange for MixedSeries {
+    fn check_range(
+        &self,
+        i: MeasIndex,
+        bitmask_flag: AllowOverBitmask,
+        range_flag: DisallowOverRange,
+    ) -> Result<(), EventOverRangeError> {
+        match_any_datatype!(self, x, x.check_range(i, bitmask_flag, range_flag))
+    }
+
+    fn check_range_mut(
+        &mut self,
+        i: MeasIndex,
+        bitmask_trunc: OverLimitMode,
+        range_trunc: OverLimitMode,
+    ) -> Option<TruncatedValueResult> {
+        match_any_datatype!(self, x, x.check_range_mut(i, bitmask_trunc, range_trunc))
+    }
+}
+
+impl<C> NativeSeries<C>
+where
+    C: ColumnHasNativeType,
+    C::Native: FCSRepr,
+{
+    fn check_range_native(
+        &self,
+        i: MeasIndex,
+        bitmask_flag: AllowOverBitmask,
+        range_flag: DisallowOverRange,
+    ) -> Result<(), EventOverRangeError>
+    where
+        C: Clone + ColumnHasDatatype + ColumnSchemaAsRange,
+        <<C as ColumnHasNativeType>::Native as FCSRepr>::Prim: Copy + PartialOrd + Bounded,
+        C::Native: Into<<<C as ColumnHasNativeType>::Native as FCSRepr>::Prim>,
+    {
         let dt = self.column_schema.col_datatype();
         let rng = self.column_schema.as_range();
         let bf = bitmask_flag.is_error().is_some();
@@ -7387,12 +7489,17 @@ where
         })
     }
 
-    fn check_range_mut(
+    fn check_range_native_mut(
         &mut self,
         i: MeasIndex,
         bitmask_trunc: OverLimitMode,
         range_trunc: OverLimitMode,
-    ) -> Option<TruncatedValueResult> {
+    ) -> Option<TruncatedValueResult>
+    where
+        C: Clone + ColumnHasDatatype + ColumnSchemaAsRange,
+        <<C as ColumnHasNativeType>::Native as FCSRepr>::Prim: Copy + PartialOrd + Bounded,
+        C::Native: Into<<<C as ColumnHasNativeType>::Native as FCSRepr>::Prim>,
+    {
         let trunc = |self_: &mut Self, limit, exceed| {
             self_
                 .series
@@ -7496,44 +7603,66 @@ where
     }
 }
 
-impl CheckRange for VariableUintSeries {
-    fn check_range(
+// ASCII series are special because they are the only datatype which can have a
+// value that exceeds the character limit for the column. All other types have
+// this limit baked into the type itself (ie, U24 can only be 24 bytes). We
+// can't do this with ASCII because it would be unwieldy to make 20 different
+// types for each character limit (1-20). Therefore we need to check this
+// at runtime.
+impl NativeSeries<FixedAsciiRange> {
+    fn check_range_ascii(
         &self,
         i: MeasIndex,
-        bitmask_flag: AllowOverBitmask,
+        _: AllowOverBitmask,
         range_flag: DisallowOverRange,
     ) -> Result<(), EventOverRangeError> {
-        match_any_uint!(self, x, x.check_range(i, bitmask_flag, range_flag))
+        let chars = self.column_schema.chars();
+        let rng = self.column_schema.value();
+        let soft_limit = u64::from(rng);
+        let rf = range_flag.is_error().is_some();
+
+        let test = if NonZeroU8::from(chars) < MAX_U64_CHARS {
+            let hard_limit = 10_u64.saturating_pow(u32::from(u8::from(chars))) - 1;
+            if self.series.any_gt(hard_limit) {
+                // Character limit might impose a hard ceiling on the value.
+                // Check this regardless of the value of the range flag and
+                // prior to checking $PnR
+                Some((hard_limit, ExceededRange::Characters))
+            } else if rf && self.series.any_gt(soft_limit) {
+                // Value can fit in character limit, check $PnR if desired.
+                Some((soft_limit, ExceededRange::Range))
+            } else {
+                None
+            }
+        } else if rf {
+            // Character limit can hold a u64, only check $PnR
+            self.series
+                .any_gt(soft_limit)
+                .then_some((soft_limit, ExceededRange::Range))
+        } else {
+            None
+        };
+
+        test.and_then(|(limit, exceed)| {
+            self.series
+                .as_ref()
+                .iter()
+                .enumerate()
+                .find_map(|(rowi, x)| (*x > limit).then_some((rowi, exceed)))
+        })
+        .map_or(Ok(()), |(rowi, t)| {
+            Err(EventOverRangeError::new(rowi, i, rng.0.into(), t))
+        })
     }
 
-    fn check_range_mut(
-        &mut self,
-        i: MeasIndex,
-        bitmask_trunc: OverLimitMode,
-        range_trunc: OverLimitMode,
-    ) -> Option<TruncatedValueResult> {
-        match_any_uint!(self, x, x.check_range_mut(i, bitmask_trunc, range_trunc))
-    }
-}
-
-impl CheckRange for MixedSeries {
-    fn check_range(
-        &self,
-        i: MeasIndex,
-        bitmask_flag: AllowOverBitmask,
-        range_flag: DisallowOverRange,
-    ) -> Result<(), EventOverRangeError> {
-        match_any_datatype!(self, x, x.check_range(i, bitmask_flag, range_flag))
-    }
-
-    fn check_range_mut(
-        &mut self,
-        i: MeasIndex,
-        bitmask_trunc: OverLimitMode,
-        range_trunc: OverLimitMode,
-    ) -> Option<TruncatedValueResult> {
-        match_any_datatype!(self, x, x.check_range_mut(i, bitmask_trunc, range_trunc))
-    }
+    // fn check_range_ascii_mut(
+    //     &mut self,
+    //     i: MeasIndex,
+    //     bitmask_trunc: OverLimitMode,
+    //     range_trunc: OverLimitMode,
+    // ) -> Option<TruncatedValueResult> {
+    //     unimplemented!()
+    // }
 }
 
 // Implement read methods for "matrix" schemas where all data is the same width.

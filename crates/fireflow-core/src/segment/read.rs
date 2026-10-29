@@ -26,10 +26,11 @@ use crate::validated::read_state::{DatasetOffset, DatasetReader, HeaderReader, T
 
 use fireflow_types::config::{
     AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
-    ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig, TriErrorFlag as _,
+    MAX_U64_CHARS, ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig,
+    TriErrorFlag as _,
 };
 use fireflow_types::keywords::Version;
-use fireflow_types::other_width::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth};
+use fireflow_types::other_width::{MIN_OTHER_WIDTH, OtherWidth};
 use fireflow_types::segment::{
     AnalysisSegmentId, DataSegmentId, HeaderCorrection, OffsetsCorrection, OffsetsFromHeader,
     OffsetsFromTEXT, OtherSegmentId, PrimaryTextSegmentId, SupplementalTextSegmentId,
@@ -2366,7 +2367,7 @@ impl OtherOffsets20 {
         };
 
         // TODO use NZU8 directly (this is not yet stable)
-        let candidates = (MIN_OTHER_WIDTH.get()..=MAX_CHARS.get())
+        let candidates = (MIN_OTHER_WIDTH.get()..=MAX_U64_CHARS.get())
             .filter_map(|w| OtherWidth::try_from(w).ok())
             .filter(|&w| go(w));
 

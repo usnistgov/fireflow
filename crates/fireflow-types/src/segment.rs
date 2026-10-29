@@ -1,4 +1,5 @@
 use derive_new::new;
+use derive_where::derive_where;
 
 use std::marker::PhantomData;
 
@@ -6,7 +7,8 @@ use std::marker::PhantomData;
 use serde::Serialize;
 
 /// Denotes a correction for a segment offset pair
-#[derive(Default, Clone, Copy, new)]
+#[derive(new)]
+#[derive_where(Default, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OffsetsCorrection<I, S> {
     begin: i32,

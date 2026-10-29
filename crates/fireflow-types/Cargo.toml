@@ -9,6 +9,7 @@ Simple types and constants used throughout other fireflow crates.
 [dependencies]
 chrono = { workspace = true }
 derive_more = { workspace = true, features = ["from", "into", "display", "from_str", "try_into", "add", "mul"] }
+derive-where = { workspace = true }
 thiserror = { workspace = true }
 const_format = { workspace = true }
 pyo3 = { workspace = true, optional = true, features = ["macros", "hashbrown"] }

@@ -828,7 +828,7 @@ where
         .enumerate()
         .map(|(i, x)| {
             let res = FromValue::from_value(x);
-            if res.lossy {
+            if res.lossy && err.is_none() {
                 err = Some(CastSeriesError::new(i, X::TYPE, Y::TYPE));
             }
             res.inner

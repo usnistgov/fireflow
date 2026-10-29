@@ -1585,7 +1585,7 @@ impl Compensation2_0 {
                 (false, true) => Some(Comp2_0Missing::Col),
                 (false, false) => None,
             };
-            let k = DfcKey::new(BiMeasIndex::new(kw.row, kw.col));
+            let k = DfcKey::new(BiMeasIndex::new(kw.col, kw.row));
             which.map(|b| RemovedComp2_0Cell::new(k, b))
         });
         let ret = es

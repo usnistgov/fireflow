@@ -1488,7 +1488,10 @@ impl Compensation2_0 {
                 }
             })
             .unzip();
-        let res = if xs.iter().all(Option::is_none) || xs.is_empty() {
+        let res = if xs.iter().all(|x| x.is_none_or(|y| y.0.is_zero())) || xs.is_empty() {
+            // If all entries are either none (failed lookup) or zero
+            // (successful lookup that yielded zero), then the entire matrix is
+            // just zeros and we can ignore it.
             LogResult::new_switchable_ok(None, flag)
         } else {
             let ys = xs
@@ -1523,23 +1526,21 @@ impl Compensation2_0 {
         res.extend_deferred_switchable_errors3(warnings.into_iter().flatten())
     }
 
-    // TODO this awkward, if all the entries are zero then we will be saving
-    // lots of zeros as keywords. The best way to handle this in order to keep
-    // read/write operations isomorphic is to ignore comp matrices (and
-    // spillover matrices) that are entirely zero since they clearly are
-    // meaningless.
     pub fn non_zero_indices(&self) -> impl Iterator<Item = DfcKeyword> {
         let m = self.0.matrix();
-        m.iter().enumerate().map(|(i, &value)| {
-            let n = m.ncols();
-            let row = i / n;
-            let col = i % n;
-            DfcKeyword {
-                col: col.into(),
-                row: row.into(),
-                value: Dfc(value),
-            }
-        })
+        m.iter()
+            .enumerate()
+            .filter(|(_, value)| !value.is_zero())
+            .map(|(i, &value)| {
+                let n = m.ncols();
+                let row = i / n;
+                let col = i % n;
+                DfcKeyword {
+                    col: col.into(),
+                    row: row.into(),
+                    value: Dfc(value),
+                }
+            })
     }
 
     pub(crate) fn invalid_link_errors(

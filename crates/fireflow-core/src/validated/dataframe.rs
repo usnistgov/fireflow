@@ -21,6 +21,7 @@ use thiserror::Error;
 
 use std::marker::PhantomData;
 use std::mem;
+use std::num::NonZeroUsize;
 use std::slice::{Iter, from_raw_parts};
 
 #[cfg(feature = "python")]
@@ -121,7 +122,7 @@ pub struct NewDataframeError;
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct SeriesLengthError {
-    df_len: usize,
+    df_len: NonZeroUsize,
     col_len: usize,
 }
 
@@ -1039,6 +1040,54 @@ impl AnyPrimitiveSeries {
             Self::F64(x) => x.will_be_lossy::<X>(),
         }
     }
+
+    // #[cfg(test)]
+    // pub(crate) fn as_ref_u08(&self) -> &[u8] {
+    //     match self {
+    //         Self::U08(x) => x.as_ref(),
+    //         _ => panic!("series is not u8"),
+    //     }
+    // }
+
+    // #[cfg(test)]
+    // pub(crate) fn as_ref_u16(&self) -> &[u16] {
+    //     match self {
+    //         Self::U16(x) => x.as_ref(),
+    //         _ => panic!("series is not u16"),
+    //     }
+    // }
+
+    // #[cfg(test)]
+    // pub(crate) fn as_ref_u32(&self) -> &[u32] {
+    //     match self {
+    //         Self::U32(x) => x.as_ref(),
+    //         _ => panic!("series is not u32"),
+    //     }
+    // }
+
+    #[cfg(test)]
+    pub(crate) fn as_ref_u64(&self) -> &[u64] {
+        match self {
+            Self::U64(x) => x.as_ref(),
+            _ => panic!("series is not u64"),
+        }
+    }
+
+    // #[cfg(test)]
+    // pub(crate) fn as_ref_f32(&self) -> &[f32] {
+    //     match self {
+    //         Self::F32(x) => x.as_ref(),
+    //         _ => panic!("series is not f32"),
+    //     }
+    // }
+
+    // #[cfg(test)]
+    // pub(crate) fn as_ref_f64(&self) -> &[f64] {
+    //     match self {
+    //         Self::F64(x) => x.as_ref(),
+    //         _ => panic!("series is not f64"),
+    //     }
+    // }
 }
 
 impl<T> PrimitiveSeries<T> {
@@ -1107,6 +1156,11 @@ impl<C> DataFrame<C> {
         self.series.iter()
     }
 
+    #[must_use]
+    pub fn into_columns(self) -> Vec<C> {
+        self.series
+    }
+
     pub(crate) fn check_ranges(
         &self,
         bitmask_flag: AllowOverBitmask,
@@ -1138,17 +1192,18 @@ impl<C> DataFrame<C> {
     }
 
     #[must_use]
-    pub fn nrows(&self) -> usize {
-        self.nrows_nonempty().unwrap_or(0)
+    pub fn shape(&self) -> (usize, usize) {
+        (self.nrows(), self.ncols())
     }
 
     #[must_use]
-    pub fn nrows_nonempty(&self) -> Option<usize> {
-        if self.is_empty() {
-            None
-        } else {
-            Some(self.nrows)
-        }
+    pub fn nrows(&self) -> usize {
+        self.nrows_nonempty().map_or(0, NonZeroUsize::get)
+    }
+
+    #[must_use]
+    pub fn nrows_nonempty(&self) -> Option<NonZeroUsize> {
+        NonZeroUsize::new(self.nrows)
     }
 
     #[must_use]
@@ -1207,7 +1262,7 @@ impl<C> DataFrame<C> {
     {
         if let Some(df_len) = self.nrows_nonempty() {
             let col_len = col.len();
-            if col_len != df_len {
+            if col_len != df_len.get() {
                 return Err(SeriesLengthError { df_len, col_len });
             }
         }

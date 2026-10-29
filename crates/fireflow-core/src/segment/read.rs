@@ -1669,6 +1669,11 @@ impl<I, S> Offsets<I, S> {
     pub(crate) fn as_nonempty_mut(&mut self) -> Option<NonEmptyOffsetsMut<'_, I, S>> {
         matches!(self.inner, InnerOffsets::NonEmpty(_)).then_some(NonEmptyOffsetsMut(self))
     }
+
+    #[cfg(test)]
+    pub(crate) fn new_dummy(len: u64) -> Self {
+        Self::new(InnerOffsets::new_dummy(len))
+    }
 }
 
 impl InnerOffsets {
@@ -1711,6 +1716,16 @@ impl InnerOffsets {
 
         let ne = NonEmptyOffsetsInner::new(new_begin, new_length, new_length, conf.dataset_offset);
         Ok(Self::NonEmpty(ne))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_dummy(len: u64) -> Self {
+        if let Some(ne) = NonZeroU64::new(len) {
+            let inner = NonEmptyOffsetsInner::new(0, ne, ne, DatasetOffset(0));
+            Self::NonEmpty(inner)
+        } else {
+            Self::Empty
+        }
     }
 
     fn is_empty(&self) -> bool {

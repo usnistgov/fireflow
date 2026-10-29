@@ -107,7 +107,7 @@
 // * width: The value of $PnB
 
 use crate::convert::{InstantExt as _, U64Ext as _, UsizeExt as _};
-use crate::io::AnyReader;
+use crate::io::{AnyReader, AnyReader_};
 use crate::logging::{
     Error2, Error3, ErrorGroup, ErrorsResult, IOErrorGroup, IOResult, ImpureError, LogResult,
     ResultExt as _, SwitchableErrorResult, SwitchableErrorsResult, WarningOrErrorResult,
@@ -185,7 +185,7 @@ use thiserror::Error;
 
 use std::convert::Infallible;
 use std::fmt;
-use std::io::{self, BufWriter, Read, Write};
+use std::io::{self, BufWriter, Read, Seek, Write};
 use std::iter;
 use std::marker::PhantomData;
 use std::mem;
@@ -3044,15 +3044,16 @@ where
 /// A data schema that can be converted to a dataframe by reading a bytestream.
 #[delegatable_trait]
 pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
-    fn read_into<X>(
+    fn read_into<X, R>(
         &self,
-        reader: &mut AnyReader,
+        reader: &mut AnyReader_<R>,
         start_pos: u64,
         tot: T,
         offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<PreDataFrameResult<X>, ReadDataframeWarning, ReadDataframeError, ()>
     where
+        R: Read + Seek,
         T: IsTot,
         Self::DfTarget: Into<X>,
     {
@@ -3060,9 +3061,9 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
             .map_ok_value(Functor::fmap_into)
     }
 
-    fn read_df_inner(
+    fn read_df_inner<R>(
         &self,
-        reader: &mut AnyReader,
+        reader: &mut AnyReader_<R>,
         start_pos: u64,
         tot: T,
         offsets: AnyNonEmptyDataOffsets<'_>,
@@ -3074,13 +3075,14 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
         (),
     >
     where
+        R: Read + Seek,
         T: IsTot;
 }
 
 impl DataSchemaReadOps<Identity<Tot>> for DataSchema3_2 {
-    fn read_df_inner(
+    fn read_df_inner<R: Read + Seek>(
         &self,
-        reader: &mut AnyReader,
+        reader: &mut AnyReader_<R>,
         start_pos: u64,
         tot: Identity<Tot>,
         offsets: AnyNonEmptyDataOffsets<'_>,
@@ -3109,9 +3111,9 @@ where
     F32::DfTarget: Into<Self::DfTarget>,
     F64::DfTarget: Into<Self::DfTarget>,
 {
-    fn read_df_inner(
+    fn read_df_inner<R: Read + Seek>(
         &self,
-        reader: &mut AnyReader,
+        reader: &mut AnyReader_<R>,
         start_pos: u64,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
@@ -3136,9 +3138,9 @@ where
     W0::DfTarget: Into<Self::DfTarget>,
     W::DfTarget: Into<Self::DfTarget>,
 {
-    fn read_df_inner(
+    fn read_df_inner<R: Read + Seek>(
         &self,
-        reader: &mut AnyReader,
+        reader: &mut AnyReader_<R>,
         start_pos: u64,
         tot: Identity<Tot>,
         offsets: AnyNonEmptyDataOffsets<'_>,
@@ -3160,9 +3162,9 @@ where
     D::DfTarget: Into<Self::DfTarget>,
     A::DfTarget: Into<Self::DfTarget>,
 {
-    fn read_df_inner(
+    fn read_df_inner<R: Read + Seek>(
         &self,
-        reader: &mut AnyReader,
+        reader: &mut AnyReader_<R>,
         start_pos: u64,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
@@ -3200,9 +3202,9 @@ where
     C56::DfTarget: Into<Self::DfTarget>,
     C64::DfTarget: Into<Self::DfTarget>,
 {
-    fn read_df_inner(
+    fn read_df_inner<R: Read + Seek>(
         &self,
-        reader: &mut AnyReader,
+        reader: &mut AnyReader_<R>,
         start_pos: u64,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
@@ -3229,9 +3231,9 @@ where
     Col: Clone + ColumnIsFixed,
     ByteOrder: Copy,
 {
-    fn read_df_inner(
+    fn read_df_inner<R: Read + Seek>(
         &self,
-        reader: &mut AnyReader,
+        reader: &mut AnyReader_<R>,
         start_pos: u64,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
@@ -3292,9 +3294,9 @@ where
     DelimAsciiCol: IsCol<VecFamily, ORD, Inner = DelimAsciiRange, Layout = NoByteOrd<ORD>>
         + IsCol<DataFrameFamily, ORD, Inner = NativeSeries<DelimAsciiRange>, Layout = NoByteOrd<ORD>>,
 {
-    fn read_df_inner(
+    fn read_df_inner<R: Read + Seek>(
         &self,
-        reader: &mut AnyReader,
+        reader: &mut AnyReader_<R>,
         start_pos: u64,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
@@ -3350,8 +3352,8 @@ where
     }
 }
 
-pub(crate) fn read_delim_with_rows(
-    reader: &mut AnyReader,
+pub(crate) fn read_delim_with_rows<R: Read + Seek>(
+    reader: &mut AnyReader_<R>,
     start_pos: u64,
     ranges: &NESlice<DelimAsciiRange>,
     tot: Tot,
@@ -3374,8 +3376,8 @@ pub(crate) fn read_delim_with_rows(
     )
 }
 
-pub(crate) fn read_delim_without_rows(
-    reader: &mut AnyReader,
+pub(crate) fn read_delim_without_rows<R: Read + Seek>(
+    reader: &mut AnyReader_<R>,
     start_pos: u64,
     ranges: &NESlice<DelimAsciiRange>,
     nbytes: usize,
@@ -3403,7 +3405,7 @@ pub(crate) fn read_delim_with_rows_from_iter(
     tot: Tot,
 ) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimWithRowsAsciiError>> {
     let mut buf = Vec::new();
-    let mut last_was_delim = false;
+    let mut last_was_delim = true;
     let nrows = tot.0;
     let ncols = ranges.len();
     // Here we have $TOT so initialize vectors to required length
@@ -3428,17 +3430,18 @@ pub(crate) fn read_delim_with_rows_from_iter(
     }
     for b in bytes {
         let byte = b?;
-        // exit if we encounter more rows than expected.
-        if row == nrows {
-            let e = ReadDelimWithRowsAsciiError::RowsExceeded(RowsExceededError(nrows));
-            return Err(ImpureError::Pure(e));
-        }
         if is_ascii_delim(byte) {
             if !last_was_delim {
                 last_was_delim = true;
                 go!();
                 buf.clear();
             }
+        } else if row == nrows {
+            // TODO check $TOT here, choose what the error should be based on this.
+            //
+            // exit if we encounter more rows than expected.
+            let e = ReadDelimWithRowsAsciiError::RowsExceeded(RowsExceededError(nrows));
+            return Err(ImpureError::Pure(e));
         } else {
             buf.push(byte);
             last_was_delim = false;
@@ -3666,9 +3669,9 @@ impl<const ORD: bool, TotType, Dtype> DataFrameWriteOps
 trait DataSchemaReadFixed {
     type DfTarget;
 
-    fn read_fixed_df(
+    fn read_fixed_df<R: Read + Seek>(
         &self,
-        reader: &mut AnyReader,
+        reader: &mut AnyReader_<R>,
         start_pos: u64,
         nrows: usize,
         conf: &ReadDatasetConfig,
@@ -3685,9 +3688,9 @@ where
 {
     type DfTarget = Layout<DataFrame<NativeSeries<C>>, DataFrameFamily, I, L, M, ORD>;
 
-    fn read_fixed_df(
+    fn read_fixed_df<R: Read + Seek>(
         &self,
-        reader: &mut AnyReader,
+        reader: &mut AnyReader_<R>,
         start_pos: u64,
         nrows: usize,
         conf: &ReadDatasetConfig,
@@ -3720,9 +3723,9 @@ impl<M, const ORD: bool> DataSchemaReadFixed
         ORD,
     >;
 
-    fn read_fixed_df(
+    fn read_fixed_df<R: Read + Seek>(
         &self,
-        reader: &mut AnyReader,
+        reader: &mut AnyReader_<R>,
         start_pos: u64,
         nrows: usize,
         conf: &ReadDatasetConfig,
@@ -3752,9 +3755,9 @@ impl<M> DataSchemaReadFixed for Layout<Vec<VariableBitmask>, VecFamily, UvarCol,
     type DfTarget =
         Layout<DataFrame<VariableUintSeries>, DataFrameFamily, UvarCol, Endian, M, false>;
 
-    fn read_fixed_df(
+    fn read_fixed_df<R: Read + Seek>(
         &self,
-        reader: &mut AnyReader,
+        reader: &mut AnyReader_<R>,
         start_pos: u64,
         nrows: usize,
         conf: &ReadDatasetConfig,
@@ -3775,9 +3778,9 @@ impl<M> DataSchemaReadFixed for Layout<Vec<VariableBitmask>, VecFamily, UvarCol,
 impl<M> DataSchemaReadFixed for Layout<Vec<MixedRange>, VecFamily, MixedCol, Endian, M, false> {
     type DfTarget = Layout<DataFrame<MixedSeries>, DataFrameFamily, MixedCol, Endian, M, false>;
 
-    fn read_fixed_df(
+    fn read_fixed_df<R: Read + Seek>(
         &self,
-        reader: &mut AnyReader,
+        reader: &mut AnyReader_<R>,
         start_pos: u64,
         nrows: usize,
         conf: &ReadDatasetConfig,
@@ -3787,7 +3790,7 @@ impl<M> DataSchemaReadFixed for Layout<Vec<MixedRange>, VecFamily, MixedCol, End
         let rs = conf.row_buffer_size;
 
         let columns = if let Some(ret) =
-            try_read_single::<_, F32Range>(reader, start_pos, cs, nrows, en, rs)?
+            try_read_single::<R, _, F32Range>(reader, start_pos, cs, nrows, en, rs)?
         {
             // If the types are all the same width (but not necessary the same
             // type), we can "cheat" and read the layout all as one type and
@@ -3797,7 +3800,7 @@ impl<M> DataSchemaReadFixed for Layout<Vec<MixedRange>, VecFamily, MixedCol, End
             // This is for 32-bit float+int
             ret
         } else if let Some(ret) =
-            try_read_single::<_, F64Range>(reader, start_pos, cs, nrows, en, rs)?
+            try_read_single::<R, _, F64Range>(reader, start_pos, cs, nrows, en, rs)?
         {
             // ditto 64-bit
             ret
@@ -3854,8 +3857,8 @@ impl_single_width_range!(Any4ByteRange, f32, F32, Uint32);
 impl_single_width_range!(Any8ByteRange, f64, F64, Uint64);
 
 /// Try to read DATA using multiple types with a single width.
-fn try_read_single<W, C>(
-    reader: &mut AnyReader,
+fn try_read_single<R, W, C>(
+    reader: &mut AnyReader_<R>,
     start_pos: u64,
     ranges: &[MixedRange],
     nrows: usize,
@@ -3863,6 +3866,7 @@ fn try_read_single<W, C>(
     buffer_nbytes: RowBufferSize,
 ) -> io::Result<Option<Vec<MixedVec>>>
 where
+    R: Read + Seek,
     Endian: ByteOrderIO<C>,
     W: TryFrom<MixedRange>,
     (Vec<C::Native>, W): Into<MixedVec>,
@@ -3893,8 +3897,8 @@ pub(crate) type SrcIndex = usize;
 pub(crate) type DstIndex = usize;
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn read_columns<C, Rng, E, Fr, Fw, Fc>(
-    reader: &mut AnyReader,
+pub(crate) fn read_columns<C, Rng, E, Fr, Fw, Fc, R>(
+    reader: &mut AnyReader_<R>,
     start_pos: u64,
     nrows: usize,
     ranges: &[Rng],
@@ -3904,6 +3908,7 @@ pub(crate) fn read_columns<C, Rng, E, Fr, Fw, Fc>(
     buffer_nbytes: RowBufferSize,
 ) -> IOResult<Vec<C>, E>
 where
+    R: Read + Seek,
     Fr: FnMut(&mut C, DstIndex, &[u8], SrcIndex) -> Result<(), E>,
     Fw: Fn(&Rng) -> usize,
     Fc: Fn(&Rng, usize) -> C,
@@ -4061,8 +4066,8 @@ where
 }
 
 /// Read a matrix where input bytes characters to be read as u64
-pub(crate) fn read_char_matrix(
-    reader: &mut AnyReader,
+pub(crate) fn read_char_matrix<R: Read + Seek>(
+    reader: &mut AnyReader_<R>,
     start_pos: u64,
     nrows: usize,
     ranges: &[FixedAsciiRange],
@@ -4086,8 +4091,8 @@ pub(crate) fn read_char_matrix(
 }
 
 /// Read a dataframe of unsigned integers with different widths
-pub(crate) fn read_any_uint_df(
-    reader: &mut AnyReader,
+pub(crate) fn read_any_uint_df<R: Read + Seek>(
+    reader: &mut AnyReader_<R>,
     start_pos: u64,
     nrows: usize,
     ranges: &[VariableBitmask],
@@ -4131,8 +4136,8 @@ pub(crate) fn read_any_uint_df(
 }
 
 /// Read a dataframe of any mix of column types
-pub(crate) fn read_mixed_df(
-    reader: &mut AnyReader,
+pub(crate) fn read_mixed_df<R: Read + Seek>(
+    reader: &mut AnyReader_<R>,
     start_pos: u64,
     nrows: usize,
     ranges: &[MixedRange],
@@ -7514,9 +7519,9 @@ trait ByteOrderIO<C: ColumnHasNativeType>
 where
     C::Native: FCSRepr,
 {
-    fn read_matrix(
+    fn read_matrix<R: Read + Seek>(
         &self,
-        reader: &mut AnyReader,
+        reader: &mut AnyReader_<R>,
         start_pos: u64,
         nrows: usize,
         ncols: usize,
@@ -7535,9 +7540,9 @@ where
 macro_rules! impl_byte_layout_io {
     ($inner:path, $layout:path, $read_fun:ident, $write_fun:ident) => {
         impl ByteOrderIO<$inner> for $layout {
-            fn read_matrix(
+            fn read_matrix<R: Read + Seek>(
                 &self,
-                reader: &mut AnyReader,
+                reader: &mut AnyReader_<R>,
                 start_pos: u64,
                 nrows: usize,
                 ncols: usize,
@@ -7600,8 +7605,8 @@ impl_endian_layout_io!(F64Range);
 
 /// Read stream of bytes using buffer where each value is the same type
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn read_matrix<const LEN: usize, T, F>(
-    reader: &mut AnyReader,
+pub(crate) fn read_matrix<const LEN: usize, T, F, R>(
+    reader: &mut AnyReader_<R>,
     start_pos: u64,
     nrows: usize,
     ncols: usize,
@@ -7609,6 +7614,7 @@ pub(crate) fn read_matrix<const LEN: usize, T, F>(
     buffer_nbytes: RowBufferSize,
 ) -> io::Result<Vec<Vec<T>>>
 where
+    R: Read + Seek,
     T: FromBytes<Bytes = [u8; LEN]> + Default + Clone,
     F: Fn(&mut [u8; LEN]),
 {
@@ -7777,8 +7783,8 @@ fn read_row_buffer<const LEN: usize, T, F>(
 }
 
 /// Read a matrix where type is an aligned big or little endian value.
-pub(crate) fn read_endian_matrix<const LEN: usize, T>(
-    reader: &mut AnyReader,
+pub(crate) fn read_endian_matrix<const LEN: usize, T, R>(
+    reader: &mut AnyReader_<R>,
     start_pos: u64,
     nrows: usize,
     ncols: usize,
@@ -7786,6 +7792,7 @@ pub(crate) fn read_endian_matrix<const LEN: usize, T>(
     buffer_nbytes: RowBufferSize,
 ) -> io::Result<Vec<Vec<T>>>
 where
+    R: Read + Seek,
     T: FromBytes<Bytes = [u8; LEN]> + Copy + Default,
 {
     let be_swap = |buf: &mut [u8; LEN]| buf.reverse();
@@ -7797,8 +7804,8 @@ where
 
 /// Read a matrix where type is an aligned big, little, or mixed endian value.
 #[allow(clippy::needless_pass_by_value)]
-pub(crate) fn read_ordered_matrix<T, const LEN: usize>(
-    reader: &mut AnyReader,
+pub(crate) fn read_ordered_matrix<R, T, const LEN: usize>(
+    reader: &mut AnyReader_<R>,
     start_pos: u64,
     nrows: usize,
     ncols: usize,
@@ -7806,6 +7813,7 @@ pub(crate) fn read_ordered_matrix<T, const LEN: usize>(
     buffer_nbytes: RowBufferSize,
 ) -> io::Result<Vec<Vec<T>>>
 where
+    R: Read + Seek,
     T: FromBytes<Bytes = [u8; LEN]>
         + FCSRepr<FileBuf = [u8; LEN], ByteOrd = [u8; LEN]>
         + Copy
@@ -9662,6 +9670,38 @@ where
 
 mod private {
     pub struct NoTouchy;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{io::AnyReader_, segment::read::Offsets};
+
+    use proptest::prelude::*;
+
+    type AnyAsciiDataSchema2_0<T> = AnyAsciiDataSchema<true, ColumnMarkers<T, Nothing<NumType>>>;
+
+    // type AnyAsciiDataSchema3_1<D> = AnyAsciiDataSchema<false, ColumnMarkers<Identity<Tot>, D>>;
+
+    proptest! {
+        #[test]
+        fn read_delim_ascii_tot(s in "[\t\r\n, ]*42[\t\r\n, ]+24[\t\r\n, ]*") {
+            let data = s.as_bytes();
+            let mut reader = AnyReader_::open_bytes(data, false).unwrap();
+            let schema =
+                AnyAsciiDataSchema2_0::<Identity<Tot>>::new_delim(vec![100.into(), 100.into()]);
+            let mut offsets = Offsets::new_dummy(data.len().usize_to_u64());
+            let data_offsets = offsets.as_nonempty_mut().unwrap();
+            let conf = ReadDatasetConfig::default();
+            let tot = Identity(Tot(1));
+            let res = schema.read_df_inner(&mut reader, 0, tot, data_offsets, &conf);
+            let df: PrimitiveDataFrame = res.as_ref().unwrap().dataframe.clone().into();
+            assert_eq!(df.shape(), (1, 2));
+            let columns = df.into_columns();
+            assert_eq!(columns[0].as_ref_u64(), &[42]);
+            assert_eq!(columns[1].as_ref_u64(), &[24]);
+        }
+    }
 }
 
 #[cfg(feature = "python")]

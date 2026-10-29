@@ -52,10 +52,11 @@ pub struct FixedAsciiRange {
 #[into(u64, AsciiRangeValue)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]
+#[from(AsciiRangeValue, u64)]
 pub struct DelimAsciiRange(pub AsciiRangeValue);
 
 /// Integer value for [`TextRange`] for an ASCII measurement
-#[derive(PartialEq, Clone, Copy, Debug, Display, Into)]
+#[derive(PartialEq, Clone, Copy, Debug, Display, Into, From)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]
 pub struct AsciiRangeValue(pub u64);

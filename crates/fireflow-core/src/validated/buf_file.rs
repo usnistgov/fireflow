@@ -1,16 +1,20 @@
 use crate::convert::{U64Ext as _, UsizeExt as _};
 
 use std::fs::File;
+#[cfg(test)]
+use std::io::Cursor;
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::path::PathBuf;
+
+pub type BufFileReader = BufFileReader_<File>;
 
 /// A reader for an FCS file with cached file length and position.
 ///
 /// Including the length and position can help reduce syscalls. They also make
 /// the API easier to use.
-pub struct BufFileReader {
+pub struct BufFileReader_<R> {
     /// The reader itself.
-    reader: BufReader<File>,
+    reader: BufReader<R>,
     /// The length of the file.
     ///
     /// Using a fixed value here assumes the file length will not change at
@@ -32,7 +36,7 @@ pub struct BufFileReader {
     pos: u64,
 }
 
-impl Read for BufFileReader {
+impl<R: Read> Read for BufFileReader_<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let n = self.reader.read(buf)?;
         self.advance_pos(n)
@@ -60,7 +64,7 @@ impl Read for BufFileReader {
     }
 }
 
-impl Seek for BufFileReader {
+impl<R: Seek> Seek for BufFileReader_<R> {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         let err = io::Error::from(io::ErrorKind::InvalidInput);
         let new_pos = match pos {
@@ -92,7 +96,37 @@ impl BufFileReader {
         self.pos
     }
 
-    pub(crate) fn seek_to(&mut self, new_pos: u64) -> io::Result<()> {
+    pub(crate) fn remaining_bytes(&self) -> u64 {
+        self.file_len
+            .checked_sub(self.pos)
+            .expect("position is always less than file length")
+    }
+
+    pub(crate) fn read_exact_owned(&mut self, n: u64) -> io::Result<Vec<u8>> {
+        read_exact_owned(self, n)
+    }
+
+    pub(crate) fn read_to_end_checked(&mut self, n: u64, buf: &mut Vec<u8>) -> io::Result<()> {
+        read_to_end_checked(self, n, buf)
+    }
+}
+
+#[cfg(test)]
+impl<'a> BufFileReader_<Cursor<&'a [u8]>> {
+    pub(crate) fn open_bytes(bs: &'a [u8]) -> Self {
+        Self {
+            file_len: bs.len().usize_to_u64(),
+            reader: BufReader::new(Cursor::new(bs)),
+            pos: 0,
+        }
+    }
+}
+
+impl<R> BufFileReader_<R> {
+    pub(crate) fn seek_to(&mut self, new_pos: u64) -> io::Result<()>
+    where
+        R: Seek,
+    {
         if let Some(delta) = new_pos.checked_signed_diff(self.pos)
             && new_pos <= self.file_len
         {
@@ -105,12 +139,6 @@ impl BufFileReader {
         }
     }
 
-    pub(crate) fn remaining_bytes(&self) -> u64 {
-        self.file_len
-            .checked_sub(self.pos)
-            .expect("position is always less than file length")
-    }
-
     fn advance_pos(&mut self, n: usize) -> io::Result<usize> {
         self.pos += n.usize_to_u64();
         if self.pos > self.file_len {
@@ -119,14 +147,6 @@ impl BufFileReader {
         } else {
             Ok(n)
         }
-    }
-
-    pub(crate) fn read_exact_owned(&mut self, n: u64) -> io::Result<Vec<u8>> {
-        read_exact_owned(self, n)
-    }
-
-    pub(crate) fn read_to_end_checked(&mut self, n: u64, buf: &mut Vec<u8>) -> io::Result<()> {
-        read_to_end_checked(self, n, buf)
     }
 }
 

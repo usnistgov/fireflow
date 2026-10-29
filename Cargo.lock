@@ -948,6 +948,7 @@ dependencies = [
  "chrono",
  "const_format",
  "derive-new",
+ "derive-where",
  "derive_more",
  "fireflow-core-proc",
  "hashbrown 0.16.1",

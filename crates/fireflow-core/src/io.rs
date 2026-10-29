@@ -18,7 +18,7 @@ use crate::logging::{
     WarningsAndIOGroupResult, io_to_log, split_log,
 };
 use crate::segment::read::AnyAnalysisOffsets;
-use crate::validated::buf_file::BufFileReader;
+use crate::validated::buf_file::{BufFileReader, BufFileReader_};
 use crate::validated::read_state::{DatasetOffset, HeaderReader, TEXTReader};
 
 use fireflow_types::config::{
@@ -32,15 +32,21 @@ use derive_new::new;
 #[cfg(unix)]
 use memmap2::Advice;
 use memmap2::Mmap;
+#[cfg(test)]
+use memmap2::MmapMut;
 
 use std::borrow::Cow;
 use std::fs::File;
-use std::io::{self, Read as _, Seek as _, SeekFrom};
+use std::io::{self, Read as _, Seek, SeekFrom};
+#[cfg(test)]
+use std::io::{Cursor, Write as _};
 use std::path::PathBuf;
 use std::time::Instant;
 
-pub enum AnyReader {
-    Buffered(BufFileReader),
+pub type AnyReader = AnyReader_<File>;
+
+pub enum AnyReader_<R> {
+    Buffered(BufFileReader_<R>),
     Mmap(Mmap),
 }
 
@@ -612,7 +618,24 @@ impl AnyReader {
             Ok(next_dataset_boundary_mmap(r, p0))
         })
     }
+}
 
+#[cfg(test)]
+impl<'a> AnyReader_<Cursor<&'a [u8]>> {
+    pub(crate) fn open_bytes(bytes: &'a [u8], mmap: bool) -> io::Result<Self> {
+        if mmap {
+            let mut anon = MmapMut::map_anon(bytes.len())?;
+            let out = (&mut anon[..]).write(bytes)?;
+            assert_eq!(out, bytes.len(), "could not write all bytes");
+            let reader = anon.make_read_only()?;
+            Ok(Self::Mmap(reader))
+        } else {
+            Ok(Self::Buffered(BufFileReader_::open_bytes(bytes)))
+        }
+    }
+}
+
+impl<R> AnyReader_<R> {
     pub(crate) fn with<'a, T, X, E, Fb, Fm>(
         &'a mut self,
         inputs: T,
@@ -620,7 +643,7 @@ impl AnyReader {
         mut fmap: Fm,
     ) -> Result<X, E>
     where
-        Fb: FnMut(&'a mut BufFileReader, T) -> Result<X, E>,
+        Fb: FnMut(&'a mut BufFileReader_<R>, T) -> Result<X, E>,
         Fm: FnMut(&'a Mmap, T) -> Result<X, E>,
     {
         match self {
@@ -631,7 +654,7 @@ impl AnyReader {
 
     pub(crate) fn with_<'a, X, E, Fb, Fm>(&'a mut self, mut fbuf: Fb, mut fmap: Fm) -> Result<X, E>
     where
-        Fb: FnMut(&'a mut BufFileReader) -> Result<X, E>,
+        Fb: FnMut(&'a mut BufFileReader_<R>) -> Result<X, E>,
         Fm: FnMut(&'a Mmap) -> Result<X, E>,
     {
         self.with((), |r, ()| fbuf(r), |r, ()| fmap(r))
@@ -645,7 +668,8 @@ impl AnyReader {
         mut fmap: Fm,
     ) -> Result<X, E>
     where
-        Fb: FnMut(&'a mut BufFileReader, T) -> Result<X, Ei>,
+        R: Seek,
+        Fb: FnMut(&'a mut BufFileReader_<R>, T) -> Result<X, Ei>,
         Fm: FnMut(&'a Mmap, usize, T) -> Result<X, Ei>,
         E: From<Ei> + From<io::Error>,
     {
@@ -669,7 +693,8 @@ impl AnyReader {
         mut fmap: Fm,
     ) -> Result<X, E>
     where
-        Fb: FnMut(&'a mut BufFileReader) -> Result<X, Ei>,
+        R: Seek,
+        Fb: FnMut(&'a mut BufFileReader_<R>) -> Result<X, Ei>,
         Fm: FnMut(&'a Mmap, usize) -> Result<X, Ei>,
         E: From<Ei> + From<io::Error>,
     {
@@ -685,7 +710,8 @@ impl AnyReader {
         mut fmap: Fm,
     ) -> Result<X, E>
     where
-        Fb: FnMut(&'a mut BufFileReader, T) -> Result<X, Ei>,
+        R: Seek,
+        Fb: FnMut(&'a mut BufFileReader_<R>, T) -> Result<X, Ei>,
         Fm: FnMut(&'a [u8], T) -> Result<X, Ei>,
         E: From<Ei> + From<io::Error>,
     {
@@ -703,7 +729,8 @@ impl AnyReader {
         mut fmap: Fm,
     ) -> Result<X, E>
     where
-        Fb: FnMut(&'a mut BufFileReader) -> Result<X, Ei>,
+        R: Seek,
+        Fb: FnMut(&'a mut BufFileReader_<R>) -> Result<X, Ei>,
         Fm: FnMut(&'a [u8]) -> Result<X, Ei>,
         E: From<Ei> + From<io::Error>,
     {

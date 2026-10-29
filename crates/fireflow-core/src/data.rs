@@ -1341,6 +1341,17 @@ pub enum ReadDelimWithRowsAsciiError {
     TotMismatch(TotEventMismatchError),
     Incomplete(DelimRaggedError),
     Parse(DataAsciiNumToUintError),
+    TotOverflow(TotOverflowError),
+}
+
+/// Error when reading [`DelimAsciiDataSchema`] when $TOT can't fit in DATA length.
+#[derive(Debug, Error, PartialEq, Clone, new)]
+#[error("$TOT ({tot}) cannot possibly fit in DATA length ({nbytes})")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+pub struct TotOverflowError {
+    tot: Tot,
+    nbytes: usize,
 }
 
 /// Error when reading [`DelimAsciiDataSchema`] where resulting dataframe is ragged.
@@ -3388,13 +3399,13 @@ pub(crate) fn read_delim_with_rows<R: Read + Seek>(
                 clippy::unbuffered_bytes,
                 reason = "rare use case, efficiency not a concern"
             )]
-            read_delim_with_rows_from_iter(ranges, r.bytes().take(nbytes), tot, flag)
+            read_delim_with_rows_from_iter(ranges, r.bytes().take(nbytes), nbytes, tot, flag)
         }
         AnyReader_::Mmap(r) => {
             let p0 = start_pos.u64_to_usize();
             let p1 = p0 + nbytes;
             let bytes = r[p0..p1].iter().copied().map(Ok);
-            read_delim_with_rows_from_iter(ranges, bytes, tot, flag)
+            read_delim_with_rows_from_iter(ranges, bytes, nbytes, tot, flag)
         }
     }
 }
@@ -3425,6 +3436,7 @@ pub(crate) fn read_delim_without_rows<R: Read + Seek>(
 pub(crate) fn read_delim_with_rows_from_iter(
     ranges: &NESlice<DelimAsciiRange>,
     bytes: impl IntoIterator<Item = io::Result<u8>>,
+    nbytes: usize,
     tot: Tot,
     flag: AllowTotMismatch,
 ) -> WarningAndIOGroupResult<
@@ -3433,6 +3445,13 @@ pub(crate) fn read_delim_with_rows_from_iter(
     ReadDelimWithRowsAsciiError,
     (),
 > {
+    // Check $TOT first to see if it can fit into DATA at all. If not there is
+    // no point in allocating memory to parse something.
+    if tot.0 > nbytes {
+        let e = TotOverflowError::new(tot, nbytes);
+        let ee = ReadDelimWithRowsAsciiError::TotOverflow(e);
+        return LogResult::new_err(IOErrorGroup::new_pure_one(ee));
+    }
     let nrows = tot.0;
     let ncols = ranges.len();
     // Here we have $TOT so initialize vectors to required length
@@ -9750,6 +9769,27 @@ mod tests {
             let columns = df.into_columns();
             assert_eq!(columns[0].as_ref_u64(), &[42, 21]);
             assert_eq!(columns[1].as_ref_u64(), &[24, 12]);
+        }
+    }
+
+    // if $TOT > DATA len, always throw error
+    proptest! {
+        #[test]
+        fn read_delim_ascii_tot_overflow(
+            s in "[\t\r\n, ]*42[\t\r\n, ]+24[\t\r\n, ]+21[\t\r\n, ]+12[\t\r\n, ]*",
+            allow_tot_mismatch in any::<TriFlag>(),
+            mmap in any::<bool>()
+        ) {
+            let data = s.as_bytes();
+            let schema =
+                AnyAsciiDataSchema2_0::<Identity<Tot>>::new_delim(vec![100.into(), 100.into()]);
+            let conf = ReadDatasetConfig {
+                allow_tot_mismatch : allow_tot_mismatch.into(),
+                ..Default::default()
+            };
+            let tot = Identity(Tot(data.len() + 1));
+            let res = read_df_bytes(&schema, data, tot, mmap, &conf);
+            assert!(res.as_ref().is_none());
         }
     }
 

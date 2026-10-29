@@ -200,7 +200,7 @@ impl<'a> ToDisplayNE<'a> for BitsOrChars {
 }
 
 /// Internal version of `BitsOrChars`.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, From, Into, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 #[into(NonZeroU8, u8)]

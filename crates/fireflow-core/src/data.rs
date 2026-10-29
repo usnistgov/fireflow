@@ -8730,6 +8730,7 @@ impl<T> AnyOrderedUintDataSchema<T> {
             match Result::sequence_ne_results(rs) {
                 Err(es) => Err(OrderedUintDataSchemaErrors::ToFixed(es)),
                 Ok(mut widths) => {
+                    widths.sort();
                     widths.dedup();
                     let (first, rest) = widths.into_nonempty_iter().next();
                     if let Some(mismatches) = rest.try_into_nonempty_iter() {

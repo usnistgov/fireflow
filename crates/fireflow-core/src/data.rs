@@ -9707,51 +9707,60 @@ mod tests {
 
     proptest! {
         #[test]
-        fn read_delim_ascii_tot(s in "[\t\r\n, ]*42[\t\r\n, ]+24[\t\r\n, ]*", mmap in any::<bool>()) {
+        fn read_delim_ascii_tot(
+            s in "[\t\r\n, ]*42[\t\r\n, ]+24[\t\r\n, ]+21[\t\r\n, ]+12[\t\r\n, ]*",
+            mmap in any::<bool>()
+        ) {
             let data = s.as_bytes();
             let schema =
                 AnyAsciiDataSchema2_0::<Identity<Tot>>::new_delim(vec![100.into(), 100.into()]);
             let conf = ReadDatasetConfig::default();
-            let tot = Identity(Tot(1));
+            let tot = Identity(Tot(2));
             let res = read_df_bytes(schema, data, tot, mmap, &conf);
             let df: PrimitiveDataFrame = res.as_ref().unwrap().dataframe.clone().into();
-            assert_eq!(df.shape(), (1, 2));
+            assert_eq!(df.shape(), (2, 2));
             let columns = df.into_columns();
-            assert_eq!(columns[0].as_ref_u64(), &[42]);
-            assert_eq!(columns[1].as_ref_u64(), &[24]);
+            assert_eq!(columns[0].as_ref_u64(), &[42, 21]);
+            assert_eq!(columns[1].as_ref_u64(), &[24, 12]);
         }
     }
 
     proptest! {
         #[test]
-        fn read_delim_ascii_notot(s in "[\t\r\n, ]*42[\t\r\n, ]+24[\t\r\n, ]*", mmap in any::<bool>()) {
+        fn read_delim_ascii_notot(
+            s in "[\t\r\n, ]*42[\t\r\n, ]+24[\t\r\n, ]+21[\t\r\n, ]+12[\t\r\n, ]*",
+            mmap in any::<bool>()
+        ) {
             let data = s.as_bytes();
             let schema =
                 AnyAsciiDataSchema2_0::<Option<Tot>>::new_delim(vec![100.into(), 100.into()]);
             let conf = ReadDatasetConfig::default();
             let res = read_df_bytes(schema, data, None, mmap, &conf);
             let df: PrimitiveDataFrame = res.as_ref().unwrap().dataframe.clone().into();
-            assert_eq!(df.shape(), (1, 2));
+            assert_eq!(df.shape(), (2, 2));
             let columns = df.into_columns();
-            assert_eq!(columns[0].as_ref_u64(), &[42]);
-            assert_eq!(columns[1].as_ref_u64(), &[24]);
+            assert_eq!(columns[0].as_ref_u64(), &[42, 21]);
+            assert_eq!(columns[1].as_ref_u64(), &[24, 12]);
         }
     }
 
     proptest! {
         #[test]
-        fn read_delim_ascii_sometot(s in "[\t\r\n, ]*42[\t\r\n, ]+24[\t\r\n, ]*", mmap in any::<bool>()) {
+        fn read_delim_ascii_sometot(
+            s in "[\t\r\n, ]*42[\t\r\n, ]+24[\t\r\n, ]+21[\t\r\n, ]+12[\t\r\n, ]*",
+            mmap in any::<bool>()
+        ) {
             let data = s.as_bytes();
             let schema =
                 AnyAsciiDataSchema2_0::<Option<Tot>>::new_delim(vec![100.into(), 100.into()]);
             let conf = ReadDatasetConfig::default();
-            let tot = Some(Tot(1));
+            let tot = Some(Tot(2));
             let res = read_df_bytes(schema, data, tot, mmap, &conf);
             let df: PrimitiveDataFrame = res.as_ref().unwrap().dataframe.clone().into();
-            assert_eq!(df.shape(), (1, 2));
+            assert_eq!(df.shape(), (2, 2));
             let columns = df.into_columns();
-            assert_eq!(columns[0].as_ref_u64(), &[42]);
-            assert_eq!(columns[1].as_ref_u64(), &[24]);
+            assert_eq!(columns[0].as_ref_u64(), &[42, 21]);
+            assert_eq!(columns[1].as_ref_u64(), &[24, 12]);
         }
     }
 }

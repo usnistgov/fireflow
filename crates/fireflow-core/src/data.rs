@@ -166,10 +166,7 @@ use fireflow_types::config::{
 use fireflow_types::index::MeasIndex;
 use fireflow_types::keys::raw_std::{MeasKeyId, ToStd as _};
 use memmap2::Mmap;
-use nonempty::{
-    DisplayableNE as _, IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec,
-    NonEmptyIterator as _,
-};
+use nonempty::{DisplayableNE as _, IntoIteratorExt as _, NESlice, NEVec, NonEmptyIterator as _};
 use type_families::{
     BifunctorOnce as _, Functor, FunctorOnce, Kind1, Sibling1, VecFamily, impl_functor_once,
     impl_kind1,
@@ -8729,10 +8726,14 @@ impl<T> AnyOrderedUintDataSchema<T> {
                 });
             match Result::sequence_ne_results(rs) {
                 Err(es) => Err(OrderedUintDataSchemaErrors::ToFixed(es)),
-                Ok(mut widths) => {
-                    widths.sort();
-                    widths.dedup();
-                    let (first, rest) = widths.into_nonempty_iter().next();
+                Ok(widths) => {
+                    // TODO make a new method for NEIter
+                    let (first, rest) = widths
+                        .into_iter()
+                        .unique()
+                        .try_into_nonempty_iter()
+                        .expect("unique on NEVec will always be non-empty")
+                        .next();
                     if let Some(mismatches) = rest.try_into_nonempty_iter() {
                         let e = MultiWidthError::new(first, mismatches.collect());
                         let se = SingleFixedWidthError::from(e);

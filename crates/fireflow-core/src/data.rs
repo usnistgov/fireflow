@@ -8524,10 +8524,9 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
         let d0 = self.datatype();
         let es = ds
             .into_iter()
-            .filter(|&d| d0 != d)
-            .map(|d| MixedToNonMixedError::new(d, d0))
             .enumerate()
-            .map(|(i, e)| IndexedError::new(i, e))
+            .filter(|(_, d)| &d0 != d)
+            .map(|(i, d)| IndexedError::new(i, MixedToNonMixedError::new(d, d0)))
             .map(MixedToNonMixedLayoutError::from)
             .map(LayoutConvertError::from)
             .try_into_nonempty_iter()

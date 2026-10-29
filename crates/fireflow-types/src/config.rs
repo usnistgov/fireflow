@@ -39,6 +39,9 @@ use {
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "testutil")]
+use proptest_derive::Arbitrary;
+
 /// Specific configuration for writing HEADER+TEXT
 #[derive(Clone, Copy, Default, new)]
 pub struct WriteTEXTInnerConfig {
@@ -937,10 +940,11 @@ macro_rules! impl_tri_error_flag {
     };
 
     (_common $n:ident, $false_is_err:expr) => {
-        #[derive(From, Into, Clone, Copy, FromStr, Display, Default)]
+        #[derive(From, Into, Clone, Copy, FromStr, Display, Default, Debug)]
         #[cfg_attr(feature = "python", derive(FromPyString))]
         #[cfg_attr(feature = "python", derive(IntoPyString))]
         #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[cfg_attr(feature = "testutil", derive(Arbitrary))]
         pub struct $n(pub TriFlag);
 
         impl TriErrorFlag for $n {
@@ -1538,8 +1542,10 @@ pub const TRI_SILENT_LEVEL: &NEStr = SILENT_LEVEL;
 
 impl_config_flag!(
     /// Tri-state flag to throw warning, throw error, or do nothing
+    #[derive(Debug)]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
+    #[cfg_attr(feature = "testutil", derive(Arbitrary))]
     pub TriFlag,
     /// Error when parsing [`TriFlag`] from [`String`]
     pub TriFlagError,

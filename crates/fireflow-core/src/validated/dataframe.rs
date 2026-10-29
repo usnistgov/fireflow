@@ -36,7 +36,7 @@ pub type PrimitiveDataFrame = DataFrame<AnyPrimitiveSeries>;
 /// therefore allows us to return event to external interfaces without copying
 /// memory. It is validated to contain no NULL values where all series have the
 /// same length.
-#[derive(Clone, PartialEq, AsRef, Into, new)]
+#[derive(Clone, PartialEq, AsRef, Into, Debug, new)]
 #[new(visibility = "")]
 pub struct DataFrame<C> {
     #[as_ref([C])]
@@ -46,7 +46,7 @@ pub struct DataFrame<C> {
 }
 
 impl_kind1!(
-    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
     pub DataFrameFamily, DataFrame
 );
 
@@ -92,7 +92,7 @@ pub type F64Series = PrimitiveSeries<f64>;
 ///
 /// The phantom type is to encode for types like u24 which store data as
 /// u32 but are read/written to files in 24 bits.
-#[derive(Clone, PartialEq, Into, AsRef, new)]
+#[derive(Clone, PartialEq, Into, AsRef, Debug, new)]
 #[repr(transparent)]
 #[new(visibility = "")]
 pub struct InternalSeries<T, Raw> {
@@ -1217,7 +1217,7 @@ impl<C> DataFrame<C> {
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.ncols() == 0
+        self.nrows() == 0
     }
 
     pub(crate) fn remove(&mut self, i: usize) -> C {

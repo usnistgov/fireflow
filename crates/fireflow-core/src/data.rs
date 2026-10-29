@@ -109,9 +109,10 @@
 use crate::convert::{InstantExt as _, U64Ext as _, UsizeExt as _};
 use crate::io::{AnyReader, AnyReader_};
 use crate::logging::{
-    Error2, Error3, ErrorGroup, ErrorsResult, IOErrorGroup, IOResult, ImpureError, LogResult,
-    ResultExt as _, SwitchableErrorResult, SwitchableErrorsResult, WarningOrErrorResult,
-    WarningsAndErrorsResult, WarningsAndIOGroupResult,
+    Error2, Error3, ErrorGroup, ErrorsResult, IOAnonErrorGroup, IOErrorGroup, IOResult,
+    ImpureError, LogResult, ResultExt as _, SwitchableErrorResult, SwitchableErrorsResult,
+    WarningAndIOGroupResult, WarningOrErrorResult, WarningsAndErrorsResult,
+    WarningsAndIOGroupResult, io_to_log,
 };
 use crate::macros::def_summary;
 use crate::match_many_to_one;
@@ -185,7 +186,7 @@ use thiserror::Error;
 
 use std::convert::Infallible;
 use std::fmt;
-use std::io::{self, BufWriter, Read, Seek, Write};
+use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter;
 use std::marker::PhantomData;
 use std::mem;
@@ -303,7 +304,7 @@ type VariableUintDataFrame<D> = VariableUintLayout<DataFrameFamily, D>;
     clippy::duplicated_attributes,
     reason = "false positive, see: https://github.com/rust-lang/rust-clippy/issues/12923"
 )]
-#[derive(Clone, Delegate, PartialEq, IntoInner)]
+#[derive(Clone, Delegate, PartialEq, IntoInner, Debug)]
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(LayoutWidth)]
 #[delegate(LayoutHeight)]
@@ -341,59 +342,59 @@ pub type FixedAsciiDataSchema<const ORD: bool, M> = FixedAsciiLayout<VecFamily, 
 // type FixedAsciiDataFrame<const ORD: bool, M> = FixedAsciiLayout<DataFrameFamily, ORD, M>;
 
 /// An 8-bit unsigned integer column.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct U08Col;
 
 /// A 16-bit unsigned integer column.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct U16Col;
 
 /// A 24-bit unsigned integer column.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct U24Col;
 
 /// A 32-bit unsigned integer column.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct U32Col;
 
 /// A 40-bit unsigned integer column.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct U40Col;
 
 /// A 48-bit unsigned integer column.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct U48Col;
 
 /// A 56-bit unsigned integer column.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct U56Col;
 
 /// A 64-bit unsigned integer column.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct U64Col;
 
 /// A 32-bit float column.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct F32Col;
 
 /// A 64-bit float column.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct F64Col;
 
 /// A fixed-width ascii column.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct FixedAsciiCol;
 
 /// A delimited (variable width) ascii column.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct DelimAsciiCol;
 
 /// An unsigned integer column which can be any width 8-64 (octets).
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct UvarCol;
 
 /// A column which may contain any type.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct MixedCol;
 
 type FamilyLayout<Fam, Col, const ORD: bool, M> = Layout<
@@ -410,7 +411,7 @@ type DataSchema_<C, const ORD: bool, M> = FamilyLayout<VecFamily, C, ORD, M>;
 type DataFrame_<C, const ORD: bool, M> = FamilyLayout<DataFrameFamily, C, ORD, M>;
 
 /// DATA layout where each column has a fixed width.
-#[derive(Clone, AsRef, PartialEq, new)]
+#[derive(Clone, AsRef, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[new(visibility(""))]
 pub struct Layout<Cols, CFam, Inner, ByteOrder, Markers, const ORD: bool> {
@@ -434,7 +435,7 @@ pub struct Layout<Cols, CFam, Inner, ByteOrder, Markers, const ORD: bool> {
 ///
 /// These are used to distinguish certain layouts which have identical structure
 /// but otherwise behave different depending on context.
-#[derive(Clone, PartialEq, Default)]
+#[derive(Clone, PartialEq, Default, Debug)]
 pub struct ColumnMarkers<T, D> {
     /// Marker type to describe $TOT
     tot_def: PhantomData<T>,
@@ -478,7 +479,7 @@ type AnyBigLittleUintDataFrame<D> = AnyBigLittleUintLayout<DataFrameFamily, D>;
 ///
 /// This is used internally to represent the data in DATA with its associated
 /// keywords.
-#[derive(Clone, PartialEq, Into, new)]
+#[derive(Clone, PartialEq, Into, Debug, new)]
 #[new(visibility = "")]
 pub struct Series<M, T, R> {
     column_schema: M,
@@ -806,7 +807,7 @@ pub struct DataSchemaDiagnostics {
 }
 
 /// Diagnostic output from reading DATA segment
-#[derive(new, Default)]
+#[derive(new, Default, Debug)]
 pub(crate) struct PreEventsDiagnostics {
     pub(crate) event_width: Option<u64>,
     pub(crate) event_data_remainder: Option<u64>,
@@ -869,7 +870,7 @@ pub struct ReadDataFrameResult<D> {
     pub(crate) read_end: Instant,
 }
 
-#[derive(new)]
+#[derive(new, Debug)]
 pub struct PreDataFrameResult<D> {
     dataframe: D,
     diagnostics: PreEventsDiagnostics,
@@ -1305,7 +1306,7 @@ pub struct NotNumAsciiError(Vec<u8>);
 ///
 /// This is only applicable to fixed width layouts because their width is used
 /// to compute the number of events in DATA.
-#[derive(Error, Debug, PartialEq, Clone)]
+#[derive(Error, Debug, PartialEq, Clone, new)]
 #[error(
     "$TOT field is {tot} but number of events that \
      evenly fit into DATA is {total_events}"
@@ -1337,37 +1338,29 @@ pub struct ReadDelimNoColumnError;
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDelimWithRowsAsciiError {
-    RowsExceeded(RowsExceededError),
-    Incomplete(DelimIncompleteError),
+    TotMismatch(TotEventMismatchError),
+    Incomplete(DelimRaggedError),
     Parse(DataAsciiNumToUintError),
 }
 
-/// Error when reading [`DelimAsciiDataSchema`] where DATA is exhausted.
-///
-/// This happens if $TOT is greater than the true number of values in DATA.
-#[derive(Debug, Error, PartialEq, Clone)]
-#[error("Exceeded expected number of rows: {0}")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct RowsExceededError(usize);
-
-/// Error when reading [`DelimAsciiDataSchema`] where parsing ends unexpectedly.
+/// Error when reading [`DelimAsciiDataSchema`] where resulting dataframe is ragged.
 ///
 /// This happens if $TOT is less than the true number of values in DATA.
 #[derive(Debug, Error, PartialEq, Clone)]
 #[error(
-    "Parsing ended in column {c} and row {r}, \
-     where expected number of rows is {nrows}",
+    "Parsing ended in column {c} and row {r} (1-indexed), \
+     where expected number of rows and columns is {nrows} and {ncols}",
     c = self.col + 1,
     r = self.row + 1
 
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct DelimIncompleteError {
+pub struct DelimRaggedError {
     col: usize,
     row: usize,
     nrows: usize,
+    ncols: usize,
 }
 
 /// Error when reading [`DelimAsciiDataSchema`] without $TOT
@@ -1375,15 +1368,27 @@ pub struct DelimIncompleteError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDelimAsciiWithoutRowsError {
     Parse(DataAsciiNumToUintError),
-    Unequal(ReadDelimAsciiUnequalColumnsError),
+    Unequal(DelimNoTotRaggedError),
 }
 
-/// Error when reading [`DelimAsciiDataSchema`] where columns are not equal length
+/// Error when reading [`DelimAsciiDataSchema`] where resulting dataframe is ragged.
+///
+/// This happens if $TOT is less than the true number of values in DATA.
 #[derive(Debug, Error, PartialEq, Clone)]
-#[error("parsing delimited ASCII without $TOT resulted in columns with unequal length")]
+#[error(
+    "Parsing ended in column {c} and row {r} (1-indexed), \
+     where expected number of columns is {ncols} ($TOT/number of rows not given)",
+    c = self.col + 1,
+    r = self.row + 1
+
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct ReadDelimAsciiUnequalColumnsError;
+pub struct DelimNoTotRaggedError {
+    col: usize,
+    row: usize,
+    ncols: usize,
+}
 
 pub(crate) type LayoutConvertResult<L> = ErrorsResult<L, (), LayoutConvertError>;
 
@@ -3300,7 +3305,7 @@ where
         start_pos: u64,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
-        _: &ReadDatasetConfig,
+        conf: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
@@ -3310,45 +3315,56 @@ where
     where
         TotType: IsTot,
     {
-        macro_rules! go {
-            ($x:expr) => {
-                $x.map_err(|e| {
-                    e.fmap_once(ReadDelimAsciiError::from)
-                        .fmap_once(ReadAsciiError::from)
-                        .fmap_once(ReadDataframeError::from)
-                })
-            };
-        }
-
         let nbytes = offsets.nbytes().u64_to_usize();
+        let flag = conf.allow_tot_mismatch;
 
-        let res = if let Some(rs) = NESlice::try_from_slice(&self.container[..]) {
-            let res = TotType::with_tot(
-                reader,
-                tot,
-                |r, t| go!(read_delim_with_rows(r, start_pos, rs, t, nbytes)),
-                |r| go!(read_delim_without_rows(r, start_pos, rs, nbytes)),
-            );
-
-            res.map(|data| {
-                let cs = data
-                    .into_iter()
-                    .map(InternalSeries::from)
-                    .zip(&self.container)
-                    .map(|(vec, &range)| NativeSeries::new(range, vec));
-                DataFrame::new_unchecked(cs)
-            })
-        } else if nbytes > 0 {
-            let e = ReadAsciiError::from(ReadDelimAsciiError::from(ReadDelimNoColumnError));
-            return LogResult::new_err(IOErrorGroup::new_pure_one(e.into()));
-        } else {
-            Ok(DataFrame::default())
+        let to_df = |data: Vec<_>| {
+            let cs = data
+                .into_iter()
+                .map(InternalSeries::from)
+                .zip(&self.container)
+                .map(|(vec, &range)| NativeSeries::new(range, vec));
+            DataFrame::new_unchecked(cs)
         };
 
-        let diag = PreEventsDiagnostics::new(None, None, None);
-        res.map(|df| PreDataFrameResult::new(Layout::new_ascii(df), diag))
-            .map_err(IOErrorGroup::from)
-            .into_log()
+        let to_diag = |df, tot_is_mismatch| {
+            let diag = PreEventsDiagnostics::new(None, None, tot_is_mismatch);
+            PreDataFrameResult::new(Layout::new_ascii(df), diag)
+        };
+
+        if let Some(rs) = NESlice::try_from_slice(&self.container[..]) {
+            TotType::with_tot(
+                reader,
+                tot,
+                |r, t| {
+                    read_delim_with_rows(r, start_pos, rs, t, nbytes, flag)
+                        .map_commutative_warnings(ReadDataframeWarning::from)
+                        .map_pure_errors(ReadDelimAsciiError::from)
+                        .map_pure_errors(ReadAsciiError::from)
+                        .map_pure_errors(ReadDataframeError::from)
+                        .repack_warnings()
+                        .map_ok_value(|(data, tot_is_mismatch)| {
+                            to_diag(to_df(data), Some(tot_is_mismatch))
+                        })
+                },
+                |r| {
+                    read_delim_without_rows(r, start_pos, rs, nbytes)
+                        .map_err(|e| {
+                            e.fmap_once(ReadDelimAsciiError::from)
+                                .fmap_once(ReadAsciiError::from)
+                                .fmap_once(ReadDataframeError::from)
+                        })
+                        .map_err(IOAnonErrorGroup::from)
+                        .map(|data| to_diag(to_df(data), None))
+                        .into_log()
+                },
+            )
+        } else if nbytes > 0 {
+            let e = ReadAsciiError::from(ReadDelimAsciiError::from(ReadDelimNoColumnError));
+            LogResult::new_err(IOErrorGroup::new_pure_one(e.into()))
+        } else {
+            LogResult::new_ok(to_diag(DataFrame::default(), None))
+        }
     }
 }
 
@@ -3358,22 +3374,29 @@ pub(crate) fn read_delim_with_rows<R: Read + Seek>(
     ranges: &NESlice<DelimAsciiRange>,
     tot: Tot,
     nbytes: usize,
-) -> IOResult<Vec<Vec<u64>>, ReadDelimWithRowsAsciiError> {
-    reader.at_pos_(
-        start_pos,
-        |r| {
+    flag: AllowTotMismatch,
+) -> WarningAndIOGroupResult<
+    (Vec<Vec<u64>>, bool),
+    TotEventMismatchError,
+    ReadDelimWithRowsAsciiError,
+    (),
+> {
+    match reader {
+        AnyReader_::Buffered(r) => {
+            io_to_log!(r.seek(SeekFrom::Start(start_pos)));
             #[allow(
                 clippy::unbuffered_bytes,
                 reason = "rare use case, efficiency not a concern"
             )]
-            read_delim_with_rows_from_iter(ranges, r.bytes().take(nbytes), tot)
-        },
-        |r, p0| {
+            read_delim_with_rows_from_iter(ranges, r.bytes().take(nbytes), tot, flag)
+        }
+        AnyReader_::Mmap(r) => {
+            let p0 = start_pos.u64_to_usize();
             let p1 = p0 + nbytes;
             let bytes = r[p0..p1].iter().copied().map(Ok);
-            read_delim_with_rows_from_iter(ranges, bytes, tot)
-        },
-    )
+            read_delim_with_rows_from_iter(ranges, bytes, tot, flag)
+        }
+    }
 }
 
 pub(crate) fn read_delim_without_rows<R: Read + Seek>(
@@ -3403,100 +3426,103 @@ pub(crate) fn read_delim_with_rows_from_iter(
     ranges: &NESlice<DelimAsciiRange>,
     bytes: impl IntoIterator<Item = io::Result<u8>>,
     tot: Tot,
-) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimWithRowsAsciiError>> {
-    let mut buf = Vec::new();
-    let mut last_was_delim = true;
+    flag: AllowTotMismatch,
+) -> WarningAndIOGroupResult<
+    (Vec<Vec<u64>>, bool),
+    TotEventMismatchError,
+    ReadDelimWithRowsAsciiError,
+    (),
+> {
     let nrows = tot.0;
     let ncols = ranges.len();
     // Here we have $TOT so initialize vectors to required length
-    let mut data = vec![vec![0; nrows]; ncols.get()];
-    let mut row = 0;
-    let mut col = 0;
-    // Delimiters are tab, newline, carriage return, space, or comma. Any
-    // consecutive delimiter counts as one, and delimiters can be mixed.
-    macro_rules! go {
-        () => {
-            data[col][row] = numeric_ascii_to_uint(&buf)
-                .map_err(DataAsciiNumToUintError)
-                .map_err(ReadDelimWithRowsAsciiError::Parse)
-                .map_err(ImpureError::Pure)?;
-            if col == ncols.get() - 1 {
-                col = 0;
-                row += 1;
+    let mut data = vec![Vec::with_capacity(nrows); ncols.get()];
+    read_delim_inner(bytes, &mut data)
+        .map_err(|ie| ie.fmap_once(DataAsciiNumToUintError::from))
+        .map_err(|ie| ie.fmap_once(ReadDelimWithRowsAsciiError::Parse))
+        .map_err(IOAnonErrorGroup::from)
+        .into_log()
+        .nowarn_and_then(|(row, col)| {
+            if col == 0 {
+                // Dataframe is not ragged. Check $TOT to make sure we read the
+                // right number of rows.
+                let total_events = row.usize_to_u64();
+                check_tot_inner(total_events, tot, flag)
+                    .switchable_into_commutative()
+                    .map_errors(ReadDelimWithRowsAsciiError::TotMismatch)
+                    .group()
+                    .map_error(IOErrorGroup::Pure)
+                    .map_ok_value(|tot_is_mismatch| (data, tot_is_mismatch))
             } else {
-                col += 1;
+                // Dataframe is ragged which is not valid. Scream so user will
+                // understand their dire situation.
+                let e = DelimRaggedError {
+                    col,
+                    row,
+                    nrows,
+                    ncols: ncols.get(),
+                };
+                let ee = ReadDelimWithRowsAsciiError::Incomplete(e);
+                LogResult::new_err(IOErrorGroup::new_pure_one(ee))
             }
-        };
-    }
-    for b in bytes {
-        let byte = b?;
-        if is_ascii_delim(byte) {
-            if !last_was_delim {
-                last_was_delim = true;
-                go!();
-                buf.clear();
-            }
-        } else if row == nrows {
-            // TODO check $TOT here, choose what the error should be based on this.
-            //
-            // exit if we encounter more rows than expected.
-            let e = ReadDelimWithRowsAsciiError::RowsExceeded(RowsExceededError(nrows));
-            return Err(ImpureError::Pure(e));
-        } else {
-            buf.push(byte);
-            last_was_delim = false;
-        }
-    }
-    // The spec isn't clear if the last value should be a delim or
-    // not, so flush the buffer if it has anything in it since we
-    // only try to parse if we hit a delim above.
-    if !buf.is_empty() {
-        go!();
-    }
-    if col == 0 && row == nrows {
-        Ok(data)
-    } else {
-        let e = DelimIncompleteError { col, row, nrows };
-        let ee = ImpureError::Pure(ReadDelimWithRowsAsciiError::Incomplete(e));
-        Err(ee)
-    }
+        })
 }
 
 pub(crate) fn read_delim_without_rows_from_iter(
     ranges: &NESlice<DelimAsciiRange>,
     bytes: impl IntoIterator<Item = io::Result<u8>>,
-) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimAsciiWithoutRowsError>> {
-    let mut buf = Vec::new();
+) -> IOResult<Vec<Vec<u64>>, ReadDelimAsciiWithoutRowsError> {
     // Here we don't have $TOT so init to empty vectors
     let mut data: Vec<_> = ranges.iter().map(|_| vec![]).collect();
-    let ncols = data.len();
-    let mut col = 0;
+    let (row, col) = read_delim_inner(bytes, &mut data)
+        .map_err(|ie| ie.fmap_once(DataAsciiNumToUintError::from))
+        .map_err(|ie| ie.fmap_once(ReadDelimAsciiWithoutRowsError::Parse))?;
+
+    // $TOT not given so the only thing we can check is that the dataframe is
+    // not ragged.
+    if col == 0 {
+        Ok(data)
+    } else {
+        let e = DelimNoTotRaggedError {
+            col,
+            row,
+            ncols: data.len(),
+        };
+        Err(ImpureError::Pure(ReadDelimAsciiWithoutRowsError::from(e)))
+    }
+}
+
+fn read_delim_inner(
+    bytes: impl IntoIterator<Item = io::Result<u8>>,
+    data: &mut [Vec<u64>],
+) -> Result<(usize, usize), ImpureError<AsciiNumToUintError>> {
+    let mut buf = Vec::new();
     let mut last_was_delim = true;
-    let go = |data_: &mut Vec<Vec<u64>>, col_: usize, buf_: &[u8]| {
-        numeric_ascii_to_uint(buf_)
-            .map_err(DataAsciiNumToUintError)
-            .map_err(ReadDelimAsciiWithoutRowsError::Parse)
-            .map_err(ImpureError::Pure)
-            .map(|x| data_[col_].push(x))
+    let mut col = 0;
+    let mut row = 0;
+    let ncols = data.len();
+    let mut go = |data_: &mut [Vec<_>], buf_: &_| -> Result<(), ImpureError<AsciiNumToUintError>> {
+        let val = numeric_ascii_to_uint(buf_).map_err(ImpureError::Pure)?;
+        data_[col].push(val);
+        if col == ncols - 1 {
+            col = 0;
+            row += 1;
+        } else {
+            col += 1;
+        }
+        Ok(())
     };
     // Delimiters are tab, newline, carriage return, space, or comma. Any
-    // consecutive delimiter counts as one, and delimiters can be mixed.
-    // If we don't know the number of rows, the only choice is to push onto
-    // the column vectors one at a time. This leads to the possibility that
-    // the vectors may not be the same length in the end, in which case,
-    // scream loudly and bail.
+    // consecutive delimiter counts as one, and delimiters can be mixed. The
+    // spec isn't clear if delimiters can start the DATA segment; here we skip
+    // them silently.
     for b in bytes {
         let byte = b?;
         if is_ascii_delim(byte) {
             if !last_was_delim {
                 last_was_delim = true;
-                go(&mut data, col, &buf)?;
+                go(data, &buf)?;
                 buf.clear();
-                if col == ncols - 1 {
-                    col = 0;
-                } else {
-                    col += 1;
-                }
             }
         } else {
             buf.push(byte);
@@ -3507,13 +3533,9 @@ pub(crate) fn read_delim_without_rows_from_iter(
     // not, so flush the buffer if it has anything in it since we
     // only try to parse if we hit a delim above.
     if !buf.is_empty() {
-        go(&mut data, col, &buf)?;
+        go(data, &buf)?;
     }
-    if data.iter().map(Vec::len).unique().count() == 1 {
-        Ok(data)
-    } else {
-        Err(ImpureError::Pure(ReadDelimAsciiUnequalColumnsError.into()))
-    }
+    Ok((row, col))
 }
 
 fn is_ascii_delim(x: u8) -> bool {
@@ -7059,22 +7081,21 @@ pub trait IsTot: Sized + MightHave<Tot> {
         Self::with_tot(
             (),
             tot,
-            |(), t| Self::check_tot_inner(total_events, t, flag).map_ok_value(Some),
+            |(), t| check_tot_inner(total_events, t, flag).map_ok_value(Some),
             |()| LogResult::new_switchable_ok(None, flag),
         )
     }
+}
 
-    #[must_use]
-    fn check_tot_inner(
-        total_events: u64,
-        tot: Tot,
-        flag: AllowTotMismatch,
-    ) -> SwitchableErrorResult<bool, (), AllowTotMismatch, TotEventMismatchError> {
-        let count = total_events.u64_to_usize();
-        let i = TotEventMismatchError { tot, total_events };
-        let tot_eq = tot.0 == count;
-        LogResult::new_switchable_ok_if3(tot_eq, !tot_eq, (), i, flag)
-    }
+fn check_tot_inner(
+    total_events: u64,
+    tot: Tot,
+    flag: AllowTotMismatch,
+) -> SwitchableErrorResult<bool, (), AllowTotMismatch, TotEventMismatchError> {
+    let count = total_events.u64_to_usize();
+    let i = TotEventMismatchError { tot, total_events };
+    let tot_eq = tot.0 == count;
+    LogResult::new_switchable_ok_if3(tot_eq, !tot_eq, (), i, flag)
 }
 
 impl IsTot for Option<Tot> {}
@@ -9677,6 +9698,7 @@ mod tests {
     use super::*;
     use crate::{io::AnyReader_, segment::read::Offsets};
 
+    use fireflow_types::config::TriFlag;
     use proptest::prelude::*;
 
     type AnyAsciiDataSchema2_0<T> = AnyAsciiDataSchema<true, ColumnMarkers<T, Nothing<NumType>>>;
@@ -9684,7 +9706,7 @@ mod tests {
     // type AnyAsciiDataSchema3_1<D> = AnyAsciiDataSchema<false, ColumnMarkers<Identity<Tot>, D>>;
 
     fn read_df_bytes<S, T>(
-        schema: S,
+        schema: &S,
         data: &[u8],
         tot: T,
         mmap: bool,
@@ -9701,22 +9723,55 @@ mod tests {
     {
         let mut reader = AnyReader_::open_bytes(data, mmap).unwrap();
         let mut offsets = Offsets::new_dummy(data.len().usize_to_u64());
-        let data_offsets = offsets.as_nonempty_mut().unwrap();
-        schema.read_df_inner(&mut reader, 0, tot, data_offsets, &conf)
+        let data_offsets = offsets.as_nonempty_mut().expect("data input is non-empty");
+        schema.read_df_inner(&mut reader, 0, tot, data_offsets, conf)
     }
+
+    // delim ASCII tests
 
     proptest! {
         #[test]
         fn read_delim_ascii_tot(
+            s in "[\t\r\n, ]*42[\t\r\n, ]+24[\t\r\n, ]+21[\t\r\n, ]+12[\t\r\n, ]*",
+            allow_tot_mismatch in any::<TriFlag>(),
+            mmap in any::<bool>()
+        ) {
+            let data = s.as_bytes();
+            let schema =
+                AnyAsciiDataSchema2_0::<Identity<Tot>>::new_delim(vec![100.into(), 100.into()]);
+            let conf = ReadDatasetConfig {
+                allow_tot_mismatch : allow_tot_mismatch.into(),
+                ..Default::default()
+            };
+            let tot = Identity(Tot(2));
+            let res = read_df_bytes(&schema, data, tot, mmap, &conf);
+            let df: PrimitiveDataFrame = res.as_ref().unwrap().dataframe.clone().into();
+            assert_eq!(df.shape(), (2, 2));
+            let columns = df.into_columns();
+            assert_eq!(columns[0].as_ref_u64(), &[42, 21]);
+            assert_eq!(columns[1].as_ref_u64(), &[24, 12]);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn read_delim_ascii_tot_mismatch(
             s in "[\t\r\n, ]*42[\t\r\n, ]+24[\t\r\n, ]+21[\t\r\n, ]+12[\t\r\n, ]*",
             mmap in any::<bool>()
         ) {
             let data = s.as_bytes();
             let schema =
                 AnyAsciiDataSchema2_0::<Identity<Tot>>::new_delim(vec![100.into(), 100.into()]);
-            let conf = ReadDatasetConfig::default();
-            let tot = Identity(Tot(2));
-            let res = read_df_bytes(schema, data, tot, mmap, &conf);
+            let mut conf = ReadDatasetConfig::default();
+            let tot = Identity(Tot(1));
+
+            // error case
+            let res_err = read_df_bytes(&schema, data, tot, mmap, &conf);
+            assert!(res_err.as_ref().is_none());
+
+            // fixed case
+            conf.allow_tot_mismatch = TriFlag::True.into();
+            let res = read_df_bytes(&schema, data, tot, mmap, &conf);
             let df: PrimitiveDataFrame = res.as_ref().unwrap().dataframe.clone().into();
             assert_eq!(df.shape(), (2, 2));
             let columns = df.into_columns();
@@ -9727,15 +9782,70 @@ mod tests {
 
     proptest! {
         #[test]
-        fn read_delim_ascii_notot(
+        fn read_delim_ascii_tot_empty(
+            s in "[\t\r\n, ]+",
+            allow_tot_mismatch in any::<TriFlag>(),
+            mmap in any::<bool>(),
+        ) {
+            let data = s.as_bytes();
+            let schema =
+                AnyAsciiDataSchema2_0::<Identity<Tot>>::new_delim(vec![100.into(), 100.into()]);
+            let conf = ReadDatasetConfig {
+                allow_tot_mismatch : allow_tot_mismatch.into(),
+                ..Default::default()
+            };
+            let tot = Identity(Tot(0));
+            let res = read_df_bytes(&schema, data, tot, mmap, &conf);
+            let df: PrimitiveDataFrame = res.as_ref().unwrap().dataframe.clone().into();
+            assert!(df.is_empty());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn read_delim_ascii_tot_empty_mismatch(
+            s in "[\t\r\n, ]+",
+            mmap in any::<bool>(),
+        ) {
+            let data = s.as_bytes();
+            let schema =
+                AnyAsciiDataSchema2_0::<Identity<Tot>>::new_delim(vec![100.into(), 100.into()]);
+            let mut conf = ReadDatasetConfig::default();
+            let tot = Identity(Tot(1));
+
+            // error case
+            let res_err = read_df_bytes(&schema, data, tot, mmap, &conf);
+            assert!(res_err.as_ref().is_none());
+
+            // fixed case
+            conf.allow_tot_mismatch = TriFlag::True.into();
+            let res = read_df_bytes(&schema, data, tot, mmap, &conf);
+            let df: PrimitiveDataFrame = res.as_ref().unwrap().dataframe.clone().into();
+            assert!(df.is_empty());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn read_delim_ascii_maybetot(
             s in "[\t\r\n, ]*42[\t\r\n, ]+24[\t\r\n, ]+21[\t\r\n, ]+12[\t\r\n, ]*",
+            totnum in 0_usize..1,
+            allow_tot_mismatch in any::<TriFlag>(),
             mmap in any::<bool>()
         ) {
             let data = s.as_bytes();
             let schema =
                 AnyAsciiDataSchema2_0::<Option<Tot>>::new_delim(vec![100.into(), 100.into()]);
-            let conf = ReadDatasetConfig::default();
-            let res = read_df_bytes(schema, data, None, mmap, &conf);
+            let conf = ReadDatasetConfig {
+                allow_tot_mismatch : allow_tot_mismatch.into(),
+                ..Default::default()
+            };
+            let tot = if totnum == 0 {
+                None
+            } else {
+                Some(Tot(totnum))
+            };
+            let res = read_df_bytes(&schema, data, tot, mmap, &conf);
             let df: PrimitiveDataFrame = res.as_ref().unwrap().dataframe.clone().into();
             assert_eq!(df.shape(), (2, 2));
             let columns = df.into_columns();
@@ -9746,21 +9856,74 @@ mod tests {
 
     proptest! {
         #[test]
-        fn read_delim_ascii_sometot(
+        fn read_delim_ascii_maybetot_mismatch(
             s in "[\t\r\n, ]*42[\t\r\n, ]+24[\t\r\n, ]+21[\t\r\n, ]+12[\t\r\n, ]*",
             mmap in any::<bool>()
         ) {
             let data = s.as_bytes();
             let schema =
                 AnyAsciiDataSchema2_0::<Option<Tot>>::new_delim(vec![100.into(), 100.into()]);
-            let conf = ReadDatasetConfig::default();
-            let tot = Some(Tot(2));
-            let res = read_df_bytes(schema, data, tot, mmap, &conf);
+            let mut conf = ReadDatasetConfig::default();
+            let tot = Some(Tot(1));
+
+            // error case
+            let res_err = read_df_bytes(&schema, data, tot, mmap, &conf);
+            assert!(res_err.as_ref().is_none());
+
+            // fixed case
+            conf.allow_tot_mismatch = TriFlag::True.into();
+            let res = read_df_bytes(&schema, data, tot, mmap, &conf);
             let df: PrimitiveDataFrame = res.as_ref().unwrap().dataframe.clone().into();
             assert_eq!(df.shape(), (2, 2));
             let columns = df.into_columns();
             assert_eq!(columns[0].as_ref_u64(), &[42, 21]);
             assert_eq!(columns[1].as_ref_u64(), &[24, 12]);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn read_delim_ascii_maybetot_empty(
+            s in "[\t\r\n, ]+",
+            hastot in any::<bool>(),
+            allow_tot_mismatch in any::<TriFlag>(),
+            mmap in any::<bool>(),
+        ) {
+            let data = s.as_bytes();
+            let schema =
+                AnyAsciiDataSchema2_0::<Option<Tot>>::new_delim(vec![100.into(), 100.into()]);
+            let conf = ReadDatasetConfig {
+                allow_tot_mismatch : allow_tot_mismatch.into(),
+                ..Default::default()
+            };
+            let tot = hastot.then_some(Tot(0));
+            let res = read_df_bytes(&schema, data, tot, mmap, &conf);
+            let df: PrimitiveDataFrame = res.as_ref().unwrap().dataframe.clone().into();
+            assert!(df.is_empty());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn read_delim_ascii_maybetot_empty_mismatch(
+            s in "[\t\r\n, ]+",
+            mmap in any::<bool>(),
+        ) {
+            let data = s.as_bytes();
+            let schema =
+                AnyAsciiDataSchema2_0::<Option<Tot>>::new_delim(vec![100.into(), 100.into()]);
+            let mut conf = ReadDatasetConfig::default();
+            let tot = Some(Tot(1));
+
+            // error case
+            let res_err = read_df_bytes(&schema, data, tot, mmap, &conf);
+            assert!(res_err.as_ref().is_none());
+
+            // fixed case
+            conf.allow_tot_mismatch = TriFlag::True.into();
+            let res = read_df_bytes(&schema, data, tot, mmap, &conf);
+            let df: PrimitiveDataFrame = res.as_ref().unwrap().dataframe.clone().into();
+            assert!(df.is_empty());
         }
     }
 }

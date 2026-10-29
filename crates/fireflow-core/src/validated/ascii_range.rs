@@ -48,7 +48,7 @@ pub struct FixedAsciiRange {
 /// Wrapper type for $PnR for delimited ASCII columns.
 ///
 /// This is like [`FixedAsciiRange`] except it doesn't include width (ie $PnB).
-#[derive(Clone, Copy, PartialEq, Into, From)]
+#[derive(Clone, Copy, PartialEq, Into, From, Debug)]
 #[into(u64, AsciiRangeValue)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]

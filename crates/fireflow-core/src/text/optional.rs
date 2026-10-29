@@ -14,7 +14,7 @@ use pyo3::prelude::*;
 use proptest_derive::Arbitrary;
 
 /// A value that always exists.
-#[derive(Clone, PartialEq, AsRef, Debug)]
+#[derive(Clone, Copy, PartialEq, AsRef, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Identity<T>(pub T);

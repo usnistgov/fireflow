@@ -6998,6 +6998,30 @@ class TestConfig:
         df = pl.DataFrame([[42], [24]], {"X0": pl.UInt32, "X1": pl.UInt32})
         assert out.dataset.data.equals(df)
 
+    def test_read_dfc(self, tmp_path: Path) -> None:
+        """Test $DFCmTOn parsing."""
+        p = tmp_path / "thing.fcs"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "99",
+            "$P2N": "abc",
+            "$P2E": "0,0",
+            "$P2B": "32",
+            "$P2R": "99",
+            "$DFC1TO1": "1",
+            "$DFC1TO2": "2",
+            "$DFC2TO1": "3",
+            "$DFC2TO2": "4",
+        }
+        self.mock_header_std_text(p, "FCS2.0", kws=kws, par=2)
+        core, uncore = pf.api.fcs_read_std_text(p, time_meas_pattern="")
+        target = np.array([[1, 3], [2, 4]], dtype=np.float32)
+        assert isinstance(core, pf.CoreTEXT2_0)
+        assert core.comp is not None
+        assert np.array_equal(core.comp, target)
+
     # TODO also test link to temporal channel
     @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
     def test_read_trigger_relational_error(

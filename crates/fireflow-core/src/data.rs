@@ -827,6 +827,12 @@ impl PreEventsDiagnostics {
     }
 }
 
+/// A column which was found to exceed $PnR.
+///
+/// First number if the row in which the first exceeded value was found.
+/// Second boolean is `true` if value was truncated to $PnR.
+///
+/// Entire value is `None` if $PnR was not exceeded.
 pub type OverrangeColumn = Option<(usize, bool)>;
 
 /// Output of converting $PnR to native rust type.
@@ -7442,15 +7448,16 @@ where
                 // lower than bitmask, emit msg to alert user.
                 (OverLimitMode::Truncate, OverLimitMode::ScanOnly) => {
                     if self.series.any_gt(bitmask) {
-                        let ret = self.series.truncate_and_test(bitmask, int_upper);
-                        ret.map(|(rowi, was_truncated)| {
-                            let t = if was_truncated {
-                                ExceededRange::RangeAndBitmask
-                            } else {
-                                ExceededRange::Range
-                            };
-                            (true, rowi, t)
-                        })
+                        self.series.truncate_and_test(bitmask, int_upper).map(
+                            |(rowi, was_truncated)| {
+                                let t = if was_truncated {
+                                    ExceededRange::RangeAndBitmask
+                                } else {
+                                    ExceededRange::Range
+                                };
+                                (was_truncated, rowi, t)
+                            },
+                        )
                     } else if bitmask > int_upper && self.series.any_gt(int_upper) {
                         scan(self, int_upper, ExceededRange::Range)
                     } else {

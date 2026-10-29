@@ -866,7 +866,7 @@ pub struct DatasetDiagnostics {
     /// indices and will be `None` if not overrange. Otherwise, the first
     /// [`usize`] will be the row that has the first overrange value, and the
     /// second [`bool`] will be `true` if the value was truncated to fit and
-    /// false otherwise.
+    /// `false` otherwise.
     pub overrange_columns: Vec<OverrangeColumn>,
 
     /// Unparsed bytes between segments.

@@ -911,6 +911,17 @@ pub trait TriErrorFlag {
         }
     }
 
+    fn is_non_error(&self) -> Option<bool>
+    where
+        Self: Into<TriFlag> + Copy,
+    {
+        match self.is_error() {
+            Some(true) => None,
+            Some(false) => Some(true),
+            None => Some(false),
+        }
+    }
+
     fn from_partial_str(s: &str) -> Result<Self, PartialTriErrorFlagError>
     where
         Self: Sized,
@@ -984,7 +995,7 @@ impl_tri_error_flag!(false_is_error AllowMissingCRC);
 impl_tri_error_flag!(false_is_error AllowMismatchCRC);
 
 /// Fake 3-way flag to use for non-public switchable errors
-#[derive(From, Into, Clone, Copy)]
+#[derive(From, Into, Clone, Copy, Debug)]
 pub struct DummyTriFlag(pub(crate) TriFlag);
 
 impl DummyTriFlag {
@@ -1021,6 +1032,16 @@ impl DummyTriFlag {
             }
         };
         f.into()
+    }
+
+    #[must_use]
+    pub fn or(self, other: Self) -> Self {
+        let new = match (self.0, other.0) {
+            (TriFlag::False, _) | (_, TriFlag::False) => TriFlag::False,
+            (TriFlag::True, _) | (_, TriFlag::True) => TriFlag::True,
+            _ => TriFlag::Silent,
+        };
+        Self(new)
     }
 }
 
@@ -1852,16 +1873,16 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
     pub OverLimitActionError,
-    /// Warn for values over limit
-    Warn => OVER_LIMIT_ACTION_WARN_LEVEL,
     /// Error for values over limit.
     Error => OVER_LIMIT_ACTION_ERROR_LEVEL,
+    /// Warn for values over limit
+    Warn => OVER_LIMIT_ACTION_WARN_LEVEL,
     /// Do not throw warning or error and do not truncate, report only in diagnostics.
     Silent => OVER_LIMIT_ACTION_SILENT_LEVEL,
     /// Truncate and throw warning.
-    TruncateSilent => OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL,
-    /// Truncate and throw warning.
     TruncateWarn => OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL,
+    /// Truncate and only report in diagnostics.
+    TruncateSilent => OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL,
     /// Do nothing. This will disable all scanning which will save CPU cycles.
     None => OVER_LIMIT_ACTION_NONE_LEVEL
 );
@@ -1895,18 +1916,21 @@ impl Default for OverBitmaskAction {
 pub enum OverLimitMode {
     /// Do nothing.
     None,
-    /// Truncate values that are over and emit warning or error
-    Truncate,
-    /// Scan for values that are over and emit warning or error.
-    ScanOnly,
+    /// Truncate values that are over limit and possibly warn.
+    Truncate(bool),
+    /// Scan for values that are over limit and emit error/warning or do nothing.
+    Check(DummyTriFlag),
 }
 
 impl OverLimitAction {
     #[must_use]
     pub fn mode(&self) -> OverLimitMode {
         match self {
-            Self::Error | Self::Warn | Self::Silent => OverLimitMode::ScanOnly,
-            Self::TruncateSilent | Self::TruncateWarn => OverLimitMode::Truncate,
+            Self::Error => OverLimitMode::Check(TriFlag::False.into()),
+            Self::Warn => OverLimitMode::Check(TriFlag::True.into()),
+            Self::Silent => OverLimitMode::Check(TriFlag::Silent.into()),
+            Self::TruncateWarn => OverLimitMode::Truncate(true),
+            Self::TruncateSilent => OverLimitMode::Truncate(false),
             Self::None => OverLimitMode::None,
         }
     }

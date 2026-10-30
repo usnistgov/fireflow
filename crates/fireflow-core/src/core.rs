@@ -6610,7 +6610,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         self.meas
             .check_ranges(disallow_bitmask_trunc, over_range_action)
             .group()
-            .map_ok_value(|rs| rs.fmap(|x| x.map(|(i, _)| i)))
+            .map_ok_value(|rs| rs.fmap(|x| x.map(|col| col.first_overrange)))
     }
 
     /// Get data schema.

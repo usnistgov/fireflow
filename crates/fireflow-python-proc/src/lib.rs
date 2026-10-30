@@ -8393,8 +8393,11 @@ impl<E: From<PyException>> PyList<E> {
     }
 
     fn new_overrange_columns() -> Self {
+        let path = parse_quote!(fireflow_core::data::OverrangeColumnResult);
         Self::new1(PyOpt::new1(
-            PyTuple::new1(RsInt::Usize).add(PyBool::default()),
+            PyTuple::new1(RsInt::Usize)
+                .add(PyBool::default())
+                .rstype(path),
         ))
     }
 

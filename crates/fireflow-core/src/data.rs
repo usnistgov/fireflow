@@ -110,7 +110,7 @@ use crate::convert::{InstantExt as _, U64Ext as _, UsizeExt as _};
 use crate::io::{AnyReader, AnyReader_};
 use crate::logging::{
     Error2, Error3, ErrorGroup, ErrorsResult, IOAnonErrorGroup, IOErrorGroup, IOResult,
-    ImpureError, LogResult, ResultExt as _, SwitchableErrorResult, SwitchableErrorsResult,
+    ImpureError, LogResult, ResultExt as _, Success, SwitchableErrorResult,
     WarningAndIOGroupResult, WarningOrErrorResult, WarningsAndErrorsResult,
     WarningsAndIOGroupResult, io_to_log,
 };
@@ -147,7 +147,7 @@ use crate::validated::bitmask::{
 use crate::validated::dataframe::{
     AnyPrimitiveSeries, CastSeriesError, DataFrame, DataFrameFamily, FromSeries, FromValue,
     HasFCSType, HasLen, HasWidth, InternalSeries, PrimitiveDataFrame, PrimitiveSeries,
-    ambassador_impl_HasLen,
+    TruncateTestResult, ambassador_impl_HasLen,
 };
 use crate::validated::finite_float::{
     DecimalToFloatError, FiniteF32, FiniteF64, FiniteF64toF32Error, FiniteFloat,
@@ -159,8 +159,8 @@ use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
 use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
 use fireflow_types::config::{
     AllowOverBitmask, AllowTotMismatch, ByteordOverride, DisallowOverRange, DummyTriFlag,
-    IntWidthOverride, MAX_U64_CHARS, NumericByteWidth, OverBitmaskAction, OverLimitMode,
-    OverRangeAction, ReadDataKeywordsConfig, ReadDatasetConfig, RowBufferSize, TriErrorFlag as _,
+    IntWidthOverride, NumericByteWidth, OverBitmaskAction, OverLimitMode, OverRangeAction,
+    ReadDataKeywordsConfig, ReadDatasetConfig, RowBufferSize, TriErrorFlag as _, TriFlag,
     WriteDatasetInnerConfig,
 };
 use fireflow_types::index::MeasIndex;
@@ -826,11 +826,18 @@ impl PreEventsDiagnostics {
 
 /// A column which was found to exceed $PnR.
 ///
-/// First number if the row in which the first exceeded value was found.
-/// Second boolean is `true` if value was truncated to $PnR.
-///
 /// Entire value is `None` if $PnR was not exceeded.
-pub type OverrangeColumn = Option<(usize, bool)>;
+pub type OverrangeColumn = Option<OverrangeColumnResult>;
+
+/// A column which was found to exceed $PnR.
+#[derive(new, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct OverrangeColumnResult {
+    /// Index of the first overrange value.
+    pub first_overrange: usize,
+    /// `true` if indexed value was truncated.
+    pub was_truncated: bool,
+}
 
 /// Output of converting $PnR to native rust type.
 #[derive(new)]
@@ -850,19 +857,6 @@ impl_functor_once!(
     mut f,
     RangeError::new(f(self.error), self.non_truncated)
 );
-
-/// Result of possibly truncated value
-#[derive(new)]
-pub struct TruncatedValueResult {
-    truncated: bool,
-    error: EventOverRangeError,
-}
-
-impl TruncatedValueResult {
-    fn as_col(&self) -> (usize, bool) {
-        (self.error.row, self.truncated)
-    }
-}
 
 #[derive(new)]
 pub struct ReadDataFrameResult<D> {
@@ -1248,20 +1242,44 @@ pub enum ReadDataframeWarning {
 }
 
 /// Error when event value is above its $PnR
-#[derive(Debug, Display, new, PartialEq, Clone)]
-#[display(
-    "event value in column {column} and row {row}, exceeds {what}{pnr} ({})",
-    range.as_displayable(),
-    pnr = TextRange::std(&self.column),
-    what = if matches!(self.trunc_type, ExceededRange::Bitmask) { "bitmask implied by " } else { "" }
-)]
+#[derive(Debug, new, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct EventOverRangeError {
     row: usize,
     column: MeasIndex,
-    range: TextRange,
     trunc_type: ExceededRange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum ExceededRange {
+    Bitmask(u64, TextRange),
+    Range(TextRange),
+    Characters(Chars),
+}
+
+impl fmt::Display for EventOverRangeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let r = self.row;
+        let c = self.column;
+        let key = TextRange::std(&c);
+        let preamble = format!("event value in column {c} and row {r}");
+        match &self.trunc_type {
+            ExceededRange::Bitmask(bitmask, range) => {
+                write!(
+                    f,
+                    "{preamble} exceeds bitmask ({bitmask}) implied by {key} ({})",
+                    range.as_displayable()
+                )
+            }
+            ExceededRange::Range(range) => {
+                write!(f, "{preamble} exceeds {key} ({})", range.as_displayable())
+            }
+            ExceededRange::Characters(chars) => {
+                write!(f, "{preamble} could not be expressed in {chars} characters")
+            }
+        }
+    }
 }
 
 def_summary!(pub EventOverRangeSummary, "some events exceed $PnR");
@@ -5936,26 +5954,30 @@ where
 /// Return error or warning-like result depending on configuration parameter.
 #[delegatable_trait]
 pub trait DataFrameCheckRanges {
-    fn check_ranges_inner(
+    fn check_ranges(
         &self,
         bitmask_flag: AllowOverBitmask,
         range_flag: DisallowOverRange,
-    ) -> Vec<EventOverRangeError>;
+    ) -> WarningsAndErrorsResult<(), (), EventOverRangeError, EventOverRangeError>;
 
-    fn check_ranges_inner_mut(
+    fn check_ranges_mut(
         &mut self,
-        bitmask_trunc: OverLimitMode,
-        range_trunc: OverLimitMode,
-    ) -> Vec<Option<TruncatedValueResult>>;
+        bitmask: OverBitmaskAction,
+        range: OverRangeAction,
+    ) -> WarningsAndErrorsResult<Vec<OverrangeColumn>, (), EventOverRangeError, EventOverRangeError>;
+}
 
+impl<C, I, L, M, const ORD: bool> DataFrameCheckRanges
+    for Layout<DataFrame<C>, DataFrameFamily, I, L, M, ORD>
+where
+    C: CheckRange,
+{
     fn check_ranges(
         &self,
         bitmask_flag: AllowOverBitmask,
         range_flag: DisallowOverRange,
     ) -> WarningsAndErrorsResult<(), (), EventOverRangeError, EventOverRangeError> {
-        let es = self.check_ranges_inner(bitmask_flag, range_flag);
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, range_flag)
-            .switchable_into_commutative()
+        self.container.check_ranges(bitmask_flag, range_flag)
     }
 
     fn check_ranges_mut(
@@ -5964,65 +5986,7 @@ pub trait DataFrameCheckRanges {
         range: OverRangeAction,
     ) -> WarningsAndErrorsResult<Vec<OverrangeColumn>, (), EventOverRangeError, EventOverRangeError>
     {
-        let bitmask_trunc = bitmask.0.mode();
-        let range_trunc = range.0.mode();
-
-        let rs = self.check_ranges_inner_mut(bitmask_trunc, range_trunc);
-        let overrange = rs
-            .iter()
-            .map(|r| r.as_ref().map(TruncatedValueResult::as_col))
-            .collect();
-
-        let bitmask_flag = DummyTriFlag::from_over_limit_action(bitmask.0).is_error();
-        let action_flag = DummyTriFlag::from_over_limit_action(range.0).is_error();
-
-        let mut errors = vec![];
-        let mut warnings = vec![];
-        for e in rs.into_iter().filter_map(|c| c.map(|r| r.error)) {
-            match e.trunc_type {
-                ExceededRange::Characters => errors.push(e),
-                ExceededRange::Bitmask => match bitmask_flag {
-                    Some(true) => errors.push(e),
-                    Some(false) => warnings.push(e),
-                    None => (),
-                },
-                ExceededRange::Range => match action_flag {
-                    Some(true) => errors.push(e),
-                    Some(false) => warnings.push(e),
-                    None => (),
-                },
-                ExceededRange::RangeAndBitmask => match (bitmask_flag, action_flag) {
-                    (Some(true), _) | (_, Some(true)) => errors.push(e),
-                    (Some(false), _) | (_, Some(false)) => warnings.push(e),
-                    _ => (),
-                },
-            }
-        }
-        let mut ret = LogResult::new_ok(overrange);
-        ret.extend_commutative_warnings(warnings);
-        ret.extend_errors(errors, |_| ())
-    }
-}
-
-impl<C, I, L, M, const ORD: bool> DataFrameCheckRanges
-    for Layout<DataFrame<C>, DataFrameFamily, I, L, M, ORD>
-where
-    C: CheckRange,
-{
-    fn check_ranges_inner(
-        &self,
-        bitmask_flag: AllowOverBitmask,
-        range_flag: DisallowOverRange,
-    ) -> Vec<EventOverRangeError> {
-        self.container.check_ranges(bitmask_flag, range_flag)
-    }
-
-    fn check_ranges_inner_mut(
-        &mut self,
-        bitmask_trunc: OverLimitMode,
-        range_trunc: OverLimitMode,
-    ) -> Vec<Option<TruncatedValueResult>> {
-        self.container.check_ranges_mut(bitmask_trunc, range_trunc)
+        self.container.check_ranges_mut(bitmask, range)
     }
 }
 
@@ -7229,78 +7193,14 @@ impl IsNumType for Option<NumType> {
     }
 }
 
-// Implement column -> native range + $PnR
-//
-// This is used only internally by the range checker.
-
-/// A column schema which has a $PnR and and native type for range.
-trait ColumnSchemaAsRange: ColumnHasNativeType
-where
-    Self::Native: FCSRepr,
-{
-    fn as_range(&self) -> EffectiveRange<<Self::Native as FCSRepr>::Prim>;
-}
-
-#[derive(new, Clone)]
-struct EffectiveRange<T> {
-    /// The numeric limit expressed via $PnR.
-    numeric_range: T,
-    /// The bitmask implied by $PnR (only applies to integers).
-    bitmask: Option<T>,
-    /// $PnR itself.
-    text_range: TextRange,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum ExceededRange {
-    Bitmask,
-    Range,
-    RangeAndBitmask,
-    Characters,
-}
-
-impl<T> ColumnSchemaAsRange for Bitmask<T>
-where
-    Self: ColumnHasNativeType<Native = T> + Into<TextRange>,
-    T: Copy + FCSRepr + Into<T::Prim>,
-{
-    fn as_range(&self) -> EffectiveRange<T::Prim> {
-        EffectiveRange::new(
-            self.value().into(),
-            Some(self.bitmask().into()),
-            (*self).into(),
-        )
-    }
-}
-
-impl<T> ColumnSchemaAsRange for FloatRange<T>
-where
-    Self: ColumnHasNativeType<Native = T> + Into<TextRange>,
-    T: Copy + FCSRepr<Prim = T>,
-    FiniteFloat<T>: Into<T>,
-{
-    fn as_range(&self) -> EffectiveRange<T> {
-        EffectiveRange::new(self.range.into(), None, (*self).into())
-    }
-}
-
-impl ColumnSchemaAsRange for FixedAsciiRange {
-    fn as_range(&self) -> EffectiveRange<u64> {
-        let r = self.value();
-        EffectiveRange::new(r.0, None, r.0.into())
-    }
-}
-
-impl ColumnSchemaAsRange for DelimAsciiRange {
-    fn as_range(&self) -> EffectiveRange<u64> {
-        let r = self.0;
-        EffectiveRange::new(r.0, None, r.0.into())
-    }
-}
-
 // Implement range check for columns
 //
 // This is the column-level trait for CheckRanges; see for details.
+
+pub type CheckRangeResult = WarningOrErrorResult<(), (), EventOverRangeError, EventOverRangeError>;
+
+pub type TruncateRangeResult =
+    WarningOrErrorResult<OverrangeColumn, (), EventOverRangeError, EventOverRangeError>;
 
 pub(crate) trait CheckRange {
     fn check_range(
@@ -7308,14 +7208,14 @@ pub(crate) trait CheckRange {
         i: MeasIndex,
         bitmask_flag: AllowOverBitmask,
         range_flag: DisallowOverRange,
-    ) -> Result<(), EventOverRangeError>;
+    ) -> WarningOrErrorResult<(), (), EventOverRangeError, EventOverRangeError>;
 
     fn check_range_mut(
         &mut self,
         i: MeasIndex,
-        bitmask_trunc: OverLimitMode,
-        range_trunc: OverLimitMode,
-    ) -> Option<TruncatedValueResult>;
+        bitmask_action: OverBitmaskAction,
+        range_action: OverRangeAction,
+    ) -> TruncateRangeResult;
 }
 
 // General strategy: Test if any values exceed range first, and only use
@@ -7328,7 +7228,7 @@ pub(crate) trait CheckRange {
 // having no out of range values, it is probabilistically worth using this
 // shortcut. Most FCS files will have ranges/columns above this cutoff in
 // practice.
-macro_rules! impl_native_check_range {
+macro_rules! impl_int_check_range {
     ($t:ident) => {
         impl CheckRange for NativeSeries<$t> {
             fn check_range(
@@ -7336,51 +7236,184 @@ macro_rules! impl_native_check_range {
                 i: MeasIndex,
                 bitmask_flag: AllowOverBitmask,
                 range_flag: DisallowOverRange,
-            ) -> Result<(), EventOverRangeError> {
-                self.check_range_native(i, bitmask_flag, range_flag)
+            ) -> CheckRangeResult {
+                self.check_range_int(i, bitmask_flag, range_flag)
             }
 
             fn check_range_mut(
                 &mut self,
                 i: MeasIndex,
-                bitmask_trunc: OverLimitMode,
-                range_trunc: OverLimitMode,
-            ) -> Option<TruncatedValueResult> {
-                self.check_range_native_mut(i, bitmask_trunc, range_trunc)
+                bitmask_action: OverBitmaskAction,
+                range_action: OverRangeAction,
+            ) -> TruncateRangeResult {
+                self.check_range_int_mut(i, bitmask_action, range_action)
             }
         }
     };
 }
 
-impl_native_check_range!(Bitmask08);
-impl_native_check_range!(Bitmask16);
-impl_native_check_range!(Bitmask24);
-impl_native_check_range!(Bitmask32);
-impl_native_check_range!(Bitmask40);
-impl_native_check_range!(Bitmask48);
-impl_native_check_range!(Bitmask56);
-impl_native_check_range!(Bitmask64);
-impl_native_check_range!(F32Range);
-impl_native_check_range!(F64Range);
-impl_native_check_range!(DelimAsciiRange);
+impl_int_check_range!(Bitmask08);
+impl_int_check_range!(Bitmask16);
+impl_int_check_range!(Bitmask24);
+impl_int_check_range!(Bitmask32);
+impl_int_check_range!(Bitmask40);
+impl_int_check_range!(Bitmask48);
+impl_int_check_range!(Bitmask56);
+impl_int_check_range!(Bitmask64);
 
+macro_rules! impl_float_check_range {
+    ($t:ident) => {
+        impl CheckRange for NativeSeries<$t> {
+            fn check_range(
+                &self,
+                i: MeasIndex,
+                _: AllowOverBitmask,
+                range_flag: DisallowOverRange,
+            ) -> CheckRangeResult {
+                self.check_range_float(i, range_flag)
+            }
+
+            fn check_range_mut(
+                &mut self,
+                i: MeasIndex,
+                _: OverBitmaskAction,
+                range_action: OverRangeAction,
+            ) -> TruncateRangeResult {
+                self.check_range_float_mut(i, range_action)
+            }
+        }
+    };
+}
+
+impl_float_check_range!(F32Range);
+impl_float_check_range!(F64Range);
+
+// Fixed ASCII series are special because they are the only datatype which can
+// have a value that exceeds the character limit for the column. All other types
+// have this limit baked into the type itself (ie, U24 can only be 24 bytes). We
+// can't do this with ASCII because it would be unwieldy to make 20 different
+// types for each character limit (1-20). Therefore we need to check this at
+// runtime.
 impl CheckRange for NativeSeries<FixedAsciiRange> {
     fn check_range(
         &self,
         i: MeasIndex,
-        bitmask_flag: AllowOverBitmask,
+        _: AllowOverBitmask,
         range_flag: DisallowOverRange,
-    ) -> Result<(), EventOverRangeError> {
-        self.check_range_ascii(i, bitmask_flag, range_flag)
+    ) -> CheckRangeResult {
+        let chars = self.column_schema.chars();
+        let rng = self.column_schema.value();
+        let trng = rng.0.into();
+
+        let soft_limit = u64::from(rng);
+        let hard_limit = chars.max_value();
+
+        let ec = ExceededRange::Characters(chars);
+        let er = ExceededRange::Range(trng);
+
+        match (range_flag.is_error(), chars.saturated()) {
+            (Some(is_error), false) => {
+                if self.series.any_gt(&hard_limit) {
+                    self.check_overrange1(i, &hard_limit, ec, true)
+                } else if soft_limit < hard_limit && self.series.any_gt(&soft_limit) {
+                    self.check_overrange1(i, &soft_limit, er, is_error)
+                } else {
+                    LogResult::new_ok(())
+                }
+            }
+            (None, false) => self.check_overrange0(i, hard_limit, ec, true),
+            (Some(is_error), true) => self.check_overrange0(i, soft_limit, er, is_error),
+            (None, true) => LogResult::new_ok(()),
+        }
     }
 
     fn check_range_mut(
         &mut self,
         i: MeasIndex,
-        bitmask_trunc: OverLimitMode,
-        range_trunc: OverLimitMode,
-    ) -> Option<TruncatedValueResult> {
-        self.check_range_native_mut(i, bitmask_trunc, range_trunc)
+        _: OverBitmaskAction,
+        range_action: OverRangeAction,
+    ) -> TruncateRangeResult {
+        let chars = self.column_schema.chars();
+        let rng = self.column_schema.value();
+        let trng = rng.0.into();
+        let soft_limit = u64::from(rng);
+        let hard_limit = 10_u64.saturating_pow(u32::from(u8::from(chars))) - 1;
+
+        let ec = ExceededRange::Characters(chars);
+        let er = ExceededRange::Range(trng);
+
+        // We don't have a separate flag for how over-character values should be
+        // handled here. We also probably shouldn't have one since this use-case
+        // is so narrow (nobody uses ASCII). Therefore, re-use the flag for
+        // range for the character limit, with the exception that character
+        // range will be checked even if flag is None.
+        match (range_action.0.mode(), chars.saturated()) {
+            // Truncation needed. Character limit doesn't matter since
+            // truncation will ensure this is never exceeded.
+            (OverLimitMode::Truncate(is_warn), _) => {
+                LogResult::Succ(self.truncate_warn(i, &soft_limit, er, is_warn))
+            }
+            // Check needed and character limit is saturated. We can safely only
+            // check the range.
+            (OverLimitMode::Check(flag), true) => self.check_overrange2(i, &soft_limit, er, flag),
+            // Check needed and character limit is not saturated. Need to check
+            // both.
+            (OverLimitMode::Check(flag), false) => {
+                if self.series.any_gt(&hard_limit) {
+                    self.check_overrange2(i, &hard_limit, ec, TriFlag::True.into())
+                } else if soft_limit < hard_limit && self.series.any_gt(&soft_limit) {
+                    self.check_overrange2(i, &soft_limit, er, flag)
+                } else {
+                    LogResult::new_ok(None)
+                }
+            }
+            // No check or truncation. Character limit is saturated. Noop.
+            (OverLimitMode::None, true) => LogResult::new_ok(None),
+            // No check or truncation, but character limit not saturated so this
+            // still needs to be checked.
+            (OverLimitMode::None, false) => {
+                self.check_overrange2(i, &hard_limit, ec, TriFlag::True.into())
+            }
+        }
+    }
+}
+
+impl CheckRange for NativeSeries<DelimAsciiRange> {
+    fn check_range(
+        &self,
+        i: MeasIndex,
+        _: AllowOverBitmask,
+        range_flag: DisallowOverRange,
+    ) -> CheckRangeResult {
+        let rng = self.column_schema;
+        let trng = rng.into();
+        let limit = u64::from(rng);
+        let er = ExceededRange::Range(trng);
+
+        match range_flag.is_error() {
+            Some(is_error) => self.check_overrange1(i, &limit, er, is_error),
+            None => LogResult::new_ok(()),
+        }
+    }
+
+    fn check_range_mut(
+        &mut self,
+        i: MeasIndex,
+        _: OverBitmaskAction,
+        range_action: OverRangeAction,
+    ) -> TruncateRangeResult {
+        let rng = self.column_schema;
+        let trng = rng.into();
+        let limit = u64::from(rng);
+        let er = ExceededRange::Range(trng);
+
+        match range_action.0.mode() {
+            OverLimitMode::Truncate(is_warn) => {
+                LogResult::Succ(self.truncate_warn(i, &limit, er, is_warn))
+            }
+            OverLimitMode::Check(flag) => self.check_overrange2(i, &limit, er, flag),
+            OverLimitMode::None => LogResult::new_ok(None),
+        }
     }
 }
 
@@ -7390,17 +7423,17 @@ impl CheckRange for VariableUintSeries {
         i: MeasIndex,
         bitmask_flag: AllowOverBitmask,
         range_flag: DisallowOverRange,
-    ) -> Result<(), EventOverRangeError> {
+    ) -> CheckRangeResult {
         match_any_uint!(self, x, x.check_range(i, bitmask_flag, range_flag))
     }
 
     fn check_range_mut(
         &mut self,
         i: MeasIndex,
-        bitmask_trunc: OverLimitMode,
-        range_trunc: OverLimitMode,
-    ) -> Option<TruncatedValueResult> {
-        match_any_uint!(self, x, x.check_range_mut(i, bitmask_trunc, range_trunc))
+        bitmask_action: OverBitmaskAction,
+        range_action: OverRangeAction,
+    ) -> TruncateRangeResult {
+        match_any_uint!(self, x, x.check_range_mut(i, bitmask_action, range_action))
     }
 }
 
@@ -7410,17 +7443,245 @@ impl CheckRange for MixedSeries {
         i: MeasIndex,
         bitmask_flag: AllowOverBitmask,
         range_flag: DisallowOverRange,
-    ) -> Result<(), EventOverRangeError> {
+    ) -> CheckRangeResult {
         match_any_datatype!(self, x, x.check_range(i, bitmask_flag, range_flag))
     }
 
     fn check_range_mut(
         &mut self,
         i: MeasIndex,
-        bitmask_trunc: OverLimitMode,
-        range_trunc: OverLimitMode,
-    ) -> Option<TruncatedValueResult> {
-        match_any_datatype!(self, x, x.check_range_mut(i, bitmask_trunc, range_trunc))
+        bitmask_action: OverBitmaskAction,
+        range_action: OverRangeAction,
+    ) -> TruncateRangeResult {
+        match_any_datatype!(self, x, x.check_range_mut(i, bitmask_action, range_action))
+    }
+}
+
+impl<T> NativeSeries<Bitmask<T>>
+where
+    Bitmask<T>: ColumnHasNativeType<Native = T>,
+    T: FCSRepr,
+{
+    fn check_range_int(
+        &self,
+        i: MeasIndex,
+        bitmask_flag: AllowOverBitmask,
+        range_flag: DisallowOverRange,
+    ) -> CheckRangeResult
+    where
+        T: Copy + Into<T::Prim>,
+        T::Prim: Copy + PartialOrd + Bounded + Into<u64>,
+        Bitmask<T>: Into<TextRange>,
+    {
+        let bitmask = self.column_schema.bitmask().into();
+        let int_upper = self.column_schema.value().into();
+        let range: TextRange = self.column_schema.into();
+        let bf = bitmask_flag.is_error();
+        let rf = range_flag.is_error();
+
+        match (bf, rf) {
+            (Some(b_is_error), Some(r_is_error)) => {
+                // Check both bitmask and upper range. Return error if either of
+                // these is set to error (vs warning). We only need to check the
+                // bitmask first since if anything exceeds the bitmask then the
+                // range doesn't matter. If the bitmask isn't exceeded, check
+                // the range but only if it is not equal to the bitmask (ASSUME
+                // it will always be higher).
+                let is_error = b_is_error | r_is_error;
+                let er = ExceededRange::Range(range);
+                if self.series.any_gt(&bitmask) {
+                    self.check_overrange1(i, &bitmask, er, is_error)
+                } else if bitmask > int_upper && self.series.any_gt(&int_upper) {
+                    self.check_overrange1(i, &int_upper, er, is_error)
+                } else {
+                    LogResult::new_ok(())
+                }
+            }
+            (Some(is_error), None) => {
+                let eb = ExceededRange::Bitmask(bitmask.into(), range);
+                self.check_overrange0(i, bitmask, eb, is_error)
+            }
+            (None, Some(is_error)) => {
+                let er = ExceededRange::Range(range);
+                self.check_overrange0(i, int_upper, er, is_error)
+            }
+            (None, None) => LogResult::new_ok(()),
+        }
+    }
+
+    fn check_range_int_mut(
+        &mut self,
+        i: MeasIndex,
+        bitmask_action: OverBitmaskAction,
+        range_action: OverRangeAction,
+    ) -> TruncateRangeResult
+    where
+        T: Copy + Into<T::Prim>,
+        T::Prim: Copy + PartialOrd + Bounded + Into<u64>,
+        Bitmask<T>: Into<TextRange>,
+    {
+        let bitmask = self.column_schema.bitmask().into();
+        let int_upper = self.column_schema.value().into();
+        let bitmask_mode = bitmask_action.0.mode();
+        let range_mode = range_action.0.mode();
+
+        let er = ExceededRange::Range(self.column_schema.into());
+        let eb = ExceededRange::Bitmask(bitmask.into(), self.column_schema.into());
+
+        match (bitmask_mode, range_mode) {
+            // If truncating to range, bitmask does not matter since range
+            // is less than bitmask, and anything less than range will be
+            // truncated anyways.
+            (_, OverLimitMode::Truncate(is_warn)) => {
+                LogResult::Succ(self.truncate_warn(i, &int_upper, er, is_warn))
+            }
+            // If checking range but not checking/truncating bitmask, do a
+            // simple range check.
+            (OverLimitMode::None, OverLimitMode::Check(flag)) => {
+                self.check_overrange2(i, &int_upper, er, flag)
+            }
+            // If we want to truncate the bitmask and check the range, the
+            // path depends on the error flag for the range check.
+            (OverLimitMode::Truncate(bitmask_is_warn), OverLimitMode::Check(flag)) => {
+                match flag.is_non_error() {
+                    // Range check is a hard error. Truncation doesn't matter
+                    // since any truncated value will also exceed range and thus
+                    // should trigger an error.
+                    None => self.check_overrange2(i, &int_upper, er, flag),
+                    // Range checks are a warning. Find the first overrange
+                    // position. If it is over the bitmask, return position and
+                    // truncate/possibly warn. If it is not over the bitmask but
+                    // over the range, return the position with no warning.
+                    Some(range_is_warn) => {
+                        if self.series.any_gt(&bitmask) {
+                            if bitmask == int_upper {
+                                // Bitmask and range are the same, which makes
+                                // this much easier since there is only one
+                                // limit. Return warning if either level has a
+                                // warning flag set.
+                                let any_warn = bitmask_is_warn | range_is_warn;
+                                LogResult::Succ(self.truncate_warn(i, &bitmask, er, any_warn))
+                            } else {
+                                // Bitmask and range are different. Truncate the
+                                // values that are over bitmask and return the
+                                // first instances of overrange/overbitmask.
+                                // What happens next depends on if the bitmask
+                                // was exceeded first (in which case the range
+                                // was also exceeded) or the range but not the
+                                // bitmask was exceeded first.
+                                let pos_res = self.series.truncate_and_test(bitmask, int_upper);
+                                let (col, warn) = match pos_res {
+                                    // Bitmask was exceeded first. This mirrors
+                                    // the case above where bitmask and range
+                                    // are the same.
+                                    TruncateTestResult::FirstOverUpper(bitmask_pos) => {
+                                        let any_warn = bitmask_is_warn | range_is_warn;
+                                        let col = OverrangeColumnResult::new(bitmask_pos, true);
+                                        let w = EventOverRangeError::new(bitmask_pos, i, er);
+                                        (col, any_warn.then_some(w))
+                                    }
+                                    TruncateTestResult::FirstUnderUpper {
+                                        upper_pos: bitmask_pos,
+                                        lower_pos: range_pos,
+                                    } => {
+                                        // Range but not bitmask was exceeded
+                                        // first. Return warning based on which
+                                        // level has a warning flag set. Range
+                                        // has priority since it occurred first.
+                                        // Return range position for diagnostics
+                                        // regardless of warning flag.
+                                        let col = OverrangeColumnResult::new(range_pos, false);
+                                        let w = if range_is_warn {
+                                            Some(EventOverRangeError::new(range_pos, i, er))
+                                        } else if bitmask_is_warn {
+                                            Some(EventOverRangeError::new(bitmask_pos, i, eb))
+                                        } else {
+                                            None
+                                        };
+                                        (col, w)
+                                    }
+                                };
+                                let succ =
+                                    Success::new_non_switchable(Some(col)).set_warnings(warn);
+                                LogResult::Succ(succ)
+                            }
+                        } else if bitmask > int_upper && self.series.any_gt(&int_upper) {
+                            self.check_overrange2(i, &int_upper, er, flag)
+                        } else {
+                            LogResult::new_ok(None)
+                        }
+                    }
+                }
+            }
+            // Do not perform truncation but emit different messages
+            // depending on if bitmask or range was exceeded.
+            (OverLimitMode::Check(b_flag), OverLimitMode::Check(r_flag)) => {
+                let flag = b_flag.or(r_flag);
+                if self.series.any_gt(&bitmask) {
+                    self.check_overrange2(i, &bitmask, eb, flag)
+                } else if bitmask > int_upper && self.series.any_gt(&int_upper) {
+                    self.check_overrange2(i, &int_upper, er, r_flag)
+                } else {
+                    LogResult::new_ok(None)
+                }
+            }
+            // repeat the non-int code block but only check the bitmask and
+            // pretend range does not exist.
+            (OverLimitMode::None, OverLimitMode::None) => LogResult::new_ok(None),
+            (OverLimitMode::Truncate(is_warn), OverLimitMode::None) => {
+                LogResult::Succ(self.truncate_warn(i, &bitmask, eb, is_warn))
+            }
+            (OverLimitMode::Check(flag), OverLimitMode::None) => {
+                self.check_overrange2(i, &bitmask, eb, flag)
+            }
+        }
+    }
+}
+
+impl<T> NativeSeries<FloatRange<T>>
+where
+    FloatRange<T>: ColumnHasNativeType<Native = T>,
+    T: FCSRepr<Prim = T>,
+{
+    fn check_range_float(&self, i: MeasIndex, range_flag: DisallowOverRange) -> CheckRangeResult
+    where
+        T: Copy + PartialOrd,
+        FloatRange<T>: Into<TextRange>,
+        FiniteFloat<T>: Into<T>,
+    {
+        let rng = self.column_schema;
+        let limit = rng.range.into();
+        let trng = rng.into();
+        let er = ExceededRange::Range(trng);
+
+        match range_flag.is_error() {
+            Some(is_error) => self.check_overrange1(i, &limit, er, is_error),
+            None => LogResult::new_ok(()),
+        }
+    }
+
+    fn check_range_float_mut(
+        &mut self,
+        i: MeasIndex,
+        range_action: OverRangeAction,
+    ) -> TruncateRangeResult
+    where
+        T: Copy + PartialOrd,
+        FloatRange<T>: Into<TextRange>,
+        FiniteFloat<T>: Into<T>,
+    {
+        let rng = self.column_schema;
+        let limit = rng.range.into();
+        let trng = rng.into();
+        let er = ExceededRange::Range(trng);
+
+        match range_action.0.mode() {
+            OverLimitMode::Truncate(is_warn) => {
+                LogResult::Succ(self.truncate_warn(i, &limit, er, is_warn))
+            }
+            OverLimitMode::Check(flag) => self.check_overrange2(i, &limit, er, flag),
+            OverLimitMode::None => LogResult::new_ok(None),
+        }
     }
 }
 
@@ -7429,240 +7690,110 @@ where
     C: ColumnHasNativeType,
     C::Native: FCSRepr,
 {
-    fn check_range_native(
-        &self,
-        i: MeasIndex,
-        bitmask_flag: AllowOverBitmask,
-        range_flag: DisallowOverRange,
-    ) -> Result<(), EventOverRangeError>
+    fn find_overrange(&self, limit: &<C::Native as FCSRepr>::Prim) -> Option<usize>
     where
-        C: Clone + ColumnHasDatatype + ColumnSchemaAsRange,
-        <<C as ColumnHasNativeType>::Native as FCSRepr>::Prim: Copy + PartialOrd + Bounded,
-        C::Native: Into<<<C as ColumnHasNativeType>::Native as FCSRepr>::Prim>,
+        <C::Native as FCSRepr>::Prim: PartialOrd,
     {
-        let dt = self.column_schema.col_datatype();
-        let rng = self.column_schema.as_range();
-        let bf = bitmask_flag.is_error().is_some();
-        let rf = range_flag.is_error().is_some();
-
-        let scan = |limit, exceed| {
-            self.series
-                .as_ref()
-                .iter()
-                .enumerate()
-                .find_map(|(rowi, x)| (*x > limit).then_some((rowi, exceed)))
-        };
-        let check_scan = |limit, exceed| {
-            if self.series.any_gt(limit) {
-                scan(limit, exceed)
-            } else {
-                None
-            }
-        };
-
-        let res = if dt == AlphaNumType::Integer {
-            let bitmask = rng.bitmask.expect("integer should have bitmask");
-            let int_upper = rng.numeric_range;
-            assert!(bitmask >= int_upper, "bitmask less than numeric range");
-            match (bf, rf) {
-                (true, true) => {
-                    if self.series.any_gt(bitmask) {
-                        scan(bitmask, ExceededRange::RangeAndBitmask)
-                    } else if bitmask > int_upper && self.series.any_gt(int_upper) {
-                        scan(int_upper, ExceededRange::Range)
-                    } else {
-                        None
-                    }
-                }
-                (true, false) => check_scan(bitmask, ExceededRange::Bitmask),
-                (false, true) => check_scan(int_upper, ExceededRange::Range),
-                (false, false) => None,
-            }
-        } else if rf {
-            assert!(rng.bitmask.is_none(), "non-int shouldn't have bitmask");
-            check_scan(rng.numeric_range, ExceededRange::Range)
-        } else {
-            None
-        };
-        res.map_or(Ok(()), |(rowi, t)| {
-            Err(EventOverRangeError::new(rowi, i, rng.text_range, t))
-        })
+        self.series
+            .as_ref()
+            .iter()
+            .enumerate()
+            .find_map(|(rowi, x)| (x > limit).then_some(rowi))
     }
 
-    fn check_range_native_mut(
+    fn find_overrange2(&self, limit: &<C::Native as FCSRepr>::Prim) -> OverrangeColumn
+    where
+        <C::Native as FCSRepr>::Prim: PartialOrd,
+    {
+        self.find_overrange(limit)
+            .map(|rowi| OverrangeColumnResult::new(rowi, false))
+    }
+
+    fn check_overrange0(
+        &self,
+        i: MeasIndex,
+        limit: <C::Native as FCSRepr>::Prim,
+        exceed: ExceededRange,
+        is_error: bool,
+    ) -> CheckRangeResult
+    where
+        <C::Native as FCSRepr>::Prim: PartialOrd + Copy,
+    {
+        if self.series.any_gt(&limit) {
+            self.check_overrange1(i, &limit, exceed, is_error)
+        } else {
+            LogResult::new_ok(())
+        }
+    }
+
+    fn check_overrange1(
+        &self,
+        i: MeasIndex,
+        limit: &<C::Native as FCSRepr>::Prim,
+        exceed: ExceededRange,
+        is_error: bool,
+    ) -> CheckRangeResult
+    where
+        <C::Native as FCSRepr>::Prim: PartialOrd,
+    {
+        let e = self
+            .find_overrange(limit)
+            .map(|rowi| EventOverRangeError::new(rowi, i, exceed));
+        LogResult::new_non_commutative_if(!is_error, (), (), e)
+    }
+
+    fn check_overrange2(
+        &self,
+        i: MeasIndex,
+        limit: &<C::Native as FCSRepr>::Prim,
+        exceed: ExceededRange,
+        flag: DummyTriFlag,
+    ) -> TruncateRangeResult
+    where
+        <C::Native as FCSRepr>::Prim: PartialOrd,
+    {
+        let col = self.find_overrange2(limit);
+        let err = col.map(|c| EventOverRangeError::new(c.first_overrange, i, exceed));
+        match flag.is_error() {
+            Some(true) => err.map_or(LogResult::new_ok(col), LogResult::new_err),
+            Some(false) => {
+                let succ = Success::new_non_switchable(col).set_warnings(err);
+                LogResult::Succ(succ)
+            }
+            None => LogResult::new_ok(col),
+        }
+    }
+
+    fn truncate(&mut self, limit: &<C::Native as FCSRepr>::Prim) -> Option<usize>
+    where
+        <C::Native as FCSRepr>::Prim: PartialOrd + Copy,
+    {
+        if self.series.any_gt(limit) {
+            self.series.truncate(limit)
+        } else {
+            None
+        }
+    }
+
+    fn truncate_warn(
         &mut self,
         i: MeasIndex,
-        bitmask_trunc: OverLimitMode,
-        range_trunc: OverLimitMode,
-    ) -> Option<TruncatedValueResult>
+        limit: &<C::Native as FCSRepr>::Prim,
+        exceed: ExceededRange,
+        is_warn: bool,
+    ) -> Success<OverrangeColumn, (), Option<EventOverRangeError>>
     where
-        C: Clone + ColumnHasDatatype + ColumnSchemaAsRange,
-        <<C as ColumnHasNativeType>::Native as FCSRepr>::Prim: Copy + PartialOrd + Bounded,
-        C::Native: Into<<<C as ColumnHasNativeType>::Native as FCSRepr>::Prim>,
+        <C::Native as FCSRepr>::Prim: PartialOrd + Copy,
     {
-        let trunc = |self_: &mut Self, limit, exceed| {
-            self_
-                .series
-                .truncate(limit)
-                .map(|rowi| (true, rowi, exceed))
-        };
-        // TODO this loop can be slightly simpler by finding the max value
-        // itself by equality rather than using PartialOrd, which might be
-        // faster since we know the value is present already.
-        let scan = |self_: &Self, limit, exceed| {
-            self_
-                .series
-                .as_ref()
-                .iter()
-                .enumerate()
-                .find_map(|(rowi, x)| (*x > limit).then_some((false, rowi, exceed)))
-        };
-        let check_trunc = |self_: &mut Self, limit, exceed| {
-            if self_.series.any_gt(limit) {
-                trunc(self_, limit, exceed)
-            } else {
-                None
-            }
-        };
-        let check_scan = |self_: &Self, limit, exceed| {
-            if self_.series.any_gt(limit) {
-                scan(self_, limit, exceed)
-            } else {
-                None
-            }
-        };
-
-        let dt = self.column_schema.col_datatype();
-        let rng = self.column_schema.as_range();
-
-        let res = if dt == AlphaNumType::Integer {
-            let bitmask = rng.bitmask.expect("integer should have bitmask");
-            let int_upper = rng.numeric_range;
-            assert!(bitmask >= int_upper, "bitmask less than numeric range");
-            match (bitmask_trunc, range_trunc) {
-                // If truncating to range, bitmask does not matter since range
-                // is less than bitmask, and anything less than range will be
-                // truncated anyways.
-                (_, OverLimitMode::Truncate) => check_trunc(self, int_upper, ExceededRange::Range),
-                // Same as the error path in the first block
-                (OverLimitMode::None, OverLimitMode::ScanOnly) => {
-                    check_scan(self, int_upper, ExceededRange::Range)
-                }
-                // If higher than bitmask, truncate. If higher than range but
-                // lower than bitmask, emit msg to alert user.
-                (OverLimitMode::Truncate, OverLimitMode::ScanOnly) => {
-                    if self.series.any_gt(bitmask) {
-                        self.series.truncate_and_test(bitmask, int_upper).map(
-                            |(rowi, was_truncated)| {
-                                let t = if was_truncated {
-                                    ExceededRange::RangeAndBitmask
-                                } else {
-                                    ExceededRange::Range
-                                };
-                                (was_truncated, rowi, t)
-                            },
-                        )
-                    } else if bitmask > int_upper && self.series.any_gt(int_upper) {
-                        scan(self, int_upper, ExceededRange::Range)
-                    } else {
-                        None
-                    }
-                }
-                // Do not perform truncation but emit different messages
-                // depending on if bitmask or range was exceeded.
-                (OverLimitMode::ScanOnly, OverLimitMode::ScanOnly) => {
-                    if self.series.any_gt(bitmask) {
-                        scan(self, bitmask, ExceededRange::RangeAndBitmask)
-                    } else if bitmask > int_upper && self.series.any_gt(int_upper) {
-                        scan(self, int_upper, ExceededRange::Range)
-                    } else {
-                        None
-                    }
-                }
-                // repeat the non-int code block but only check the bitmask and
-                // pretend range does not exist.
-                (b, OverLimitMode::None) => match b {
-                    OverLimitMode::None => None,
-                    OverLimitMode::Truncate => check_trunc(self, bitmask, ExceededRange::Bitmask),
-                    OverLimitMode::ScanOnly => check_scan(self, bitmask, ExceededRange::Bitmask),
-                },
-            }
-        } else {
-            let upper = rng.numeric_range;
-            assert!(rng.bitmask.is_none(), "non-int type shouldn't have bitmask");
-            match range_trunc {
-                OverLimitMode::None => None,
-                OverLimitMode::Truncate => check_trunc(self, upper, ExceededRange::Range),
-                OverLimitMode::ScanOnly => check_scan(self, upper, ExceededRange::Range),
-            }
-        };
-        res.map(|(truncated, rowi, t)| {
-            let e = EventOverRangeError::new(rowi, i, rng.text_range, t);
-            TruncatedValueResult::new(truncated, e)
-        })
-    }
-}
-
-// ASCII series are special because they are the only datatype which can have a
-// value that exceeds the character limit for the column. All other types have
-// this limit baked into the type itself (ie, U24 can only be 24 bytes). We
-// can't do this with ASCII because it would be unwieldy to make 20 different
-// types for each character limit (1-20). Therefore we need to check this
-// at runtime.
-impl NativeSeries<FixedAsciiRange> {
-    fn check_range_ascii(
-        &self,
-        i: MeasIndex,
-        _: AllowOverBitmask,
-        range_flag: DisallowOverRange,
-    ) -> Result<(), EventOverRangeError> {
-        let chars = self.column_schema.chars();
-        let rng = self.column_schema.value();
-        let soft_limit = u64::from(rng);
-        let rf = range_flag.is_error().is_some();
-
-        let test = if NonZeroU8::from(chars) < MAX_U64_CHARS {
-            let hard_limit = 10_u64.saturating_pow(u32::from(u8::from(chars))) - 1;
-            if self.series.any_gt(hard_limit) {
-                // Character limit might impose a hard ceiling on the value.
-                // Check this regardless of the value of the range flag and
-                // prior to checking $PnR
-                Some((hard_limit, ExceededRange::Characters))
-            } else if rf && self.series.any_gt(soft_limit) {
-                // Value can fit in character limit, check $PnR if desired.
-                Some((soft_limit, ExceededRange::Range))
-            } else {
-                None
-            }
-        } else if rf {
-            // Character limit can hold a u64, only check $PnR
-            self.series
-                .any_gt(soft_limit)
-                .then_some((soft_limit, ExceededRange::Range))
+        let pos = self.truncate(limit);
+        let w = if is_warn {
+            pos.map(|rowi| EventOverRangeError::new(rowi, i, exceed))
         } else {
             None
         };
-
-        test.and_then(|(limit, exceed)| {
-            self.series
-                .as_ref()
-                .iter()
-                .enumerate()
-                .find_map(|(rowi, x)| (*x > limit).then_some((rowi, exceed)))
-        })
-        .map_or(Ok(()), |(rowi, t)| {
-            Err(EventOverRangeError::new(rowi, i, rng.0.into(), t))
-        })
+        let col = pos.map(|rowi| OverrangeColumnResult::new(rowi, true));
+        Success::new_non_switchable(col).set_warnings(w)
     }
-
-    // fn check_range_ascii_mut(
-    //     &mut self,
-    //     i: MeasIndex,
-    //     bitmask_trunc: OverLimitMode,
-    //     range_trunc: OverLimitMode,
-    // ) -> Option<TruncatedValueResult> {
-    //     unimplemented!()
-    // }
 }
 
 // Implement read methods for "matrix" schemas where all data is the same width.
@@ -10107,7 +10238,7 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{AnyUint, FloatRange, MixedRange, VariableBitmask};
+    use super::{AnyUint, FloatRange, MixedRange, OverrangeColumnResult, VariableBitmask};
 
     use crate::text::byteord::ArgBytes;
     use crate::validated::finite_float::FiniteFloat;
@@ -10205,6 +10336,24 @@ mod python {
                 Self::Uint(AnyUint::Uint56(x)) => (ColumnType::U56, x).into_pyobject(py),
                 Self::Uint(AnyUint::Uint64(x)) => (ColumnType::U64, x).into_pyobject(py),
             }
+        }
+    }
+
+    impl<'py> FromPyObject<'_, 'py> for OverrangeColumnResult {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (i, t) = obj.extract()?;
+            Ok(Self::new(i, t))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for OverrangeColumnResult {
+        type Target = PyTuple;
+        type Output = Bound<'py, PyTuple>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.first_overrange, self.was_truncated).into_pyobject(py)
         }
     }
 }

@@ -3,11 +3,14 @@
 //! Here we only need to worry about 6 external types (u8-64, f32, f64) and 10
 //! internal types, (f32, f64, all unsigned int widths 1-8 bytes).
 
-use crate::data::{CheckRange, EventOverRangeError, TruncatedValueResult};
+use crate::data::{CheckRange, EventOverRangeError, OverrangeColumn};
+use crate::logging::{LogResult, WarningsAndErrorsResult};
 use crate::match_many_to_one;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
-use fireflow_types::config::{AllowOverBitmask, DisallowOverRange, OverLimitMode};
+use fireflow_types::config::{
+    AllowOverBitmask, DisallowOverRange, OverBitmaskAction, OverRangeAction,
+};
 
 use type_families::{FunctorOnce as _, impl_functor, impl_functor_once, impl_kind1};
 
@@ -261,6 +264,14 @@ pub(crate) enum FCSType {
     F32,
     #[display("f64")]
     F64,
+}
+
+/// Positions of rows in series that exceed one or two limits.
+pub(crate) enum TruncateTestResult {
+    /// First index was over the upper limit (and thus also over the lower).
+    FirstOverUpper(usize),
+    /// First index was over the lower limit, and another was over the upper.
+    FirstUnderUpper { upper_pos: usize, lower_pos: usize },
 }
 
 // Implement as vec -> internal series
@@ -1165,30 +1176,46 @@ impl<C> DataFrame<C> {
         &self,
         bitmask_flag: AllowOverBitmask,
         range_flag: DisallowOverRange,
-    ) -> Vec<EventOverRangeError>
+    ) -> WarningsAndErrorsResult<(), (), EventOverRangeError, EventOverRangeError>
     where
         C: CheckRange,
     {
-        self.series
-            .iter()
-            .enumerate()
-            .filter_map(|(i, c)| c.check_range(i.into(), bitmask_flag, range_flag).err())
-            .collect()
+        let mut warnings = vec![];
+        let mut errors = vec![];
+        for (i, c) in self.series.iter().enumerate() {
+            let res = c.check_range(i.into(), bitmask_flag, range_flag);
+            match res.resolve_non_commutative(|w| w, |e| e) {
+                Ok(((), w)) => {
+                    warnings.extend(w);
+                }
+                Err(e) => errors.push(e),
+            }
+        }
+        LogResult::new_from_err_iter(errors, (), ()).set_commutative_warnings(warnings)
     }
 
     pub(crate) fn check_ranges_mut(
         &mut self,
-        trunc_bitmask: OverLimitMode,
-        trunc_range: OverLimitMode,
-    ) -> Vec<Option<TruncatedValueResult>>
+        bitmask_action: OverBitmaskAction,
+        range_action: OverRangeAction,
+    ) -> WarningsAndErrorsResult<Vec<OverrangeColumn>, (), EventOverRangeError, EventOverRangeError>
     where
         C: CheckRange,
     {
-        self.series
-            .iter_mut()
-            .enumerate()
-            .map(|(i, c)| c.check_range_mut(i.into(), trunc_bitmask, trunc_range))
-            .collect()
+        let mut cols = Vec::with_capacity(self.ncols());
+        let mut warnings = vec![];
+        let mut errors = vec![];
+        for (i, c) in self.series.iter_mut().enumerate() {
+            let res = c.check_range_mut(i.into(), bitmask_action, range_action);
+            match res.resolve_non_commutative(|w| w, |e| e) {
+                Ok((col, w)) => {
+                    cols.push(col);
+                    warnings.extend(w);
+                }
+                Err(e) => errors.push(e),
+            }
+        }
+        LogResult::new_from_err_iter(errors, cols, ()).set_commutative_warnings(warnings)
     }
 
     #[must_use]
@@ -1270,26 +1297,29 @@ impl<C> DataFrame<C> {
     }
 }
 
-impl<T, Raw> InternalSeries<T, Raw> {
+impl<Prim, Wrapped> InternalSeries<Prim, Wrapped> {
     /// Return reference to underlying data, cast in terms of raw type.
     ///
     /// # Safety
     ///
     /// The caller must ensure that all the values in the series are valid
     /// bit configurations when cast into the raw type.
-    unsafe fn as_raw_slice(&self) -> &[Raw] {
-        assert!(size_of::<T>() == size_of::<Raw>(), "type sizes don't match");
+    unsafe fn as_raw_slice(&self) -> &[Wrapped] {
+        assert!(
+            size_of::<Prim>() == size_of::<Wrapped>(),
+            "type sizes don't match"
+        );
         let xs = self.inner.as_ref();
-        let p = xs.as_ptr().cast::<Raw>();
+        let p = xs.as_ptr().cast::<Wrapped>();
         let n = xs.len();
         // SAFETY: T and Raw are assumed to have the same layout and size
         unsafe { from_raw_parts(p, n) }
     }
 
     /// Return true if any value exceeds `limit`.
-    pub(crate) fn any_gt(&self, limit: T) -> bool
+    pub(crate) fn any_gt(&self, limit: &Prim) -> bool
     where
-        T: Copy + PartialOrd,
+        Prim: Copy + PartialOrd,
     {
         // This is a very cheap function that will vectorize using plain SSE(2).
         // In practice this is already fast enough that it will saturate memory
@@ -1304,22 +1334,20 @@ impl<T, Raw> InternalSeries<T, Raw> {
             clippy::needless_bitwise_bool,
             reason = "this is needed for vectorization"
         )]
-        self.as_ref()
-            .iter()
-            .fold(false, |hit, x| hit | (*x > limit))
+        self.as_ref().iter().fold(false, |hit, x| hit | (x > limit))
     }
 
-    pub(crate) fn truncate(&mut self, limit: T) -> Option<usize>
+    pub(crate) fn truncate(&mut self, limit: &Prim) -> Option<usize>
     where
-        T: Copy + PartialOrd,
+        Prim: Copy + PartialOrd,
     {
         let mut xs = mem::take(&mut self.inner)
             .into_mut()
             .right_or_else(Buffer::to_vec);
         let mut ret = None;
         for (rowi, x) in xs.iter_mut().enumerate() {
-            if *x > limit {
-                *x = limit;
+            if *x > *limit {
+                *x = *limit;
                 if ret.is_none() {
                     ret = Some(rowi);
                 }
@@ -1329,42 +1357,52 @@ impl<T, Raw> InternalSeries<T, Raw> {
         ret
     }
 
-    /// Truncate integers if above `upper`, return error if above `lower`.
+    /// Truncate integers above `upper` and return first position over either limit.
     ///
-    /// Return first index of first element that exceeds either. Boolean will be
-    /// `true` if this index was truncated to upper, `false` if it was merely
-    /// above `lower`. Return `None` if all values are less than lower
-    pub(crate) fn truncate_and_test(&mut self, upper: T, lower: T) -> Option<(usize, bool)>
+    /// ASSUME at least one value is above upper. Otherwise this will return
+    /// `(0,0)`.
+    pub(crate) fn truncate_and_test(&mut self, upper: Prim, lower: Prim) -> TruncateTestResult
     where
-        T: Copy + PartialOrd,
+        Prim: Copy + PartialOrd,
     {
         let mut xs = mem::take(&mut self.inner)
             .into_mut()
             .right_or_else(Buffer::to_vec);
-        let mut ret = None;
+        let mut found_upper = false;
+        let mut upper_pos = 0;
+        let mut lower_pos = 0;
         for (rowi, x) in xs.iter_mut().enumerate() {
             if *x <= lower {
                 continue;
             }
             if *x > upper {
                 *x = upper;
-                if ret.is_none() {
-                    ret = Some((rowi, true));
+                if !found_upper {
+                    upper_pos = rowi;
+                    lower_pos = rowi;
+                    found_upper = true;
                 }
-            } else if ret.is_none() {
-                ret = Some((rowi, false));
+            } else if !found_upper {
+                lower_pos = rowi;
             }
         }
         self.inner = Buffer::from(xs);
-        ret
+        if upper_pos == lower_pos {
+            TruncateTestResult::FirstOverUpper(upper_pos)
+        } else {
+            TruncateTestResult::FirstUnderUpper {
+                upper_pos,
+                lower_pos,
+            }
+        }
     }
 
-    fn truncate_from_samesize_int(buf: Buffer<T>) -> CastSeriesResult<Self>
+    fn truncate_from_samesize_int(buf: Buffer<Prim>) -> CastSeriesResult<Self>
     where
-        Raw: FromValue<T> + Into<T> + HasFCSType,
-        T: Copy + HasFCSType,
+        Wrapped: FromValue<Prim> + Into<Prim> + HasFCSType,
+        Prim: Copy + HasFCSType,
     {
-        cast_buffer_samesize::<_, Raw>(buf).fmap_once(Self::new)
+        cast_buffer_samesize::<_, Wrapped>(buf).fmap_once(Self::new)
     }
 }
 

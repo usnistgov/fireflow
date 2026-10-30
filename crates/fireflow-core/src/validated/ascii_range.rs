@@ -204,6 +204,18 @@ impl Chars {
                 .unwrap_or(NonZeroU8::MIN),
         )
     }
+
+    pub(crate) fn saturated(self) -> bool {
+        self.0 == MAX_U64_CHARS
+    }
+
+    pub(crate) fn max_value(self) -> u64 {
+        if self.saturated() {
+            u64::MAX
+        } else {
+            10_u64.saturating_pow(u32::from(self.0.get())) - 1
+        }
+    }
 }
 
 impl TryFrom<u8> for Chars {

@@ -78,10 +78,24 @@ pub trait HasLink {
     fn has_link(&self, thing: &Self::Inner) -> bool;
 }
 
-impl<T: PartialEq> HasLink for T {
-    type Inner = T;
+impl HasLink for Shortname {
+    type Inner = Shortname;
     fn has_link(&self, thing: &Self::Inner) -> bool {
         thing == self
+    }
+}
+
+impl HasLink for MeasIndex {
+    type Inner = MeasIndex;
+    fn has_link(&self, thing: &Self::Inner) -> bool {
+        thing == self
+    }
+}
+
+impl<T: PartialEq> HasLink for Option<&T> {
+    type Inner = T;
+    fn has_link(&self, thing: &Self::Inner) -> bool {
+        self.as_ref().is_some_and(|&x| x == thing)
     }
 }
 

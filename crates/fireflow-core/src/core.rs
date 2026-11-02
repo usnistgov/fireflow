@@ -5266,17 +5266,14 @@ where
     }
 
     fn index_has_existing_links(&self, index: MeasIndex) -> Result<(), ExistingLinkErrors> {
-        if let Some(&name) = self.meas.meta().indexed_name_map().get(&index) {
-            // NOTE if the meas to be removed is temporal, this name shouldn't
-            // trigger a link error because $SPILLOVER, $UNSTAINEDCENTERS, and
-            // $TR should never link to a temporal measurement
-            let es = self
-                .rootmeta
-                .meas_has_existing_links_with(self.par(), name, &index);
-            ExistingLinkErrors::try_new(es)
-        } else {
-            Ok(())
-        }
+        // NOTE if the meas to be removed is temporal, this name shouldn't
+        // trigger a link error because $SPILLOVER, $UNSTAINEDCENTERS, and
+        // $TR should never link to a temporal measurement
+        let name = self.meas.meta().indexed_name_map().get(&index).copied();
+        let es = self
+            .rootmeta
+            .meas_has_existing_links_with(self.par(), &name, &index);
+        ExistingLinkErrors::try_new(es)
     }
 
     // each of these push/insert functions follow the same pattern:

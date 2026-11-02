@@ -5352,13 +5352,10 @@ impl LayoutInsert<MaybeTypedMixedSeries> for DataFrame3_2 {
     ) -> Result<(), Self::Error> {
         macro_rules! go_mixed {
             ($col:expr, $from:expr) => {{
-                let mut new = Self::Mixed(
-                    mem::take($from)
-                        .map_inner(MixedSeries::from)
-                        .byte_layout_into(),
-                );
-                new.insert_or_push(index, $col, token)?;
-                *self = new;
+                let mut new = mem::take($from).map_inner(MixedSeries::from);
+                let Ok(()) =
+                    LayoutInsert::<MixedSeries>::insert_or_push(&mut new, index, $col, token);
+                *self = Self::Mixed(new.byte_layout_into());
             }};
         }
         macro_rules! go {
@@ -5370,7 +5367,7 @@ impl LayoutInsert<MaybeTypedMixedSeries> for DataFrame3_2 {
                         $from.container.push_series_nocheck(r.into());
                     }
                 } else {
-                    go_mixed!(MaybeTypedRange::Typed($col), $from);
+                    go_mixed!($col, $from);
                 }
             };
         }
@@ -5382,12 +5379,14 @@ impl LayoutInsert<MaybeTypedMixedSeries> for DataFrame3_2 {
                         UnderspecifiedMixedRangeError.into(),
                     ));
                 }
-                Self::NonMixed(x) => x.insert_or_push(index, r, token)?,
+                Self::NonMixed(x) => {
+                    LayoutInsert::<DecimalRangeAndSeries>::insert_or_push(x, index, r, token)?;
+                }
             },
 
             MaybeTypedRange::Typed(r) => match self {
                 Self::Mixed(x) => {
-                    let Ok(()) = x.insert_or_push(index, r, token);
+                    let Ok(()) = LayoutInsert::<MixedSeries>::insert_or_push(x, index, r, token);
                 }
                 Self::NonMixed(x) => match x {
                     AnyDatatype::Ascii(y) => match y {
@@ -5397,9 +5396,11 @@ impl LayoutInsert<MaybeTypedMixedSeries> for DataFrame3_2 {
                     AnyDatatype::Uint(y) => match y {
                         AnyBigLittleUint::Single(z) => {
                             if let AnyDatatype::Uint(rr) = r {
-                                let Ok(()) = y.insert_or_push(index, rr, token);
+                                let Ok(()) = LayoutInsert::<VariableUintSeries>::insert_or_push(
+                                    y, index, rr, token,
+                                );
                             } else {
-                                match_any_uint!(z, s, go_mixed!(MaybeTypedRange::Typed(r), s));
+                                match_any_uint!(z, s, go_mixed!(r, s));
                             }
                         }
                         AnyBigLittleUint::Multi(z) => go!(r, Uint, z),

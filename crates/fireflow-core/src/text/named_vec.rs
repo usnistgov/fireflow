@@ -219,10 +219,11 @@ pub enum NewNamedVecError {
 }
 
 /// Error when setting/altering the elements of [`NamedVec`]
-#[derive(Display, Debug, Error, PartialEq, Clone)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(E: Into<Self>))]
 pub enum SetElementsError<E> {
+    #[from(InputLengthError)]
     Length(InputLengthError),
     Mismatch(E),
 }
@@ -659,6 +660,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         Fcenter: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
         Ferror: Fn(MeasIndex, KeyIsOptical) -> E,
     {
+        self.check_keys_length(&xs[..])?;
         let go = |zs, ys, offset| Self::alter_paired_vec(zs, ys, offset, &f_noncenter);
 
         let check_optical = |ys: Vec<Element<X, Y>>, offset: usize| {

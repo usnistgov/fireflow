@@ -7360,7 +7360,7 @@ impl CheckRange for NativeSeries<FixedAsciiRange> {
             // both.
             (OverLimitMode::Check(flag), false) => {
                 if self.series.any_gt(&hard_limit) {
-                    self.check_overrange2(i, &hard_limit, ec, TriFlag::True.into())
+                    self.check_overrange2(i, &hard_limit, ec, TriFlag::False.into())
                 } else if soft_limit < hard_limit && self.series.any_gt(&soft_limit) {
                     self.check_overrange2(i, &soft_limit, er, flag)
                 } else {

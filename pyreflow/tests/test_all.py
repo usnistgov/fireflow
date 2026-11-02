@@ -2997,6 +2997,60 @@ class TestCore:
             go(x, "trunc_silent", [0], 9001)
             go(x, "none", [None], 100000)
 
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
+    def test_check_ranges_ascii(
+        self,
+        core: AnyCoreTEXT,
+    ) -> None:
+        """Test range check method (ASCII u64 column).
+
+        This will ensure all values in DATA with within the limits set by $PnR,
+        with some control over how this is checked and for which datatypes.
+
+        Additionally, this will ensure the character limit is never exceeded.
+        """
+        df1 = pl.DataFrame([pl.Series("unnamed", [1], dtype=pl.UInt64)])
+        core.data_schema = pf.FixedAsciiDataSchema([500])
+        cd = core.to_dataset(df1)
+        # should not error
+        cd.check_ranges()
+
+        df2 = pl.DataFrame([pl.Series("unnamed", [100000], dtype=pl.UInt64)])
+        df3 = pl.DataFrame([pl.Series("unnamed", [727], dtype=pl.UInt64)])
+
+        def go(
+            df: pl.DataFrame,
+            b: pt.OverLimitAction,
+            r: pt.OverLimitAction,
+            res: list[None | int],
+            val: int,
+        ) -> None:
+            cd.data = df
+            out = cd.check_ranges(over_bitmask_action=b, over_range_action=r)
+            assert out == res
+            assert cd.data[0, 0] == val
+
+        # These first three will error no matter what because the value to
+        # be assigned is outside the character limit implied by the range.
+        with pytest.RaisesGroup(pf.DataLossError):
+            go(df2, "none", "error", [0], 100000)
+        with pytest.RaisesGroup(pf.DataLossError):
+            go(df2, "none", "warn", [0], 100000)
+        with pytest.RaisesGroup(pf.DataLossError):
+            go(df2, "none", "silent", [0], 100000)
+        with pytest.warns(pf.PyreflowWarning):
+            go(df2, "none", "trunc_warn", [0], 500)
+        go(df2, "none", "trunc_silent", [0], 500)
+
+        with pytest.RaisesGroup(pf.DataLossError):
+            go(df3, "none", "error", [0], 100000)
+        with pytest.warns(pf.PyreflowWarning):
+            go(df3, "none", "warn", [0], 727)
+            go(df3, "none", "silent", [0], 727)
+        with pytest.warns(pf.PyreflowWarning):
+            go(df3, "none", "trunc_warn", [0], 500)
+        go(df3, "none", "trunc_silent", [0], 500)
+
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
     def test_unset_measurements(self, core: AnyCoreTEXT) -> None:
         """Test method to unset measurements."""

@@ -41,8 +41,8 @@ use crate::text::lookup::{
 use crate::text::named_vec::{
     Either, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
     InsertCenterError, InsertError, KeyIsOptical, NameMapping, NameNotFoundError, NamePresentError,
-    NamedVec, NewNamedVecError, Pair, PushCenterError, RenameError, SetCenterError,
-    SetElementsError, SetKeysError, SetNamesError, SetValuesError,
+    NamedVec, NewNamedVecError, Pair, PushCenterError, RemoveByIndexError, RemoveByNameError,
+    RenameError, SetCenterError, SetElementsError, SetKeysError, SetNamesError, SetValuesError,
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::dataframe::PrimitiveDataFrame;
@@ -3582,7 +3582,7 @@ where
     pub(crate) fn remove_measurement_by_name<C>(
         &mut self,
         name: &Shortname,
-    ) -> Result<(MeasIndex, VTemporalOrOpticalWithScale<V>, C), NameNotFoundError>
+    ) -> Result<(MeasIndex, VTemporalOrOpticalWithScale<V>, C), RemoveByNameError>
     where
         L: LayoutRemove<C>,
     {
@@ -3595,7 +3595,7 @@ where
     pub(crate) fn remove_measurement_by_index<C>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(VPairedTemporalOrOpticalWithScale<V>, C), ElementIndexError>
+    ) -> Result<(VPairedTemporalOrOpticalWithScale<V>, C), RemoveByIndexError>
     where
         L: LayoutRemove<C>,
     {

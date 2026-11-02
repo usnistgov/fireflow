@@ -28,7 +28,7 @@ use std::collections::HashSet;
 use std::convert::Infallible;
 use std::fmt;
 use std::hash::Hash;
-use std::iter::once;
+use std::iter;
 use std::mem;
 
 #[cfg(feature = "serde")]
@@ -227,6 +227,22 @@ pub enum SetElementsError<E> {
     Mismatch(E),
 }
 
+/// Error when removing elements by name.
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum RemoveByNameError {
+    Name(NameNotFoundError),
+    Unique(NonUniqueKeysError),
+}
+
+/// Error when removing elements by index.
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum RemoveByIndexError {
+    Index(ElementIndexError),
+    Unique(NonUniqueKeysError),
+}
+
 /// Error when the center element of [`NamedVec`] is already present
 #[derive(Debug, Error, PartialEq, Clone)]
 #[error("center value specified multiple times")]
@@ -403,7 +419,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     /// Return iterator over all elements with indices
     pub fn iter(&self) -> impl Iterator<Item = Element<&Pair<Shortname, U>, &Pair<K, V>>> {
         let right = self.center_right.iter().flat_map(|r| {
-            once(Element::Center(&r.center)).chain(r.right.iter().map(Element::NonCenter))
+            iter::once(Element::Center(&r.center)).chain(r.right.iter().map(Element::NonCenter))
         });
         self.left.iter().map(Element::NonCenter).chain(right)
     }
@@ -499,6 +515,27 @@ impl<K, U, V> NamedVec<K, U, V> {
                 |x| x.key.as_opt().cloned().unwrap_or(MeasIndex::from(i).into()),
             )
         })
+    }
+
+    /// Return iterator over key names with non-existent names shifted after index.
+    ///
+    /// Used for checking insertion validity, since new names need to be
+    /// compared to shifted default names (ie "P3" with new index inserted at 2
+    /// will become "P4").
+    fn iter_all_names_shifted(&self, pos: usize) -> impl Iterator<Item = Shortname> + '_
+    where
+        K: MightHave<Shortname>,
+    {
+        self.iter()
+            .enumerate()
+            .zip(iter::repeat(pos))
+            .map(|((i, r), pos_)| {
+                let j = if i > pos_ { i + 1 } else { i };
+                r.both(
+                    |x| x.key.clone(),
+                    |x| x.key.as_opt().cloned().unwrap_or(MeasIndex::from(j).into()),
+                )
+            })
     }
 
     // /// Alter values with a function and payload.
@@ -800,7 +837,9 @@ impl<K, U, V> NamedVec<K, U, V> {
         K: MightHave<Shortname>,
     {
         let a = self.check_boundary_index(index).map_err(InsertError::from);
-        let b = self.check_key(name, index).map_err(InsertError::from);
+        let b = self
+            .check_inserted_key(name, index)
+            .map_err(InsertError::from);
         a.zip(b).map_ok_value(|((), k)| k).set_err_value(())
     }
 
@@ -828,7 +867,10 @@ impl<K, U, V> NamedVec<K, U, V> {
         K: MightHave<Shortname>,
     {
         // only check key here because index will panic if out of bounds
-        assert!(self.check_key(&key, index).is_ok(), "Name is not unique");
+        assert!(
+            self.check_inserted_key(&key, index).is_ok(),
+            "Name is not unique"
+        );
         let i = usize::from(index);
         let p = Pair::new(key, value);
         let ln = self.left.len();
@@ -1038,7 +1080,11 @@ impl<K, U, V> NamedVec<K, U, V> {
     pub(crate) fn remove_at(
         &mut self,
         index: MeasIndex,
-    ) -> Result<EitherPair<K, U, V>, ElementIndexError> {
+    ) -> Result<EitherPair<K, U, V>, RemoveByIndexError>
+    where
+        K: MightHave<Shortname>,
+    {
+        self.check_removed_key(index)?;
         let i = self.check_element_index(index, true)?;
         let nleft = self.left.len();
         let ret = match i.cmp(&nleft) {
@@ -1062,18 +1108,16 @@ impl<K, U, V> NamedVec<K, U, V> {
     pub(crate) fn remove_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Result<(MeasIndex, Element<U, V>), NameNotFoundError>
+    ) -> Result<(MeasIndex, Element<U, V>), RemoveByNameError>
     where
         K: MightHave<Shortname>,
     {
-        let go = |xs: &mut Vec<_>| {
-            let i = Self::position_by_name(xs, n)?;
-            let p = xs.remove(i);
-            Ok((i, p.value))
-        };
-
-        match go(&mut self.left) {
-            Ok((i, x)) => Ok((i.into(), Element::NonCenter(x))),
+        match Self::position_by_name(&self.left, n) {
+            Ok(i) => {
+                self.check_removed_key(i.into())?;
+                let p = self.left.remove(i);
+                Ok((i.into(), Element::NonCenter(p.value)))
+            }
             Err(e) => {
                 if let Some(mut r) = mem::take(&mut self.center_right) {
                     if &r.center.key == n {
@@ -1085,12 +1129,15 @@ impl<K, U, V> NamedVec<K, U, V> {
                     } else {
                         // if name matches in right vector, remove from right
                         // and put center+right back on tail of parent struct
-                        let res = go(&mut r.right);
+                        let i = Self::position_by_name(&r.right, n)?;
+                        let offset = self.left.len() + 1;
+                        self.check_removed_key((i + offset).into())?;
+                        let p = r.right.remove(i);
                         self.center_right = Some(r);
-                        res.map(|(i, x)| ((self.left.len() + 1 + i).into(), Element::NonCenter(x)))
+                        Ok(((offset + i).into(), Element::NonCenter(p.value)))
                     }
                 } else {
-                    Err(e)
+                    Err(e.into())
                 }
             }
         }
@@ -1549,6 +1596,51 @@ impl<K, U, V> NamedVec<K, U, V> {
             Err(NamePresentError::new(name.into_owned()))
         } else {
             Ok(name)
+        }
+    }
+
+    // TODO the shift logic is only useful for FCS2.0/3.0 which has optional names
+    fn check_inserted_key<'a>(
+        &self,
+        key: &'a K,
+        index: MeasIndex,
+    ) -> Result<Cow<'a, Shortname>, NamePresentError>
+    where
+        K: MightHave<Shortname>,
+    {
+        let name = key
+            .as_opt()
+            .map_or_else(|| Cow::Owned(Shortname::from(index)), Cow::Borrowed);
+        if self
+            .iter_all_names_shifted(index.into())
+            .any(|n| &n == name.as_ref())
+        {
+            Err(NamePresentError::new(name.into_owned()))
+        } else {
+            Ok(name)
+        }
+    }
+
+    // TODO this is only necessary for FCS2.0/3.0
+    fn check_removed_key(&self, index: MeasIndex) -> Result<(), NonUniqueKeysError>
+    where
+        K: MightHave<Shortname>,
+    {
+        let names = self
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != usize::from(index))
+            .map(|(i, r)| {
+                let j = if i > index.into() { i - 1 } else { i };
+                r.both(
+                    |x| x.key.clone(),
+                    |x| x.key.as_opt().cloned().unwrap_or(MeasIndex::from(j).into()),
+                )
+            });
+        if all_unique(names) {
+            Ok(())
+        } else {
+            Err(NonUniqueKeysError)
         }
     }
 

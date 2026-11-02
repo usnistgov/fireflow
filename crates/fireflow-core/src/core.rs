@@ -91,8 +91,9 @@ use crate::text::lookup::{
 };
 use crate::text::named_vec::{
     Element, ElementIndexError, IndexedElement, InputLengthError, KeyIsOptical, NameMapping,
-    NameNotFoundError, NamePresentError, NamedSet, NonCenterElement, RenameError, SetCenterError,
-    SetElementsError, SetKeysError, SetNamesError, all_unique_names,
+    NameNotFoundError, NamePresentError, NamedSet, NonCenterElement, RemoveByIndexError,
+    RemoveByNameError, RenameError, SetCenterError, SetElementsError, SetKeysError, SetNamesError,
+    all_unique_names,
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::text::relational::{
@@ -1300,7 +1301,7 @@ pub enum DatasetSetNamedMeasAndDataSchemaError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RemoveMeasByNameError {
     Link(ExistingLinkErrors),
-    Name(NameNotFoundError),
+    Name(RemoveByNameError),
 }
 
 /// Error when removing measurement by index
@@ -1308,7 +1309,7 @@ pub enum RemoveMeasByNameError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RemoveMeasByIndexError {
     Link(ExistingLinkErrors),
-    Index(ElementIndexError),
+    Index(RemoveByIndexError),
 }
 
 /// Error when reading standardized TEXT from keyword pairs

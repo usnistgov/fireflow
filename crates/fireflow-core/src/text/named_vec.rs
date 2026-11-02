@@ -2,9 +2,11 @@ use crate::logging::{
     CommutativeResult, CommutativeResultIter as _, ErrorGroup, ErrorResult, ErrorsResult,
     LogResult, ResultExt as _,
 };
+
 use crate::macros::def_summary;
 use crate::text::keywords::ValueToStdKey;
 use crate::text::optional::MightHave;
+use crate::text::relational::OpticalNamesToRemove;
 use crate::text::relational::{
     KeyToNameLinkError, LinkName, OpticalNamedLinkError, TemporalNamedLinkError,
 };
@@ -36,8 +38,6 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
-
-use super::relational::{IndicesToRemove, OpticalNamesToRemove};
 
 #[cfg(feature = "python")]
 use {
@@ -483,14 +483,12 @@ impl<K, U, V> NamedVec<K, U, V> {
         self.indexed_names().map(|(i, m)| (m, i)).collect()
     }
 
-    pub(crate) fn all_indices_and_names_to_remove(
-        &self,
-    ) -> (IndicesToRemove, OpticalNamesToRemove<'_>)
+    pub(crate) fn all_names_to_remove(&self) -> OpticalNamesToRemove<'_>
     where
         K: MightHave<Shortname>,
     {
-        let (js, ns): (HashSet<_>, HashSet<_>) = self.indexed_non_center_names().unzip();
-        (js.into(), ns.into())
+        let ns: HashSet<_> = self.indexed_non_center_names().map(|(_, n)| n).collect();
+        ns.into()
     }
 
     /// Return all existing non-center names in the vector with their indices

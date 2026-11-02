@@ -19,7 +19,7 @@ use crate::text::keywords::{
 };
 use crate::text::lookup::{Diagnosed, OptKeyError, OptStKeyError, OptValue};
 use crate::text::relational::{
-    BrokenRegionLinkError, DependentKeyError, ExistingIndexedLinkError, IndicesToRemove,
+    BrokenRegionLinkError, DependentKeyError, ExistingIndexedLinkError, HasLink,
     KeyToIndexLinkError, RemovedGateLink, RemovedLink,
 };
 
@@ -406,10 +406,12 @@ impl AppliedGates3_0 {
         self.scheme.remove_invalid_links(par)
     }
 
-    pub(crate) fn existing_link_errors(
+    pub(crate) fn existing_link_errors<C>(
         &self,
-        indices: &IndicesToRemove,
+        indices: &C,
     ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<MeasOrGateIndex>, MeasIndex>>
+    where
+        C: HasLink<Inner = MeasIndex>,
     {
         self.scheme.existing_link_errors(indices)
     }
@@ -476,10 +478,12 @@ impl AppliedGates3_2 {
         self.0.shift_meas_indices_after_remove(i);
     }
 
-    pub(crate) fn existing_link_errors(
+    pub(crate) fn existing_link_errors<C>(
         &self,
-        indices: &IndicesToRemove,
+        indices: &C,
     ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<PrefixedMeasIndex>, MeasIndex>>
+    where
+        C: HasLink<Inner = MeasIndex>,
     {
         self.0.existing_link_errors(indices)
     }
@@ -641,16 +645,17 @@ impl<I> GatingScheme<I> {
         }
     }
 
-    pub(crate) fn existing_link_errors(
+    pub(crate) fn existing_link_errors<C>(
         &self,
-        indices: &IndicesToRemove,
+        indices: &C,
     ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<I>, MeasIndex>>
     where
         RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
         I: LinkedMeasIndex,
+        C: HasLink<Inner = MeasIndex>,
     {
         self.meas_indices()
-            .filter(|(_, mi)| indices.as_ref().contains(mi))
+            .filter(|(_, mi)| indices.has_link(mi))
             .map(|(ri, mi)| {
                 let js = NEVec::new(mi);
                 ExistingIndexedLinkError::new(DollarKey::new(ri), js)

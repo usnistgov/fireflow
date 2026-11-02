@@ -99,8 +99,8 @@ use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::text::relational::{
     AnyExistingIndexLinkError, AnyExistingNamedLinkError, BrokenIndexedLinkError,
     BrokenNamedLinkError, BrokenOrDependentLinkError, BrokenRegionLinkError,
-    ExistingIndexedLinkError, ExistingLinkError, ExistingLinkErrors, IndicesToRemove,
-    KeyToNameLinkError, OpticalNamesToRemove, RemovedLink,
+    ExistingIndexedLinkError, ExistingLinkError, ExistingLinkErrors, HasLink, IndicesToRemove,
+    KeyToNameLinkError, RemovedLink,
 };
 use crate::text::spillover::{Spillover, SpilloverDiagnostics};
 use crate::text::timestamps::{
@@ -148,7 +148,6 @@ use num_traits::identities::Zero;
 use thiserror::Error;
 
 use std::borrow::Cow;
-use std::collections::HashSet;
 use std::convert::{AsRef, Infallible};
 use std::fmt;
 use std::io::{self, BufWriter, Seek as _, Write};
@@ -3044,17 +3043,21 @@ pub trait VersionedRootMeta: Sized + Versioned {
     ) -> impl Iterator<Item = RemovedLink>;
 
     /// Return error if any data in this struct links to given list of names.
-    fn meas_has_existing_named_links_with_inner(
+    fn meas_has_existing_named_links_with_inner<C>(
         &self,
-        names: &OpticalNamesToRemove<'_>,
-    ) -> impl Iterator<Item = AnyExistingNamedLinkError>;
+        names: &C,
+    ) -> impl Iterator<Item = AnyExistingNamedLinkError>
+    where
+        C: HasLink<Inner = Shortname>;
 
     /// Return error if any data in struct has index links.
-    fn meas_has_existing_index_links_with_inner(
+    fn meas_has_existing_index_links_with_inner<C>(
         &self,
         par: Par,
-        indices: &IndicesToRemove,
-    ) -> impl Iterator<Item = AnyExistingIndexLinkError>;
+        indices: &C,
+    ) -> impl Iterator<Item = AnyExistingIndexLinkError>
+    where
+        C: HasLink<Inner = MeasIndex>;
 
     /// Rename any measurement references in keywords.
     fn rename_meas_links_inner(&mut self, mapping: &NameMapping);
@@ -3108,18 +3111,24 @@ impl VersionedRootMeta for InnerRootMeta2_0 {
         Compensation2_0::remove_invalid_link(&mut self.comp, par).into_iter()
     }
 
-    fn meas_has_existing_named_links_with_inner(
+    fn meas_has_existing_named_links_with_inner<C>(
         &self,
-        _: &OpticalNamesToRemove<'_>,
-    ) -> impl Iterator<Item = AnyExistingNamedLinkError> {
+        _: &C,
+    ) -> impl Iterator<Item = AnyExistingNamedLinkError>
+    where
+        C: HasLink<Inner = Shortname>,
+    {
         empty()
     }
 
-    fn meas_has_existing_index_links_with_inner(
+    fn meas_has_existing_index_links_with_inner<C>(
         &self,
         _: Par,
-        _: &IndicesToRemove,
-    ) -> impl Iterator<Item = AnyExistingIndexLinkError> {
+        _: &C,
+    ) -> impl Iterator<Item = AnyExistingIndexLinkError>
+    where
+        C: HasLink<Inner = MeasIndex>,
+    {
         // don't check specific indices for $COMP since this keyword links
         // all indices
         self.comp.as_ref().into_iter().flat_map(|comp| {
@@ -3200,18 +3209,24 @@ impl VersionedRootMeta for InnerRootMeta3_0 {
         comp.into_iter().chain(ag)
     }
 
-    fn meas_has_existing_named_links_with_inner(
+    fn meas_has_existing_named_links_with_inner<C>(
         &self,
-        _: &OpticalNamesToRemove<'_>,
-    ) -> impl Iterator<Item = AnyExistingNamedLinkError> {
+        _: &C,
+    ) -> impl Iterator<Item = AnyExistingNamedLinkError>
+    where
+        C: HasLink<Inner = Shortname>,
+    {
         empty()
     }
 
-    fn meas_has_existing_index_links_with_inner(
+    fn meas_has_existing_index_links_with_inner<C>(
         &self,
         par: Par,
-        indices: &IndicesToRemove,
-    ) -> impl Iterator<Item = AnyExistingIndexLinkError> {
+        indices: &C,
+    ) -> impl Iterator<Item = AnyExistingIndexLinkError>
+    where
+        C: HasLink<Inner = MeasIndex>,
+    {
         // don't check specific indices for $COMP since this keyword links
         // all indices
         let k = DollarKey::<Compensation3_0>::default();
@@ -3302,10 +3317,13 @@ impl VersionedRootMeta for InnerRootMeta3_1 {
             .chain(spill.map(RemovedLink::from))
     }
 
-    fn meas_has_existing_named_links_with_inner(
+    fn meas_has_existing_named_links_with_inner<C>(
         &self,
-        names: &OpticalNamesToRemove<'_>,
-    ) -> impl Iterator<Item = AnyExistingNamedLinkError> {
+        names: &C,
+    ) -> impl Iterator<Item = AnyExistingNamedLinkError>
+    where
+        C: HasLink<Inner = Shortname>,
+    {
         self.spillover
             .as_ref()
             .and_then(|s| s.existing_link_error(names))
@@ -3313,11 +3331,14 @@ impl VersionedRootMeta for InnerRootMeta3_1 {
             .into_iter()
     }
 
-    fn meas_has_existing_index_links_with_inner(
+    fn meas_has_existing_index_links_with_inner<C>(
         &self,
         _: Par,
-        indices: &IndicesToRemove,
-    ) -> impl Iterator<Item = AnyExistingIndexLinkError> {
+        indices: &C,
+    ) -> impl Iterator<Item = AnyExistingIndexLinkError>
+    where
+        C: HasLink<Inner = MeasIndex>,
+    {
         self.applied_gates
             .existing_link_errors(indices)
             .map(AnyExistingIndexLinkError::from)
@@ -3403,10 +3424,13 @@ impl VersionedRootMeta for InnerRootMeta3_2 {
             .chain(uc.map(RemovedLink::from))
     }
 
-    fn meas_has_existing_named_links_with_inner(
+    fn meas_has_existing_named_links_with_inner<C>(
         &self,
-        names: &OpticalNamesToRemove<'_>,
-    ) -> impl Iterator<Item = AnyExistingNamedLinkError> {
+        names: &C,
+    ) -> impl Iterator<Item = AnyExistingNamedLinkError>
+    where
+        C: HasLink<Inner = Shortname>,
+    {
         let spill = self
             .spillover
             .as_ref()
@@ -3420,11 +3444,14 @@ impl VersionedRootMeta for InnerRootMeta3_2 {
         [spill, us].into_iter().flatten()
     }
 
-    fn meas_has_existing_index_links_with_inner(
+    fn meas_has_existing_index_links_with_inner<C>(
         &self,
         _: Par,
-        indices: &IndicesToRemove,
-    ) -> impl Iterator<Item = AnyExistingIndexLinkError> {
+        indices: &C,
+    ) -> impl Iterator<Item = AnyExistingIndexLinkError>
+    where
+        C: HasLink<Inner = MeasIndex>,
+    {
         self.applied_gates
             .existing_link_errors(indices)
             .map(AnyExistingIndexLinkError::from)
@@ -3569,10 +3596,13 @@ impl<M: VersionedRootMeta> RootMeta<M> {
         self.specific.rename_meas_links_inner(mapping);
     }
 
-    fn meas_has_existing_named_links_with(
+    fn meas_has_existing_named_links_with<C>(
         &self,
-        names: &OpticalNamesToRemove<'_>,
-    ) -> impl Iterator<Item = AnyExistingNamedLinkError> {
+        names: &C,
+    ) -> impl Iterator<Item = AnyExistingNamedLinkError>
+    where
+        C: HasLink<Inner = Shortname>,
+    {
         let tr = self
             .tr
             .as_ref()
@@ -3583,12 +3613,16 @@ impl<M: VersionedRootMeta> RootMeta<M> {
             .chain(tr)
     }
 
-    fn meas_has_existing_links_with(
+    fn meas_has_existing_links_with<Cn, Ci>(
         &self,
         par: Par,
-        names: &OpticalNamesToRemove<'_>,
-        indices: &IndicesToRemove,
-    ) -> impl Iterator<Item = ExistingLinkError> {
+        names: &Cn,
+        indices: &Ci,
+    ) -> impl Iterator<Item = ExistingLinkError>
+    where
+        Cn: HasLink<Inner = Shortname>,
+        Ci: HasLink<Inner = MeasIndex>,
+    {
         let es = self
             .meas_has_existing_named_links_with(names)
             .map(ExistingLinkError::from);
@@ -3656,7 +3690,7 @@ impl<M: VersionedRootMeta> RootMeta<M> {
     {
         let n = cur_meas.len();
         assert_eq_msg!(n, new_meas.len(), "current measurement", "new measurements");
-        let (js, ns) = cur_meas.all_indices_and_names_to_remove();
+        let ns = cur_meas.all_names_to_remove();
         let s = &self.specific;
         let named_errs: Vec<_> = if allow_shared_names {
             // If name sharing is allowed, treat this as if keywords that have
@@ -3682,7 +3716,7 @@ impl<M: VersionedRootMeta> RootMeta<M> {
                 .map(SetMeasurementLinkError::from)
                 .collect()
         } else {
-            s.meas_has_existing_index_links_with_inner(par, &js)
+            s.meas_has_existing_index_links_with_inner(par, &IndicesToRemove(par))
                 .map(SetMeasurementLinkError::from)
                 .collect()
         };
@@ -5222,11 +5256,9 @@ where
             // NOTE if the meas to be removed is temporal, this name shouldn't
             // trigger a link error because $SPILLOVER, $UNSTAINEDCENTERS, and
             // $TR should never link to a temporal measurement
-            let ns = HashSet::from([name]).into();
-            let js = HashSet::from([index]).into();
             let es = self
                 .rootmeta
-                .meas_has_existing_links_with(self.par(), &ns, &js);
+                .meas_has_existing_links_with(self.par(), name, &index);
             ExistingLinkErrors::try_new(es)
         } else {
             Ok(())
@@ -5238,11 +5270,9 @@ where
             // NOTE if the meas to be removed is temporal, this name shouldn't
             // trigger a link error because $SPILLOVER, $UNSTAINEDCENTERS, and
             // $TR should never link to a temporal measurement
-            let ns = HashSet::from([name]).into();
-            let js = HashSet::from([index]).into();
             let es = self
                 .rootmeta
-                .meas_has_existing_links_with(self.par(), &ns, &js);
+                .meas_has_existing_links_with(self.par(), name, &index);
             ExistingLinkErrors::try_new(es)
         } else {
             Ok(())
@@ -5343,7 +5373,8 @@ where
         L: LayoutWidth,
     {
         let p = self.par();
-        let (js, ns) = self.meas.meta().all_indices_and_names_to_remove();
+        let js = IndicesToRemove(p);
+        let ns = self.meas.meta().all_names_to_remove();
         let es = self.rootmeta.meas_has_existing_links_with(p, &ns, &js);
         ExistingLinkErrors::try_new(es)?;
         self.meas.clear();

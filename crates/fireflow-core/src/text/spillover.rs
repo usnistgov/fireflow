@@ -5,8 +5,7 @@ use crate::text::keywords::ValueToStdKey as _;
 use crate::text::lookup::{Diagnosed, FromStrWith, FromStrWithResult};
 use crate::text::named_vec::{NameMapping, NamedSet};
 use crate::text::relational::{
-    ExistingNamedLinkError, KeyToIndexLinkError, KeyToNameLinkError, OpticalNamesToRemove,
-    RemovedNamedLink,
+    ExistingNamedLinkError, HasLink, KeyToIndexLinkError, KeyToNameLinkError, RemovedNamedLink,
 };
 use crate::validated::shortname::Shortname;
 
@@ -75,14 +74,14 @@ impl Spillover {
     }
 
     /// Return error if any about-to-removed names are in spillover measurements
-    pub(crate) fn existing_link_error(
-        &self,
-        names: &OpticalNamesToRemove<'_>,
-    ) -> Option<ExistingNamedLinkError<Self>> {
+    pub(crate) fn existing_link_error<C>(&self, names: &C) -> Option<ExistingNamedLinkError<Self>>
+    where
+        C: HasLink<Inner = Shortname>,
+    {
         let ns = self
             .measurements
             .iter()
-            .filter(|n| names.as_ref().contains(n))
+            .filter(|n| names.has_link(n))
             .cloned()
             .try_into_nonempty_iter();
         ns.map(|js| ExistingNamedLinkError::new(DollarKey::default(), js.collect()))

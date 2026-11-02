@@ -8,6 +8,7 @@ use crate::segment::read::{IsOffsetPair as _, PrimaryTextOffsets};
 use crate::std_index::index::{LookupAction, StdLookupTx};
 use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
+use crate::text::display::{LinearDisplay, NewLinearDisplayError};
 use crate::text::keyword_enum::DollarKey;
 use crate::text::lookup::{
     Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, MissingKeyError, OptKeyError,
@@ -16,10 +17,11 @@ use crate::text::lookup::{
 };
 use crate::text::named_vec::{NameMapping, NamedSet, NamedSetMembership};
 use crate::text::optional::OptionalZST;
+use crate::text::relational::HasLink;
 use crate::text::relational::{
     Comp2_0Missing, ExistingIndexedLinkError, ExistingNamedLinkError, KeyToIndexLinkError,
-    KeyToNameLinkError, LinkName, OpticalNamedLinkError, OpticalNamesToRemove, RemovedComp2_0Cell,
-    RemovedIndexLink, RemovedLink, RemovedNamedLink, TemporalNamedLinkError,
+    KeyToNameLinkError, LinkName, OpticalNamedLinkError, RemovedComp2_0Cell, RemovedIndexLink,
+    RemovedLink, RemovedNamedLink, TemporalNamedLinkError,
 };
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100};
@@ -78,8 +80,6 @@ use std::str::FromStr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
-
-use super::display::{LinearDisplay, NewLinearDisplayError};
 
 #[cfg(feature = "python")]
 use {
@@ -599,12 +599,12 @@ impl Trigger {
         }
     }
 
-    pub(crate) fn existing_link_error(
-        &self,
-        names: &OpticalNamesToRemove<'_>,
-    ) -> Option<ExistingNamedLinkError<Self>> {
+    pub(crate) fn existing_link_error<C>(&self, names: &C) -> Option<ExistingNamedLinkError<Self>>
+    where
+        C: HasLink<Inner = Shortname>,
+    {
         let m = &self.measurement;
-        (names.as_ref().contains(m))
+        (names.has_link(m))
             .then(|| ExistingNamedLinkError::new(DollarKey::default(), NEVec::new(m.clone())))
     }
 
@@ -2853,13 +2853,13 @@ impl UnstainedCenters {
     }
 
     /// Return error if any about-to-removed names are in unstained center names
-    pub(crate) fn existing_link_error(
-        &self,
-        names: &OpticalNamesToRemove<'_>,
-    ) -> Option<ExistingNamedLinkError<Self>> {
+    pub(crate) fn existing_link_error<C>(&self, names: &C) -> Option<ExistingNamedLinkError<Self>>
+    where
+        C: HasLink<Inner = Shortname>,
+    {
         self.0
             .keys()
-            .filter(|n| names.as_ref().contains(n))
+            .filter(|n| names.has_link(n))
             .cloned()
             .try_into_nonempty_iter()
             .map(|js| ExistingNamedLinkError::new(DollarKey::default(), js.collect()))

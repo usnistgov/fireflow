@@ -33,7 +33,7 @@ use crate::macros::def_summary;
 use crate::std_index::index::StdLookupTx;
 use crate::text::keyword_enum::{DollarKey, DollarKey_};
 use crate::text::keywords::{
-    Compensation3_0, Dfc, Gating, MeasOrGateIndex, PrefixedMeasIndex, RegionGateIndex,
+    Compensation3_0, Dfc, Gating, MeasOrGateIndex, Par, PrefixedMeasIndex, RegionGateIndex,
     RegionWindow, Trigger, UnstainedCenters, ValueToStdKey,
 };
 use crate::text::spillover::Spillover;
@@ -70,7 +70,34 @@ pub struct OpticalNamesToRemove<'a>(pub(crate) HashSet<&'a Shortname>);
 
 /// Indices from all measurements which are pending removal
 #[derive(AsRef, From)]
-pub struct IndicesToRemove(pub(crate) HashSet<MeasIndex>);
+pub struct IndicesToRemove(pub(crate) Par);
+
+/// Trait for thing that can hold things and test if it has a certain thing.
+pub trait HasLink {
+    type Inner;
+    fn has_link(&self, thing: &Self::Inner) -> bool;
+}
+
+impl<T: PartialEq> HasLink for T {
+    type Inner = T;
+    fn has_link(&self, thing: &Self::Inner) -> bool {
+        thing == self
+    }
+}
+
+impl HasLink for OpticalNamesToRemove<'_> {
+    type Inner = Shortname;
+    fn has_link(&self, thing: &Self::Inner) -> bool {
+        self.0.contains(thing)
+    }
+}
+
+impl HasLink for IndicesToRemove {
+    type Inner = MeasIndex;
+    fn has_link(&self, thing: &MeasIndex) -> bool {
+        usize::from(*thing) < self.0.0
+    }
+}
 
 //
 // Existential relational errors (checking if existing links might be broken)

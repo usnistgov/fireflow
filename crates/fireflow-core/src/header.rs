@@ -47,7 +47,7 @@ use thiserror::Error;
 use type_families::FunctorOnce as _;
 
 use std::fmt::{self, Write as _};
-use std::io::{self, BufWriter, Write as _};
+use std::io::{self, BufWriter};
 use std::iter::once;
 use std::time::Instant;
 
@@ -689,6 +689,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         Ok(Self::new(header, text, nextdata))
     }
 
+    // TODO make sure this is tested, esp the CRC part
     pub(crate) fn h_write<W: io::Write>(
         &self,
         h: &mut BufWriter<W>,
@@ -707,7 +708,7 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         // write OTHER
         for o in other_segs {
-            h.write_all(o.0.as_bytes())?;
+            o.h_write(h, digest)?;
         }
 
         // write supplemental TEXT

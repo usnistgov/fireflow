@@ -7257,6 +7257,16 @@ impl AnyCoreDataset {
 
 // Implement methods for misc types
 
+impl Other {
+    pub(crate) fn h_write<W: io::Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        digest: &mut WriteFCSDigest,
+    ) -> io::Result<()> {
+        digest.update_and_write(h, self.0.as_bytes())
+    }
+}
+
 impl UnstainedData {
     fn lookup<C>(
         kws: &mut StdLookupTx,

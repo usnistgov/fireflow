@@ -2846,6 +2846,10 @@ class TestCore:
                 0, "zeus", blank_optical_3_2, (width, 100), ser1
             )
 
+    # TODO these only check the mutable range path. Need to also test the
+    # immutable path where the ranges are merely checked without the possibility
+    # of truncation.
+
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
     def test_check_ranges_int(
         self,

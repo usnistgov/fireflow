@@ -120,7 +120,7 @@ impl<T, Raw> Default for InternalSeries<T, Raw> {
 pub struct NewDataframeError;
 
 /// Error when new series has number of rows which are not equal to that in [`DataFrame`]
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone, Copy)]
 #[error("series length ({col_len}) is different from number of rows in dataframe ({df_len})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
@@ -1266,7 +1266,8 @@ impl<C> DataFrame<C> {
         }
     }
 
-    // will panic if index is out of bounds
+    // will panic if index is out of bounds or length of column is different
+    // from others
     pub(crate) fn insert_series_nocheck(&mut self, i: usize, col: C)
     where
         C: HasLen,
@@ -1283,9 +1284,31 @@ impl<C> DataFrame<C> {
         self.series.insert(i, col);
     }
 
-    pub(crate) fn check_new_series(&self, col: &C) -> Result<(), SeriesLengthError>
+    pub(crate) fn push_series_check_len(&mut self, col: C) -> Result<(), SeriesLengthError>
     where
         C: HasLen,
+    {
+        self.check_new_series(&col)?;
+        self.push_series_nocheck(col);
+        Ok(())
+    }
+
+    pub(crate) fn insert_series_check_len(
+        &mut self,
+        i: usize,
+        col: C,
+    ) -> Result<(), SeriesLengthError>
+    where
+        C: HasLen,
+    {
+        self.check_new_series(&col)?;
+        self.insert_series_nocheck(i, col);
+        Ok(())
+    }
+
+    pub(crate) fn check_new_series<X>(&self, col: &X) -> Result<(), SeriesLengthError>
+    where
+        X: HasLen,
     {
         if let Some(df_len) = self.nrows_nonempty() {
             let col_len = col.len();

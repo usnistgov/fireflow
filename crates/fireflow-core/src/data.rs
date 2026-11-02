@@ -147,7 +147,7 @@ use crate::validated::bitmask::{
 use crate::validated::dataframe::{
     AnyPrimitiveSeries, CastSeriesError, DataFrame, DataFrameFamily, FromSeries, FromValue,
     HasFCSType, HasLen, HasWidth, InternalSeries, PrimitiveDataFrame, PrimitiveSeries,
-    TruncateTestResult, ambassador_impl_HasLen,
+    SeriesLengthError, TruncateTestResult, ambassador_impl_HasLen,
 };
 use crate::validated::finite_float::{
     DecimalToFloatError, FiniteF32, FiniteF64, FiniteF64toF32Error, FiniteFloat,
@@ -1554,13 +1554,13 @@ pub enum F32RangeFromFullRangeError {
     F64(FiniteF64toF32Error),
 }
 
-/// Error when attempting to insert new [`TextRange`] with a series into a layout.
-#[derive(Debug, Error, PartialEq, Clone)]
+#[derive(From, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(PyErr: From<E>))]
 pub enum InsertRangeAndSeriesError<E> {
-    Range(E),
-    Series(CastSeriesError),
+    Convert(E),
+    #[from(SeriesLengthError)]
+    Length(SeriesLengthError),
 }
 
 impl_kind1!(pub InsertRangeAndSeriesErrorFamily, InsertRangeAndSeriesError);
@@ -1570,8 +1570,30 @@ impl_functor_once!(
     self,
     mut f,
     match self {
-        Self::Range(x) => InsertRangeAndSeriesError::Range(f(x)),
-        Self::Series(x) => InsertRangeAndSeriesError::Series(x),
+        Self::Convert(x) => InsertRangeAndSeriesError::Convert(f(x)),
+        Self::Length(x) => InsertRangeAndSeriesError::Length(x),
+    }
+);
+
+/// Error when attempting to insert new [`TextRange`] with a series into a layout.
+#[derive(From, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(PyErr: From<E>))]
+pub enum TryConvertRangeAndSeriesError<E> {
+    Range(E),
+    #[from(CastSeriesError)]
+    Series(CastSeriesError),
+}
+
+impl_kind1!(pub TryConvertRangeAndSeriesErrorFamily, TryConvertRangeAndSeriesError);
+
+impl_functor_once!(
+    TryConvertRangeAndSeriesError,
+    self,
+    mut f,
+    match self {
+        Self::Range(x) => TryConvertRangeAndSeriesError::Range(f(x)),
+        Self::Series(x) => TryConvertRangeAndSeriesError::Series(x),
     }
 );
 
@@ -4918,7 +4940,8 @@ impl<C, F, I, T, M, const ORD: bool> PhantomInto for Layout<C, F, I, T, M, ORD> 
 //    all other layouts this is not a problem since the type is inherent to the
 //    layout itself.
 // 3. If we insert a column along with a range, we need to check the type
-//    of the column as well.
+//    of the column as well. We also need to check that the column length is
+//    the same as the other columns, if they exist.
 //
 // Don't use ambassador since it doesn't handle default methods properly which
 // means normalize won't be called.
@@ -4930,7 +4953,8 @@ pub trait LayoutInsert<Column>: LayoutNormalize {
 
     /// Insert a new column at index.
     ///
-    /// This will panic if index is out of bounds.
+    /// This will panic if index is out of bounds or if new column length does
+    /// not match (if applicable).
     fn insert_nocheck(&mut self, index: MeasIndex, col: Column) -> Result<(), Self::Error> {
         self.insert_or_push(Some(index), col, private::NoTouchy)?;
         // Normalization is only needed here is we have an empty layout of a
@@ -4941,6 +4965,8 @@ pub trait LayoutInsert<Column>: LayoutNormalize {
     }
 
     /// Push new column to the right of the current column vector.
+    ///
+    /// If applicable, will panic if new column length does not match.
     fn push(&mut self, col: Column) -> Result<(), Self::Error> {
         self.insert_or_push(None, col, private::NoTouchy)?;
         self.normalize();
@@ -4961,6 +4987,7 @@ where
     F: LayoutInsert<C, Error = D::Error>,
 {
     type Error = D::Error;
+
     fn insert_or_push(
         &mut self,
         index: Option<MeasIndex>,
@@ -5216,13 +5243,25 @@ impl<R: TryInto<C>, C, I, L, M, const ORD: bool> LayoutInsert<R>
 impl<A, I, F32, F64, Ae, Ie, F32e, F64e> LayoutInsert<DecimalRangeAndSeries>
     for AnyDatatype<A, I, F32, F64>
 where
-    A: LayoutInsert<DecimalRangeAndSeries, Error = InsertRangeAndSeriesError<Ae>>,
-    I: LayoutInsert<DecimalRangeAndSeries, Error = InsertRangeAndSeriesError<Ie>>,
-    F32: LayoutInsert<DecimalRangeAndSeries, Error = InsertRangeAndSeriesError<F32e>>,
-    F64: LayoutInsert<DecimalRangeAndSeries, Error = InsertRangeAndSeriesError<F64e>>,
+    A: LayoutInsert<
+            DecimalRangeAndSeries,
+            Error = InsertRangeAndSeriesError<TryConvertRangeAndSeriesError<Ae>>,
+        >,
+    I: LayoutInsert<
+            DecimalRangeAndSeries,
+            Error = InsertRangeAndSeriesError<TryConvertRangeAndSeriesError<Ie>>,
+        >,
+    F32: LayoutInsert<
+            DecimalRangeAndSeries,
+            Error = InsertRangeAndSeriesError<TryConvertRangeAndSeriesError<F32e>>,
+        >,
+    F64: LayoutInsert<
+            DecimalRangeAndSeries,
+            Error = InsertRangeAndSeriesError<TryConvertRangeAndSeriesError<F64e>>,
+        >,
     InsertFullRangeError: From<Ae> + From<Ie> + From<F32e> + From<F64e>,
 {
-    type Error = InsertRangeAndSeriesError<InsertFullRangeError>;
+    type Error = InsertRangeAndSeriesError<TryConvertRangeAndSeriesError<InsertFullRangeError>>;
 
     fn insert_or_push(
         &mut self,
@@ -5232,13 +5271,13 @@ where
     ) -> Result<(), Self::Error> {
         match_any_datatype!(self, x, {
             x.insert_or_push(index, col, token)
-                .map_err(|e| e.fmap_once(InsertFullRangeError::from))
+                .map_err(|e| e.fmap_once(|ee| ee.fmap_once(InsertFullRangeError::from)))
         })
     }
 }
 
 impl<D> LayoutInsert<DecimalRangeAndSeries> for AnyBigLittleUintDataFrame<D> {
-    type Error = InsertRangeAndSeriesError<InsertFullRangeError>;
+    type Error = InsertRangeAndSeriesError<TryConvertRangeAndSeriesError<InsertFullRangeError>>;
 
     fn insert_or_push(
         &mut self,
@@ -5249,18 +5288,18 @@ impl<D> LayoutInsert<DecimalRangeAndSeries> for AnyBigLittleUintDataFrame<D> {
         match self {
             Self::Single(x) => {
                 x.insert_or_push(index, col, token)
-                    .map_err(FunctorOnce::fmap_into_once)?;
+                    .map_err(|e| e.fmap_once(FunctorOnce::fmap_into_once))?;
                 Ok(())
             }
-            Self::Multi(_) => Err(InsertRangeAndSeriesError::Range(
-                UnderspecifiedUintRangeError.into(),
+            Self::Multi(_) => Err(InsertRangeAndSeriesError::Convert(
+                TryConvertRangeAndSeriesError::Range(UnderspecifiedUintRangeError.into()),
             )),
         }
     }
 }
 
 impl<D> LayoutInsert<VariableUintSeries> for AnyBigLittleUintDataFrame<D> {
-    type Error = Infallible;
+    type Error = SeriesLengthError;
 
     fn insert_or_push(
         &mut self,
@@ -5271,18 +5310,26 @@ impl<D> LayoutInsert<VariableUintSeries> for AnyBigLittleUintDataFrame<D> {
         match self {
             Self::Single(x) => {
                 match_any_uint!(x, y, {
+                    // If schema has only one width, try to convert range to
+                    // that width. If this fails, convert to a multi and add new
+                    // column with the appropriate width.
                     if let Ok(r) = col.clone().try_into() {
                         if let Some(i) = index {
-                            y.container.insert_series_nocheck(i.into(), r);
+                            y.container.insert_series_check_len(i.into(), r)
                         } else {
-                            y.container.push_series_nocheck(r);
+                            y.container.push_series_check_len(r)
                         }
                     } else {
+                        // Check series length before taking ownership. This
+                        // prevents the error from firing in the middle of a
+                        // transition which could leave a bad state.
+                        y.container.check_new_series(&col)?;
                         let mut new = mem::take(y).map_inner(VariableUintSeries::from);
-                        let Ok(()) = new.insert_or_push(index, col, token);
+                        new.insert_or_push(index, col, token)
+                            .expect("assumptions were already checked");
                         *self = Self::Multi(new);
+                        Ok(())
                     }
-                    Ok(())
                 })
             }
             Self::Multi(x) => x.insert_or_push(index, col, token),
@@ -5291,7 +5338,7 @@ impl<D> LayoutInsert<VariableUintSeries> for AnyBigLittleUintDataFrame<D> {
 }
 
 impl<D> LayoutInsert<MaybeTypedVariableUintSeries> for AnyBigLittleUintDataFrame<D> {
-    type Error = InsertRangeAndSeriesError<InsertFullRangeError>;
+    type Error = InsertRangeAndSeriesError<TryConvertRangeAndSeriesError<InsertFullRangeError>>;
 
     fn insert_or_push(
         &mut self,
@@ -5301,16 +5348,14 @@ impl<D> LayoutInsert<MaybeTypedVariableUintSeries> for AnyBigLittleUintDataFrame
     ) -> Result<(), Self::Error> {
         match col {
             MaybeTypedRange::Untyped(r) => self.insert_or_push(index, r, token)?,
-            MaybeTypedRange::Typed(r) => {
-                let Ok(()) = self.insert_or_push(index, r, token);
-            }
+            MaybeTypedRange::Typed(r) => self.insert_or_push(index, r, token)?,
         }
         Ok(())
     }
 }
 
 impl<D> LayoutInsert<MaybeTypedVariableUintSeries> for NonMixedDataFrame<D> {
-    type Error = InsertRangeAndSeriesError<InsertFullRangeError>;
+    type Error = InsertRangeAndSeriesError<TryConvertRangeAndSeriesError<InsertFullRangeError>>;
 
     fn insert_or_push(
         &mut self,
@@ -5323,10 +5368,12 @@ impl<D> LayoutInsert<MaybeTypedVariableUintSeries> for NonMixedDataFrame<D> {
                 if let MaybeTypedRange::Untyped(r) = col {
                     $layout
                         .insert_or_push(index, r, token)
-                        .map_err(InsertRangeAndSeriesError::fmap_into_once)?;
+                        .map_err(|e| e.fmap_once(FunctorOnce::fmap_into_once))?;
                 } else {
-                    return Err(InsertRangeAndSeriesError::Range(
-                        OverspecifiedUintRangeError::new($layout.datatype()).into(),
+                    return Err(InsertRangeAndSeriesError::Convert(
+                        TryConvertRangeAndSeriesError::Range(
+                            OverspecifiedUintRangeError::new($layout.datatype()).into(),
+                        ),
                     ));
                 }
             };
@@ -5342,7 +5389,7 @@ impl<D> LayoutInsert<MaybeTypedVariableUintSeries> for NonMixedDataFrame<D> {
 }
 
 impl LayoutInsert<MaybeTypedMixedSeries> for DataFrame3_2 {
-    type Error = InsertRangeAndSeriesError<InsertFullRangeError>;
+    type Error = InsertRangeAndSeriesError<TryConvertRangeAndSeriesError<InsertFullRangeError>>;
 
     fn insert_or_push(
         &mut self,
@@ -5352,42 +5399,50 @@ impl LayoutInsert<MaybeTypedMixedSeries> for DataFrame3_2 {
     ) -> Result<(), Self::Error> {
         macro_rules! go_mixed {
             ($col:expr, $from:expr) => {{
+                // Check series length before taking ownership. This prevents
+                // the error from firing in the middle of a transition which
+                // could leave a bad state.
+                $from.container.check_new_series(&$col)?;
                 let mut new = mem::take($from).map_inner(MixedSeries::from);
-                let Ok(()) =
-                    LayoutInsert::<MixedSeries>::insert_or_push(&mut new, index, $col, token);
+                LayoutInsert::<MixedSeries>::insert_or_push(&mut new, index, $col, token)
+                    .expect("assumptions were checked");
                 *self = Self::Mixed(new.byte_layout_into());
+                Ok(())
             }};
         }
         macro_rules! go {
             ($col:expr, $var:ident, $from:expr) => {
                 if let AnyDatatype::$var(r) = $col {
                     if let Some(i) = index {
-                        $from.container.insert_series_nocheck(i.into(), r.into());
+                        $from
+                            .container
+                            .insert_series_check_len(i.into(), r.into())
+                            .map_err(InsertRangeAndSeriesError::Length)
                     } else {
-                        $from.container.push_series_nocheck(r.into());
+                        $from
+                            .container
+                            .push_series_check_len(r.into())
+                            .map_err(InsertRangeAndSeriesError::Length)
                     }
                 } else {
-                    go_mixed!($col, $from);
+                    go_mixed!($col, $from)
                 }
             };
         }
 
         match col {
             MaybeTypedRange::Untyped(r) => match self {
-                Self::Mixed(_) => {
-                    return Err(InsertRangeAndSeriesError::Range(
-                        UnderspecifiedMixedRangeError.into(),
-                    ));
-                }
+                Self::Mixed(_) => Err(InsertRangeAndSeriesError::Convert(
+                    TryConvertRangeAndSeriesError::Range(UnderspecifiedMixedRangeError.into()),
+                )),
                 Self::NonMixed(x) => {
-                    LayoutInsert::<DecimalRangeAndSeries>::insert_or_push(x, index, r, token)?;
+                    LayoutInsert::<DecimalRangeAndSeries>::insert_or_push(x, index, r, token)
                 }
             },
 
             MaybeTypedRange::Typed(r) => match self {
-                Self::Mixed(x) => {
-                    let Ok(()) = LayoutInsert::<MixedSeries>::insert_or_push(x, index, r, token);
-                }
+                Self::Mixed(x) => LayoutInsert::<MixedSeries>::insert_or_push(x, index, r, token)
+                    .map_err(InsertRangeAndSeriesError::Length),
                 Self::NonMixed(x) => match x {
                     AnyDatatype::Ascii(y) => match y {
                         AnyAscii::Delimited(z) => go!(r, Ascii, z),
@@ -5396,11 +5451,12 @@ impl LayoutInsert<MaybeTypedMixedSeries> for DataFrame3_2 {
                     AnyDatatype::Uint(y) => match y {
                         AnyBigLittleUint::Single(z) => {
                             if let AnyDatatype::Uint(rr) = r {
-                                let Ok(()) = LayoutInsert::<VariableUintSeries>::insert_or_push(
+                                LayoutInsert::<VariableUintSeries>::insert_or_push(
                                     y, index, rr, token,
-                                );
+                                )
+                                .map_err(InsertRangeAndSeriesError::Length)
                             } else {
-                                match_any_uint!(z, s, go_mixed!(r, s));
+                                match_any_uint!(z, s, go_mixed!(r, s))
                             }
                         }
                         AnyBigLittleUint::Multi(z) => go!(r, Uint, z),
@@ -5410,19 +5466,17 @@ impl LayoutInsert<MaybeTypedMixedSeries> for DataFrame3_2 {
                 },
             },
         }
-        Ok(())
     }
 }
 
 // Insert range and column
-//
-// ASSUME length is correct for new column, caller must verify this
 impl<R, H, T, Raw, I, L, M, const ORD: bool> LayoutInsert<RangeAndSeries<R>>
     for Layout<DataFrame<Series<H, T, Raw>>, DataFrameFamily, I, L, M, ORD>
 where
     RangeAndSeries<R>: TryInto<Series<H, T, Raw>>,
 {
-    type Error = <RangeAndSeries<R> as TryInto<Series<H, T, Raw>>>::Error;
+    type Error =
+        InsertRangeAndSeriesError<<RangeAndSeries<R> as TryInto<Series<H, T, Raw>>>::Error>;
 
     fn insert_or_push(
         &mut self,
@@ -5430,23 +5484,21 @@ where
         col: RangeAndSeries<R>,
         _: private::NoTouchy,
     ) -> Result<(), Self::Error> {
-        let c = col.try_into()?;
+        let c = col.try_into().map_err(InsertRangeAndSeriesError::Convert)?;
         if let Some(i) = index {
-            self.container.insert_series_nocheck(i.into(), c);
+            self.container.insert_series_check_len(i.into(), c)?;
         } else {
-            self.container.push_series_nocheck(c);
+            self.container.push_series_check_len(c)?;
         }
         Ok(())
     }
 }
 
-// Insert range and column (no fail version)
-//
-// ASSUME length is correct for new column, caller must verify this
+// Insert range and column (no fail version for type conversion)
 impl<C: HasLen, I, L, M, const ORD: bool> LayoutInsert<C>
     for Layout<DataFrame<C>, DataFrameFamily, I, L, M, ORD>
 {
-    type Error = Infallible;
+    type Error = SeriesLengthError;
 
     fn insert_or_push(
         &mut self,
@@ -5455,9 +5507,9 @@ impl<C: HasLen, I, L, M, const ORD: bool> LayoutInsert<C>
         _: private::NoTouchy,
     ) -> Result<(), Self::Error> {
         if let Some(i) = index {
-            self.container.insert_series_nocheck(i.into(), col);
+            self.container.insert_series_check_len(i.into(), col)?;
         } else {
-            self.container.push_series_nocheck(col);
+            self.container.push_series_check_len(col)?;
         }
         Ok(())
     }
@@ -5468,14 +5520,14 @@ where
     R: TryInto<H>,
     InternalSeries<T, Raw>: FromSeries<AnyPrimitiveSeries>,
 {
-    type Error = InsertRangeAndSeriesError<R::Error>;
+    type Error = TryConvertRangeAndSeriesError<R::Error>;
 
     fn try_from(value: RangeAndSeries<R>) -> Result<Self, Self::Error> {
         let (r, c) = value;
-        let col_schema: H = r.try_into().map_err(InsertRangeAndSeriesError::Range)?;
+        let col_schema: H = r.try_into().map_err(TryConvertRangeAndSeriesError::Range)?;
         let data = InternalSeries::from_series(c)
             .into_result()
-            .map_err(InsertRangeAndSeriesError::Series)?;
+            .map_err(TryConvertRangeAndSeriesError::Series)?;
         Ok(Self::new(col_schema, data))
     }
 }

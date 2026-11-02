@@ -2471,6 +2471,12 @@ class TestCore:
         core.insert_optical(0, None, optical, 9001, series1)
         assert isinstance(core.measurement_at(1), type(optical))
 
+        # should error if too short
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.insert_optical(
+                1, None, optical, 9001, pl.Series("VBA", [1, 2], dtype=pl.UInt32)
+            )
+
     @pytest.mark.parametrize(
         "core, optical, data_schema",
         [
@@ -2504,6 +2510,16 @@ class TestCore:
         assert isinstance(core.measurement_at(1), type(optical))
         assert isinstance(core.data_schema, data_schema)
 
+        # should error if too short
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.insert_optical(
+                1,
+                LINK_NAME2,
+                optical,
+                9001,
+                pl.Series("BASIC", [1.0, 2.0], dtype=pl.Float32),
+            )
+
     @pytest.mark.parametrize(
         "core, optical, data_schema",
         [
@@ -2534,6 +2550,16 @@ class TestCore:
         assert isinstance(core.measurement_at(1), type(optical))
         assert isinstance(core.data_schema, data_schema)
 
+        # should error if too short
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.insert_optical(
+                1,
+                LINK_NAME2,
+                optical,
+                9001,
+                pl.Series("lolcode", [1, 2], dtype=pl.UInt64),
+            )
+
     @pytest.mark.parametrize(
         "right_width, wrong_width",
         [(x, y) for x in range(1, 9) for y in range(1, 9) if not x == y],
@@ -2561,6 +2587,8 @@ class TestCore:
         assert core.data_schema.byte_width == right_width
         core.insert_optical(0, "eyehateu", optical, (wrong_width, 1), series1)
         assert isinstance(core.data_schema, pf.VariableUintDataSchema)
+
+        # TODO add length check
 
     @pytest.mark.parametrize(
         "byte_width, right_type, wrong_type",
@@ -2596,6 +2624,8 @@ class TestCore:
         core.insert_optical(0, "eyehateu", optical, (wrong_type, 1), series1)
         assert isinstance(core.data_schema, pf.VariableUintDataSchema)
 
+        # TODO add length check
+
     @pytest.mark.parametrize(
         "schema",
         [
@@ -2623,6 +2653,8 @@ class TestCore:
             dataset2_3_1.insert_optical(
                 0, "pegasus", blank_optical_3_1, (1, 1), series1
             )
+
+        # TODO add length check
 
     @pytest.mark.parametrize(
         "schema, right_type, wrong_type",
@@ -2668,6 +2700,8 @@ class TestCore:
         )
         assert isinstance(dataset2_3_2.data_schema, pf.MixedDataSchema)
 
+        # TODO add length check
+
     @pytest.mark.parametrize(
         "core, optical, insert_type",
         [
@@ -2698,6 +2732,8 @@ class TestCore:
         with pytest.RaisesGroup(pf.RelationalError):
             core.insert_optical(0, "gonnacry", optical, 10000, series1)
 
+        # TODO add length check
+
     def test_insert_mixed(
         self,
         dataset2_3_2: pf.CoreDataset3_2,
@@ -2720,6 +2756,8 @@ class TestCore:
             dataset2_3_2.insert_optical(
                 0, "gotpetya", blank_optical_3_2, 10000, series1
             )
+
+        # TODO add length check
 
     @pytest.mark.parametrize(
         "dtype, width, should_err",

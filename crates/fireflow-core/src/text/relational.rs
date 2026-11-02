@@ -79,14 +79,14 @@ pub trait HasLink {
 }
 
 impl HasLink for Shortname {
-    type Inner = Shortname;
+    type Inner = Self;
     fn has_link(&self, thing: &Self::Inner) -> bool {
         thing == self
     }
 }
 
 impl HasLink for MeasIndex {
-    type Inner = MeasIndex;
+    type Inner = Self;
     fn has_link(&self, thing: &Self::Inner) -> bool {
         thing == self
     }

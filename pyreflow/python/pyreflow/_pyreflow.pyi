@@ -2893,12 +2893,20 @@ class ReadStdDatasetConfig(_ConfigCommon):
 class ReadFlatDatasetFromKeywordsConfig(_ConfigCommon):
     pass
 
+class _ConfigCommonNewCore:
+    @classmethod
+    def strict(cls, version: pft.FCSVersion) -> dict[str, Any]: ...
+    @classmethod
+    def scalpel(cls, version: pft.FCSVersion) -> dict[str, Any]: ...
+    @classmethod
+    def sledgehammer(cls, version: pft.FCSVersion) -> dict[str, Any]: ...
+
 @final
-class NewCoreTEXTConfig(_ConfigCommon):
+class NewCoreTEXTConfig(_ConfigCommonNewCore):
     pass
 
 @final
-class NewCoreDatasetConfig(_ConfigCommon):
+class NewCoreDatasetConfig(_ConfigCommonNewCore):
     pass
 
 @final

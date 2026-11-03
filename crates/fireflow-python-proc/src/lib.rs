@@ -784,8 +784,8 @@ pub fn impl_config_defaults(input: TokenStream) -> TokenStream {
             "Config for {}.",
             api_fun("fcs_read_flat_dataset_with_keywords")
         )),
-        "NewCoreTEXTConfig" => DocString::new_class("Config for ``CoreTEXT*.from_kws()``."),
-        "NewCoreDatasetConfig" => DocString::new_class("Config for ``CoreDataset*.from_kws()``."),
+        // "NewCoreTEXTConfig" => DocString::new_class("Config for ``CoreTEXT*.from_kws()``."),
+        // "NewCoreDatasetConfig" => DocString::new_class("Config for ``CoreDataset*.from_kws()``."),
         s => panic!("unsupported type '{s}'"),
     };
 
@@ -825,6 +825,77 @@ pub fn impl_config_defaults(input: TokenStream) -> TokenStream {
             #[classmethod]
             fn sledgehammer(_: &Bound<'_, pyo3::types::PyType>) -> #path {
                 #has_strat::new_with_strategy(#strat::Sledgehammer)
+            }
+        }
+    };
+    q.into()
+}
+
+#[proc_macro]
+pub fn impl_config_defaults_newcore(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+    let name_str = name.to_string();
+    let pyname = format_ident!("Py{name}");
+
+    let strat: Path = parse_quote!(fireflow_types::config::ReadStrategy);
+    let version: Path = parse_quote!(fireflow_types::keywords::Version);
+    let res: Path = parse_quote!(PyResult<Bound<'py, PyDict>>);
+
+    let predoc = match name_str.as_str() {
+        "NewCoreTEXTConfig" => DocString::new_class("Config for ``CoreTEXT*.from_kws()``."),
+        "NewCoreDatasetConfig" => DocString::new_class("Config for ``CoreDataset*.from_kws()``."),
+        s => panic!("unsupported type '{s}'"),
+    };
+
+    let doc = predoc.doc();
+
+    let q = quote! {
+        #doc
+        #[pyclass(name = #name_str)]
+        pub struct #pyname;
+
+        #[pymethods]
+        impl #pyname {
+            /// Return standards-compliant configuration.
+            ///
+            /// :rtype: :py:class:`dict`\ [:py:class:`str`, :obj:`~typing.Any`]
+            #[classmethod]
+            fn strict<'py>(
+                _: &Bound<'_, PyType>,
+                version: #version,
+                py: Python<'py>,
+            ) -> #res {
+                #path::dump_model_version(version, #strat::Strict, py)
+            }
+
+            /// Return non-compliant configuration optimized to preserve data.
+            ///
+            /// All non-trivial metadata (ie whitespace, blank keys, etc) will be
+            /// preserved.
+            ///
+            /// :rtype: :py:class:`dict`\ [:py:class:`str`, :obj:`~typing.Any`]
+            #[classmethod]
+            fn scalpel<'py>(
+                _: &Bound<'_, PyType>,
+                version: #version,
+                py: Python<'py>,
+            ) -> #res {
+                #path::dump_model_version(version, #strat::Scalpel, py)
+            }
+
+            /// Return non-compliant configuration optimized to read data.
+            ///
+            /// Metadata may be destroyed or dropped.
+            ///
+            /// :rtype: :py:class:`dict`\ [:py:class:`str`, :obj:`~typing.Any`]
+            #[classmethod]
+            fn sledgehammer<'py>(
+                _: &Bound<'_, PyType>,
+                version: #version,
+                py: Python<'py>,
+            ) -> #res {
+                #path::dump_model_version(version, #strat::Sledgehammer, py)
             }
         }
     };
@@ -10685,20 +10756,24 @@ impl DocArgParam {
             Self::new_over_range_action(),
         ];
         let args1 = if version == Some(Version::FCS2_0) {
-            vec![]
+            None
         } else {
-            vec![
+            Some([
                 Self::new_allow_missing_crc_param(),
                 Self::new_allow_mismatch_crc_param(),
                 Self::new_compute_crc_param(),
-            ]
+            ])
         };
         let args2 = [
             Self::new_read_intra_segment_dark_bytes_param(),
             Self::new_read_post_dataset_dark_bytes_param(),
             Self::new_row_buffer_size_param(true),
         ];
-        let ps: Vec<_> = args0.into_iter().chain(args1).chain(args2).collect();
+        let ps: Vec<_> = args0
+            .into_iter()
+            .chain(args1.into_iter().flatten())
+            .chain(args2)
+            .collect();
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }

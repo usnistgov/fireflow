@@ -473,6 +473,10 @@ mod python {
         ReadStdDatasetConfig, ReadStdTEXTConfig,
     };
 
+    use fireflow_types::config::HasStrategy as _;
+    use fireflow_types::keywords::Version;
+    use fireflow_types::{args::underscore as ta, config::ReadStrategy};
+
     use pyo3::{prelude::*, types::PyDict};
 
     macro_rules! impl_into_flat_dict {
@@ -533,4 +537,85 @@ mod python {
     impl_into_flat_dict!(NewCoreTEXTConfig, standard, layout, shared);
 
     impl_into_flat_dict!(NewCoreDatasetConfig, offset, standard, layout, data, shared);
+
+    impl NewCoreTEXTConfig {
+        /// Return dict for this config struct with version-specific keys.
+        pub fn dump_model_version(
+            version: Version,
+            strategy: ReadStrategy,
+            py: Python<'_>,
+        ) -> PyResult<Bound<'_, PyDict>> {
+            let conf = Self::new_with_strategy(strategy);
+            // Make a full dict
+            let dict = conf.into_pyobject(py)?;
+            // Remove the stuff we don't want based on version.
+            new_core_text_remove_by_version(&dict, version)?;
+            Ok(dict)
+        }
+    }
+
+    impl NewCoreDatasetConfig {
+        /// Return dict for this config struct with version-specific keys.
+        pub fn dump_model_version(
+            version: Version,
+            strategy: ReadStrategy,
+            py: Python<'_>,
+        ) -> PyResult<Bound<'_, PyDict>> {
+            let conf = Self::new_with_strategy(strategy);
+            let dict = conf.into_pyobject(py)?;
+            // This config struct is a superset of NewCoreTEXTConfig, so remove
+            // these keys first.
+            new_core_text_remove_by_version(&dict, version)?;
+            if version == Version::FCS2_0 {
+                // These only apply to the DATA and ANALYSIS offset pairs in
+                // TEXT since this configuration won't be used to read HEADER or
+                // keywords from TEXT. Since 2.0 doesn't have these keywords,
+                // remove these options.
+                dict.del_item(ta::ALLOW_PSEUDOEMPTY)?;
+                dict.del_item(ta::DATASET_OVERFLOW_LIMIT)?;
+                dict.del_item(ta::OVERLAP_CORRECTION_LIMIT)?;
+
+                // FCS 2.0 doesn't have a CRC. None of these options apply.
+                dict.del_item(ta::ALLOW_MISSING_CRC)?;
+                dict.del_item(ta::ALLOW_MISMATCH_CRC)?;
+                dict.del_item(ta::COMPUTE_CRC)?;
+            }
+            Ok(dict)
+        }
+    }
+
+    fn new_core_text_remove_by_version(dict: &Bound<'_, PyDict>, version: Version) -> PyResult<()> {
+        if version == Version::FCS2_0 {
+            // 2.0 doesn't have $TIMESTEP.
+            dict.del_item(ta::ADD_MISSING_TIMESTEP)?;
+
+            // 2.0 doesn't allow offsets in TEXT. None of these options apply.
+            dict.del_item(ta::TEXT_DATA_CORR)?;
+            dict.del_item(ta::TEXT_ANALYSIS_CORR)?;
+            dict.del_item(ta::IGNORE_TEXT_DATA_OFFSETS)?;
+            dict.del_item(ta::IGNORE_TEXT_ANALYSIS_OFFSETS)?;
+            dict.del_item(ta::ALLOW_HEADER_TEXT_OFFSET_MISMATCH)?;
+            dict.del_item(ta::ALLOW_MISSING_REQUIRED_OFFSETS)?;
+        }
+
+        if version < Version::FCS3_2 {
+            // This is only pertinent to 3.2 which has $BEGIN/ENDDATETIME
+            dict.del_item(ta::DISALLOW_LOCALTIME)?;
+        }
+
+        if version < Version::FCS3_1 {
+            //   $SPILLOVER is 3.1
+            dict.del_item(ta::SPILLOVER_MEASUREMENT_MODE)?;
+        }
+
+        if version > Version::FCS3_0 {
+            // These two options only apply to ordered integer data schemas in
+            // 2.0/3.0. The $BYTEORD keyword change in 3.1 makes this irrelevant
+            // for later versions.
+            dict.del_item(ta::INT_WIDTH_OVERRIDE)?;
+            dict.del_item(ta::BYTEORD_OVERRIDE)?;
+        }
+
+        Ok(())
+    }
 }

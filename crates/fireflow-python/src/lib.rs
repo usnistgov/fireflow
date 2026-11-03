@@ -73,11 +73,9 @@ use fireflow_core::validated::{
 
 use fireflow_python_proc as fpp;
 
-use fireflow_types::{
-    index::{GateIndex, RegionIndex},
-    keywords as ftk,
-    python::EventDataError,
-};
+use fireflow_types::index::{GateIndex, RegionIndex};
+use fireflow_types::keywords as ftk;
+use fireflow_types::python::EventDataError;
 
 use type_families::{BifunctorOnce as _, Functor as _};
 
@@ -87,7 +85,7 @@ use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::datatypes::ArrowDataType;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyTuple;
+use pyo3::types::{PyDict, PyTuple, PyType};
 use pyo3_polars::{PyDataFrame, PySeries};
 
 use std::collections::{HashMap, HashSet};
@@ -113,8 +111,8 @@ fpp::impl_config_defaults!(cfg::ReadStdTEXTConfig);
 fpp::impl_config_defaults!(cfg::ReadFlatDatasetConfig);
 fpp::impl_config_defaults!(cfg::ReadStdDatasetConfig);
 fpp::impl_config_defaults!(cfg::ReadFlatDatasetFromKeywordsConfig);
-fpp::impl_config_defaults!(cfg::NewCoreTEXTConfig);
-fpp::impl_config_defaults!(cfg::NewCoreDatasetConfig);
+fpp::impl_config_defaults_newcore!(cfg::NewCoreTEXTConfig);
+fpp::impl_config_defaults_newcore!(cfg::NewCoreDatasetConfig);
 
 fpp::impl_py_header!(header::Header);
 fpp::impl_py_header_offsets!(header_offsets::FinalHeaderOffsets);
@@ -154,6 +152,9 @@ fpp::impl_py_offsets_overlap!(segment::read::HeaderToHeaderOffsetsOverlap);
 fpp::impl_py_offsets_overlap!(segment::read::TextToHeaderOffsetsOverlap);
 fpp::impl_py_offsets_overlap!(segment::read::SuppToHeaderOffsetsOverlap);
 fpp::impl_py_offsets_overlap!(segment::read::TextToHeaderOrSuppOffsetsOverlap);
+
+// fpp::impl_config_defaults!(cfg::NewCoreTEXTConfig);
+// fpp::impl_config_defaults!(cfg::NewCoreDatasetConfig);
 
 // Implement python classes for core* structs
 //
@@ -427,6 +428,11 @@ fpp::impl_core_get_all_other_pnfeature!(PyCoreDataset3_2);
 fpp::impl_core_all_pnanalyte!(PyCoreTEXT3_2);
 fpp::impl_core_all_pnanalyte!(PyCoreDataset3_2);
 
+// Implement wrapper types for gating keywords.
+//
+// These don't map 1-1 with rust types which makes the interface more complex.
+// It is clearer to not use macros for the core type definitions.
+
 #[derive(From, Into, Default)]
 struct PyAppliedGates2_0(gating::AppliedGates2_0);
 
@@ -647,6 +653,12 @@ impl From<Vec<gating::GatedMeasurement>> for PyGatedMeasurements {
         Self(value.into_iter().map(Into::into).collect())
     }
 }
+
+// Implement wrapper types for each data schema. These are somewhat complex
+// because the rust types don't map 1-1 with the Python types that make sense
+// to use in the API. For instance, we don't need to have 8 separate schemas
+// for each integer byte width in Python. In rust these are 8 different types
+// since they are based on a generic supertype.
 
 // These are dummy markers for use inside python objects. They have no meaning
 // in the python API so this is arbitrary.
@@ -979,13 +991,12 @@ impl<'py, const LEN: usize> IntoPyObject<'py> for PyByteOrder<LEN> {
     }
 }
 
-// Wrappers for FCSDataframe and AnyFCSColumn which allow conversion to/from
-// proper polars types which are also wrapped as Python types. This is confusing
-// because we actually have 4 different types for df and column.
-// 1. FCS* type which is validated for only a few datatypes FCS supports
-// 2. Native polars type
-// 3. Pyo3 type which wraps the native polars type
-// 4. PyFCS* which are wrappers for (1) which are also valid Pyo3 types
+// Implement wrappers for FCSDataframe and AnyFCSColumn which allow conversion
+// to/from proper polars types which are also wrapped as Python types. This is
+// confusing because we actually have 4 different types for df and column. 1.
+// FCS* type which is validated for only a few datatypes FCS supports 2. Native
+// polars type 3. Pyo3 type which wraps the native polars type 4. PyFCS* which
+// are wrappers for (1) which are also valid Pyo3 types
 //
 // This is also the ordering of conversions that must be followed in order to
 // go from Rust to Python and back. Note that the FromPyObject and IntoPyObject

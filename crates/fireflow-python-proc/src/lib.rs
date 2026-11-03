@@ -10514,9 +10514,12 @@ impl DocArgParam {
         version: Option<Version>,
     ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let conf = types_config_path("ReadOffsetConfig");
-        // This switch will only be used for functions that don't deal with
-        // HEADER so any offsets in that case are limited to TEXT which aren't
-        // present in 2.0
+        // If version is provided, it means we are constructing this for a
+        // function that assumes HEADER and flat keywords have already been
+        // read, in which case the only offsets that potentially need to be
+        // adjust are ANALYSIS and DATA from TEXT. FCS2.0 does not have these,
+        // which means none of these configuration flags apply if the version is
+        // given and it is 2.0.
         let ps = if version == Some(Version::FCS2_0) {
             vec![]
         } else {

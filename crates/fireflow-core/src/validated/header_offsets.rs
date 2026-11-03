@@ -240,7 +240,7 @@ impl FinalHeaderOffsets {
         }
     }
 
-    /// Truncate non-primary TEXT offsets that exceed EOF or $NEXTDATA.
+    /// Truncate offsets (not primary TEXT) that exceed EOF or $NEXTDATA.
     ///
     /// Return amount truncated for each offset pair or error if truncation
     /// amount is beyond limit.

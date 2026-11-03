@@ -121,3 +121,28 @@ manipulation
 .. _pylibyaml: https://github.com/philsphicas/pylibyaml
 .. _libyaml: https://github.com/yaml/libyaml
 .. _benchmark: https://github.com/usnistgov/fireflow/blob/master/pyreflow/bench/README.md
+
+Conventions
+-----------
+
+The following conventions are used throughout this library:
+
+* **Compliance-by-Default**: All classes and functions assume perfectly
+  formatted FCS files by default. See :doc:`_generated/strategies` for details.
+
+* **0-based Indices**: All indices (often referring to a measurement) start at
+  0, mirroring the convention in Python. This is in contrast to the FCS spec
+  which starts indices at 1 (ie *P1N* and not *P0N*).
+
+* **Slice-like Offset Pairs**: Offset pairs referring to segments (*HEADER*,
+  *DATA*, etc) use the first byte of the segment and the first byte immediately
+  after (analogous to Python slices). In the FCS spec, the second offset in the
+  pair is one less than that used here. The only exception is for cases where
+  the interface deliberately returns offsets "as written" in the file.
+
+* **Version suffixes**: Identifiers that refer to specific FCS versions will end
+  in a version string with the decimal point replaced by underscore (ie ``2_0``
+  for FCS 2.0). In cases where the identifier refers to multiple versions, the
+  lowest version will be used as the suffix and the documentation will state the
+  other versions to which it applies.
+

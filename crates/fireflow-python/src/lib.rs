@@ -518,7 +518,7 @@ impl<'py> IntoPyObject<'py> for PyAppliedGates3_2 {
 fpp::impl_new_gate_uni_regions!(gating::UnivariateRegion<GateIndex>);
 
 // Implement __new__ and attributes for PyUnivariate3_0
-fpp::impl_new_gate_uni_regions!(gating::UnivariateRegion<kws::MeasOrGateIndex>);
+fpp::impl_new_gate_uni_regions_3_0!(gating::UnivariateRegion<kws::MeasOrGateIndex>);
 
 // Implement __new__ and attributes for PyUnivariate3_2
 fpp::impl_new_gate_uni_regions!(gating::UnivariateRegion<kws::PrefixedMeasIndex>);
@@ -527,7 +527,7 @@ fpp::impl_new_gate_uni_regions!(gating::UnivariateRegion<kws::PrefixedMeasIndex>
 fpp::impl_new_gate_bi_regions!(gating::BivariateRegion<GateIndex>);
 
 // Implement __new__ and attributes for PyBivariate3_0
-fpp::impl_new_gate_bi_regions!(gating::BivariateRegion<kws::MeasOrGateIndex>);
+fpp::impl_new_gate_bi_regions_3_0!(gating::BivariateRegion<kws::MeasOrGateIndex>);
 
 // Implement __new__ and attributes for PyBivariate3_2
 fpp::impl_new_gate_bi_regions!(gating::BivariateRegion<kws::PrefixedMeasIndex>);

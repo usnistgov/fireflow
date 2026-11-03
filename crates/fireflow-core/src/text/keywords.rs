@@ -2050,6 +2050,28 @@ impl FromStr for MeasOrGateIndex {
     }
 }
 
+#[cfg(feature = "python")]
+impl MeasOrGateIndex {
+    pub(crate) fn new(i: usize, is_gate: bool) -> Self {
+        if is_gate {
+            Self::Gate(i.into())
+        } else {
+            Self::Meas(i.into())
+        }
+    }
+
+    pub(crate) fn index(&self) -> usize {
+        match self {
+            Self::Gate(i) => (*i).into(),
+            Self::Meas(i) => (*i).into(),
+        }
+    }
+
+    pub(crate) fn is_gate(&self) -> bool {
+        matches!(self, Self::Gate(_))
+    }
+}
+
 /// Error when parsing [`RegionGateIndex<MeasOrGateIndex>`] from string (3.0/3.1)
 #[derive(Debug, Error, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

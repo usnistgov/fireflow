@@ -378,8 +378,20 @@ class UnivariateRegion2_0(_UnivariateRegion[int]):
     pass
 
 @final
-class UnivariateRegion3_0(_UnivariateRegion[str]):
-    pass
+class UnivariateRegion3_0:
+    def __new__(
+        cls,
+        index: int,
+        gate: tuple[float, float],
+        is_gate: bool = False,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def index(self) -> int: ...
+    @property
+    def gate(self) -> tuple[float, float]: ...
+    @property
+    def is_gate(self) -> bool: ...
 
 @final
 class UnivariateRegion3_2(_UnivariateRegion[int]):
@@ -391,7 +403,25 @@ class BivariateRegion2_0(_BivariateRegion[int]):
 
 @final
 class BivariateRegion3_0(_BivariateRegion[str]):
-    pass
+    def __new__(
+        cls,
+        x_index: int,
+        y_index: int,
+        vertices: list[tuple[float, float]],
+        x_is_gate: bool = False,
+        y_is_gate: bool = False,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def x_index(self) -> int: ...
+    @property
+    def y_index(self) -> int: ...
+    @property
+    def vertices(self) -> list[tuple[float, float]]: ...
+    @property
+    def x_is_gate(self) -> bool: ...
+    @property
+    def y_is_gate(self) -> bool: ...
 
 @final
 class BivariateRegion3_2(_BivariateRegion[int]):

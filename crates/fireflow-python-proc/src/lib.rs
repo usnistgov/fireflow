@@ -6381,6 +6381,72 @@ pub fn impl_new_gate_bi_regions(input: TokenStream) -> TokenStream {
     make_gate_region(&path, false)
 }
 
+#[proc_macro]
+pub fn impl_new_gate_uni_regions_3_0(input: TokenStream) -> TokenStream {
+    let path: Path = syn::parse(input).unwrap();
+    make_gate_region3_0(&path, true)
+}
+
+#[proc_macro]
+pub fn impl_new_gate_bi_regions_3_0(input: TokenStream) -> TokenStream {
+    let path: Path = syn::parse(input).unwrap();
+    make_gate_region3_0(&path, false)
+}
+
+#[allow(clippy::too_many_lines)]
+fn make_gate_region3_0(path: &Path, is_uni: bool) -> TokenStream {
+    let region_ident = path.segments.last().unwrap().ident.clone();
+
+    let mk_index = |which, name| {
+        let index_desc = format!(
+            "The {which} corresponding to either a gating or a physical \
+             measurement (the {m} and {n} in the {GM_ANY} or {PN_ANY} \
+             keywords).",
+            m = fcs_kw("m"),
+            n = fcs_kw("n"),
+        );
+        DocArg::new_ivar_ro(
+            name,
+            PyInt::new_usize(),
+            index_desc,
+            |n, _| quote!(self.0.#n()),
+        )
+    };
+
+    let mk_summary = |r| format!("Make a new FCS 3.0/3.1-compatible {r} region");
+
+    let doc = if is_uni {
+        let index_arg = mk_index("index", "index");
+        let gate_arg = DocArg::new_unigate_ivar();
+        let is_gate_arg = DocArg::new_is_gate_ivar("is_gate", "index");
+        let summary = mk_summary("univariate");
+        DocString::new_class(summary).args([index_arg, gate_arg, is_gate_arg])
+    } else {
+        let x_arg = mk_index("x-index", "x_index");
+        let y_arg = mk_index("y-index", "y_index");
+        let gate_arg = DocArg::new_bigate_ivar();
+        let x_is_gate_arg = DocArg::new_is_gate_ivar("x_is_gate", "x_index");
+        let y_is_gate_arg = DocArg::new_is_gate_ivar("y_is_gate", "y_index");
+        let summary = mk_summary("bivariate");
+        let args = [x_arg, y_arg, gate_arg, x_is_gate_arg, y_is_gate_arg];
+        DocString::new_class(summary).args(args)
+    };
+
+    let name = format!("{region_ident}3_0");
+    let bare_path = path_strip_args(path.clone());
+    let inner_args = doc.idents_into();
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #bare_path::new3_0(#inner_args).into()
+            }
+        }
+    };
+
+    doc.into_impl_class(name, path, new).1.into()
+}
+
 // TODO doc exceptions here
 #[allow(clippy::too_many_lines)]
 fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
@@ -8157,6 +8223,10 @@ impl<E: From<PyException>> PyInt<E> {
 
     fn new_nonzero_usize() -> Self {
         Self::new_int(RsInt::NonZeroUsize)
+    }
+
+    fn new_usize() -> Self {
+        Self::new_int(RsInt::Usize)
     }
 
     fn new_int(intkind: RsInt) -> Self {
@@ -9964,6 +10034,37 @@ impl DocArgROIvar {
             |_, _| quote!(self.0.byte_width()),
         )
         .def_int(4)
+    }
+
+    fn new_unigate_ivar() -> Self {
+        Self::new_ivar_ro(
+            "gate",
+            PyType::from(PyTuple::new_unigate()),
+            "The lower and upper bounds of the gate.",
+            |n, _| quote!(self.0.#n.clone()),
+        )
+    }
+
+    fn new_bigate_ivar() -> Self {
+        Self::new_ivar_ro(
+            "vertices",
+            PyList::new_vertices(),
+            "The vertices of a polygon gate. Must not be empty.",
+            |n, _| quote!(self.0.#n.clone()),
+        )
+    }
+
+    fn new_is_gate_ivar(name: impl fmt::Display + Clone, refer: impl fmt::Display) -> Self {
+        Self::new_ivar_ro(
+            name,
+            PyBool::default(),
+            format!(
+                "If {TRUE}, {arg} refers to a {GM_ANY} keyword, otherwise {PN_ANY}.",
+                arg = arg(refer),
+            ),
+            |n, _| quote!(self.0.#n()),
+        )
+        .def_auto()
     }
 }
 

@@ -131,12 +131,70 @@ pub struct UnivariateRegion<I> {
     pub index: I,
 }
 
+#[cfg(feature = "python")]
+impl UnivariateRegion<MeasOrGateIndex> {
+    // Arg order matters here since this is wrapped in a macro in the python
+    // API. The is_gate arg is optional which is why it needs to be last.
+    #[must_use]
+    pub fn new3_0(index: usize, gate: UniGate, is_gate: bool) -> Self {
+        Self::new(gate, MeasOrGateIndex::new(index, is_gate))
+    }
+
+    #[must_use]
+    pub fn index(&self) -> usize {
+        self.index.index()
+    }
+
+    #[must_use]
+    pub fn is_gate(&self) -> bool {
+        self.index.is_gate()
+    }
+}
+
 /// A bivariate region corresponding to an $RnI/$RnW keyword pair
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct BivariateRegion<I> {
     pub vertices: NEVec<Vertex>,
     pub index: IndexPair<I>,
+}
+
+#[cfg(feature = "python")]
+impl BivariateRegion<MeasOrGateIndex> {
+    // Arg order matters here since this is wrapped in a macro in the python
+    // API. The *_is_gate args are optional which is why they need to be last.
+    #[must_use]
+    pub fn new3_0(
+        x_index: usize,
+        y_index: usize,
+        vertices: NEVec<Vertex>,
+        x_is_gate: bool,
+        y_is_gate: bool,
+    ) -> Self {
+        let x = MeasOrGateIndex::new(x_index, x_is_gate);
+        let y = MeasOrGateIndex::new(y_index, y_is_gate);
+        Self::new(vertices, IndexPair::new(x, y))
+    }
+
+    #[must_use]
+    pub fn x_index(&self) -> usize {
+        self.index.x.index()
+    }
+
+    #[must_use]
+    pub fn y_index(&self) -> usize {
+        self.index.y.index()
+    }
+
+    #[must_use]
+    pub fn x_is_gate(&self) -> bool {
+        self.index.x.is_gate()
+    }
+
+    #[must_use]
+    pub fn y_is_gate(&self) -> bool {
+        self.index.y.is_gate()
+    }
 }
 
 /// The values for $Gm* keywords (2.0-3.1)

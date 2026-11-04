@@ -91,3 +91,13 @@ Consortium](https://www.nist.gov/programs-projects/nist-flow-cytometry-standards
 
 Please submit code-related issues to the issue tracker in this repository.
 Please send general inquiries to njd2@nist.gov.
+
+## LLM Disclaimer
+
+All code in this repository was written by a human. 
+
+Large language models (LLMS) were used to find bugs which were then reviewed and
+manually fixed by a human. 
+
+We do not anticipate any changes to the above policy in the foreseeable future.
+Users wishing to contribute should submit bugs and pull requests accordingly.

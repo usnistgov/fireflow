@@ -185,6 +185,7 @@ pub struct RawStdKeyIndex<const HAS_PRE: bool> {
     // measurement and returns 'none' if there are no keywords for that index.
     // From there it directs to the real index that points to the strings.
     meas: NestedVariableString<MeasKey, ()>,
+    // TODO this might also be sparse, see dfc below.
     gate: NestedVariableString<GateKey, ()>,
     region: NestedVariableString<RegionKey, ()>,
     csv_flag: NestedVariableString<CsvFlagKey, ()>,

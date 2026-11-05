@@ -397,7 +397,7 @@ pub(crate) enum ChoseHeaderReason {
 /// Result from parsing a pair of strings into a segment offset pair
 pub(crate) enum PairResult<T, E> {
     Valid(Offsets<T, OffsetsFromTEXT>, OriginalOffsets),
-    Malformed(OriginalOffsets, SegmentOffsetError),
+    Malformed(OriginalOffsets, NewOffsetPairError),
     Unparsed(OneOrTwo<E>),
 }
 
@@ -457,7 +457,7 @@ pub struct DatasetOverflowError<N>(pub OffsetsOverflow<N>);
 #[cfg_attr(feature = "python", bound(E: ValueToStdKey<Index = ()>))]
 pub enum ReqOffsetsError<B, E> {
     Key(ReqSegmentKeyError<B, E>),
-    Segment(SegmentOffsetError),
+    Segment(NewOffsetPairError),
 }
 
 /// Error when parsing required segment offsets from TEXT
@@ -477,7 +477,7 @@ pub enum ReqSegmentKeyError<B, E> {
 #[cfg_attr(feature = "python", bound(E: ValueToStdKey<Index = ()>))]
 pub enum OptOffsetsError<B, E> {
     Key(OptSegmentKeyError<B, E>),
-    Segment(SegmentOffsetError),
+    Segment(NewOffsetPairError),
 }
 
 /// Error when parsing or creating optional segment offsets from TEXT
@@ -494,7 +494,7 @@ pub enum OptSegmentKeyError<B, E> {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderOffsetsError {
-    New(SegmentOffsetError),
+    New(NewOffsetPairError),
     Parse(ParseOffsetError),
     OtherBytes(OtherOffsetsNoBytesError),
     Guess(GuessOtherWidthError),
@@ -515,22 +515,48 @@ pub struct OtherOffsetsNoBytesError {
 
 /// Error when creating a new segment
 #[derive(Debug, Error, new, PartialEq, Clone)]
-#[error(
-    "Begin after end for {location} offsets from {src}; \
-     coords=({}, {}), correction=({}, {}), offset={dataset_offset}",
-    self.coords.0,
-    self.coords.1,
-    self.correction.0,
-    self.correction.1,
-)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct SegmentOffsetError {
+pub struct NewOffsetPairError {
     coords: (i128, i128),
     correction: (i32, i32),
     dataset_offset: DatasetOffset,
     location: AnyRegion,
     src: AnySrc,
+    error_type: NewOffsetErrorType,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+enum NewOffsetErrorType {
+    Flipped,
+    Overflow,
+}
+
+impl fmt::Display for NewOffsetPairError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let x0 = self.coords.0;
+        let x1 = self.coords.1;
+        let c0 = self.correction.0;
+        let c1 = self.correction.1;
+        let dso = self.dataset_offset;
+        let src = self.src;
+        let loc = self.location;
+        let offset_data = format!("coords=({x0}, {x1}), correction=({c0}, {c1}), offset={dso}");
+        match self.error_type {
+            NewOffsetErrorType::Flipped => {
+                write!(
+                    f,
+                    "Begin after end for {loc} offsets from {src}; {offset_data}"
+                )
+            }
+            NewOffsetErrorType::Overflow => {
+                write!(
+                    f,
+                    "{loc} offsets from {src} could not be converted to u64; {offset_data}"
+                )
+            }
+        }
+    }
 }
 
 /// Error when one offset pair overlaps with another
@@ -844,7 +870,7 @@ pub(crate) trait KeyedSegmentInner: KeyedOffsets + HasRegion {
         reader: &DatasetReader<R, D>,
         conf: &C,
     ) -> (
-        Result<Offsets<Self, OffsetsFromTEXT>, SegmentOffsetError>,
+        Result<Offsets<Self, OffsetsFromTEXT>, NewOffsetPairError>,
         OriginalOffsets,
     )
     where
@@ -1655,7 +1681,7 @@ impl<I, S> Offsets<I, S> {
         begin: i128,
         end: i128,
         conf: &NewOffsetsConfig<I, S>,
-    ) -> Result<Self, SegmentOffsetError>
+    ) -> Result<Self, NewOffsetPairError>
     where
         I: HasRegion,
         S: HasSource,
@@ -1682,41 +1708,45 @@ impl InnerOffsets {
         begin: i128,
         end: i128,
         conf: &NewOffsetsConfig<I, S>,
-    ) -> Result<Self, SegmentOffsetError> {
+    ) -> Result<Self, NewOffsetPairError> {
         let corr = &conf.corr;
         let corrected_begin = begin + i128::from(corr.begin());
         let corrected_end = end + i128::from(corr.end());
 
+        let o = conf.dataset_offset;
+        let c = (corr.begin(), corr.end());
+
+        let err = |t| NewOffsetPairError::new((begin, end), c, o, I::REGION, S::SRC, t);
+
         if corrected_begin == corrected_end + 1 && conf.allow_pseudoempty.is_set() {
             // Check if this offset is pseudoempty
             // TODO possibly throw warning if this happens
-            return Ok(Self::Empty);
+            Ok(Self::Empty)
         } else if corrected_begin == 0 && corrected_end == 0 {
             // Return empty if both offsets are zero
-            return Ok(Self::Empty);
+            Ok(Self::Empty)
         } else if corrected_begin > corrected_end {
             // Return error if ending offset is greater than beginning offset
-            let o = conf.dataset_offset;
-            let c = (corr.begin(), corr.end());
-            let e = SegmentOffsetError::new((begin, end), c, o, I::REGION, S::SRC);
-            return Err(e);
+            Err(err(NewOffsetErrorType::Flipped))
+        } else {
+            // At this point, we know that the begin offset should be <= the end
+            // offset (which means segment is at least one byte long)
+            let new_length0 = corrected_end
+                .checked_sub(corrected_begin)
+                .expect("end should be greater than start")
+                .try_into()
+                .map_err(|_| err(NewOffsetErrorType::Overflow))?;
+            let new_length = NonZeroU64::MIN
+                .checked_add(new_length0)
+                .ok_or(err(NewOffsetErrorType::Overflow))?;
+
+            let new_begin =
+                u64::try_from(corrected_begin).map_err(|_| err(NewOffsetErrorType::Overflow))?;
+
+            let ne =
+                NonEmptyOffsetsInner::new(new_begin, new_length, new_length, conf.dataset_offset);
+            Ok(Self::NonEmpty(ne))
         }
-
-        // At this point, we know that the begin offset should be <= the end
-        // offset (which means segment is at least one byte long)
-
-        let new_length = corrected_end
-            .checked_sub(corrected_begin)
-            .expect("end should be greater than end")
-            .try_into()
-            .ok()
-            .and_then(|n| NonZeroU64::MIN.checked_add(n))
-            .expect("offset length should be within u64");
-
-        let new_begin = u64::try_from(corrected_begin).expect("offset begin exceeded u64");
-
-        let ne = NonEmptyOffsetsInner::new(new_begin, new_length, new_length, conf.dataset_offset);
-        Ok(Self::NonEmpty(ne))
     }
 
     #[cfg(test)]
@@ -2060,7 +2090,7 @@ impl<I: Copy> HeaderOffsets<I> {
         squish_offsets: bool,
         version: Version,
         conf: &NewOffsetsConfig<I, OffsetsFromHeader>,
-    ) -> Result<Self, SegmentOffsetError>
+    ) -> Result<Self, NewOffsetPairError>
     where
         I: HasRegion,
     {

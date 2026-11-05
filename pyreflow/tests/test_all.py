@@ -2,6 +2,7 @@ import ast
 import inspect as ins
 import struct
 from copy import deepcopy
+from decimal import Decimal
 from datetime import date, datetime, time, timedelta, timezone
 from itertools import chain, product, permutations
 from pathlib import Path
@@ -1207,7 +1208,7 @@ class TestCore:
         $GATING must point to a valid region which must point to a valid $Gn*
         keyword set.
         """
-        ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
+        ur = pf.UnivariateRegion2_0(0, (Decimal(0.0), Decimal(1.0)))
         ag: pt.AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "NOT R1")
         core.applied_gates = ag
 
@@ -1219,7 +1220,7 @@ class TestCore:
     ) -> None:
         """Test gating keywords for 2.0 (invalid gating index error case)."""
         # index 1 does not exist
-        ur = pf.UnivariateRegion2_0(1, (0.0, 1.0))
+        ur = pf.UnivariateRegion2_0(1, (Decimal(0.0), Decimal(1.0)))
         ag: pt.AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "NOT R1")
         with pytest.raises(pf.RelationalError):
             core.applied_gates = ag
@@ -1231,7 +1232,7 @@ class TestCore:
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
         """Test gating keywords for 2.0 (invalid $GATING pointer case)."""
-        ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
+        ur = pf.UnivariateRegion2_0(0, (Decimal(0.0), Decimal(1.0)))
         # R2 does not exist
         ag: pt.AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "NOT R2")
         with pytest.raises(pf.RelationalError):
@@ -1248,7 +1249,7 @@ class TestCore:
         $GATING must point to a valid region which must point to a valid $Gn*
         keyword set or an existing measurement.
         """
-        ur = pf.UnivariateRegion3_0(0, (0.0, 1.0))
+        ur = pf.UnivariateRegion3_0(0, (Decimal(0.0), Decimal(1.0)))
         ag: pt.AppliedGates3_0 = ([], {0: ur}, "NOT R1")
         core.applied_gates = ag
 
@@ -1261,7 +1262,7 @@ class TestCore:
         """Test gating keywords for 3.0/3.1 (invalid measurement pointer error)."""
         with pytest.RaisesGroup(pf.RelationalError):
             # P3 does not point to anything
-            ur_bad = pf.UnivariateRegion3_0(2, (0.0, 1.0))
+            ur_bad = pf.UnivariateRegion3_0(2, (Decimal(0.0), Decimal(1.0)))
             ag_bad = cast(pt.AppliedGates3_0, ([], {0: ur_bad}, None))
             core.applied_gates = ag_bad
 
@@ -1274,7 +1275,7 @@ class TestCore:
         """Test gating keywords for 3.0/3.1 (invalid $Gn* pointer error)."""
         with pytest.raises(pf.RelationalError):
             # there are no gating keywords to reference here
-            ur_bad = pf.UnivariateRegion3_0(0, (0.0, 1.0), True)
+            ur_bad = pf.UnivariateRegion3_0(0, (Decimal(0.0), Decimal(1.0)), True)
             ag_bad = cast(pt.AppliedGates3_0, ([], {0: ur_bad}, None))
             core.applied_gates = ag_bad
 
@@ -1287,7 +1288,7 @@ class TestCore:
         """Test gating keywords for 3.0/3.1 (invalid $GATING pointer error)."""
         with pytest.raises(pf.RelationalError):
             # there are no gating keywords to reference here
-            ur_bad = pf.UnivariateRegion3_0(0, (0.0, 1.0))
+            ur_bad = pf.UnivariateRegion3_0(0, (Decimal(0.0), Decimal(1.0)))
             ag_bad = cast(pt.AppliedGates3_0, ([], {0: ur_bad}, "NOT R2"))
             core.applied_gates = ag_bad
 
@@ -1298,7 +1299,7 @@ class TestCore:
         $GATING must point to a valid region which must point to an existing
         measurement.
         """
-        ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
+        ur = pf.UnivariateRegion3_2(0, (Decimal(0.0), Decimal(1.0)))
         ag: pt.AppliedGates3_2 = ({0: ur}, "NOT R1")
         core.applied_gates = ag
 
@@ -1309,7 +1310,7 @@ class TestCore:
         """Test gating keywords for 3.2 (invalid measurement error)."""
         with pytest.RaisesGroup(pf.PyreflowError):
             # 2 does not point to anything
-            ur_bad = pf.UnivariateRegion3_2(2, (0.0, 1.0))
+            ur_bad = pf.UnivariateRegion3_2(2, (Decimal(0.0), Decimal(1.0)))
             ag_bad = cast(pt.AppliedGates3_2, ({0: ur_bad}, None))
             core.applied_gates = ag_bad
 
@@ -1319,7 +1320,7 @@ class TestCore:
     ) -> None:
         """Test gating keywords for 3.2 (invalid $GATING pointer error)."""
         with pytest.raises(pf.PyreflowError):
-            ur_bad = pf.UnivariateRegion3_2(2, (0.0, 1.0))
+            ur_bad = pf.UnivariateRegion3_2(2, (Decimal(0.0), Decimal(1.0)))
             # R2 doesn't point to anything
             ag_bad = cast(pt.AppliedGates3_2, ({0: ur_bad}, "NOT R2"))
             core.applied_gates = ag_bad
@@ -2172,7 +2173,7 @@ class TestCore:
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
         """Test removing measurement with $RnI pointing to it (3.0/3.1) (should error)."""
-        ur = pf.UnivariateRegion3_0(0, (0.0, 1.0))
+        ur = pf.UnivariateRegion3_0(0, (Decimal(0.0), Decimal(1.0)))
         ag: pt.AppliedGates3_0 = ([], {0: ur}, "NOT R1")
         core.applied_gates = ag
         core.remove_measurement_by_index(1)
@@ -2186,7 +2187,7 @@ class TestCore:
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
         """Test removing measurement with $RnI pointing to it (3.2) (should error)."""
-        ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
+        ur = pf.UnivariateRegion3_2(0, (Decimal(0.0), Decimal(1.0)))
         ag: pt.AppliedGates3_2 = ({0: ur}, "NOT R1")
         core.applied_gates = ag
         core.remove_measurement_by_index(1)
@@ -3732,34 +3733,34 @@ class TestGating:
 
     def test_uvregion2_0(self) -> None:
         """Test $RnI/$RnW object creation for one dimension (2.0)."""
-        r = pf.UnivariateRegion2_0(0, (0.0, 1.0))
+        r = pf.UnivariateRegion2_0(0, (Decimal(0.0), Decimal(1.0)))
         assert r.index == 0
-        assert r.gate == (0.0, 1.0)
+        assert r.gate == (Decimal(0.0), Decimal(1.0))
 
     def test_uvregion3_0(self) -> None:
         """Test $RnI/$RnW object creation for one dimension (3.0/3.1)."""
-        r = pf.UnivariateRegion3_0(0, (0.0, 1.0))
+        r = pf.UnivariateRegion3_0(0, (Decimal(0.0), Decimal(1.0)))
         assert r.index == 0
-        assert r.gate == (0.0, 1.0)
+        assert r.gate == (Decimal(0.0), Decimal(1.0))
 
     def test_uvregion3_2(self) -> None:
         """Test $RnI/$RnW object creation for one dimension (3.2)."""
-        r = pf.UnivariateRegion3_2(0, (0.0, 1.0))
+        r = pf.UnivariateRegion3_2(0, (Decimal(0.0), Decimal(1.0)))
         assert r.index == 0
-        assert r.gate == (0.0, 1.0)
+        assert r.gate == (Decimal(0.0), Decimal(1.0))
 
     def test_bvregion2_0(self) -> None:
         """Test $RnI/$RnW object creation for two dimensions (2.0)."""
         i = (0, 1)
         # TODO this should have 3 vertices minimum, a line gate makes no sense
-        vs = [(0.0, 1.0), (1.0, 3.0)]
+        vs = [(Decimal(0.0), Decimal(1.0)), (Decimal(1.0), Decimal(3.0))]
         r = pf.BivariateRegion2_0(i, vs)
         assert r.index == i
         assert r.vertices == vs
 
     def test_bvregion3_0(self) -> None:
         """Test $RnI/$RnW object creation for two dimensions (3.0/3.1)."""
-        vs = [(0.0, 1.0), (1.0, 3.0)]
+        vs = [(Decimal(0.0), Decimal(1.0)), (Decimal(1.0), Decimal(3.0))]
         r = pf.BivariateRegion3_0(0, 1, vs, False, True)
         assert r.x_index == 0
         assert r.y_index == 1
@@ -3770,7 +3771,7 @@ class TestGating:
     def test_bvregion3_2(self) -> None:
         """Test $RnI/$RnW object creation for two dimensions (3.2)."""
         i = (0, 1)
-        vs = [(0.0, 1.0), (1.0, 3.0)]
+        vs = [(Decimal(0.0), Decimal(1.0)), (Decimal(1.0), Decimal(3.0))]
         r = pf.BivariateRegion3_2(i, vs)
         assert r.index == i
         assert r.vertices == vs
@@ -7548,8 +7549,15 @@ class TestReadWrite:
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "text.fcs"
-        ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
-        br = pf.BivariateRegion2_0((0, 1), [(0.0, 1.0), (2.0, 3.0), (4.0, 5.0)])
+        ur = pf.UnivariateRegion2_0(0, (Decimal(0.0), Decimal(1.0)))
+        br = pf.BivariateRegion2_0(
+            (0, 1),
+            [
+                (Decimal(0.0), Decimal(1.0)),
+                (Decimal(2.0), Decimal(3.0)),
+                (Decimal(4.0), Decimal(5.0)),
+            ],
+        )
         gm2 = deepcopy(blank_gated_meas)
         blank_gated_meas.longname = "marty"
         blank_gated_meas.filter = "kiko"
@@ -7589,8 +7597,16 @@ class TestReadWrite:
         blank_gated_meas.percent_emitted = 101.0
         blank_gated_meas.range = 420
         blank_gated_meas.detector_voltage = 9.75
-        ur = pf.UnivariateRegion3_0(0, (0.0, 1.0))
-        br = pf.BivariateRegion3_0(0, 2, [(0.0, 1.0), (2.0, 3.0), (4.0, 5.0)])
+        ur = pf.UnivariateRegion3_0(0, (Decimal(0.0), Decimal(1.0)))
+        br = pf.BivariateRegion3_0(
+            0,
+            2,
+            [
+                (Decimal(0.0), Decimal(1.0)),
+                (Decimal(2.0), Decimal(3.0)),
+                (Decimal(4.0), Decimal(5.0)),
+            ],
+        )
         test: pt.AppliedGates3_0 = (
             [blank_gated_meas],
             {0: ur, 1: br},
@@ -7615,8 +7631,15 @@ class TestReadWrite:
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "text.fcs"
-        ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
-        br = pf.BivariateRegion3_2((0, 2), [(0.0, 1.0), (2.0, 3.0), (4.0, 5.0)])
+        ur = pf.UnivariateRegion3_2(0, (Decimal(0.0), Decimal(1.0)))
+        br = pf.BivariateRegion3_2(
+            (0, 2),
+            [
+                (Decimal(0.0), Decimal(1.0)),
+                (Decimal(2.0), Decimal(3.0)),
+                (Decimal(4.0), Decimal(5.0)),
+            ],
+        )
         test: pt.AppliedGates3_2 = ({0: ur, 1: br}, "((NOT R1) AND R2)")
         core.applied_gates = test
         core.write_text(p)

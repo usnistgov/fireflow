@@ -8819,7 +8819,7 @@ impl<E: From<PyException>> PyList<E> {
 
     fn new_vertices() -> Self {
         let inner_path = keyword_path("Vertex");
-        let inner: PyTuple<_> = repeat_n(RsFloat::F32, 2).collect();
+        let inner = PyTuple::new1(PyDecimal::default()).add(PyDecimal::default());
         Self::new_non_empty(inner, Some(&inner_path))
     }
 
@@ -9007,7 +9007,7 @@ impl<E> PyTuple<E> {
 
 impl<E: From<PyException>> PyTuple<E> {
     fn new_unigate() -> Self {
-        [RsFloat::F32, RsFloat::F32]
+        [PyDecimal::default(), PyDecimal::default()]
             .into_iter()
             .collect::<Self>()
             .rstype(keyword_path("UniGate"))

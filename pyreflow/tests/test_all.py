@@ -4712,6 +4712,7 @@ class TestConfig:
         if len(other_segs) == 0:
             assert out.final_offsets.others is None
         else:
+            assert out.final_offsets.others is not None
             os_out, _ = out.final_offsets.others
             norm_corrections = [
                 (other_corrections[i] if i < len(other_corrections) else (0, 0))
@@ -4750,9 +4751,11 @@ class TestConfig:
         if max_other == 0 or len(other_segs) == 0:
             assert out.final_offsets.others is None
         elif max_other is None:
+            assert out.final_offsets.others is not None
             os_out, _ = out.final_offsets.others
             assert os_out == [(i, s) for i, s in enumerate(other_segs)]
         else:
+            assert out.final_offsets.others is not None
             os_out, _ = out.final_offsets.others
             assert os_out == [(i, s) for i, s in enumerate(other_segs[0:max_other])]
 
@@ -4781,6 +4784,7 @@ class TestConfig:
         # for every segment piece they try and fail to parse
         if other_width == 8:
             out = pf.api.fcs_read_header(p, guess_other_width="none")
+            assert out.final_offsets.others is not None
             assert out.final_offsets.others[1] == other_width
         elif other_width == 11:
             with pytest.RaisesGroup(
@@ -4806,12 +4810,15 @@ class TestConfig:
 
         # none of these will emit warnings/errors since the guess succeeds
         out = pf.api.fcs_read_header(p, guess_other_width="error")
+        assert out.final_offsets.others is not None
         assert out.final_offsets.others[1] == other_width
 
         out = pf.api.fcs_read_header(p, guess_other_width="warn")
+        assert out.final_offsets.others is not None
         assert out.final_offsets.others[1] == other_width
 
         out = pf.api.fcs_read_header(p, guess_other_width="silent")
+        assert out.final_offsets.others is not None
         assert out.final_offsets.others[1] == other_width
 
     @all_versions
@@ -4861,12 +4868,14 @@ class TestConfig:
 
         if other_end == 0:
             out = pf.api.fcs_read_header(p, allow_pseudoempty=False)
+            assert out.final_offsets.others is not None
             assert out.final_offsets.others[0][0] == (0, (0, 0))
         else:
             with pytest.RaisesGroup(pf.FileLayoutError):
                 pf.api.fcs_read_header(p, allow_pseudoempty=False)
 
         out = pf.api.fcs_read_header(p, allow_pseudoempty=True)
+        assert out.final_offsets.others is not None
         assert out.final_offsets.others[0][0] == (0, (0, 0))
 
     @all_versions
@@ -5009,7 +5018,7 @@ class TestConfig:
             h = out.flat_diagnostics.header_supp
             return h.supp_text.origin_type
 
-        Out3 = tuple[pt.SuppTEXTOffsetsOriginType, pt.FinalOffsets, int | None]
+        Out3 = tuple[pt.SuppTEXTOffsetsOriginType, pt.FinalOffsets | None, int | None]
 
         def go3(f: TriFlag) -> Out3:
             out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
@@ -7881,7 +7890,7 @@ class TestReadWrite:
         tmp_path: Path,
         mmap: bool,
         core: AnyCoreDataset,
-        data_schema: pt.AsciiDataSchema,
+        data_schema: pf.FixedAsciiDataSchema | pf.DelimAsciiDataSchema,
     ) -> None:
         """Test writing then reading an ASCII dataset.
 

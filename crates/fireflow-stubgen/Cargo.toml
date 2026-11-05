@@ -1,0 +1,21 @@
+[package]
+name = "fireflow-stubgen"
+version = { workspace = true }
+edition = { workspace = true }
+description = """
+Stub generation tool for pyreflow
+"""
+
+[[bin]]
+bench = false
+path = "src/main.rs"
+name = "fireflow-stubgen"
+
+[build-dependencies]
+minijinja = "2.24.0"
+fireflow-python = { path = "../fireflow-python", features = ["stub"] }
+derive-new = { workspace = true }
+serde = { workspace = true }
+
+[lints]
+workspace = true

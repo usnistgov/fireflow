@@ -109,10 +109,14 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_dataset_offset_param(true))
         .returns(DocReturn::new(PyClass::new_py(["api"], "Header")).exc([exc]));
 
+    let stub = doc.impl_function_stub("fcs_read_header");
+
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
 
     quote! {
+        #stub
+
         #[pyfunction]
         #doc
         #[allow(clippy::too_many_arguments)]
@@ -194,7 +198,12 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
         let conf = #conf_path { header, flat, offset, shared };
     };
 
+    let stub0 = one_doc.impl_function_stub("fcs_read_flat_text");
+    let stub1 = many_doc.impl_function_stub("fcs_read_flat_texts");
     quote! {
+        #stub0
+        #stub1
+
         #[pyfunction]
         #one_doc
         #[allow(clippy::too_many_arguments)]
@@ -300,7 +309,13 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
         let conf = #conf_path { header, flat, offset, standard, repair, layout, shared };
     };
 
+    let stub0 = one_doc.impl_function_stub("fcs_read_std_text");
+    let stub1 = many_doc.impl_function_stub("fcs_read_std_texts");
+
     quote! {
+        #stub0
+        #stub1
+
         #[pyfunction]
         #one_doc
         #[allow(clippy::too_many_arguments)]
@@ -420,7 +435,14 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         let conf = #conf_path { header, flat, offset, repair, layout, data, shared };
     };
 
+    let stub0 = one_doc.impl_function_stub("fcs_read_flat_dataset");
+    let stub1 = many_doc.impl_function_stub("fcs_read_flat_datasets");
+    let stub2 = smry_doc.impl_function_stub("fcs_summarize");
     quote! {
+        #stub0
+        #stub1
+        #stub2
+
         #[pyfunction]
         #one_doc
         #[allow(clippy::too_many_arguments)]
@@ -451,6 +473,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+#[allow(clippy::too_many_lines)]
 pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as ReadPaths2);
     let fun_one_path = &parsed.path0;
@@ -538,7 +561,12 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         let conf = #conf_path { header, flat, offset, standard, repair, layout, data, shared };
     };
 
+    let stub0 = one_doc.impl_function_stub("fcs_read_std_dataset");
+    let stub1 = many_doc.impl_function_stub("fcs_read_std_datasets");
     quote! {
+        #stub0
+        #stub1
+
         #[pyfunction]
         #one_doc
         #[allow(clippy::too_many_arguments)]
@@ -609,7 +637,10 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
 
+    let stub = doc.impl_function_stub("fcs_read_flat_dataset_with_keywords");
     quote! {
+        #stub
+
         #[pyfunction]
         #doc
         #[allow(clippy::too_many_arguments)]
@@ -675,7 +706,10 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
 
+    let stub = doc.impl_function_stub("fcs_write_datasets");
     quote! {
+        #stub
+
         #[pyfunction]
         #doc
         #[allow(clippy::too_many_arguments)]
@@ -724,7 +758,11 @@ pub fn def_fcs_scan_dataset_boundaries(input: TokenStream) -> TokenStream {
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
 
+    let stub = doc.impl_function_stub("fcs_scan_dataset_boundaries");
+
     quote! {
+        #stub
+
         #[pyfunction]
         #doc
         #[allow(clippy::too_many_arguments)]
@@ -784,8 +822,6 @@ pub fn impl_config_defaults(input: TokenStream) -> TokenStream {
             "Config for {}.",
             api_fun("fcs_read_flat_dataset_with_keywords")
         )),
-        // "NewCoreTEXTConfig" => DocString::new_class("Config for ``CoreTEXT*.from_kws()``."),
-        // "NewCoreDatasetConfig" => DocString::new_class("Config for ``CoreDataset*.from_kws()``."),
         s => panic!("unsupported type '{s}'"),
     };
 
@@ -987,7 +1023,7 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -1023,7 +1059,7 @@ pub fn impl_py_valid_keywords(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -1068,7 +1104,7 @@ pub fn impl_py_header_offsets(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -1114,7 +1150,7 @@ pub fn impl_py_original_header_offsets(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -1148,7 +1184,7 @@ pub fn impl_py_flat_text_output(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -1205,7 +1241,7 @@ pub fn impl_py_flat_dataset_output(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -1254,7 +1290,7 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -1293,7 +1329,7 @@ pub fn impl_py_new_flat_dataset_with_kws_output(input: TokenStream) -> TokenStre
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -1478,7 +1514,7 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -1622,7 +1658,7 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -1754,7 +1790,7 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -1957,7 +1993,7 @@ pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -2027,7 +2063,7 @@ pub fn impl_py_intra_segment_dark_bytes(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -2113,7 +2149,7 @@ pub fn impl_py_keyword_version_score(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -2181,7 +2217,7 @@ pub fn impl_py_offsets_overflow(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -2265,7 +2301,7 @@ pub fn impl_py_offsets_overlap(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -2512,7 +2548,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -2522,7 +2558,7 @@ pub fn impl_py_data_schema_diagnostics(input: TokenStream) -> TokenStream {
 
     let truncated_columns = DocArgROIvar::new_ivar_ro(
         "truncated_columns",
-        PyList::new1(PyOpt::new1(PyDecimal::new_text_range())),
+        PyList::new1(PyOpt::new1(PyFloat::new_text_range())),
         format!(
             "Original values of {PNR} if they were truncated. Length of list will \
              be equal to {PAR}."
@@ -2583,7 +2619,7 @@ pub fn impl_py_data_schema_diagnostics(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -2643,7 +2679,7 @@ pub fn impl_py_dataset_offsets(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -2711,7 +2747,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -2765,7 +2801,7 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -2806,7 +2842,7 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -2845,7 +2881,7 @@ pub fn impl_py_new_std_dataset_with_kws_output(input: TokenStream) -> TokenStrea
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[allow(clippy::too_many_lines)]
@@ -2894,7 +2930,7 @@ pub fn impl_py_header_supp(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[allow(clippy::too_many_lines)]
@@ -2997,7 +3033,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -3209,7 +3245,7 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[allow(clippy::too_many_lines)]
@@ -3377,7 +3413,7 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
             // }
         }
     };
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -3454,10 +3490,13 @@ pub fn impl_py_build_info(input: TokenStream) -> TokenStream {
 
     let doc = DocString::new_class(format!("Information for this build of {PYREFLOW}")).args(args);
 
-    let (pyname, wrapped) = doc.as_impl_wrapped(name, &path);
+    let (pyname, wrapped) = doc.as_impl_wrapped(&name, &path);
     let get_set_methods = doc.quoted_methods();
 
+    let stub = doc.impl_class_stub(&pyname, &name, false, None);
     let s = quote! {
+        #stub
+
         #wrapped
 
         #[pymethods]
@@ -3677,10 +3716,14 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     };
 
     let (_, coretext_q) =
-        coretext_doc.into_impl_class(coretext_name, &coretext_rstype, coretext_new);
+        coretext_doc.into_impl_class(coretext_name, &coretext_rstype, coretext_new, None);
 
-    let (_, coredataset_q) =
-        coredataset_doc.into_impl_class(coredataset_name, &coredataset_rstype, coredataset_new);
+    let (_, coredataset_q) = coredataset_doc.into_impl_class(
+        coredataset_name,
+        &coredataset_rstype,
+        coredataset_new,
+        None,
+    );
 
     quote! {
         #coretext_q
@@ -3739,11 +3782,12 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
         .arg(root_or_meas)
         .returns(DocReturn::new(PyDict::new_keywords()).desc("A list of standard keywords."));
 
+    let stub = doc.impl_method_stub(&ident, "standard_keywords");
     let fun_args = doc.fun_args();
     let inner_args = doc.idents_into();
     let ret_path = doc.ret_path();
-
     quote! {
+        #stub
         #[pymethods]
         impl #ident {
             #doc
@@ -3770,7 +3814,9 @@ pub fn impl_core_set_tr_threshold(input: TokenStream) -> TokenStream {
     let fun_arg = doc.fun_args();
     let ret_path = doc.ret_path();
 
+    let stub = doc.impl_method_stub(&t, "set_trigger_threshold");
     quote! {
+        #stub
         #[pymethods]
         impl #t {
             #doc
@@ -3808,7 +3854,10 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
 
+    let stub = doc.impl_method_stub(&i, "write_text");
+
     quote! {
+        #stub
         #[pymethods]
         impl #i {
             #doc
@@ -3868,7 +3917,11 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
 
+    let stub = doc.impl_method_stub(&i, "write_dataset");
+
     quote! {
+        #stub
+
         #[pymethods]
         impl #i {
             #doc
@@ -3974,7 +4027,11 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
     let set_ret = set_doc.ret_path();
     let set_fun_arg = set_doc.fun_args();
 
+    let stub = set_doc.impl_method_stub(&i, "set_timestep");
+
     let setq = quote! {
+        #stub
+
         #[pymethods]
         impl #i {
             #set_doc
@@ -3983,7 +4040,6 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
             }
         }
     };
-
     quote!(#getq #setq).into()
 }
 
@@ -4022,12 +4078,27 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             )))
     };
 
-    let q = if version == Version::FCS2_0 {
+    let wrap = |stub0, stub1, inner| {
+        quote! {
+            #stub0
+            #stub1
+
+            #[pymethods]
+            impl #ident {
+                #inner
+            }
+        }
+        .into()
+    };
+
+    if version == Version::FCS2_0 {
         let name_doc = make_doc(false, false);
         let index_doc = make_doc(false, true);
         let name_fun_args = name_doc.fun_args();
         let index_fun_args = index_doc.fun_args();
-        quote! {
+        let stub0 = name_doc.impl_method_stub(&ident, "set_temporal");
+        let stub1 = index_doc.impl_method_stub(&ident, "set_temporal_at");
+        let s = quote! {
             #name_doc
             fn set_temporal(&mut self, #name_fun_args) -> PyResult<bool> {
                 self.0.set_temporal(&name, (), allow_loss).py_resolve_commutative()
@@ -4037,13 +4108,16 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             fn set_temporal_at(&mut self, #index_fun_args) -> PyResult<bool> {
                 self.0.set_temporal_at(index, (), allow_loss).py_resolve_commutative()
             }
-        }
+        };
+        wrap(stub0, stub1, s)
     } else {
         let name_doc = make_doc(true, false);
         let index_doc = make_doc(true, true);
         let name_fun_args = name_doc.fun_args();
         let index_fun_args = index_doc.fun_args();
-        quote! {
+        let stub0 = name_doc.impl_method_stub(&ident, "set_temporal");
+        let stub1 = index_doc.impl_method_stub(&ident, "set_temporal_at");
+        let s = quote! {
             #name_doc
             fn set_temporal(&mut self, #name_fun_args) -> PyResult<bool> {
                 self.0
@@ -4057,16 +4131,9 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
                     .set_temporal_at(index, timestep, allow_loss)
                     .py_resolve_commutative()
             }
-        }
-    };
-
-    quote! {
-        #[pymethods]
-        impl #ident {
-            #q
-        }
+        };
+        wrap(stub0, stub1, s)
     }
-    .into()
 }
 
 #[proc_macro]
@@ -4101,42 +4168,52 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
             .returns(DocReturn::new(rt).desc(rd))
     };
 
-    let q = if version == Version::FCS2_0 {
+    let wrap = |stub, inner| {
+        quote! {
+            #stub
+
+            #[pymethods]
+            impl #i {
+                #inner
+            }
+        }
+        .into()
+    };
+
+    if version == Version::FCS2_0 {
         let doc = make_doc(false, false);
         let ret = doc.ret_path();
-        quote! {
+        let stub = doc.impl_method_stub(&i, "unset_temporal");
+        let s = quote! {
             #doc
             fn unset_temporal(&mut self) -> #ret {
                 self.0.unset_temporal().is_some()
             }
-        }
+        };
+        wrap(stub, s)
     } else if version < Version::FCS3_2 {
         let doc = make_doc(true, false);
         let ret = doc.ret_path();
-        quote! {
+        let stub = doc.impl_method_stub(&i, "unset_temporal");
+        let s = quote! {
             #doc
             fn unset_temporal(&mut self) -> #ret {
                 self.0.unset_temporal()
             }
-        }
+        };
+        wrap(stub, s)
     } else {
         let doc = make_doc(true, true);
         let ret = doc.ret_path();
-        quote! {
+        let stub = doc.impl_method_stub(&i, "unset_temporal");
+        let s = quote! {
             #doc
             fn unset_temporal(&mut self, allow_loss: fireflow_types::config::AllowLoss) -> PyResult<#ret> {
                 self.0.unset_temporal_lossy(allow_loss).py_resolve_non_commutative()
             }
-        }
-    };
-
-    quote! {
-        #[pymethods]
-        impl #i {
-            #q
-        }
+        };
+        wrap(stub, s)
     }
-    .into()
 }
 
 #[proc_macro]
@@ -4157,7 +4234,11 @@ pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
 
+    let stub = doc.impl_method_stub(&i, "rename_temporal");
+
     quote! {
+        #stub
+
         #[pymethods]
         impl #i {
             #doc
@@ -4315,7 +4396,10 @@ pub fn impl_core_get_measurement(input: TokenStream) -> TokenStream {
     let fun_args = doc.fun_args();
     let ret = doc.ret_path();
 
+    let stub = doc.impl_method_stub(&i, "measurement_at");
+
     quote! {
+        #stub
         #[pymethods]
         impl #i {
             #doc
@@ -4342,7 +4426,10 @@ pub fn impl_core_get_named_measurement(input: TokenStream) -> TokenStream {
     let fun_args = doc.fun_args();
     let ret = doc.ret_path();
 
+    let stub = doc.impl_method_stub(&i, "measurement_named");
     quote! {
+        #stub
+
         #[pymethods]
         impl #i {
             #doc
@@ -4378,7 +4465,11 @@ pub fn impl_core_set_named_measurements(input: TokenStream) -> TokenStream {
 
     let fun_args = doc.fun_args();
 
+    let stub = doc.impl_method_stub(&i, "set_named_measurements");
+
     quote! {
+        #stub
+
         #[pymethods]
         impl #i {
             #doc
@@ -4435,8 +4526,23 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
         Version::FCS3_2 => quote!(col.with_mixed_range(range)?),
     };
 
-    let inner_q = if is_dataset {
+    let wrap = |stub0, stub1, inner_q| {
         quote! {
+            #stub0
+            #stub1
+
+            #[pymethods]
+            impl #i {
+                #inner_q
+            }
+        }
+        .into()
+    };
+
+    if is_dataset {
+        let stub0 = opt_doc.impl_method_stub(&i, "push_optical");
+        let stub1 = tmp_doc.impl_method_stub(&i, "push_temporal");
+        let s = quote! {
             #opt_doc
             fn push_optical(&mut self, #opt_fun_args) -> PyResult<()> {
                 let rng_col = #range_series_method;
@@ -4450,9 +4556,12 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
                 self.0.push_temporal(name.into(), meas.into(), rng_col)?;
                 Ok(())
             }
-        }
+        };
+        wrap(stub0, stub1, s)
     } else {
-        quote! {
+        let stub0 = opt_doc.impl_method_stub(&i, "push_optical");
+        let stub1 = tmp_doc.impl_method_stub(&i, "push_temporal");
+        let s = quote! {
             #opt_doc
             fn push_optical(&mut self, #opt_fun_args) -> PyResult<()> {
                 let _ = self.0.push_optical(name.into(), meas.into(), scale, range)?;
@@ -4464,16 +4573,9 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
                 self.0.push_temporal(name.into(), meas.into(), range)?;
                 Ok(())
             }
-        }
-    };
-
-    quote! {
-        #[pymethods]
-        impl #i {
-            #inner_q
-        }
+        };
+        wrap(stub0, stub1, s)
     }
-    .into()
 }
 
 #[proc_macro]
@@ -4536,6 +4638,9 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let by_index_doc = DocString::new_method("Remove a measurement with a given index.")
         .arg(DocArg::new_index_param("Index to remove."))
         .returns(make_ret(true));
+
+    let stub0 = by_name_doc.impl_method_stub(&i, "remove_measurement_by_name");
+    let stub1 = by_index_doc.impl_method_stub(&i, "remove_measurement_by_index");
 
     let name_arg = by_name_doc.fun_args();
     let index_arg = by_index_doc.fun_args();
@@ -4609,6 +4714,9 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     };
 
     quote! {
+        #stub0
+        #stub1
+
         #[pymethods]
         impl #i {
             #by_name_doc
@@ -4672,6 +4780,8 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
         Version::FCS3_1 => quote!(col.with_bitmask_range(range)?),
         Version::FCS3_2 => quote!(col.with_mixed_range(range)?),
     };
+    let stub0 = opt_doc.impl_method_stub(&i, "insert_optical");
+    let stub1 = tmp_doc.impl_method_stub(&i, "insert_temporal");
 
     let inner_q = if is_dataset {
         quote! {
@@ -4718,6 +4828,9 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
     };
 
     quote! {
+        #stub0
+        #stub1
+
         #[pymethods]
         impl #i {
             #inner_q
@@ -4767,6 +4880,9 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
     let replace_at_doc = make_replace_doc(true);
     let replace_named_doc = make_replace_doc(false);
 
+    let stub0 = replace_at_doc.impl_method_stub(&ident, "replace_optical_at");
+    let stub1 = replace_named_doc.impl_method_stub(&ident, "replace_optical_named");
+
     let index_fun_args = replace_at_doc.fun_args();
     let name_fun_args = replace_named_doc.fun_args();
 
@@ -4774,6 +4890,9 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
     let named_ret = replace_named_doc.ret_path();
 
     quote! {
+        #stub0
+        #stub1
+
         #[pymethods]
         impl #ident {
             #replace_at_doc
@@ -4862,7 +4981,13 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
     let index_ret = replace_at_doc.ret_path();
     let named_ret = replace_named_doc.ret_path();
 
+    let stub0 = replace_at_doc.impl_method_stub(&ident, "replace_temporal_at");
+    let stub1 = replace_named_doc.impl_method_stub(&ident, "replace_temporal_named");
+
     quote! {
+        #stub0
+        #stub1
+
         #[pymethods]
         impl #ident {
             #replace_at_doc
@@ -4963,7 +5088,11 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
 
+    let stub = doc.impl_classmethod_stub(&pyname, "from_kws");
+
     quote! {
+        #stub
+
         #[pymethods]
         impl #pyname {
             #[classmethod]
@@ -5069,7 +5198,10 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
 
+    let stub = doc.impl_classmethod_stub(&pyname, "from_kws");
     quote! {
+        #stub
+
         #[pymethods]
         impl #pyname {
             #[classmethod]
@@ -5158,7 +5290,11 @@ pub fn impl_coretext_write_multi(input: TokenStream) -> TokenStream {
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
 
+    let stub = doc.impl_classmethod_stub(&pyname, "write_texts");
+
     quote! {
+        #stub
+
         #[pymethods]
         impl #pyname {
             #[classmethod]
@@ -5191,7 +5327,10 @@ pub fn impl_coretext_unset_measurements(input: TokenStream) -> TokenStream {
     // let exc = PyException::new_existing();
     let doc = DocString::new_method(s).paras([p0]);
 
+    let stub = doc.impl_method_stub(&i, "unset_measurements");
     quote! {
+        #stub
+
         #[pymethods]
         impl #i {
             #doc
@@ -5218,7 +5357,10 @@ pub fn impl_coredataset_unset_data(input: TokenStream) -> TokenStream {
     // let exc = PyException::new_existing();
     let doc = DocString::new_method("Remove all measurements and their data.").para(p0);
 
+    let stub = doc.impl_method_stub(&i, "unset_data");
     quote! {
+        #stub
+
         #[pymethods]
         impl #i {
             #doc
@@ -5259,7 +5401,11 @@ pub fn impl_coredataset_check_ranges(input: TokenStream) -> TokenStream {
     let inner_arg = doc.idents();
     let ret_path = doc.ret_path();
 
+    let stub = doc.impl_method_stub(&i, "check_ranges");
+
     quote! {
+        #stub
+
         #[pymethods]
         impl #i {
             #doc
@@ -5308,7 +5454,13 @@ pub fn impl_core_set_measurements_and_data_schema(input: TokenStream) -> TokenSt
     let named_fun_args = named_doc.fun_args();
     let unnamed_fun_args = unnamed_doc.fun_args();
 
+    let stub0 = named_doc.impl_method_stub(&i, "set_named_measurements_and_data_schema");
+    let stub1 = unnamed_doc.impl_method_stub(&i, "set_measurements_and_data_schema");
+
     quote! {
+        #stub0
+        #stub1
+
         #[pymethods]
         impl #i {
             #named_doc
@@ -5368,7 +5520,13 @@ pub fn impl_coredataset_set_named_measurements_and_data(input: TokenStream) -> T
     let named_fun_args = named_doc.fun_args();
     let unnamed_fun_args = unnamed_doc.fun_args();
 
+    let stub0 = named_doc.impl_method_stub(&i, "set_named_measurements_and_data");
+    let stub1 = unnamed_doc.impl_method_stub(&i, "set_measurements_and_data");
+
     quote! {
+        #stub0
+        #stub1
+
         #[pymethods]
         impl #i {
             #named_doc
@@ -5425,7 +5583,11 @@ pub fn impl_coredataset_set_measurements_data_schema_and_data(input: TokenStream
 
     let fun_args = doc.fun_args();
 
+    let stub = doc.impl_method_stub(&i, "set_measurements_data_schema_and_data");
+
     quote! {
+        #stub
+
         #[pymethods]
         impl #i {
             #doc
@@ -5459,7 +5621,11 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
 
+    let stub = doc.impl_method_stub(&i, "to_dataset");
+
     quote! {
+        #stub
+
         #[pymethods]
         impl #i {
             #doc
@@ -5485,7 +5651,10 @@ pub fn impl_coredataset_to_text(input: TokenStream) -> TokenStream {
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
 
+    let stub = doc.impl_method_stub(&i, "to_text");
     quote! {
+        #stub
+
         #[pymethods]
         impl #i {
             #doc
@@ -5637,7 +5806,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         }
     };
 
-    doc.into_impl_class(name, &path, new_method).1.into()
+    doc.into_impl_class(name, &path, new_method, None).1.into()
 }
 
 #[proc_macro]
@@ -5961,13 +6130,14 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
                       to an earlier version, as many keywords from the later \
                       version may not exist in the earlier version. There is no \
                       place to keep these values so they must be discarded.";
-    let outputs: Vec<_> = ALL_VERSIONS
+    let (stubs, bodies): (Vec<_>, Vec<_>) = ALL_VERSIONS
         .iter()
         .filter(|&&v| v != version)
         .map(|&v| {
             let vsu = v.short_underscore();
             let vs = v.short();
-            let fn_name = format_ident!("to_version_{vsu}");
+            let fn_name_ = format!("to_version_{vsu}");
+            let fn_name = format_ident!("{fn_name_}");
             let target_type = if is_dataset {
                 PyClass::new_coredataset(v)
             } else {
@@ -5991,7 +6161,8 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
                         .desc(format!("A new class conforming to FCS {vs}."))
                         .exc([exc0, exc1]),
                 );
-            quote! {
+            let stub = doc.impl_method_stub(&i, fn_name_);
+            let body = quote! {
                 #doc
                 fn #fn_name(
                     &self,
@@ -5999,14 +6170,17 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
                 ) -> PyResult<#target_pytype> {
                     self.0.clone().try_convert(allow_loss).py_resolve_commutative().map(Into::into)
                 }
-            }
+            };
+            (stub, body)
         })
-        .collect();
+        .unzip();
 
     quote! {
+        #(#stubs)*
+
         #[pymethods]
         impl #i {
-            #(#outputs)*
+            #(#bodies)*
         }
     }
     .into()
@@ -6077,7 +6251,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
     let shortname_pytype = PyAlias::new_shortname().rstype(keyword_path("GateShortname"));
     let shortname = make_arg_opt("shortname", "N", shortname_pytype.into());
 
-    let range_pytype = PyDecimal::new_gate_range();
+    let range_pytype = PyFloat::new_gate_range();
     let range = make_arg_opt("range", "R", range_pytype.into());
 
     let summary = format!("The {GM_ANY} keywords for one gated measurement.");
@@ -6101,7 +6275,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         }
     };
 
-    doc.into_impl_class(name, &path, new).1.into()
+    doc.into_impl_class(name, &path, new, None).1.into()
 }
 
 #[proc_macro]
@@ -6132,7 +6306,8 @@ pub fn impl_new_fixed_ascii_data_schema(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
+    let (pyname, class) =
+        doc.into_impl_class(name.value(), &path, new, Some("pft.AsciiDataSchema"));
 
     let char_widths_doc =
         DocString::new_ivar("The width of each measurement.", PyList::new1(RsInt::U64)).para(
@@ -6190,7 +6365,7 @@ pub fn impl_new_delim_ascii_data_schema(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name.value(), path, new);
+    let (pyname, class) = doc.into_impl_class(name.value(), path, new, Some("pft.AsciiDataSchema"));
     let datatype = make_data_schema_datatype(&pyname, "A");
     quote!(#class #datatype).into()
 }
@@ -6237,7 +6412,8 @@ pub fn impl_new_ordered_float_data_schema(input: TokenStream) -> TokenStream {
             }
         }
     };
-    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
+    let (pyname, class) =
+        doc.into_impl_class(name.value(), &path, new, Some("pft.OrderedDataSchema"));
 
     let widths = make_byte_width(&pyname, nbytes);
     let datatype = make_data_schema_datatype(&pyname, dt);
@@ -6278,7 +6454,8 @@ pub fn impl_new_endian_float_data_schema(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
+    let (pyname, class) =
+        doc.into_impl_class(name.value(), &path, new, Some("pft.BigLittleDataSchema"));
 
     let widths = make_byte_width(&pyname, nbytes);
     let datatype = make_data_schema_datatype(&pyname, dt);
@@ -6318,7 +6495,8 @@ pub fn impl_new_ordered_uint_data_schema(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
+    let (pyname, class) =
+        doc.into_impl_class(name.value(), &path, new, Some("pft.OrderedDataSchema"));
     let datatype = make_data_schema_datatype(&pyname, "I");
     let is_float = make_data_schema_is_float(&pyname, false);
     quote!(#class #datatype #is_float).into()
@@ -6348,7 +6526,12 @@ pub fn impl_new_single_uint_data_schema(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
+    let (pyname, class) = doc.into_impl_class(
+        name.value(),
+        &path,
+        new,
+        Some("pft.BigLittleDataSchema, pft.MatrixDataSchema"),
+    );
     let datatype = make_data_schema_datatype(&pyname, "I");
     let is_float = make_data_schema_is_float(&pyname, false);
     quote!(#class #datatype #is_float).into()
@@ -6381,7 +6564,12 @@ pub fn impl_new_variable_uint_data_schema(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
+    let (pyname, class) = doc.into_impl_class(
+        name.value(),
+        &path,
+        new,
+        Some("pft.BigLittleDataSchema, pft.NumericDataSchema"),
+    );
 
     let byte_widths = DocString::new_ivar(
         "The width of each measurement in bytes.",
@@ -6425,7 +6613,8 @@ pub fn impl_new_mixed_data_schema(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
+    let (pyname, class) =
+        doc.into_impl_class(name.value(), &path, new, Some("pft.BigLittleDataSchema"));
 
     let byte_widths = DocString::new_ivar(
         "The width of each measurement in bytes.",
@@ -6515,7 +6704,7 @@ fn make_gate_region3_0(path: &Path, is_uni: bool) -> TokenStream {
         }
     };
 
-    doc.into_impl_class(name, path, new).1.into()
+    doc.into_impl_class(name, path, new, None).1.into()
 }
 
 // TODO doc exceptions here
@@ -6632,7 +6821,7 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
         }
     };
 
-    doc.into_impl_class(name, path, new).1.into()
+    doc.into_impl_class(name, path, new, None).1.into()
 }
 
 /// Macro arg for implementing a python class around a path.
@@ -7047,6 +7236,7 @@ struct PyBytes<E> {
     exc: Option<E>,
 }
 
+// TODO what is the point of this? Decimal isn't used anywhere
 /// A Python 'Decimal' class
 #[derive(Clone, Default, new, PartialEq, Hash, Eq)]
 struct PyDecimal<E> {
@@ -7127,6 +7317,10 @@ struct PyClass<E> {
     #[new(into)]
     pyname: String,
     #[new(into)]
+    docpath: Vec<String>,
+    #[new(into)]
+    stubpath: Vec<String>,
+    #[new(into)]
     rstype: Option<Path>,
     exc: Option<E>,
 }
@@ -7136,6 +7330,10 @@ struct PyClass<E> {
 struct PyAlias<E> {
     #[new(into)]
     pyname: String,
+    #[new(into)]
+    docpath: Vec<String>,
+    #[new(into)]
+    stubpath: Vec<String>,
     generics: Vec<PyType<E>>,
     #[new(into)]
     rstype: Option<Path>,
@@ -7309,6 +7507,8 @@ trait IsDocArg {
     fn ident_into(&self) -> TokenStream2;
 
     fn record_into(&self) -> TokenStream2;
+
+    fn arg_stub(&self) -> String;
 }
 
 /// A pytype which may be converted to a pyatom
@@ -7610,6 +7810,16 @@ impl<T> IsDocArg for DocArg<T> {
             quote! {#n: #n.into()}
         }
     }
+
+    fn arg_stub(&self) -> String {
+        let n = &self.argname;
+        let t = self.pytype.stub_type();
+        if let Some(def) = self.default.as_ref() {
+            format!("{n}: {t} = {}", def.as_value(&self.pytype).0)
+        } else {
+            format!("{n}: {t}")
+        }
+    }
 }
 
 impl IsDocArg for AnyDocArg {
@@ -7674,6 +7884,24 @@ impl IsDocArg for AnyDocArg {
             Self::RWIvar(x) => x.record_into(),
             Self::ROIvar(x) => x.record_into(),
             Self::Param(x) => x.record_into(),
+        }
+    }
+
+    fn arg_stub(&self) -> String {
+        match self {
+            Self::RWIvar(x) => x.arg_stub(),
+            Self::ROIvar(x) => x.arg_stub(),
+            Self::Param(x) => x.arg_stub(),
+        }
+    }
+}
+
+impl AnyDocArg {
+    fn attribute_stub(&self) -> Vec<String> {
+        match self {
+            Self::RWIvar(x) => vec![x.attribute_stub()],
+            Self::ROIvar(x) => x.property_stub(),
+            Self::Param(_) => vec![],
         }
     }
 }
@@ -7843,6 +8071,12 @@ impl<T> DocReturn<T> {
             exceptions: exceptions.into_iter().map(Into::into).collect(),
             ..self
         }
+    }
+}
+
+impl DocReturn<PyType<()>> {
+    fn stub_type(&self) -> String {
+        self.rtype.stub_type()
     }
 }
 
@@ -8151,6 +8385,65 @@ impl<R: Clone + PartialEq + Eq + Hash> PyAtom<R> {
             x => x,
         }
     }
+
+    fn stub_type(&self) -> String {
+        match self {
+            // make primitive types as-is
+            Self::Bool => "bool".into(),
+            Self::Bytes => "bytes".into(),
+            Self::Str => "str".into(),
+            Self::Int => "int".into(),
+            Self::Float => "float".into(),
+            Self::None => "None".into(),
+            // make compound types as-is
+            Self::List(inner) => format!("list[{}]", inner.stub_type()),
+            Self::Dict(key, value) => format!("dict[{}, {}]", key.stub_type(), value.stub_type()),
+            Self::Tuple(inner) => {
+                if inner.is_empty() {
+                    "tuple[()]".into()
+                } else {
+                    format!("tuple[{}]", inner.iter().map(Self::stub_type).join(","))
+                }
+            }
+            Self::Union(first, second, rest) => [first.as_ref(), second.as_ref()]
+                .into_iter()
+                .chain(rest)
+                .map(Self::stub_type)
+                .join(" | "),
+            // ASSUME "Literal" will be imported from typing
+            Self::StrLiteral(inner) => {
+                format!(
+                    "Literal[{}]",
+                    once(&inner.head)
+                        .chain(&inner.tail)
+                        .map(|s| format!("\"{s}\""))
+                        .join(",")
+                )
+            }
+            Self::IntLiteral(inner) => {
+                format!(
+                    "Literal[{}]",
+                    once(&inner.head).chain(&inner.tail).join(",")
+                )
+            }
+            // ASSUME these next for types will be imported verbatim so that
+            // the identifiers will be defined in the final stub
+            Self::Decimal => "Decimal".into(),
+            Self::Date => "date".into(),
+            Self::Time => "time".into(),
+            Self::Datetime => "datetime".into(),
+            Self::PyClass(inner) => inner.stubpath.iter().chain(once(&inner.pyname)).join("."),
+            Self::PyAlias(inner) => {
+                let base = inner.stubpath.iter().chain(once(&inner.pyname)).join(".");
+                if inner.generics.is_empty() {
+                    base
+                } else {
+                    let gs = inner.generics.iter().map(PyType::stub_type).join(",");
+                    format!("{base}[{gs}]")
+                }
+            }
+        }
+    }
 }
 
 impl<R> From<RsInt> for PyInt<R> {
@@ -8350,6 +8643,16 @@ impl<E: From<PyException>> PyFloat<E> {
         let e = PyException::new_invalid_keyword().desc(d);
         Self::from(RsFloat::F32).exc(e)
     }
+
+    fn new_text_range() -> Self {
+        let path = keyword_path("TextRange");
+        Self::from(RsFloat::F32).rstype(path)
+    }
+
+    fn new_gate_range() -> Self {
+        let path = keyword_path("GateRange");
+        Self::from(RsFloat::F32).rstype(path)
+    }
 }
 
 impl<E> PyStr<E> {
@@ -8428,21 +8731,8 @@ impl<E> PyBytes<E> {
 impl<E: From<PyException>> PyBytes<E> {}
 
 impl<E> PyDecimal<E> {
-    impl_py_prim_rstype!();
     impl_py_prim_doc_default!("0".into(), bigdecimal::BigDecimal);
     impl_py_prim_map_exc!(PyDecimal);
-}
-
-impl<E: From<PyException>> PyDecimal<E> {
-    fn new_gate_range() -> Self {
-        let path = keyword_path("GateRange");
-        Self::default().rstype(path)
-    }
-
-    fn new_text_range() -> Self {
-        let path = keyword_path("TextRange");
-        Self::default().rstype(path)
-    }
 }
 
 impl<E> PyDate<E> {
@@ -8717,7 +9007,7 @@ impl<E> PyTuple<E> {
 
 impl<E: From<PyException>> PyTuple<E> {
     fn new_unigate() -> Self {
-        [PyDecimal::default(), PyDecimal::default()]
+        [RsFloat::F32, RsFloat::F32]
             .into_iter()
             .collect::<Self>()
             .rstype(keyword_path("UniGate"))
@@ -8799,8 +9089,8 @@ impl<E: From<PyException>> PyUnion<E> {
         let element_path = quote!(fireflow_core::text::named_vec::Element);
         let path = parse_quote!(#element_path<#ttype, (#otype, #stype)>);
         Self::new2(
-            PyClass::new_optical(version),
-            PyTuple::new1(PyClass::new_temporal(version)).add(scale),
+            PyClass::new_temporal(version),
+            PyTuple::new1(PyClass::new_optical(version)).add(scale),
         )
         .rstype(path)
     }
@@ -8840,31 +9130,66 @@ impl<E: From<PyException>> PyUnion<E> {
 
 impl<E> PyClass<E> {
     fn new1(pyname: impl fmt::Display) -> Self {
-        Self::new(pyname.to_string(), None, None)
+        Self::new(pyname.to_string(), vec![], vec![], None, None)
     }
 
     fn rstype(self, rstype: Path) -> Self {
-        Self::new(self.pyname, Some(rstype), None)
+        Self::new(self.pyname, self.docpath, self.stubpath, Some(rstype), None)
     }
 
+    fn docpath(self, docpath: impl IntoIterator<Item = impl fmt::Display>) -> Self {
+        Self::new(
+            self.pyname,
+            docpath
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
+            self.stubpath,
+            self.rstype,
+            self.exc,
+        )
+    }
+
+    // fn stubpath(self, stubpath: impl IntoIterator<Item = impl fmt::Display>) -> Self {
+    //     Self::new(
+    //         self.pyname,
+    //         self.stubpath,
+    //         stubpath
+    //             .into_iter()
+    //             .map(|s| s.to_string())
+    //             .collect::<Vec<_>>(),
+    //         self.rstype,
+    //         self.exc,
+    //     )
+    // }
+
     fn new_py(
-        modpath: impl IntoIterator<Item = impl fmt::Display>,
+        docpath: impl IntoIterator<Item = impl fmt::Display>,
         name: impl fmt::Display,
     ) -> Self {
         let pyname = format_ident!("Py{name}");
-        let m = once("~pyreflow".into())
-            .chain(modpath.into_iter().map(|x| x.to_string()))
-            .chain([format!("{name}")])
-            .join(".");
-        Self::new1(m).rstype(parse_quote!(#pyname))
+        let ds = once("~pyreflow".into()).chain(docpath.into_iter().map(|x| x.to_string()));
+        Self::new1(name).docpath(ds).rstype(parse_quote!(#pyname))
     }
 
     fn exc(self, e: impl Into<E>) -> Self {
-        Self::new(self.pyname, self.rstype, Some(e.into()))
+        Self::new(
+            self.pyname,
+            self.docpath,
+            self.stubpath,
+            self.rstype,
+            Some(e.into()),
+        )
     }
 
     fn map_exc<F: FnOnce(E) -> E1, E1>(self, f: F) -> PyClass<E1> {
-        PyClass::new(self.pyname, self.rstype, self.exc.map(f))
+        PyClass::new(
+            self.pyname,
+            self.docpath,
+            self.stubpath,
+            self.rstype,
+            self.exc.map(f),
+        )
     }
 }
 
@@ -8886,13 +9211,13 @@ impl<E: From<PyException>> PyClass<E> {
             // ASSUME this is in scope
             parse_quote!(PyFCSDataFrame)
         };
-        Self::new1("~polars.DataFrame").rstype(path)
+        Self::new1("DataFrame").docpath(["~polars"]).rstype(path)
     }
 
     fn new_series() -> Self {
         // ASSUME this is in scope
         let path: Path = parse_quote!(PyAnyFCSColumn);
-        Self::new1("~polars.Series").rstype(path)
+        Self::new1("Series").docpath(["~polars"]).rstype(path)
     }
 
     fn new_coretext(version: Version) -> Self {
@@ -8908,18 +9233,46 @@ impl<E: From<PyException>> PyClass<E> {
 
 impl<E> PyAlias<E> {
     fn new1(pyname: impl fmt::Display) -> Self {
-        Self::new(pyname.to_string(), vec![], None, None, None)
+        Self::new(pyname.to_string(), vec![], vec![], vec![], None, None, None)
     }
 
     fn new_py(
         modpath: impl IntoIterator<Item = impl fmt::Display>,
         name: impl fmt::Display,
     ) -> Self {
-        let n = once("~pyreflow".into())
-            .chain(modpath.into_iter().map(|x| x.to_string()))
-            .chain([format!("{name}")])
-            .join(".");
-        Self::new1(n)
+        let ds = once("~pyreflow".into()).chain(modpath.into_iter().map(|x| x.to_string()));
+        // ASSUME the typing module in the pyi file will be called "pft"
+        Self::new1(name).docpath(ds).stubpath(["pft"])
+    }
+
+    fn docpath(self, docpath: impl IntoIterator<Item = impl fmt::Display>) -> Self {
+        Self::new(
+            self.pyname,
+            docpath
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
+            self.stubpath,
+            self.generics,
+            self.rstype,
+            self.default_pytype,
+            self.exc,
+        )
+    }
+
+    fn stubpath(self, stubpath: impl IntoIterator<Item = impl fmt::Display>) -> Self {
+        Self::new(
+            self.pyname,
+            self.stubpath,
+            stubpath
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
+            self.generics,
+            self.rstype,
+            self.default_pytype,
+            self.exc,
+        )
     }
 
     fn add_generics(mut self, generics: impl IntoIterator<Item = PyType<E>>) -> Self {
@@ -8930,6 +9283,8 @@ impl<E> PyAlias<E> {
     fn rstype(self, rstype: Path) -> Self {
         Self::new(
             self.pyname,
+            self.docpath,
+            self.stubpath,
             self.generics,
             Some(rstype),
             self.default_pytype,
@@ -8940,6 +9295,8 @@ impl<E> PyAlias<E> {
     fn exc(self, e: impl Into<E>) -> Self {
         Self::new(
             self.pyname,
+            self.docpath,
+            self.stubpath,
             self.generics,
             self.rstype,
             self.default_pytype,
@@ -8972,6 +9329,8 @@ impl<E> PyAlias<E> {
     fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyAlias<E1> {
         PyAlias::new(
             self.pyname,
+            self.docpath,
+            self.stubpath,
             self.generics
                 .into_iter()
                 .map(|p| p.map_exc(f.clone()))
@@ -9482,6 +9841,13 @@ impl<E> PyType<E> {
             Self::PyClass(_) => panic!("No default for arbitrary class"),
             Self::Dummy => panic!("No default for dummy type"),
         }
+    }
+
+    fn stub_type(&self) -> String
+    where
+        E: Clone + PartialEq + Eq + Hash,
+    {
+        self.as_atom().flatten_unions().stub_type()
     }
 }
 
@@ -10013,6 +10379,10 @@ impl DocArgRWIvar {
         let p = PyAlias::new_nonstd_keywords();
         Self::new_ivar_rw("nonstandard_keywords", p, desc, false, f, g).def_auto()
     }
+
+    fn attribute_stub(&self) -> String {
+        format!("{}: {}", self.argname, self.pytype.stub_type())
+    }
 }
 
 impl DocArgROIvar {
@@ -10136,6 +10506,10 @@ impl DocArgROIvar {
             |n, _| quote!(self.0.#n()),
         )
         .def_auto()
+    }
+
+    fn property_stub(&self) -> Vec<String> {
+        property_stub(&self.pytype, &self.argname)
     }
 }
 
@@ -10262,7 +10636,9 @@ impl DocArgParam {
 
     fn new_path_param(read: bool) -> Self {
         let s = if read { "read" } else { "written" };
-        let pt = PyClass::new1("~pathlib.Path").rstype(parse_quote!(std::path::PathBuf));
+        let pt = PyClass::new1("Path")
+            .docpath(["~pathlib"])
+            .rstype(parse_quote!(std::path::PathBuf));
         Self::new_param("path", pt, format!("Path to be {s}."))
     }
 
@@ -11661,16 +12037,20 @@ impl ClassDocString {
         name: impl fmt::Display,
         path: &Path,
         constr: F,
+        subclass: Option<&'static str>,
     ) -> (Ident, TokenStream2)
     where
         F: FnOnce(TokenStream2) -> TokenStream2,
     {
-        let (pyname, wrapped) = self.as_impl_wrapped(name, path);
+        let (pyname, wrapped) = self.as_impl_wrapped(&name, path);
+        let stub = self.impl_class_stub(&pyname, &name, true, subclass);
         let sig = self.sig();
         let get_set_methods = self.quoted_methods();
         let new = constr(self.fun_args());
         let s = quote! {
             #wrapped
+
+            #stub
 
             #[pymethods]
             impl #pyname {
@@ -11707,6 +12087,34 @@ impl ClassDocString {
         };
         (pyname, q)
     }
+
+    fn impl_class_stub(
+        &self,
+        class: &Ident,
+        name: impl fmt::Display,
+        make_new: bool,
+        subclass: Option<&'static str>,
+    ) -> TokenStream2 {
+        let base = format!("@final\nclass {name}");
+        let class_def = if let Some(sub) = subclass {
+            format!("{base}({sub}):")
+        } else {
+            format!("{base}:")
+        };
+        // ASSUME "Self" and "Any" will be imported from typing
+        let args = self.args.iter().map(AnyDocArg::arg_stub).join(",");
+        let constructor = make_new.then(|| format!("def __new__(cls, {args}) -> Self: ..."));
+        let deepcopy = "def __deepcopy__(self, memo: Any) -> Self: ...";
+        let contents = self.args.iter().flat_map(AnyDocArg::attribute_stub);
+        let inner_lines = constructor
+            .into_iter()
+            .chain(once(deepcopy.into()))
+            .chain(contents)
+            .map(|s| format!("    {s}"));
+        let stubname = format_ident!("CLASS_STUB");
+        let stub = once(class_def).chain(inner_lines).join("\n");
+        impl_stub(class, &stubname, &stub)
+    }
 }
 
 impl MethodDocString {
@@ -11716,6 +12124,12 @@ impl MethodDocString {
 
     fn returns(self, returns: DocReturn<RetPyType>) -> Self {
         Self::new(self.summary, self.paragraphs, self.args, Some(returns))
+    }
+
+    fn impl_method_stub(&self, class: &Ident, name: impl fmt::Display) -> TokenStream2 {
+        let stubname = format_ident!("{}_STUB", name.to_string().to_uppercase());
+        let stub = function_stub(self.returns.as_ref(), Some("self"), &self.args[..], name);
+        impl_stub(class, &stubname, &stub)
     }
 }
 
@@ -11734,6 +12148,7 @@ impl IvarDocString {
         name: impl fmt::Display,
         f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
     ) -> TokenStream2 {
+        let stub = self.impl_property_stub(class, &name);
         self.append_summary_or_paragraph("read-only", "This attribute is read-only.");
         let i = format_ident!("{name}");
         let pt = &self.returns.rtype;
@@ -11741,6 +12156,8 @@ impl IvarDocString {
         let body = f(&i, pt);
         let doc = self.doc();
         quote! {
+            #stub
+
             #[pymethods]
             impl #class {
                 #doc
@@ -11760,6 +12177,7 @@ impl IvarDocString {
         get_fun: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
         set_fun: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
     ) -> TokenStream2 {
+        let stub = self.impl_attribute_stub(class, &name);
         self.append_summary_or_paragraph("read-write", "This attribute is read-write.");
         let get = format_ident!("{name}");
         let set = format_ident!("set_{get}");
@@ -11774,6 +12192,8 @@ impl IvarDocString {
             quote!(())
         };
         quote! {
+            #stub
+
             #[pymethods]
             impl #class {
                 #doc
@@ -11789,6 +12209,22 @@ impl IvarDocString {
             }
         }
     }
+
+    // These can be either properties or attributes depending on if a setter is
+    // defined.
+    fn impl_property_stub(&self, class: &Ident, name: impl fmt::Display) -> TokenStream2 {
+        let stubname = format_ident!("{}_STUB", name.to_string().to_uppercase());
+        let stub = property_stub(&self.returns.rtype, name)
+            .into_iter()
+            .join("\n");
+        impl_stub(class, &stubname, &stub)
+    }
+
+    fn impl_attribute_stub(&self, class: &Ident, name: impl fmt::Display) -> TokenStream2 {
+        let stubname = format_ident!("{}_STUB", name.to_string().to_uppercase());
+        let stub = format!("{name}: {}", self.returns.rtype.stub_type());
+        impl_stub(class, &stubname, &stub)
+    }
 }
 
 impl FunDocString {
@@ -11798,6 +12234,27 @@ impl FunDocString {
 
     fn returns(self, returns: DocReturn<RetPyType>) -> Self {
         Self::new(self.summary, self.paragraphs, self.args, Some(returns))
+    }
+
+    fn impl_function_stub(&self, name: impl fmt::Display) -> TokenStream2 {
+        if cfg!(feature = "stub") {
+            let stubname = format_ident!("{}_STUB", name.to_string().to_uppercase());
+            let stub = function_stub(self.returns.as_ref(), None, &self.args[..], name);
+            quote!(pub const #stubname: &'static str = #stub;)
+        } else {
+            quote!()
+        }
+    }
+
+    // TODO this is a weird spot for this since we already have a method stub
+    // generator. The reason is is here for now is because these methods don't
+    // list the self parameter, which makes them just like functions (kinda, in
+    // this case it is associated with a class).
+    fn impl_classmethod_stub(&self, class: &Ident, name: impl fmt::Display) -> TokenStream2 {
+        let stubname = format_ident!("{}_STUB", name.to_string().to_uppercase());
+        let def = function_stub(self.returns.as_ref(), Some("cls"), &self.args[..], name);
+        let stub = format!("@classmethod\n{def}");
+        impl_stub(class, &stubname, &stub)
     }
 }
 
@@ -12195,7 +12652,8 @@ impl fmt::Display for PyIntLiteral {
 
 impl<R> fmt::Display for PyClass<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, ":py:class:`{}`", self.pyname)
+        let n = self.docpath.iter().chain(once(&self.pyname)).join(".");
+        write!(f, ":py:class:`{n}`")
     }
 }
 
@@ -12206,7 +12664,8 @@ impl<R: Clone + Eq + Hash> fmt::Display for PyAlias<R> {
         } else {
             format!("\\ [{}]", self.generics.iter().join(","))
         };
-        write!(f, ":py:class:`{}`{}", self.pyname, generics)
+        let n = self.docpath.iter().chain(once(&self.pyname)).join(".");
+        write!(f, ":py:class:`{n}`{generics}")
     }
 }
 
@@ -12406,8 +12865,11 @@ fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {
         "This corresponds to the value of {PNB} divided by 8, which are \
          all equal for this data schema.",
     );
-    let doc = DocString::new_ivar("The width of each measurement in bytes.", RsInt::Usize)
-        .paras([s0, s1]);
+    let doc = DocString::new_ivar(
+        "The width of each measurement in bytes.",
+        PyAlias::new_py(["typing"], "ByteWidth").rstype(parse_quote!(usize)),
+    )
+    .paras([s0, s1]);
 
     doc.into_impl_get(pyname, "byte_width", |_, _| quote!(#nbytes))
 }
@@ -12778,6 +13240,42 @@ impl MeasKw {
 
     fn optical_only(self) -> bool {
         !matches!(self, Self::PnS | Self::PnD | Self::PKn | Self::PKNn)
+    }
+}
+
+fn property_stub<E>(pytype: &PyType<E>, name: impl fmt::Display) -> Vec<String>
+where
+    E: Clone + PartialEq + Eq + Hash,
+{
+    let prop = "@property";
+    let def = format!("def {name}(self) -> {}: ...", pytype.stub_type());
+    vec![prop.into(), def]
+}
+
+fn function_stub(
+    returns: Option<&DocReturn<PyType<()>>>,
+    selfarg: Option<&'static str>,
+    args: &[DocArgParam],
+    name: impl fmt::Display,
+) -> String {
+    let arg_stubs = selfarg
+        .map(Into::into)
+        .into_iter()
+        .chain(args.iter().map(DocArgParam::arg_stub))
+        .join(",");
+    let ret = returns.map_or("None".into(), DocReturn::stub_type);
+    format!("def {name}({arg_stubs}) -> {ret}: ...")
+}
+
+fn impl_stub(class: &Ident, stubname: &Ident, stub: &String) -> TokenStream2 {
+    if cfg!(feature = "stub") {
+        quote! {
+            impl #class {
+                pub const #stubname: &'static str = #stub;
+            }
+        }
+    } else {
+        quote!()
     }
 }
 

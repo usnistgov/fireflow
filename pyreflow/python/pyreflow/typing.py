@@ -879,8 +879,11 @@ optical keyword type in question) or ``None`` if no value is assigned.
 """
 
 type AnyDataSchema3_2 = (
-    BigLittleDataSchema
-    | AsciiDataSchema
+    pf.FixedAsciiDataSchema
+    | pf.DelimAsciiDataSchema
+    | pf.BigLittleF32DataSchema
+    | pf.BigLittleF64DataSchema
+    | pf.SingleUintDataSchema
     | pf.VariableUintDataSchema
     | pf.MixedDataSchema
 )

@@ -1,0 +1,199 @@
+from __future__ import annotations
+from pathlib import Path
+from decimal import Decimal
+from datetime import time, date, datetime
+from typing import Self, final, Any, Literal
+
+from polars import Series, DataFrame
+
+import pyreflow.typing as pft
+
+{% for c in class_methods_stubs %}
+{{c.class}}
+{% for m in c.methods %}
+{{-m | indent(4, first = True)}}
+{% endfor %}
+{% endfor %}
+
+{% for s in gating_stubs %}
+
+{{s}}
+{% endfor %}
+
+{% for s in function_stubs %}
+#
+{{s}}
+{% endfor %}
+
+{% for s in misc_class_stubs %}
+
+{{s}}
+{% endfor %}
+
+class PyreflowError(Exception): ...
+class FileLayoutError(PyreflowError): ...
+class ParseKeyError(PyreflowError): ...
+class ParseKeywordValueError(PyreflowError): ...
+class InvalidKeywordValueError(PyreflowError): ...
+class ExtraKeywordError(PyreflowError): ...
+class ConversionError(PyreflowError): ...
+class RelationalError(PyreflowError): ...
+class EventDataError(PyreflowError): ...
+class DataLossError(PyreflowError): ...
+class ConfigError(PyreflowError): ...
+class WriteFCSError(PyreflowError): ...
+class PyreflowWarning(Warning): ...
+
+class _ConfigCommon:
+    @classmethod
+    def strict(cls) -> dict[str, Any]: ...
+    @classmethod
+    def scalpel(cls) -> dict[str, Any]: ...
+    @classmethod
+    def sledgehammer(cls) -> dict[str, Any]: ...
+
+@final
+class ReadHeaderConfig(_ConfigCommon):
+    pass
+
+@final
+class ReadFlatTEXTConfig(_ConfigCommon):
+    pass
+
+@final
+class ReadStdTEXTConfig(_ConfigCommon):
+    pass
+
+@final
+class ReadFlatDatasetConfig(_ConfigCommon):
+    pass
+
+@final
+class ReadStdDatasetConfig(_ConfigCommon):
+    pass
+
+@final
+class ReadFlatDatasetFromKeywordsConfig(_ConfigCommon):
+    pass
+
+class _ConfigCommonNewCore:
+    @classmethod
+    def strict(cls, version: pft.FCSVersion) -> dict[str, Any]: ...
+    @classmethod
+    def scalpel(cls, version: pft.FCSVersion) -> dict[str, Any]: ...
+    @classmethod
+    def sledgehammer(cls, version: pft.FCSVersion) -> dict[str, Any]: ...
+
+@final
+class NewCoreTEXTConfig(_ConfigCommonNewCore):
+    pass
+
+@final
+class NewCoreDatasetConfig(_ConfigCommonNewCore):
+    pass
+
+__version__: str
+
+__all__ = [
+    "__version__",
+    "PyreflowError",
+    "FileLayoutError",
+    "ParseKeyError",
+    "ParseKeywordValueError",
+    "InvalidKeywordValueError",
+    "ExtraKeywordError",
+    "ConversionError",
+    "RelationalError",
+    "EventDataError",
+    "DataLossError",
+    "ConfigError",
+    "WriteFCSError",
+    "PyreflowWarning",
+    "CoreTEXT2_0",
+    "CoreTEXT3_0",
+    "CoreTEXT3_1",
+    "CoreTEXT3_2",
+    "CoreDataset2_0",
+    "CoreDataset3_0",
+    "CoreDataset3_1",
+    "CoreDataset3_2",
+    "Optical2_0",
+    "Optical3_0",
+    "Optical3_1",
+    "Optical3_2",
+    "Temporal2_0",
+    "Temporal3_0",
+    "Temporal3_1",
+    "Temporal3_2",
+    "UnivariateRegion2_0",
+    "UnivariateRegion3_0",
+    "UnivariateRegion3_2",
+    "BivariateRegion2_0",
+    "BivariateRegion3_0",
+    "BivariateRegion3_2",
+    "GatedMeasurement",
+    "FixedAsciiDataSchema",
+    "DelimAsciiDataSchema",
+    "OrderedUintDataSchema",
+    "OrderedF32DataSchema",
+    "OrderedF64DataSchema",
+    "BigLittleF32DataSchema",
+    "BigLittleF64DataSchema",
+    "SingleUintDataSchema",
+    "VariableUintDataSchema",
+    "MixedDataSchema",
+    "Header",
+    "FinalHeaderOffsets",
+    "HeaderToHeaderOffsetsOverlap",
+    "TextToHeaderOffsetsOverlap",
+    "SuppToHeaderOffsetsOverlap",
+    "TextToHeaderOrSuppOffsetsOverlap",
+    "HeaderOffsetsOverflow",
+    "TextOffsetsOverflow",
+    "SuppOffsetsOverflow",
+    "SuppTEXTOffsetsOutput",
+    "TEXTOffsetsOrigin",
+    "HeaderAndSuppOffsets",
+    "OriginalHeaderOffsets",
+    "FlatTEXTOutput",
+    "FlatDatasetOutput",
+    "FlatDatasetFromKwsOutput",
+    "NewFlatDatasetFromKwsOutput",
+    "FlatTEXTDiagnostics",
+    "StdTEXTOutput",
+    "StdDatasetOutput",
+    "StdDatasetFromKwsOutput",
+    "NewStdDatasetFromKwsOutput",
+    "StdTEXTDiagnostics",
+    "RepairDiagnostics",
+    "DataSchemaDiagnostics",
+    "ValidKeywords",
+    "DatasetOffsets",
+    "SplitTEXTDiagnostics",
+    "DatasetDiagnostics",
+    "IntraSegmentDarkBytes",
+    "KeywordVersionScore",
+    "DatasetSummary",
+    "ReadHeaderConfig",
+    "ReadFlatTEXTConfig",
+    "ReadStdTEXTConfig",
+    "ReadFlatDatasetConfig",
+    "ReadStdDatasetConfig",
+    "ReadFlatDatasetFromKeywordsConfig",
+    "NewCoreTEXTConfig",
+    "NewCoreDatasetConfig",
+    "BuildInfo",
+    "fcs_read_header",
+    "fcs_read_flat_text",
+    "fcs_read_std_text",
+    "fcs_read_flat_dataset",
+    "fcs_read_std_dataset",
+    "fcs_read_flat_texts",
+    "fcs_read_std_texts",
+    "fcs_read_flat_datasets",
+    "fcs_read_std_datasets",
+    "fcs_read_flat_dataset_with_keywords",
+    "fcs_summarize",
+    "fcs_write_datasets",
+    "fcs_scan_dataset_boundaries",
+]

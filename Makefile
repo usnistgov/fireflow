@@ -13,6 +13,8 @@ uv_run = $(uv_at) run --no-sync
 build_dev = $(uv_run) maturin develop --uv
 build_rel = $(build_dev) --release
 check_py = $(uv_run) python -c "import sys; print(sys.executable, sys.version)"
+base_stub_file = python/pyreflow/_pyreflow.pyi
+stub_file = pyreflow/$(base_stub_file)
 
 .PHONY: .uv
 .uv:
@@ -50,7 +52,7 @@ rs-docs:
 	RUSTDOCFLAGS="-D warnings" cargo doc -p fireflow-types --no-deps
 
 # TODO make these depend on debug build
-.PHONY: py-lint
+.PHONY: py-lint $(stub_file)
 py-lint: pyreflow/.venv
 	$(uv_run) ruff format --check
 	$(uv_run) python -m mypy.stubtest pyreflow._pyreflow
@@ -79,8 +81,13 @@ build-prod: pyreflow/.venv
 gen-docs: pyreflow/.venv
 	cargo run --bin fireflow-docgen > COMMON_ISSUES.md
 
+.PHONY: gen-stubs
+gen-stubs: pyreflow/.venv
+	cargo run --bin fireflow-stubgen > $(stub_file)
+	$(uv_run) ruff format $(base_stub_file)
+
 .PHONY: all-dev
-all-dev: gen-docs rs-fmt rs-docs rs-test rs-lint build-dev py-lint py-test
+all-dev: gen-docs rs-fmt rs-docs rs-test gen-stubs rs-lint build-dev py-lint py-test
 
 .PHONY: clean
 clean:  

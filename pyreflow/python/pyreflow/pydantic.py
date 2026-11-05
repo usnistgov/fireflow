@@ -78,7 +78,7 @@ class _ReadStdKeywordsConfig(BaseModel):
     trim_intra_value_whitespace: bool = False
     time_meas_pattern: pft.Selector[str] = "^(TIME|Time)$"
     allow_missing_time: pft.TriFlag = _DEFAULT_TRIFLAG
-    add_missing_timestep: float | None = None
+    add_missing_timestep: pft.Timestep | None = None
     force_linear_scale: pft.ForceLinearScale = "none"
     ignore_optical_only_keys: list[pft.OpticalOnlyKey] = []
     process_optical_only_keys: pft.ProcessOpticalOnlyKeys = "demote_warn"
@@ -433,7 +433,7 @@ class PyreflowReadFlatDatasetFromKeywordsConfig(
     def read_flat_dataset_with_keywords(
         self,
         path: Path,
-        header: pfa.Header,
+        header: pfa.HeaderAndSuppOffsets,
         std: pft.StdKeywords,
         dataset_offset: int = 0,
         dataset_len: int | None = None,

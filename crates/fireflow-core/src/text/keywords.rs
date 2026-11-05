@@ -3183,7 +3183,56 @@ macro_rules! kw_opt_meta_opt_u32 {
     };
 }
 
-// all versions
+// $PAR (all versions)
+kw_req_root_int!(Par, usize, Par);
+
+impl Par {
+    pub(crate) fn get(std: &StdLookupTx) -> Result<Self, LookupParError> {
+        let par = Self::get_metaroot_req(std)?;
+        par.check(std)?;
+        Ok(par)
+    }
+
+    pub(crate) fn remove(std: &mut StdLookupTx) -> Result<Self, LookupParError> {
+        let par = Self::remove_metaroot_req(std)?;
+        par.check(std)?;
+        Ok(par)
+    }
+
+    pub(crate) fn check(self, std: &StdLookupTx) -> Result<(), ImpossibleParError> {
+        // For all FCS versions, we know that $PnR and $PnB are required.
+        // Therefore $PAR must be at most half the number of $Pn* keywords.
+        let n = std.n_nonempty_meas();
+        if self.0 > n / 2 {
+            Err(ImpossibleParError::new(self, n))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Error (inner) when reading standardized TEXT from keyword pairs
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupParError {
+    Lookup(ReqKeyError<Par>),
+    TooBig(ImpossibleParError),
+}
+
+/// Error when $PAR is impossibly big given the number of measurement keywords.
+#[derive(Debug, Error, PartialEq, Clone, new)]
+#[error(
+    "$PAR is {par} but number of measurement keywords is {n_meas}; \
+     $PAR must be at most half of the number of measurement keywords."
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct ImpossibleParError {
+    par: Par,
+    n_meas: usize,
+}
+
+// all versions (not $PAR)
 kw_req_meta!(AlphaNumType, Datatype);
 kw_opt_root_int!(Abrt, u32, Abrt);
 kw_opt_root_string!(Cytsn, Cytsn);
@@ -3194,7 +3243,6 @@ kw_opt_root_string!(Exp, Exp);
 kw_opt_root_string!(Inst, Inst);
 kw_opt_root_int!(Lost, u32, Lost);
 kw_opt_root_string!(Op, Op);
-kw_req_root_int!(Par, usize, Par);
 kw_opt_root_string!(Proj, Proj);
 kw_opt_root_string!(Smno, Smno);
 kw_opt_root_string!(Src, Src);

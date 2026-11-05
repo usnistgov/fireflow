@@ -819,6 +819,10 @@ impl StdLookupTx<'_> {
             RawStdKey::Dfc(dk) => self.dfc.parse_unseen(dk, f),
         }
     }
+
+    pub(crate) fn n_nonempty_meas(&self) -> usize {
+        self.meas.iter().filter(|(_, v)| !v.is_empty()).count()
+    }
 }
 
 impl OpticalOnlyErrors {

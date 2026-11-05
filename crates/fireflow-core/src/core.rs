@@ -81,9 +81,9 @@ use crate::text::keyword_enum::{
 use crate::text::keywords::{
     Abrt, AlphaNumType, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Carrierid, Carriertype,
     Cells, Com, Compensation2_0, Compensation3_0, Cyt, Cyt3_2, Cytsn, Exp, Feature, Fil, Flowrate,
-    Gate, Inst, LastModified, LastModifier, Locationid, LookupComp2_0Error, Lost, Mode, Mode3_2,
-    ModeUpgradeError, Nextdata, NoCytError, NumType, Op, Originality, Par, Plateid, Platename,
-    Proj, ScaleFix, Smno, Src, Sys, Timestep, TimestepAdded, Tot, Trigger, Unicode,
+    Gate, Inst, LastModified, LastModifier, Locationid, LookupComp2_0Error, LookupParError, Lost,
+    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, NumType, Op, Originality, Par, Plateid,
+    Platename, Proj, ScaleFix, Smno, Src, Sys, Timestep, TimestepAdded, Tot, Trigger, Unicode,
     UnstainedCenters, UnstainedInfo, ValueToStdKey as _, Vol, Wellid,
 };
 use crate::text::lookup::{
@@ -1390,7 +1390,7 @@ pub enum StdDatasetFromTxWarning {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromTxErrorInner {
-    Par(ReqKeyError<Par>),
+    Par(LookupParError),
     New(LookupCoreError),
     Metaroot(LookupMetarootError),
     Meas(LookupMeasurementError),
@@ -1499,7 +1499,7 @@ pub enum MetarootConvertWarning {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisError {
-    Par(ReqKeyError<Par>),
+    Par(LookupParError),
     Offsets(LookupTEXTOffsetsError),
     Dataframe(ReadCheckedDataframeError),
     Truncation(NewMixedRangeWarning),
@@ -2171,7 +2171,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
             .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
             .map_errors(LookupAndReadDataAnalysisError::from);
 
-        let layout_res = Par::get_metaroot_req(tx)
+        let layout_res = Par::get(tx)
             .map_err(LookupAndReadDataAnalysisError::from)
             .into_log()
             .and_then_commutative(|par| {
@@ -5966,7 +5966,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         C: AsRef<EvaledReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
     {
         // Lookup $PAR first since we need this to get the measurements
-        let par_res = Par::remove_metaroot_req(&mut std)
+        let par_res = Par::remove(&mut std)
             .map_err(StdTEXTFromTxErrorInner::from)
             .into_log();
 

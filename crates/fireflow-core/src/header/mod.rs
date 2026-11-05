@@ -1,6 +1,7 @@
 //! Reading and writing the HEADER segment
 
 pub mod final_offsets;
+pub mod primary;
 
 use crate::api::StdKeywords;
 use crate::convert::InstantExt as _;
@@ -11,7 +12,7 @@ use crate::logging::{
 };
 use crate::segment::read::{
     GuessOtherWidthError, HeaderAnalysisOffsets, HeaderDataOffsets, HeaderOffsets,
-    HeaderOffsetsError, HeaderToHeaderOffsetsOverlap, IsOffsetPair as _, OriginalOffsets,
+    HeaderOffsetsError, HeaderOffsetsName, HeaderToHeaderOffsetsOverlap, OriginalOffsets,
     OtherOffsetOutput, OtherOffsets20, PrimaryTextOffsets,
 };
 use crate::segment::write::{
@@ -43,6 +44,7 @@ use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use num_traits::identities::Zero;
+use primary::{InPrimaryHeaderError, PrimaryHeaderOffsets};
 use thiserror::Error;
 use type_families::FunctorOnce as _;
 
@@ -165,6 +167,9 @@ impl Header {
     where
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
+        let oconf: &ReadOffsetConfig = conf.as_ref();
+        let limit = oconf.overlap_correction_limit;
+
         let start_pos = reader.dataset_offset().0;
         let req = io_to_log!(ReqHeader::read(reader, start_pos, conf));
 
@@ -172,33 +177,28 @@ impl Header {
         let (data, data_orig) = req.data;
         let (analysis, analysis_orig) = req.analysis;
 
-        let min_coord = [
-            text.as_nonempty().map(|x| x.begin()),
-            data.as_nonempty().map(|x| x.begin()),
-            analysis.as_nonempty().map(|x| x.begin()),
-        ]
-        .into_iter()
-        .flatten()
-        .min();
-
-        let other_res = if let Some(m) = min_coord {
-            let other_start_pos = start_pos + u64::from(HEADER_LEN);
-            OtherOffsets20::read_others(reader, other_start_pos, m, conf)
-        } else {
-            LogResult::new_ok(OtherOffsetOutput::default())
-        };
-
-        let oconf: &ReadOffsetConfig = conf.as_ref();
-
-        other_res
-            .map_pure_errors(HeaderError::from)
-            .and_then_commutative(|other| {
+        PrimaryHeaderOffsets::try_new(text, data, analysis)
+            .map_errors(HeaderError::from)
+            .set_err_value(())
+            .nowarn_into_warn()
+            .group()
+            .map_error(IOErrorGroup::Pure)
+            .and_then_commutative(|primary| {
+                if let Some(m) = primary.min_coord() {
+                    let other_start_pos = start_pos + u64::from(HEADER_LEN);
+                    OtherOffsets20::read_others(reader, other_start_pos, m, conf)
+                        .map_ok_value(|others| (primary, others))
+                        .map_pure_errors(HeaderError::from)
+                } else {
+                    LogResult::new_ok((primary, OtherOffsetOutput::default()))
+                }
+            })
+            .and_then_commutative(|(primary, other)| {
                 let (os_final, os_orig, dark_other) = other.finalize();
                 let original =
                     OriginalHeaderOffsets::new(text_orig, data_orig, analysis_orig, os_orig);
-                let limit = oconf.overlap_correction_limit;
                 let d = reader.dataset_offset();
-                FinalHeaderOffsets::try_new_with_limit(text, data, analysis, os_final, limit)
+                FinalHeaderOffsets::try_new_with_limit(primary, os_final, limit)
                     .map_errors(HeaderError::from)
                     .nowarn_into_warn()
                     .group()
@@ -387,6 +387,7 @@ pub(crate) fn autodetect_version(
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderError {
+    Primary(InPrimaryHeaderError<HeaderOffsetsName>),
     Segment(HeaderOffsetsError),
     Version(VersionError),
     Validation(HeaderOffsetsValidationError),

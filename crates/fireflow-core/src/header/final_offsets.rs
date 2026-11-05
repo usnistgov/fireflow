@@ -32,6 +32,8 @@ use std::num::NonZeroU64;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+use super::primary::{InPrimaryHeaderError, PrimaryHeaderOffsets};
+
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
@@ -61,6 +63,14 @@ pub(crate) type FinalOtherOffsets = Option<(NEVec<IndexedOtherOffsets>, OtherWid
 
 #[cfg(feature = "python")]
 pub type PyFinalOtherOffsets = Option<(NEVec<IndexedOtherOffsets>, OtherWidth)>;
+
+/// Error when making new final header offsets.
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum NewFinalHeaderOffsetsError {
+    Validation(HeaderOffsetsValidationError),
+    Primary(InPrimaryHeaderError<HeaderOffsetsName>),
+}
 
 impl FinalHeaderOffsets {
     /// Return primary TEXT offsets
@@ -115,9 +125,18 @@ impl FinalHeaderOffsets {
         data: HeaderDataOffsets,
         analysis: HeaderAnalysisOffsets,
         os: FinalOtherOffsets,
-    ) -> Result<(Self, Vec<HeaderToHeaderOffsetsOverlap>), OffsetsValidationErrors> {
-        // set limit to zero so that any overlap causes an error
-        Self::try_new_with_limit(text, data, analysis, os, 0.into())
+    ) -> Result<
+        (Self, Vec<HeaderToHeaderOffsetsOverlap>),
+        ErrorGroup<NewFinalHeaderOffsetsError, OffsetsValidationSummary>,
+    > {
+        PrimaryHeaderOffsets::try_new(text, data, analysis)
+            .set_err_value(())
+            .map_errors(NewFinalHeaderOffsetsError::from)
+            .and_then_nowarn_commutative(|primary| {
+                // set limit to zero so that any overlap causes an error
+                Self::try_new_with_limit(primary, os, 0.into())
+                    .map_errors(NewFinalHeaderOffsetsError::from)
+            })
             .group()
             .resolve_nowarn()
     }
@@ -129,13 +148,12 @@ impl FinalHeaderOffsets {
     /// With throw error if any offsets overlaps with HEADER itself.
     #[must_use]
     pub(crate) fn try_new_with_limit(
-        text: PrimaryTextOffsets,
-        data: HeaderDataOffsets,
-        analysis: HeaderAnalysisOffsets,
+        primary: PrimaryHeaderOffsets,
         os: FinalOtherOffsets,
         limit: OverlapCorrectionLimit,
     ) -> ErrorsResult<(Self, Vec<HeaderToHeaderOffsetsOverlap>), (), HeaderOffsetsValidationError>
     {
+        let (text, data, analysis) = primary.split();
         let mut ret = Self::new(text, data, analysis, os);
         ret.validate(limit).map_ok_value(|overlaps| (ret, overlaps))
     }
@@ -417,6 +435,9 @@ impl FinalHeaderOffsets {
     }
 
     fn contains_header_offsets(&self) -> impl Iterator<Item = InHeaderError<HeaderOffsetsName>> {
+        // Primary offsets were already checked against the first 58 bytes, but
+        // now it may be longer since we are including OTHER so it needs to be
+        // checked again.
         let t = self.contains_offsets(&self.text, ());
         let d = self.contains_offsets(&self.data, ());
         let a = self.contains_offsets(&self.analysis, ());
@@ -437,7 +458,9 @@ impl FinalHeaderOffsets {
         S: HasSource,
     {
         let q = s.as_nonempty()?;
-        (q.begin() < self.nbytes()).then_some(InHeaderError(q.as_named(args)))
+        let full_header_len = self.nbytes();
+        (q.begin() < full_header_len)
+            .then_some(InHeaderError::new(full_header_len, q.as_named(args)))
     }
 
     fn as_mut_nonempty_offsets(&mut self) -> impl Iterator<Item = AnyHeaderOffsetsMut<'_>> {

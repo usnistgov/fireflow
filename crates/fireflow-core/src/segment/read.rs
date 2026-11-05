@@ -421,18 +421,21 @@ pub(crate) struct OverflowResult<N> {
     pub(crate) truncated: bool,
 }
 
-/// Error when a non-empty offset pair occurs within the first 58 bytes of the file.
-#[derive(Debug, Error, PartialEq, Clone, Display)]
+/// Error when a non-empty offset pair occurs within the HEADER (including OTHER).
+#[derive(Debug, Error, PartialEq, Clone, Display, new)]
 #[display(
-    "{} segment offsets with begin offset of {} is within HEADER region",
-    self.0.name,
-    self.0.begin,
+    "{} segment offsets with begin offset of {} is within HEADER region ({header_len} bytes).",
+    self.offsets.name,
+    self.offsets.begin,
 )]
 #[display(bound(N: fmt::Display))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 #[cfg_attr(feature = "python", bound(N: fmt::Display))]
-pub struct InHeaderError<N>(pub NamedOffsets<N>);
+pub struct InHeaderError<N> {
+    pub header_len: u64,
+    pub offsets: NamedOffsets<N>,
+}
 
 /// Error when segment offsets exceed $NEXTDATA.
 #[derive(Debug, Error, PartialEq, Clone, Display)]

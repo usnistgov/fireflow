@@ -3555,6 +3555,19 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
 
 // pub(crate) use split_io;
 
+macro_rules! result_to_log {
+    ($x:expr) => {
+        match $x {
+            Ok(x) => x,
+            Err(e) => {
+                return crate::logging::LogResult::new_err(e.into());
+            }
+        }
+    };
+}
+
+pub(crate) use result_to_log;
+
 macro_rules! split_log {
     ($x:expr) => {
         match $x {

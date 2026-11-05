@@ -24,7 +24,7 @@ use crate::logging::{
     DeferredErrors, DeferredWarningsAndErrors, IOAnonErrorGroup, IOErrorGroup, LogResult,
     ResultExt as _, SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult,
     WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
-    split_log,
+    result_to_log, split_log,
 };
 use crate::macros::def_summary;
 use crate::segment::read::{
@@ -36,7 +36,7 @@ use crate::segment::read::{
     SuppTextOffsetsName, SuppToHeaderOffsetsOverlap, SupplementalTextOffsets, TEXTOffsets,
     TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
 };
-use crate::std_index::index::{RawStdKeyIndex, StdLookupTx};
+use crate::std_index::index::{LargeIndexError, RawStdKeyIndex, StdLookupTx};
 use crate::text::keywords::{
     AlphaNumType, Beginstext, Endstext, LookupNextdataError, Nextdata, ReadNextdataError, Tot,
     ValueToStdKey,
@@ -1100,7 +1100,7 @@ pub enum HeaderOrFlatTEXTWarning {
 pub enum ParseFlatTEXTWarning {
     Char(DelimCharError),
     Primary(ParseKeywordsIssue),
-    Supplemental(ParseSupplementalTEXTError),
+    Supplemental(ParseSupplementalTEXTWarning),
     SuppOffsets(STextOffsetsWarning),
     Nextdata(ReadNextdataError),
 }
@@ -1112,7 +1112,7 @@ pub enum ParseFlatTEXTError {
     Empty(EmptyTEXTError),
     PrimaryTEXTOverflow(PrimaryTEXTOverflowError),
     Delim(DelimCharError),
-    Primary(ParseKeywordsIssue),
+    Primary(ParseKeywordsError),
     Supplemental(ParseSupplementalTEXTError),
     SuppOffsets(STextOffsetsError),
     Nextdata(LookupNextdataError),
@@ -1122,9 +1122,25 @@ pub enum ParseFlatTEXTError {
 /// Error when parsing supplemental TEXT
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum ParseSupplementalTEXTError {
+pub enum ParseSupplementalTEXTWarning {
     Keywords(ParseKeywordsIssue),
     Mismatch(DelimMismatch),
+}
+
+/// Error when parsing supplemental TEXT
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ParseSupplementalTEXTError {
+    Keywords(ParseKeywordsError),
+    Mismatch(DelimMismatch),
+}
+
+/// Error when extracting keywords from TEXT segment (primary or supplemental)
+#[derive(Display, From, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ParseKeywordsError {
+    Issue(ParseKeywordsIssue),
+    Index(LargeIndexError),
 }
 
 /// Error when extracting keywords from TEXT segment (primary or supplemental)
@@ -1847,7 +1863,7 @@ impl SplitTEXTDiagnostics {
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndIOGroupResult<
         (ParsedStdKeywords, Self),
-        ParseSupplementalTEXTError,
+        ParseSupplementalTEXTWarning,
         ParseSupplementalTEXTError,
         (),
     > {
@@ -1874,7 +1890,7 @@ impl SplitTEXTDiagnostics {
         (ParsedStdKeywords, ParsedNonStdKeywords, Self),
         (),
         ParseKeywordsIssue,
-        ParseKeywordsIssue,
+        ParseKeywordsError,
     > {
         let enc = if delim.is_ascii() {
             conf.use_encoding.choose(bytes)
@@ -1901,7 +1917,7 @@ impl SplitTEXTDiagnostics {
     ) -> WarningsAndErrorsResult<
         (ParsedStdKeywords, Self),
         (),
-        ParseSupplementalTEXTError,
+        ParseSupplementalTEXTWarning,
         ParseSupplementalTEXTError,
     > {
         let (b, bs) = bytes.split_first();
@@ -1909,7 +1925,8 @@ impl SplitTEXTDiagnostics {
         let raw_slice = raw_tokens.as_nonempty_slice();
         let flag = conf.allow_supp_text_own_delim;
         Self::from_bytes_inner(kws, TEXTKind::Supplemental, *b, raw_slice, enc, conf)
-            .map_warnings_and_errors(ParseSupplementalTEXTError::from)
+            .map_errors(ParseSupplementalTEXTError::from)
+            .map_commutative_warnings(ParseSupplementalTEXTWarning::from)
             .eval_warning_or_error3(
                 flag,
                 |_| (),
@@ -1942,11 +1959,11 @@ impl SplitTEXTDiagnostics {
         (ParsedStdKeywords, Self),
         (),
         ParseKeywordsIssue,
-        ParseKeywordsIssue,
+        ParseKeywordsError,
     > {
         let escaped = GuessedEscapeMode::is_escaped(raw_tokens, conf.delim_escape_mode);
         let trim = conf.trim_value_whitespace.is_trim();
-        let (index, diag) = if let Some(e) = enc {
+        let res = if let Some(e) = enc {
             if escaped {
                 Self::parse_escaped(nonstd, delim, raw_tokens, trim, e)
             } else {
@@ -1958,7 +1975,10 @@ impl SplitTEXTDiagnostics {
             // SAFETY: we checked that all of TEXT is ASCII
             unsafe { Self::parse_unescaped_ascii(nonstd, delim, raw_tokens, trim) }
         };
-        diag.as_errors(tk, conf).map_ok_value(|()| (index, diag))
+        let (index, diag) = result_to_log!(res);
+        diag.as_errors(tk, conf)
+            .map_ok_value(|()| (index, diag))
+            .map_errors(ParseKeywordsError::from)
     }
 
     fn as_errors(
@@ -2084,7 +2104,7 @@ impl SplitTEXTDiagnostics {
         segs: &NESlice<&[u8]>,
         trim: bool,
         enc: Encoding,
-    ) -> (ParsedStdKeywords, Self) {
+    ) -> Result<(ParsedStdKeywords, Self), LargeIndexError> {
         let mut diag = SplitTEXTDiagnosticsCommon::default();
         let mut extra_leading_delims = 0;
         let mut tokens_with_boundary_delims = vec![];
@@ -2140,7 +2160,7 @@ impl SplitTEXTDiagnostics {
                 extra_leading_delims,
                 diag,
             );
-            return (ParsedStdKeywords::default(), text_diag);
+            return Ok((ParsedStdKeywords::default(), text_diag));
         };
 
         // Determine if the number of delimiters is even or odd, throw an error
@@ -2237,8 +2257,8 @@ impl SplitTEXTDiagnostics {
                     p.dispatch_slice_only(&mut std, &mut pnonstd, nonstd, &mut diag);
                 }
                 (
-                    RawStdKeyIndex::from_vec(std),
-                    RawStdKeyIndex::from_vec(pnonstd),
+                    RawStdKeyIndex::from_vec(std)?,
+                    RawStdKeyIndex::from_vec(pnonstd)?,
                 )
             } else {
                 let mut std = Vec::with_capacity(counts.ascii.std_slice_kws + counts.std_owned_kws);
@@ -2248,8 +2268,8 @@ impl SplitTEXTDiagnostics {
                     p.dispatch_slice_or_owned(&mut std, &mut pnonstd, nonstd, &mut diag);
                 }
                 (
-                    RawStdKeyIndex::from_vec(std),
-                    RawStdKeyIndex::from_vec(pnonstd),
+                    RawStdKeyIndex::from_vec(std)?,
+                    RawStdKeyIndex::from_vec(pnonstd)?,
                 )
             };
 
@@ -2264,7 +2284,7 @@ impl SplitTEXTDiagnostics {
             diag,
         );
 
-        (ParsedStdKeywords::new(std_index, pnonstd_index), text_diag)
+        Ok((ParsedStdKeywords::new(std_index, pnonstd_index), text_diag))
     }
 
     unsafe fn parse_unescaped_ascii(
@@ -2272,7 +2292,7 @@ impl SplitTEXTDiagnostics {
         delim: u8,
         segs: &NESlice<&[u8]>,
         trim: bool,
-    ) -> (ParsedStdKeywords, Self) {
+    ) -> Result<(ParsedStdKeywords, Self), LargeIndexError> {
         #[derive(Debug)]
         enum Unescaped<'a> {
             Keyword(ParsedAsciiKeyword<'a>),
@@ -2346,8 +2366,8 @@ impl SplitTEXTDiagnostics {
                 Unescaped::EmptyPair => (),
             }
         }
-        let (std_index, non_unique_std) = RawStdKeyIndex::from_vec(std);
-        let (pnonstd_index, non_unique_pnonstd) = RawStdKeyIndex::from_vec(pnonstd);
+        let (std_index, non_unique_std) = RawStdKeyIndex::from_vec(std)?;
+        let (pnonstd_index, non_unique_pnonstd) = RawStdKeyIndex::from_vec(pnonstd)?;
 
         diag.non_unique_std_keywords = non_unique_std;
         diag.non_unique_pnonstd_keywords = non_unique_pnonstd;
@@ -2362,10 +2382,8 @@ impl SplitTEXTDiagnostics {
             false,
         );
 
-        (
-            ParsedStdKeywords::new(std_index, pnonstd_index),
-            Self::build(inner, diag),
-        )
+        let kws = ParsedStdKeywords::new(std_index, pnonstd_index);
+        Ok((kws, Self::build(inner, diag)))
     }
 
     fn parse_unescaped(
@@ -2374,7 +2392,7 @@ impl SplitTEXTDiagnostics {
         segs: &NESlice<&[u8]>,
         trim: bool,
         enc: Encoding,
-    ) -> (ParsedStdKeywords, Self) {
+    ) -> Result<(ParsedStdKeywords, Self), LargeIndexError> {
         #[derive(Debug)]
         enum Unescaped<'a> {
             Keyword(ParsedKeyword<'a>),
@@ -2447,8 +2465,8 @@ impl SplitTEXTDiagnostics {
                     }
                 }
                 (
-                    RawStdKeyIndex::from_vec(std),
-                    RawStdKeyIndex::from_vec(pnonstd),
+                    RawStdKeyIndex::from_vec(std)?,
+                    RawStdKeyIndex::from_vec(pnonstd)?,
                 )
             } else {
                 let mut std = Vec::with_capacity(counts.ascii.std_slice_kws + counts.std_owned_kws);
@@ -2465,8 +2483,8 @@ impl SplitTEXTDiagnostics {
                     }
                 }
                 (
-                    RawStdKeyIndex::from_vec(std),
-                    RawStdKeyIndex::from_vec(pnonstd),
+                    RawStdKeyIndex::from_vec(std)?,
+                    RawStdKeyIndex::from_vec(pnonstd)?,
                 )
             };
 
@@ -2483,10 +2501,8 @@ impl SplitTEXTDiagnostics {
             enc.is_multi(),
         );
 
-        (
-            ParsedStdKeywords::new(std_index, pnonstd_index),
-            Self::build(inner, diag),
-        )
+        let kws = ParsedStdKeywords::new(std_index, pnonstd_index);
+        Ok((kws, Self::build(inner, diag)))
     }
 }
 

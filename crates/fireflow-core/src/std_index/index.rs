@@ -12,8 +12,8 @@ use fireflow_types::config::{
 use fireflow_types::index::MeasIndex;
 use fireflow_types::keys::nonstd::{DollarWrap, NonStdKey};
 use fireflow_types::keys::raw_std::{
-    CsvFlagKey, DfcKey, EnumIndex as _, GateKey, MeasKey, N_ROOT, RawStdKey, RegionKey, RootKey,
-    ToStd as _,
+    CsvFlagKey, DfcKey, EnumIndex as _, GateKey, MeasKey, N_GATE, N_MEAS, N_REGION, N_ROOT,
+    RawStdKey, RegionKey, RootKey, ToStd as _,
 };
 use fireflow_types::keys::{DollarStdKey, PseudoStdKey, StdKey};
 use fireflow_types::keywords::Version;
@@ -120,6 +120,43 @@ pub struct PseudoStdKeyError {
     pub value: TruncatedNEString,
 }
 
+/// Error when pseudostandard keywords are encountered.
+#[derive(new, Debug, Error, PartialEq, Clone)]
+#[error("found {which} key with index {index} which exceeded cutoff of {cutoff}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
+pub struct LargeIndexError {
+    index: usize,
+    cutoff: usize,
+    which: IndexType,
+}
+
+impl LargeIndexError {
+    fn check_cutoff(index: usize, cutoff: usize, which: IndexType) -> Result<(), Self> {
+        (index > cutoff)
+            .then_some(Self {
+                index,
+                cutoff,
+                which,
+            })
+            .map_or(Ok(()), Err)
+    }
+}
+
+#[derive(Debug, Display, PartialEq, Clone)]
+enum IndexType {
+    #[display("measurement")]
+    Meas,
+    #[display("gating")]
+    Gate,
+    #[display("region")]
+    Region,
+    #[display("subset")]
+    Subset,
+    #[display("dfc matrix")]
+    Dfc,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum LookupAction {
     None,
@@ -151,6 +188,10 @@ pub struct RawStdKeyIndex<const HAS_PRE: bool> {
     gate: NestedVariableString<GateKey, ()>,
     region: NestedVariableString<RegionKey, ()>,
     csv_flag: NestedVariableString<CsvFlagKey, ()>,
+    // TODO this is the only part of the data structure that is relatively
+    // inefficient. The comp matrix might be sparse (identity) which means most
+    // of the offsets in this will point to nothing. Consider using a different
+    // structure here.
     dfc: NestedVariableString<DfcKey, usize>,
 }
 
@@ -166,6 +207,17 @@ pub struct StdTransaction<'a, M> {
 pub type StdLookupTx<'a> = StdTransaction<'a, LookupMask>;
 
 type NestedRoot = NestedEnumString<N_ROOT, RootKey>;
+
+#[derive(Default)]
+struct IndexSizes {
+    root_n_bytes: usize,
+    meas_size: NestedStringSize,
+    gate_size: NestedStringSize,
+    region_size: NestedStringSize,
+    csv_flag_size: NestedStringSize,
+    dfc_n_bytes: usize,
+    dfc_matrix_size: usize,
+}
 
 impl<const HAS_PRE: bool> Default for RawStdKeyIndex<HAS_PRE> {
     fn default() -> Self {
@@ -218,60 +270,42 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
         self.iter_raw_keywords().map(|(k, _)| k)
     }
 
-    #[must_use]
     pub fn from_vec<V>(
+        pairs: Vec<(DollarStdKey<HAS_PRE>, V)>,
+    ) -> Result<(Self, Vec<(DollarStdKey<HAS_PRE>, TruncatedNEString)>), LargeIndexError>
+    where
+        V: AsRef<NEStr>,
+    {
+        let sizes = IndexSizes::from_vec(&pairs[..]);
+        sizes.check_cutoff(build_config::INDEX_CUTOFF)?;
+        Ok(Self::from_vec_inner(&sizes, pairs))
+    }
+
+    fn from_vec_unchecked<V>(
         pairs: Vec<(DollarStdKey<HAS_PRE>, V)>,
     ) -> (Self, Vec<(DollarStdKey<HAS_PRE>, TruncatedNEString)>)
     where
         V: AsRef<NEStr>,
     {
-        let mut root_n_bytes = 0;
-        let mut meas_size = NestedStringSize::default();
-        let mut gate_size = NestedStringSize::default();
-        let mut region_size = NestedStringSize::default();
-        let mut csv_flag_size = NestedStringSize::default();
-        let mut dfc_n_bytes = 0;
-        let mut dfc_matrix_size = 0;
+        let sizes = IndexSizes::from_vec(&pairs[..]);
+        Self::from_vec_inner(&sizes, pairs)
+    }
 
-        for (k, v) in &pairs {
-            let n_bytes = v.as_ref().as_ne_bytes().len().get();
-            match &k.0 {
-                RawStdKey::Root(_) => {
-                    root_n_bytes += n_bytes;
-                }
-                RawStdKey::Meas(i) => {
-                    meas_size.n_offsets = meas_size.n_offsets.max(i.offset0() + 1);
-                    meas_size.n_bytes += n_bytes;
-                }
-                RawStdKey::Gate(i) => {
-                    gate_size.n_offsets = gate_size.n_offsets.max(i.offset0() + 1);
-                    gate_size.n_bytes += n_bytes;
-                }
-                RawStdKey::Region(i) => {
-                    region_size.n_offsets = region_size.n_offsets.max(i.offset0() + 1);
-                    region_size.n_bytes += n_bytes;
-                }
-                RawStdKey::CsvFlag(i) => {
-                    csv_flag_size.n_offsets = csv_flag_size.n_offsets.max(i.offset0() + 1);
-                    csv_flag_size.n_bytes += n_bytes;
-                }
-                RawStdKey::Dfc(dk) => {
-                    dfc_n_bytes += n_bytes;
-                    let i0 = usize::from(dk.index.i0) + 1;
-                    let i1 = usize::from(dk.index.i1) + 1;
-                    dfc_matrix_size = dfc_matrix_size.max(i0.max(i1));
-                }
-            }
-        }
+    fn from_vec_inner<V>(
+        sizes: &IndexSizes,
+        pairs: Vec<(DollarStdKey<HAS_PRE>, V)>,
+    ) -> (Self, Vec<(DollarStdKey<HAS_PRE>, TruncatedNEString)>)
+    where
+        V: AsRef<NEStr>,
+    {
+        let dfc_size = NestedStringSize::new(sizes.dfc_n_bytes, sizes.dfc_matrix_size.pow(2));
 
-        let dfc_size = NestedStringSize::new(dfc_n_bytes, dfc_matrix_size * dfc_matrix_size);
-
-        let mut root = NestedRoot::init_array(root_n_bytes);
-        let mut meas = NestedVariableString::init_var(&meas_size, ());
-        let mut gate = NestedVariableString::init_var(&gate_size, ());
-        let mut region = NestedVariableString::init_var(&region_size, ());
-        let mut csv_flag = NestedVariableString::init_var(&csv_flag_size, ());
-        let mut dfc = NestedVariableString::init_var(&dfc_size, dfc_matrix_size);
+        let mut root = NestedRoot::init_array(sizes.root_n_bytes);
+        let mut meas = NestedVariableString::init_var(&sizes.meas_size, ());
+        let mut gate = NestedVariableString::init_var(&sizes.gate_size, ());
+        let mut region = NestedVariableString::init_var(&sizes.region_size, ());
+        let mut csv_flag = NestedVariableString::init_var(&sizes.csv_flag_size, ());
+        let mut dfc = NestedVariableString::init_var(&dfc_size, sizes.dfc_matrix_size);
 
         let mut duplicates = vec![];
 
@@ -427,7 +461,10 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
             // that store standard keys in STEXT (of where there are basically
             // none)
             let tmp = self.iter_keywords().chain(other.iter_keywords()).collect();
-            Self::from_vec(tmp)
+            // Use unchecked here because we can assume both inputs were
+            // screened for indices that exceed the cutoff and thus we won't
+            // melt our (currently very expensive) RAM.
+            Self::from_vec_unchecked(tmp)
         }
     }
 
@@ -841,6 +878,67 @@ impl OpticalOnlyErrors {
     }
 }
 
+impl IndexSizes {
+    fn from_vec<const HAS_PRE: bool, V>(pairs: &[(DollarStdKey<HAS_PRE>, V)]) -> Self
+    where
+        V: AsRef<NEStr>,
+    {
+        let mut sizes = Self::default();
+
+        for (k, v) in pairs {
+            let n_bytes = v.as_ref().as_ne_bytes().len().get();
+            match &k.0 {
+                RawStdKey::Root(_) => {
+                    sizes.root_n_bytes += n_bytes;
+                }
+                RawStdKey::Meas(i) => {
+                    sizes.meas_size.n_offsets = sizes.meas_size.n_offsets.max(i.offset0() + 1);
+                    sizes.meas_size.n_bytes += n_bytes;
+                }
+                RawStdKey::Gate(i) => {
+                    sizes.gate_size.n_offsets = sizes.gate_size.n_offsets.max(i.offset0() + 1);
+                    sizes.gate_size.n_bytes += n_bytes;
+                }
+                RawStdKey::Region(i) => {
+                    sizes.region_size.n_offsets = sizes.region_size.n_offsets.max(i.offset0() + 1);
+                    sizes.region_size.n_bytes += n_bytes;
+                }
+                RawStdKey::CsvFlag(i) => {
+                    sizes.csv_flag_size.n_offsets =
+                        sizes.csv_flag_size.n_offsets.max(i.offset0() + 1);
+                    sizes.csv_flag_size.n_bytes += n_bytes;
+                }
+                RawStdKey::Dfc(dk) => {
+                    sizes.dfc_n_bytes += n_bytes;
+                    let i0 = usize::from(dk.index.i0) + 1;
+                    let i1 = usize::from(dk.index.i1) + 1;
+                    sizes.dfc_matrix_size = sizes.dfc_matrix_size.max(i0.max(i1));
+                }
+            }
+        }
+        sizes
+    }
+
+    fn check_cutoff(&self, index_cutoff: usize) -> Result<(), LargeIndexError> {
+        // Once all indices are counted, sanity check them to see if they are
+        // less than our cutoff values. This will prevent any super-screwed up
+        // files with large indices from eating all memory when the indices are
+        // allocated below.
+        let max_meas = self.meas_size.n_offsets.div_ceil(N_MEAS);
+        let max_gate = self.gate_size.n_offsets.div_ceil(N_GATE);
+        let max_region = self.region_size.n_offsets.div_ceil(N_REGION);
+        let max_subset = self.csv_flag_size.n_offsets;
+        let max_dfc = self.dfc_matrix_size;
+
+        LargeIndexError::check_cutoff(max_meas, index_cutoff, IndexType::Meas)?;
+        LargeIndexError::check_cutoff(max_gate, index_cutoff, IndexType::Gate)?;
+        LargeIndexError::check_cutoff(max_region, index_cutoff, IndexType::Region)?;
+        LargeIndexError::check_cutoff(max_subset, index_cutoff, IndexType::Subset)?;
+        LargeIndexError::check_cutoff(max_dfc, index_cutoff, IndexType::Dfc)?;
+        Ok(())
+    }
+}
+
 #[cfg(feature = "serde")]
 impl<const HAS_PRE: bool> Serialize for RawStdKeyIndex<HAS_PRE> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -856,9 +954,12 @@ impl<const HAS_PRE: bool> Serialize for RawStdKeyIndex<HAS_PRE> {
     }
 }
 
+mod build_config {
+    include!(concat!(env!("OUT_DIR"), "/build_config.rs"));
+}
+
 #[cfg(feature = "python")]
 mod python {
-
     use super::RawStdKeyIndex;
 
     use fireflow_types::keys::DollarStdKey;
@@ -890,7 +991,7 @@ mod python {
                 })
                 .collect::<Result<Vec<_>, PyErr>>()?;
             // Ignore duplicates since the input dict should not have any
-            Ok(Self::from_vec(tmp).0)
+            Ok(Self::from_vec(tmp).map(|x| x.0)?)
         }
     }
 

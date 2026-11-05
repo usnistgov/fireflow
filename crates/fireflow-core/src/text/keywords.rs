@@ -1646,7 +1646,7 @@ impl FromStrDelim for Compensation3_0 {
     fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
         if let Some(first) = iter.next().and_then(|x| x.parse::<usize>().ok()) {
             let n = first;
-            let nn = n * n;
+            let nn = n.checked_mul(n).ok_or(ParseCompError::Overflow)?;
             let values = iter
                 .by_ref()
                 .take(nn)
@@ -1701,6 +1701,8 @@ pub enum ParseCompError {
     WrongLength { found: usize, expected: usize },
     #[error("Could not determine length")]
     BadLength,
+    #[error("Length could not fit in memory")]
+    Overflow,
     #[error("Float could not be parsed")]
     BadFloat,
     #[error("{0}")]
@@ -2845,6 +2847,8 @@ pub enum ParseUnstainedCenterError {
     BadLength { found: usize, expected: usize },
     #[error("Could not parse N")]
     BadN,
+    #[error("Length could not fit into memory")]
+    Overflow,
     #[error("Error parsing float value(s)")]
     BadFloat,
     #[error("{0}")]
@@ -2937,7 +2941,9 @@ impl FromStrDelim for UnstainedCenters {
                 .map_err(|_| ParseUnstainedCenterError::BadFloat)?;
             let remainder = iter.by_ref().count();
             let total = values.len() + measurements.len() + remainder;
-            let expected = 2 * n;
+            let expected = n
+                .checked_mul(2)
+                .ok_or(ParseUnstainedCenterError::Overflow)?;
             if total == expected {
                 let ys = measurements.into_iter().zip(values).collect();
                 Ok(Self(ys))
@@ -3199,6 +3205,12 @@ impl Par {
         Ok(par)
     }
 
+    // Sanity check the size of $PAR.
+    //
+    // This isn't strictly necessary but it could prevent some nasty things
+    // happening for pathological cases where $PAR is set to a huge number but
+    // the file is actually small. $PAR is used for many things downstream so
+    // this prevents some large memory errors from happening.
     pub(crate) fn check(self, std: &StdLookupTx) -> Result<(), ImpossibleParError> {
         // For all FCS versions, we know that $PnR and $PnB are required.
         // Therefore $PAR must be at most half the number of $Pn* keywords.

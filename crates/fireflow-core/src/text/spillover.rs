@@ -161,8 +161,12 @@ impl<'a> GenericSpillover<&'a str> {
     ) -> Result<Self, ParseGenericSpilloverError> {
         if let Some(first) = xs.next().and_then(|x| x.parse::<usize>().ok()) {
             let n = first;
-            let nn = n * n;
-            let expected = n + nn;
+            let nn = n
+                .checked_mul(n)
+                .ok_or(ParseGenericSpilloverError::Overflow)?;
+            let expected = n
+                .checked_add(nn)
+                .ok_or(ParseGenericSpilloverError::Overflow)?;
             let measurements: Vec<_> = xs.by_ref().take(n).collect();
             let values: Vec<_> = xs.collect();
             let total = measurements.len() + values.len();
@@ -322,6 +326,8 @@ pub enum ParseGenericSpilloverError {
     BadFloat,
     #[error("N could not be parsed")]
     BadN,
+    #[error("Length could not fit in memory")]
+    Overflow,
 }
 
 /// Error when parsing a measurement index in [`Spillover`]

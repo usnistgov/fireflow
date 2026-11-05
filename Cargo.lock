@@ -939,6 +939,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fireflow-stubgen"
+version = "0.1.1"
+dependencies = [
+ "derive-new",
+ "fireflow-python",
+ "minijinja",
+ "serde",
+]
+
+[[package]]
 name = "fireflow-types"
 version = "0.1.1"
 dependencies = [

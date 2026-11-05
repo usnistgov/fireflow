@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 [dependencies]
 fireflow-core = { path = "../crates/fireflow-core", features = ["python"] }
 fireflow-types = { path = "../crates/fireflow-types", features = ["python"] }
-fireflow-python = { path = "../crates/fireflow-python" }
+fireflow-python = { path = "../crates/fireflow-python", features = ["stub"] }
 
 pyo3.workspace = true
 pyo3.features = [

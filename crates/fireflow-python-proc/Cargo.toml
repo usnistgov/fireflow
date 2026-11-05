@@ -19,3 +19,6 @@ proc-macro = true
 
 [lints]
 workspace = true
+
+[features]
+stub = []

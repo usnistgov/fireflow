@@ -6,6 +6,9 @@ use crate::api::{HeaderAndSuppOffsets, NEStringOrBytes};
 use crate::convert::U64Ext as _;
 use crate::core::{DarkBytes, MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
 use crate::fixed_vec::OneOrTwo;
+use crate::header::final_offsets::{
+    FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
+};
 use crate::io::AnyReader;
 use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
@@ -19,9 +22,6 @@ use crate::text::lookup::{
 };
 use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_str_from_bytes};
 use crate::validated::buf_file::read_exact_owned;
-use crate::validated::header_offsets::{
-    FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
-};
 use crate::validated::read_state::{DatasetOffset, DatasetReader, HeaderReader, TEXTReader};
 
 use fireflow_types::config::{

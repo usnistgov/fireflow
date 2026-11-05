@@ -7,7 +7,6 @@ pub mod buf_file;
 pub mod compensation;
 pub mod dataframe;
 pub mod finite_float;
-pub mod header_offsets;
 pub mod read_state;
 pub mod shortname;
 pub mod unaligned;

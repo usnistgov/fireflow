@@ -1,8 +1,11 @@
 //! Reading and writing the HEADER segment
 
+pub mod final_offsets;
+
 use crate::api::StdKeywords;
 use crate::convert::InstantExt as _;
 use crate::core::{DarkBytes, Other, WriteHeaderAndTextConfig};
+use crate::header::final_offsets::{FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError};
 use crate::logging::{
     IOErrorGroup, IOGroupResult, LogResult, ResultExt as _, WarningsAndIOGroupResult, io_to_log,
 };
@@ -25,9 +28,6 @@ use crate::text::keywords::{
     KeywordVersionScore, Nextdata, Par, ValueToStdKey as _,
 };
 use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};
-use crate::validated::header_offsets::{
-    FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
-};
 use crate::validated::read_state::{DatasetOffset, HeaderReader, WriteFCSDigest};
 
 use fireflow_types::config::{

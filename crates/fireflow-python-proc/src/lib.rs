@@ -10768,7 +10768,7 @@ impl DocArgParam {
     }
 
     fn new_other_offset_pairs_param() -> Self {
-        let rstype = parse_quote!(fireflow_core::validated::header_offsets::PyFinalOtherOffsets);
+        let rstype = parse_quote!(fireflow_core::header::final_offsets::PyFinalOtherOffsets);
         let inner = PyAlias::new_py(["typing"], "FinalOtherOffsets");
         let pt = PyOpt::new1(inner).rstype(rstype);
         let d = format!("The {OTHER} offsets from {HEADER}.");

@@ -58,7 +58,8 @@ use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
 use fireflow_core::data::{self, LayoutByteOrder as _, LayoutDatatype as _, PhantomInto as _};
-use fireflow_core::header;
+use fireflow_core::header::final_offsets::FinalHeaderOffsets;
+use fireflow_core::header::{Header, OriginalHeaderOffsets};
 use fireflow_core::match_map_uint;
 use fireflow_core::meas;
 use fireflow_core::segment;
@@ -68,7 +69,7 @@ use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::Element;
 use fireflow_core::validated::{
     dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame, PrimitiveSeries},
-    header_offsets, shortname as sn,
+    shortname as sn,
 };
 
 use fireflow_python_proc as fpp;
@@ -114,9 +115,9 @@ fpp::impl_config_defaults!(cfg::ReadFlatDatasetFromKeywordsConfig);
 fpp::impl_config_defaults_newcore!(cfg::NewCoreTEXTConfig);
 fpp::impl_config_defaults_newcore!(cfg::NewCoreDatasetConfig);
 
-fpp::impl_py_header!(header::Header);
-fpp::impl_py_header_offsets!(header_offsets::FinalHeaderOffsets);
-fpp::impl_py_original_header_offsets!(header::OriginalHeaderOffsets);
+fpp::impl_py_header!(Header);
+fpp::impl_py_header_offsets!(FinalHeaderOffsets);
+fpp::impl_py_original_header_offsets!(OriginalHeaderOffsets);
 fpp::impl_py_valid_keywords!(api::ValidKeywords);
 fpp::impl_py_std_diagnostics!(core::StdTEXTDiagnostics);
 fpp::impl_py_data_schema_diagnostics!(data::DataSchemaDiagnostics);

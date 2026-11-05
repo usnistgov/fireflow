@@ -16,6 +16,10 @@ use crate::core::{
 };
 use crate::data::{DataSchemaDiagnostics, EventOverRangeError};
 use crate::fixed_vec::OneOrTwo;
+use crate::header::final_offsets::{
+    FinalHeaderOffsets, OffsetsValidationError, PrimaryTEXTOverflowError,
+    SuppToHeaderOffsetsValidationError, TextToHeaderOrSuppOffsetsValidationError,
+};
 use crate::header::{GuessVersionError, Header, HeaderError, KeywordVersionScores};
 use crate::io::{
     AnyReader, FlatTEXTOutputInner, scan_dataset_boundaries_buffered, scan_dataset_boundaries_mmap,
@@ -43,10 +47,6 @@ use crate::text::keywords::{
 };
 use crate::text::lookup::{MissingKeyError, ParseKeyError, ReqKeyErrorInner_};
 use crate::validated::dataframe::PrimitiveDataFrame;
-use crate::validated::header_offsets::{
-    FinalHeaderOffsets, OffsetsValidationError, PrimaryTEXTOverflowError,
-    SuppToHeaderOffsetsValidationError, TextToHeaderOrSuppOffsetsValidationError,
-};
 use crate::validated::read_state::{
     CRCError, DatasetLen, DatasetOffset, DatasetOffsetError, HeaderReader, NewTEXTReaderError,
     TEXTReader,

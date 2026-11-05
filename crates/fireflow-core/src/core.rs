@@ -21,6 +21,7 @@ use crate::data::{
     RangeAndSeries, ReadCheckedDataframeError, ReadCheckedDataframeWarning,
     VersionedDataFrame as _, VersionedDataSchema, WithPrimitiveDataFrame,
 };
+use crate::header::final_offsets::FinalHeaderOffsets;
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
     autodetect_version,
@@ -113,7 +114,6 @@ use crate::validated::ascii_uint::{
 };
 use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
-use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetOffset, NewTEXTReaderError, TEXTReader, WriteFCSDigest,
 };

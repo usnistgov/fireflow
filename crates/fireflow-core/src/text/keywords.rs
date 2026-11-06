@@ -508,7 +508,7 @@ impl Gain {
             // TODO this is confusing, this method is overspecified for Option<>
             let (gain, ge) = Self::remove_or_drop_meas_opt(kws, i, conf.as_ref());
             match gain {
-                Some(g) => g.0.is_one().then_some(TemporalGainError(i).into()),
+                Some(g) => (!g.0.is_one()).then_some(TemporalGainError(i).into()),
                 None => ge.map(LookupTemporalGainError::from),
             }
         }
@@ -3735,10 +3735,10 @@ impl KeywordOptimizer {
         let missing_scales = par.0.saturating_sub(self.n_pne);
         if version >= Version::FCS3_0 {
             score.missing_req += missing_scales;
-            score.good_req += self.n_pnn;
+            score.good_req += self.n_pne;
         } else {
             score.missing_opt += missing_scales;
-            score.good_opt += self.n_pnn;
+            score.good_opt += self.n_pne;
         }
 
         // $DFCmTOn were only in 2.0 and replaced in 3.0 with $COMP. Since only

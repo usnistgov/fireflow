@@ -47,7 +47,7 @@ use proptest_derive::Arbitrary;
 pub struct WriteTEXTInnerConfig {
     /// Delimiter for TEXT segment
     ///
-    /// This should be an ASCII character in `[1, 126]`. Unlike the standard
+    /// This should be an ASCII character in `[1, 31]`. Unlike the standard
     /// (which calls for `\n`), this will default to the record separator
     /// (character `30`).
     pub delim: TEXTDelim,
@@ -988,7 +988,7 @@ impl_tri_error_flag!(true_is_error DisallowRangeTrunc);
 impl_tri_error_flag!(false_is_error AllowLoss);
 
 // flag or controlling how to deal with overrange values in read-only case
-impl_tri_error_flag!(true_is_error AllowOverBitmask);
+impl_tri_error_flag!(false_is_error AllowOverBitmask);
 impl_tri_error_flag!(true_is_error DisallowOverRange);
 
 impl_tri_error_flag!(false_is_error AllowMissingCRC);
@@ -2100,7 +2100,7 @@ impl OpticalOnlyKey {
 }
 
 pub const STD_KW_REQ_LEVEL: &NEStr = ne_str!("req_only");
-pub const STD_KW_OPT_LEVEL: &NEStr = ne_str!("opt_opt");
+pub const STD_KW_OPT_LEVEL: &NEStr = ne_str!("opt_only");
 pub const STD_KW_REQ_AND_OPT_LEVEL: &NEStr = ne_str!("both");
 
 impl_str_enum!(
@@ -2121,8 +2121,8 @@ impl_str_enum!(
     Opt_ => STD_KW_OPT_LEVEL
 );
 
-pub const STD_KW_ROOT_LEVEL: &NEStr = ne_str!("req_only");
-pub const STD_KW_MEAS_LEVEL: &NEStr = ne_str!("opt_opt");
+pub const STD_KW_ROOT_LEVEL: &NEStr = ne_str!("root_only");
+pub const STD_KW_MEAS_LEVEL: &NEStr = ne_str!("meas_only");
 pub const STD_KW_ROOT_AND_MEAS_LEVEL: &NEStr = ne_str!("both");
 
 impl_str_enum!(

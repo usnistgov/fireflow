@@ -2754,7 +2754,7 @@ impl SuppTEXTOffsetsOutput {
                     } else if uncorr_ptxt == orig_supp {
                         // Primary and supp are identical, keep primary
                         go(AnyRegion::Text, Self::DuplicatesPrimaryTEXT)
-                    } else if uncorr_ptxt == uncorr_anal {
+                    } else if uncorr_anal == orig_supp {
                         // Supp and ANALYSIS are the same, keep latter
                         go(AnyRegion::Analysis, Self::DuplicatesAnalysis)
                     } else if let Some(i) = uncorr_others.iter().position(|s| s == &orig_supp) {

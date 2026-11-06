@@ -64,11 +64,18 @@ impl TimePattern {
                 FractionType::Sexagesimal => {
                     // "nanoseconds" are actually 1/60 seconds, so make sure they
                     // don't exceed 59 and then convert to real nanoseconds
-                    let c = t.nanosecond();
-                    if c > 59 {
+                    let secfrac = t.nanosecond();
+                    if secfrac > 59 {
                         Err(InnerPatternError::ExceededSexa)
                     } else {
-                        Ok(t.with_nanosecond(c * 1_000_000_000 / 60).unwrap())
+                        // Order is important:
+                        // 1. Convert to u64 since 59e9 won't fit into u32
+                        // 2. Divide by 60 after conversion to keep precision
+                        // 3. Convert back to u32
+                        let ns64 = u64::from(secfrac) * 1_000_000_000 / 60;
+                        let ns32 = u32::try_from(ns64)
+                            .expect("input is 59 or less, therefore this will never exceed ~1e9");
+                        Ok(t.with_nanosecond(ns32).unwrap())
                     }
                 }
             }
@@ -255,11 +262,67 @@ mod tests {
         assert!("%H:%M".parse::<TimePattern>().is_err());
     }
 
-    // known patterns FCS files that should work
+    // known patterns in FCS files that should work
     #[test]
     fn str_to_pattern_known_fcs() {
         assert!("%H:%M:%S:%3f".parse::<TimePattern>().is_ok());
         assert!("%H:%M:%S:%@".parse::<TimePattern>().is_ok());
         assert!("%H:%M:%S:%!".parse::<TimePattern>().is_ok());
+    }
+
+    proptest! {
+        fn parse_frac_sec(
+            h in 0_u32..24,
+            m in 0_u32..60,
+            s in 0_u32..60,
+            f in 0_u32..60
+        ) {
+            let pat = "%H:%M:%S:%!".parse::<TimePattern>().unwrap();
+            let nano = u32::try_from(u64::from(f) * 1_000_000_000 / 60).unwrap();
+            let time = NaiveTime::from_hms_nano_opt(h, m, s, nano).unwrap();
+            let s = format!("{h:02}:{m:02}:{s:02}:{f:02}");
+            assert_eq!(pat.parse_str(s.as_str()), Ok(time));
+        }
+    }
+
+    proptest! {
+        fn parse_frac_sec_error(
+            h in 0_u32..23,
+            m in 0_u32..59,
+            s in 0_u32..59,
+            f in 60_u32..
+        ) {
+            let pat = "%H:%M:%S:%!".parse::<TimePattern>().unwrap();
+            let s = format!("{h:02}:{m:02}:{s:02}:{f}");
+            assert!(pat.parse_str(s.as_str()).is_err());
+        }
+    }
+
+    proptest! {
+        fn parse_centisec(
+            h in 0_u32..24,
+            m in 0_u32..60,
+            s in 0_u32..60,
+            f in 0_u32..100
+        ) {
+            let pat = "%H:%M:%S:%@".parse::<TimePattern>().unwrap();
+            let nano = f * 10_000_000;
+            let time = NaiveTime::from_hms_nano_opt(h, m, s, nano).unwrap();
+            let s = format!("{h:02}:{m:02}:{s:02}:{f:02}");
+            assert_eq!(pat.parse_str(s.as_str()), Ok(time));
+        }
+    }
+
+    proptest! {
+        fn parse_centisec_error(
+            h in 0_u32..24,
+            m in 0_u32..60,
+            s in 0_u32..60,
+            f in 100_u32..
+        ) {
+            let pat = "%H:%M:%S:%@".parse::<TimePattern>().unwrap();
+            let s = format!("{h:02}:{m:02}:{s:02}:{f}");
+            assert!(pat.parse_str(s.as_str()).is_err());
+        }
     }
 }

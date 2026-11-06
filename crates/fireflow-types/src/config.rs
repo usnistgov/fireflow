@@ -2471,7 +2471,11 @@ mod python {
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            <&'static str>::from(self).into_bound_py_any(py)
+            match self {
+                Self::Explicit(i) => u8::from(i).into_bound_py_any(py),
+                Self::Never => FIX_INT_WIDTH_NEVER_LEVEL.into_bound_py_any(py),
+                Self::NextByte => FIX_INT_WIDTH_NEXT_BYTE_LEVEL.into_bound_py_any(py),
+            }
         }
     }
 

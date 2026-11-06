@@ -5,6 +5,7 @@ use crate::text::keyword_enum::{Keyword0FromValue as _, OptRootKeyword};
 use crate::text::keywords::ValueToStdKey as _;
 use crate::text::lookup::{Diagnosed, FromStrWith, OptStKeyError, OptValue as _};
 
+use chrono::format::ParseErrorKind;
 use fireflow_types::config::{ConfigFlag as _, ReadDataKeywordsConfig};
 use fireflow_types::keywords::{
     ISO_DATETIME_NO_TZ, ISO_DATETIME_TZ_HH, ISO_DATETIME_TZ_HH_MAYBE_MM, ISO_DATETIME_TZ_HH_MM,
@@ -220,17 +221,36 @@ impl FromStrWith for FCSDateTime {
         (): (),
         conf: &Self::Config,
     ) -> Result<Diagnosed<Self, Self::Diagnostic>, Self::Err> {
+        let naive_to_local = |naive| match Local::now().timezone().from_local_datetime(&naive) {
+            MappedLocalTime::Single(t) => {
+                let diag = DatetimeDiagnostic::new(None, Some(true));
+                Ok(Diagnosed::new(Self(t.fixed_offset()), diag))
+            }
+            MappedLocalTime::Ambiguous(_, _) => Err(FCSDateTimeError::Fold),
+            MappedLocalTime::None => Err(FCSDateTimeError::Gap),
+        };
         if let Some(pat) = conf.datetime_pattern.as_ref() {
-            // first, try the given alternative format if it exists
-            DateTime::parse_from_str(s.as_str(), pat.as_str())
-                .map(Self)
-                .map(|x| {
+            // First, try the given alternative format if it exists. Try
+            // DateTime first (which requires a timezone in the format string);
+            // if this fails, fall back to naive datetime and use localtime in
+            // the returned value.
+            match DateTime::parse_from_str(s.as_str(), pat.as_str()) {
+                Ok(x) => {
                     let diag = DatetimeDiagnostic::new(Some(pat.clone()), Some(false));
-                    Diagnosed::new(x, diag)
-                })
-                .map_err(|e| FCSDateTimeError::AltFormat(e, pat.to_owned()))
+                    Ok(Diagnosed::new(Self(x), diag))
+                }
+                Err(e) => {
+                    if e.kind() == ParseErrorKind::NotEnough
+                        && let Ok(naive) = NaiveDateTime::parse_from_str(s.as_str(), pat.as_str())
+                    {
+                        naive_to_local(naive)
+                    } else {
+                        Err(FCSDateTimeError::AltFormat(e, pat.to_owned()))
+                    }
+                }
+            }
         } else if let Ok(naive) = NaiveDateTime::parse_from_str(s.as_str(), ISO_DATETIME_NO_TZ) {
-            // next, try to parse without a timezone, defaulting to localtime and
+            // Next, try to parse without a timezone, defaulting to localtime and
             // converting to a fixed offset
             if conf.disallow_localtime.is_set() {
                 Err(FCSDateTimeError::Localtime)
@@ -248,7 +268,6 @@ impl FromStrWith for FCSDateTime {
             // If zone information is present, try any number of formats which
             // are valid and mostly equivalent which contain the timezone
             let formats = [
-                ISO_DATETIME_NO_TZ,
                 ISO_DATETIME_TZ_HH_MAYBE_MM,
                 ISO_DATETIME_TZ_HH_MM,
                 ISO_DATETIME_TZ_HH,
@@ -368,5 +387,27 @@ mod tests {
             "2112-01-01T00:00:00.0+0001",
             "2112-01-01T00:00:00+00:01",
         );
+    }
+
+    #[test]
+    fn datetime_alt_notimezone() {
+        let pat = "%Y-%m-%d %H:%M:%S";
+        let conf = EvaledReadStdKeywordsConfig {
+            datetime_pattern: Some(pat.into()),
+            ..Default::default()
+        };
+        let s = NEStr::try_new("2112-01-01 00:00:00").unwrap();
+        assert!(FCSDateTime::from_str_with(s, (), &conf).is_ok())
+    }
+
+    #[test]
+    fn datetime_alt_timezone() {
+        let pat = "%Y-%m-%d %H:%M:%S %z";
+        let conf = EvaledReadStdKeywordsConfig {
+            datetime_pattern: Some(pat.into()),
+            ..Default::default()
+        };
+        let s = NEStr::try_new("2112-01-01 00:00:00 +0001").unwrap();
+        assert!(FCSDateTime::from_str_with(s, (), &conf).is_ok())
     }
 }

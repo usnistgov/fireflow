@@ -1,14 +1,17 @@
 use nonempty::{NEStr, NEString};
 
 use ambassador::delegatable_trait;
-use derive_more::{Display, FromStr, Into};
+use derive_more::{Display, From, Into};
 use derive_new::new;
 use thiserror::Error;
+
+use std::num::ParseIntError;
+use std::str::FromStr;
 
 #[cfg(feature = "python")]
 use {
     crate::python as py,
-    fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject},
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, TryFromPyObject},
 };
 
 /// Valid chars that can be used for the TEXT delimiter when writing.
@@ -20,7 +23,7 @@ use {
 /// For instance, setting the delimiter to '0' would break any keywords (many of
 /// which are required) that store only '0', since this would need to be
 /// escaped, but this is not allowed at the start or end of a keyword.
-#[derive(Clone, Copy, Display, Into, FromStr)]
+#[derive(Clone, Copy, Display, Into)]
 #[cfg_attr(feature = "python", derive(TryFromPyObject))]
 #[into(u8, char)]
 #[display("{}", char::from(self.0))]
@@ -74,6 +77,13 @@ impl Default for TEXTDelim {
     }
 }
 
+impl FromStr for TEXTDelim {
+    type Err = ParseTEXTDelimError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::try_from(s.parse::<u8>()?)?)
+    }
+}
+
 impl TryFrom<u8> for TEXTDelim {
     type Error = TEXTDelimError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -85,8 +95,16 @@ impl TryFrom<u8> for TEXTDelim {
     }
 }
 
+/// Error when parsing [`TEXTDelim`]
+#[derive(Debug, Display, Error, PartialEq, Clone, From)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ParseTEXTDelimError {
+    Parse(ParseIntError),
+    New(TEXTDelimError),
+}
+
 /// Error when creating [`TEXTDelim`]
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("delimiter should be char between 1 and 31 inclusive, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]

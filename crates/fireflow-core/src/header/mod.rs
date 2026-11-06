@@ -337,9 +337,15 @@ pub(crate) fn autodetect_version(
                 .get(&RootKey::Par.to_std0())
                 .and_then(|s| s.as_str().parse::<Par>().ok())
                 .ok_or(GuessVersionError::NoPar)?;
+            let gate = kws
+                .get(&RootKey::Gate.to_std0())
+                .and_then(|s| s.parse().ok());
+            let csmode = kws
+                .get(&RootKey::Csmode.to_std0())
+                .and_then(|s| s.parse().ok());
             let mut opt = KeywordOptimizer::default();
             for (k, v) in kws.iter_raw_keywords() {
-                opt.classify_keyword(&k, v, par);
+                opt.classify_keyword(&k, v, par, gate, csmode);
             }
             let scores = Version::ITEMS.map(|v| (v, opt.get_score(v, par)));
             let ret_scores = || Some(scores.clone().map(|(_, s)| s).into());

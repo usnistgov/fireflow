@@ -3844,7 +3844,14 @@ impl KeywordOptimizer {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn classify_keyword(&mut self, key: &RawStdKey, value: &NEStr, par: Par) {
+    pub(crate) fn classify_keyword(
+        &mut self,
+        key: &RawStdKey,
+        value: &NEStr,
+        par: Par,
+        gate: Option<Gate>,
+        csmode: Option<CSMode>,
+    ) {
         let p = par.0;
         match AnyKeywordClass::classify_keyword(key) {
             AnyKeywordClass::Root(r) => match r {
@@ -3935,8 +3942,19 @@ impl KeywordOptimizer {
                 }
             }
 
+            AnyKeywordClass::GateOptLE3_1(i) => {
+                if let Some(g) = gate
+                    && usize::from(i) < g.0
+                {
+                    self.n_opt_max3_1 += 1;
+                } else {
+                    self.n_any += 1;
+                }
+            }
             AnyKeywordClass::CSVFlag(i) => {
-                if usize::from(i) < p {
+                if let Some(c) = csmode
+                    && usize::from(i) < c.0
+                {
                     self.n_opt_eq3_0or3_1 += 1;
                 } else {
                     self.n_any += 1;
@@ -3945,13 +3963,6 @@ impl KeywordOptimizer {
             AnyKeywordClass::Dfc(i) => {
                 if usize::from(i.i0) < p && usize::from(i.i1) < p {
                     self.n_dfc += 1;
-                } else {
-                    self.n_any += 1;
-                }
-            }
-            AnyKeywordClass::GateOptLE3_1(i) => {
-                if usize::from(i) < p {
-                    self.n_opt_max3_1 += 1;
                 } else {
                     self.n_any += 1;
                 }

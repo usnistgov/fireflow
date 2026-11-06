@@ -1008,7 +1008,7 @@ impl MeasKeyId {
 
     fn from_optical_only_key(k: OpticalOnlyKey) -> Self {
         match k {
-            OpticalOnlyKey::Gain => Self::G,
+            // OpticalOnlyKey::Gain => Self::G,
             OpticalOnlyKey::Filter => Self::F,
             OpticalOnlyKey::Wavelength => Self::L,
             OpticalOnlyKey::Power => Self::O,

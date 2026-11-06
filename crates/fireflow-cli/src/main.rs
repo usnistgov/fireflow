@@ -7,7 +7,6 @@ use fireflow_core::{
     validated::read_state::DatasetOffset,
 };
 
-use fireflow_types::args::dash as ta;
 use fireflow_types::config::{
     self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, NumericByteWidth,
 };
@@ -21,6 +20,7 @@ use fireflow_types::std_pattern::PATTERN_DELIMITER;
 use fireflow_types::sub_pattern::SubPattern;
 use fireflow_types::textdelim::TEXTDelim;
 use fireflow_types::timepattern::TimePattern;
+use fireflow_types::{args::dash as ta, config::OpticalOnlyKeys};
 use fireflow_types::{byteord::ConfigByteOrd, std_pattern::StdKeyOrPattern};
 use nonempty::{NEStr, NEString};
 
@@ -38,7 +38,6 @@ use serde::Serialize;
 use serde_json::{json, to_writer};
 use zmij::Buffer as FBuf;
 
-use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
 use std::fmt::Display;
@@ -548,8 +547,7 @@ fn run() -> AppResult<()> {
             "Ignore optical keyword for temporal measurement. Must be a \
              comma-separated list of strings like the X in {pn_any}.",
         ))
-        .value_delimiter(',')
-        .value_parser(value_parser!(tc::OpticalOnlyKey));
+        .value_parser(parse_optical_only_keys);
 
     let process_pseudostandard = proc_kw_fail_arg(
         ta::PROCESS_PSEUDOSTANDARD,
@@ -1612,8 +1610,8 @@ fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
 
     get_opt(s, ta::FORCE_LINEAR_SCALE, |x| c.force_linear_scale = x);
 
-    if let Some(xs) = s.get_many::<tc::OpticalOnlyKey>(ta::IGNORE_OPTICAL_ONLY_KEYS) {
-        c.ignore_optical_only_keys = xs.copied().collect::<HashSet<_>>().into();
+    if let Some(ks) = s.get_one::<OpticalOnlyKeys>(ta::IGNORE_OPTICAL_ONLY_KEYS) {
+        c.ignore_optical_only_keys = ks.clone();
     }
 
     get_opt(s, ta::PROCESS_OPTICAL_ONLY_KEYS, |x| {
@@ -1933,6 +1931,14 @@ fn parse_offset_pair(s: &str) -> StrResult<(i32, i32)> {
             Ok((aa, bb))
         }
         _ => Err("offsets must be a pair of integers like 'X,Y'".into()),
+    }
+}
+
+fn parse_optical_only_keys(s: &str) -> StrResult<OpticalOnlyKeys> {
+    if s.is_empty() {
+        Ok(OpticalOnlyKeys::default())
+    } else {
+        OpticalOnlyKeys::try_from_iter(s.split(',')).map_err(|e| e.to_string())
     }
 }
 

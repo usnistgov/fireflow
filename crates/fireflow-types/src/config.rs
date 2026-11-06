@@ -15,6 +15,7 @@ use nonempty::{NEStr, ne_str};
 use const_format::formatcp;
 use derive_more::{AsRef, Display, From, FromStr, FromStrError, Into};
 use derive_new::new;
+use itertools::Itertools as _;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use num_traits::One as _;
 use regex::Regex;
@@ -1456,27 +1457,50 @@ pub struct OverlapCorrectionLimit(pub u64);
 pub struct DataRemainderLimit(pub u64);
 
 /// Set of temporal optical keys.
-#[derive(Clone, Default, From, Into)]
+#[derive(Clone, Default, From, Into, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct OpticalOnlyKeys(pub HashSet<OpticalOnlyKey>);
+pub struct OpticalOnlyKeys {
+    pub gain: bool,
+    pub nocheck: HashSet<OpticalOnlyKey>,
+}
+
+#[derive(Error, Debug)]
+#[error(
+    "Must be one of {}, or \"{GAIN_LEVEL}\".",
+    OpticalOnlyKey::iter().map(|s| format!("\"{s}\"")).join(", ")
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
+pub struct ParseOpticalOnlyKeysError;
 
 impl OpticalOnlyKeys {
     fn all() -> Self {
-        let keys = [
-            OpticalOnlyKey::Gain,
-            OpticalOnlyKey::Analyte,
-            OpticalOnlyKey::Calibration,
-            OpticalOnlyKey::DetectorName,
-            OpticalOnlyKey::DetectorType,
-            OpticalOnlyKey::DetectorVoltage,
-            OpticalOnlyKey::Feature,
-            OpticalOnlyKey::Filter,
-            OpticalOnlyKey::PercentEmitted,
-            OpticalOnlyKey::Power,
-            OpticalOnlyKey::Tag,
-            OpticalOnlyKey::Wavelength,
-        ];
-        Self(keys.into_iter().collect())
+        Self::new(true, OpticalOnlyKey::iter().collect())
+    }
+
+    pub fn try_from_iter<'a>(
+        xs: impl IntoIterator<Item = &'a str>,
+    ) -> Result<Self, ParseOpticalOnlyKeysError> {
+        let mut nocheck = HashSet::new();
+        let mut has_gain = false;
+        for x in xs {
+            if GAIN_LEVEL == x {
+                has_gain = true;
+            } else {
+                let k = x
+                    .parse::<OpticalOnlyKey>()
+                    .map_err(|_| ParseOpticalOnlyKeysError)?;
+                nocheck.insert(k);
+            }
+        }
+        Ok(Self::new(has_gain, nocheck))
+    }
+
+    #[cfg(feature = "python")]
+    fn as_vec(&self) -> Vec<&NEStr> {
+        let g = self.gain.then_some(GAIN_LEVEL);
+        let ns = self.nocheck.iter().map(EnumStrIter::as_ne_str);
+        g.into_iter().chain(ns).collect()
     }
 }
 
@@ -2002,6 +2026,7 @@ impl_config_flag!(
 );
 
 const GAIN_LEVEL: &NEStr = ne_str!("G");
+
 const FILTER_LEVEL: &NEStr = ne_str!("F");
 const WAVELENGTH_LEVEL: &NEStr = ne_str!("L");
 const POWER_LEVEL: &NEStr = ne_str!("O");
@@ -2026,8 +2051,8 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
     pub OpticalOnlyKeyError,
-    /// Ignore $PnG
-    Gain            => GAIN_LEVEL,
+    // /// Ignore $PnG
+    // Gain            => GAIN_LEVEL,
     /// Ignore $PnF
     Filter          => FILTER_LEVEL,
     /// Ignore $PnL
@@ -2052,6 +2077,43 @@ impl_str_enum!(
     Analyte         => ANALYTE_LEVEL
 );
 
+// impl OpticalOnlyKey {
+//     fn into_nocheck(self) -> Option<NoCheckOpticalOnlyKey> {
+//         match self {
+//             Self::Gain => None,
+//             Self::Filter => Some(NoCheckOpticalOnlyKey::Filter),
+//             Self::Wavelength => Some(NoCheckOpticalOnlyKey::Wavelength),
+//             Self::Power => Some(NoCheckOpticalOnlyKey::Power),
+//             Self::DetectorType => Some(NoCheckOpticalOnlyKey::DetectorType),
+//             Self::DetectorVoltage => Some(NoCheckOpticalOnlyKey::DetectorVoltage),
+//             Self::PercentEmitted => Some(NoCheckOpticalOnlyKey::PercentEmitted),
+//             Self::Calibration => Some(NoCheckOpticalOnlyKey::Calibration),
+//             Self::DetectorName => Some(NoCheckOpticalOnlyKey::DetectorName),
+//             Self::Tag => Some(NoCheckOpticalOnlyKey::Tag),
+//             Self::Feature => Some(NoCheckOpticalOnlyKey::Feature),
+//             Self::Analyte => Some(NoCheckOpticalOnlyKey::Analyte),
+//         }
+//     }
+// }
+
+// /// Optical-only keys (without $PnG).
+// ///
+// /// $PnG is weird because it can't just be ignored since it has a value that
+// /// also needs to be checked.
+// pub enum NoCheckOpticalOnlyKey {
+//     Filter,
+//     Wavelength,
+//     Power,
+//     DetectorType,
+//     DetectorVoltage,
+//     PercentEmitted,
+//     Calibration,
+//     DetectorName,
+//     Tag,
+//     Feature,
+//     Analyte,
+// }
+
 impl OpticalOnlyKey {
     pub const TARGETS_2_0: [Self; 6] = [
         Self::DetectorType,
@@ -2062,8 +2124,7 @@ impl OpticalOnlyKey {
         Self::Wavelength,
     ];
 
-    pub const TARGETS_3_0: [Self; 7] = [
-        Self::Gain,
+    pub const TARGETS_3_0: [Self; 6] = [
         Self::DetectorType,
         Self::DetectorVoltage,
         Self::Filter,
@@ -2072,8 +2133,7 @@ impl OpticalOnlyKey {
         Self::Wavelength,
     ];
 
-    pub const TARGETS_3_1: [Self; 8] = [
-        Self::Gain,
+    pub const TARGETS_3_1: [Self; 7] = [
         Self::Calibration,
         Self::DetectorType,
         Self::DetectorVoltage,
@@ -2083,8 +2143,7 @@ impl OpticalOnlyKey {
         Self::Wavelength,
     ];
 
-    pub const TARGETS_3_2: [Self; 12] = [
-        Self::Gain,
+    pub const TARGETS_3_2: [Self; 11] = [
         Self::Analyte,
         Self::Calibration,
         Self::DetectorName,
@@ -2429,8 +2488,8 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for OpticalOnlyKeys {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let xs: Vec<_> = obj.extract()?;
-            Ok(Self(xs.into_iter().collect()))
+            let xs: Vec<String> = obj.extract()?;
+            Ok(Self::try_from_iter(xs.iter().map(String::as_str))?)
         }
     }
 
@@ -2440,7 +2499,7 @@ mod python {
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            self.0.into_iter().collect::<Vec<_>>().into_pyobject(py)
+            self.as_vec().into_pyobject(py)
         }
     }
 

@@ -12,8 +12,7 @@ use crate::text::display::{LinearDisplay, NewLinearDisplayError};
 use crate::text::keyword_enum::DollarKey;
 use crate::text::lookup::{
     Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, MissingKeyError, OptKeyError,
-    OptValue as _, ParseKeyError, ReqKeyError, ReqKeyErrorInner, ReqValue as _, Trimmed,
-    impl_from_str_with_delim,
+    ParseKeyError, ReqKeyError, ReqKeyErrorInner, ReqValue as _, Trimmed, impl_from_str_with_delim,
 };
 use crate::text::named_vec::{NameMapping, NamedSet, NamedSetMembership};
 use crate::text::optional::OptionalZST;
@@ -36,7 +35,7 @@ use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use fireflow_types::byteord::ConfigByteOrd;
 use fireflow_types::config::{
-    ConfigFlag as _, ForceLinearScale, NumericByteWidth, OpticalOnlyKey, ProcessOptionalFailure,
+    ConfigFlag as _, ForceLinearScale, NumericByteWidth, ProcessOptionalFailure,
     ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, TrimIntraValueWhitespace,
 };
 use fireflow_types::impl_str_enum_kw;
@@ -488,33 +487,6 @@ impl LogRangeError {
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Gain(pub PositiveFloat);
 
-impl Gain {
-    pub(crate) fn lookup_temporal_3_0<C>(
-        kws: &mut StdLookupTx,
-        i: MeasIndex,
-        conf: &C,
-    ) -> Option<LookupTemporalGainError>
-    where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
-    {
-        let ignore = &AsRef::<EvaledReadStdKeywordsConfig>::as_ref(conf).ignore_optical_only_keys;
-        let flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).process_optional_failure;
-        if ignore.0.contains(&OpticalOnlyKey::Gain) {
-            if kws.read::<Self>(&i).is_some() {
-                kws.set_failure_flag(&Self::std(&i), flag);
-            }
-            None
-        } else {
-            // TODO this is confusing, this method is overspecified for Option<>
-            let (gain, ge) = Self::remove_or_drop_meas_opt(kws, i, conf.as_ref());
-            match gain {
-                Some(g) => (!g.0.is_one()).then_some(TemporalGainError(i).into()),
-                None => ge.map(LookupTemporalGainError::from),
-            }
-        }
-    }
-}
-
 /// Error when lookup up [`Gain`] from keyword pairs
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -531,7 +503,7 @@ pub enum LookupTemporalGainError {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct TemporalGainError(MeasIndex);
+pub struct TemporalGainError(pub MeasIndex);
 
 /// The value of the $TIMESTEP keyword
 #[derive(Clone, Copy, PartialEq, From, FromStr, Into, Debug, Delegate)]

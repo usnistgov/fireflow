@@ -32,8 +32,8 @@ use crate::text::keywords::{
     AlphaNumType, Analyte, Calibration3_1, Calibration3_2, CalibrationLossError, DetectorName,
     DetectorType, DetectorVoltage, Display, Feature, Filter, Gain, LogScale, Longname,
     LookupTemporalGainError, OpticalScaleFix, OpticalType, PeakBin, PeakIndex, PercentEmitted,
-    Power, Scale, Tag, TemporalScale2_0, TemporalScale3_0, TemporalScaleFix, TemporalType,
-    Timestep, TimestepAdded, Wavelength, Wavelengths, WavelengthsLossError,
+    Power, Scale, Tag, TemporalGainError, TemporalScale2_0, TemporalScale3_0, TemporalScaleFix,
+    TemporalType, Timestep, TimestepAdded, Wavelength, Wavelengths, WavelengthsLossError,
 };
 use crate::text::lookup::{
     Diagnosed, OptKeyError, OptStKeyError, OptValue as _, ReqKeyError, ReqStKeyError, ReqValue as _,
@@ -1970,11 +1970,13 @@ impl LookupOptical for InnerOptical3_2 {
 
 // Implement method to look up temporal keywords from a hash table
 
-type LookupTemporalResult<V> = (
-    Result<DiagnosedTemporal<V>, OneOrTwo<LookupTemporalError>>,
-    LookupTemporalErrorTable,
-    OpticalOnlyErrors,
-);
+#[derive(new)]
+pub struct LookupTemporalResult<V> {
+    pub this: Result<DiagnosedTemporal<V>, OneOrTwo<LookupTemporalError>>,
+    pub opt_errors: LookupTemporalErrorTable,
+    pub ignore_nongain_errors: OpticalOnlyErrors,
+    pub ignore_gain_error: Option<TemporalGainError>,
+}
 
 pub trait LookupTemporal: TemporalKeywords {
     fn lookup_specific<C>(
@@ -2001,13 +2003,13 @@ impl LookupTemporal for InnerTemporal2_0 {
         // Order matters here, remove optical keys first if desired to trigger
         // the correct error messages and diagnostics
         let tgts = OpticalOnlyKey::TARGETS_2_0;
-        let (tmp_opt_pairs, tmp_opt_errors) = kws.remove_optical_only(&tgts, ignore, i, flag);
+        let opt_only = kws.remove_optical_only_nogain(&tgts, ignore, i, flag);
         let (scale, se) = TemporalScale2_0::remove_or_drop_meas_opt_with(kws, i, (), conf);
         let (peak, pe) = PeakData::lookup(kws, i, conf.as_ref());
         let es = LookupTemporalErrorTable::new(se, None, None, None, pe);
         let this = Self::new(peak);
-        let diag = DiagnosedTemporal::new(this, scale.diagnostic, vec![], tmp_opt_pairs, false);
-        (Ok(diag), es, tmp_opt_errors)
+        let diag = DiagnosedTemporal::new(this, scale.diagnostic, vec![], opt_only.pairs, false);
+        LookupTemporalResult::new(Ok(diag), es, opt_only.errors, None)
     }
 }
 
@@ -2020,24 +2022,20 @@ impl LookupTemporal for InnerTemporal3_0 {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
-        let flag = sconf.process_optical_only_keys;
-        let ignore = &sconf.ignore_optical_only_keys;
         // Order matters here, remove optical keys first if desired to trigger
         // the correct error messages and diagnostics
         let tgts = OpticalOnlyKey::TARGETS_3_0;
-        let (tmp_opt_pairs, tmp_opt_errors) = kws.remove_optical_only(&tgts, ignore, i, flag);
-        let ge = Gain::lookup_temporal_3_0(kws, i, conf);
+        let opt_only = kws.remove_optical_only_gain(&tgts, i, conf);
         let (peak, pe) = PeakData::lookup(kws, i, conf.as_ref());
         let scale = TemporalScale3_0::remove_meas_req_with(kws, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
         let timestep = Timestep::lookup(kws, conf.as_ref()).map_err(LookupTemporalError::from);
         let res = scale.zip_fixed(timestep).map(|(s, t)| {
             let this = Self::new(t.inner, peak);
-            DiagnosedTemporal::new(this, s.diagnostic, vec![], tmp_opt_pairs, t.diagnostic)
+            DiagnosedTemporal::new(this, s.diagnostic, vec![], opt_only.pairs, t.diagnostic)
         });
-        let es = LookupTemporalErrorTable::new(None, ge, None, None, pe);
-        (res, es, tmp_opt_errors)
+        let es = LookupTemporalErrorTable::new(None, opt_only.lookup_gain_error, None, None, pe);
+        LookupTemporalResult::new(res, es, opt_only.errors, opt_only.ignore_gain_warning)
     }
 }
 
@@ -2050,14 +2048,10 @@ impl LookupTemporal for InnerTemporal3_1 {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
-        let flag = sconf.process_optical_only_keys;
-        let ignore = &sconf.ignore_optical_only_keys;
         // Order matters here, remove optical keys first if desired to trigger
         // the correct error messages and diagnostics
         let tgts = OpticalOnlyKey::TARGETS_3_1;
-        let (tmp_opt_pairs, tmp_opt_errors) = kws.remove_optical_only(&tgts, ignore, i, flag);
-        let ge = Gain::lookup_temporal_3_0(kws, i, conf);
+        let opt_only = kws.remove_optical_only_gain(&tgts, i, conf);
         let (dpy, de) = Display::remove_or_drop_meas_opt_with(kws, i, (), conf);
         let (peak, pe) = PeakData::lookup(kws, i, conf.as_ref());
         let scale = TemporalScale3_0::remove_meas_req_with(kws, i, (), conf.as_ref())
@@ -2067,10 +2061,10 @@ impl LookupTemporal for InnerTemporal3_1 {
             let (d, d_trimmed) = dpy.into_opt_indexed_pair(&i);
             let trimmed = d_trimmed.into_iter().collect();
             let ret = Self::new(t.inner, d, peak);
-            DiagnosedTemporal::new(ret, s.diagnostic, trimmed, tmp_opt_pairs, t.diagnostic)
+            DiagnosedTemporal::new(ret, s.diagnostic, trimmed, opt_only.pairs, t.diagnostic)
         });
-        let es = LookupTemporalErrorTable::new(None, ge, de, None, pe);
-        (res, es, tmp_opt_errors)
+        let es = LookupTemporalErrorTable::new(None, opt_only.lookup_gain_error, de, None, pe);
+        LookupTemporalResult::new(res, es, opt_only.errors, opt_only.ignore_gain_warning)
     }
 }
 
@@ -2083,14 +2077,10 @@ impl LookupTemporal for InnerTemporal3_2 {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
-        let flag = sconf.process_optical_only_keys;
-        let ignore = &sconf.ignore_optical_only_keys;
         // Order matters here, remove optical keys first if desired to trigger
         // the correct error messages and diagnostics
         let tgts = OpticalOnlyKey::TARGETS_3_2;
-        let (tmp_opt_pairs, tmp_opt_errors) = kws.remove_optical_only(&tgts, ignore, i, flag);
-        let ge = Gain::lookup_temporal_3_0(kws, i, conf);
+        let opt_only = kws.remove_optical_only_gain(&tgts, i, conf);
         let (dpy, de) = Display::remove_or_drop_meas_opt_with(kws, i, (), conf);
         let (meas, me) = TemporalType::remove_or_drop_meas_opt(kws, i, conf.as_ref());
         let scale = TemporalScale3_0::remove_meas_req_with(kws, i, (), conf.as_ref())
@@ -2100,11 +2090,11 @@ impl LookupTemporal for InnerTemporal3_2 {
             let (d, d_trimmed) = dpy.into_opt_indexed_pair(&i);
             let trimmed = d_trimmed.into_iter().collect();
             let ret = Self::new(t.inner, d, meas);
-            DiagnosedTemporal::new(ret, s.diagnostic, trimmed, tmp_opt_pairs, t.diagnostic)
+            DiagnosedTemporal::new(ret, s.diagnostic, trimmed, opt_only.pairs, t.diagnostic)
         });
         let pe = PeakDataWarningTable::default();
-        let es = LookupTemporalErrorTable::new(None, ge, de, me, pe);
-        (res, es, tmp_opt_errors)
+        let es = LookupTemporalErrorTable::new(None, opt_only.lookup_gain_error, de, me, pe);
+        LookupTemporalResult::new(res, es, opt_only.errors, opt_only.ignore_gain_warning)
     }
 }
 
@@ -3012,8 +3002,8 @@ impl<T> Temporal<T> {
         T: LookupTemporal,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let (spec_res, es, tmp_opt_es) = T::lookup_specific(kws, i, conf);
-        let res = spec_res.map(|specific| {
+        let spec_res = T::lookup_specific(kws, i, conf);
+        let res = spec_res.this.map(|specific| {
             let common = CommonMeasurement::lookup(kws, i);
             DiagnosedTemporal::new(
                 Self::new(common, specific.this),
@@ -3023,7 +3013,12 @@ impl<T> Temporal<T> {
                 specific.timestep_added,
             )
         });
-        (res, es, tmp_opt_es)
+        LookupTemporalResult::new(
+            res,
+            spec_res.opt_errors,
+            spec_res.ignore_nongain_errors,
+            spec_res.ignore_gain_error,
+        )
     }
 
     pub(crate) fn req_meas_keywords(&self, i: MeasIndex) -> Option<ReqMeasKeyword<'_>>

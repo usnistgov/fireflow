@@ -82,10 +82,11 @@ use crate::text::keyword_enum::{
 use crate::text::keywords::{
     Abrt, AlphaNumType, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Carrierid, Carriertype,
     Cells, Com, Compensation2_0, Compensation3_0, Cyt, Cyt3_2, Cytsn, Exp, Feature, Fil, Flowrate,
-    Gate, Inst, LastModified, LastModifier, Locationid, LookupComp2_0Error, LookupParError, Lost,
-    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, NumType, Op, Originality, Par, Plateid,
-    Platename, Proj, ScaleFix, Smno, Src, Sys, Timestep, TimestepAdded, Tot, Trigger, Unicode,
-    UnstainedCenters, UnstainedInfo, ValueToStdKey as _, Vol, Wellid,
+    Gate, Inst, LastModified, LastModifier, Locationid, LookupComp2_0Error, LookupParError,
+    LookupTemporalGainError, Lost, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, NumType,
+    Op, Originality, Par, Plateid, Platename, Proj, ScaleFix, Smno, Src, Sys, Timestep,
+    TimestepAdded, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, ValueToStdKey as _, Vol,
+    Wellid,
 };
 use crate::text::lookup::{
     Diagnosed, OptKeyError, OptStKeyError, OptValue as _, ReqKeyError, ReqValue as _,
@@ -5717,6 +5718,7 @@ where
         LogResult::new_from_err_iter(errors, (n, o), ()).set_commutative_warnings(warnings)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn lookup_measurements<C>(
         kws: &mut StdLookupTx,
         names: Vec<V::Name>,
@@ -5767,19 +5769,19 @@ where
             let j = i.into();
             match match_time_pattern(j, wrapped) {
                 Ok(Element::Center(name)) => {
-                    let (res, kw_es, tmp_opt_es) = Temporal::lookup_temporal(kws, j, conf);
+                    let spec_res = Temporal::lookup_temporal(kws, j, conf);
+                    let kw_es = spec_res.opt_errors.into_warnings();
+                    let tmp_opt_es = spec_res.ignore_nongain_errors;
                     match dconf.process_optional_failure.is_error() {
                         Some(true) => {
                             errors.extend(
                                 kw_es
-                                    .into_warnings()
                                     .map(LookupMeasurementWarning::from)
                                     .map(LookupMeasurementError::from),
                             );
                         }
                         Some(false) => {
-                            warnings
-                                .extend(kw_es.into_warnings().map(LookupMeasurementWarning::from));
+                            warnings.extend(kw_es.map(LookupMeasurementWarning::from));
                         }
                         None => (),
                     }
@@ -5790,7 +5792,17 @@ where
                             .map(LookupMeasurementError::from),
                     );
                     warnings.extend(tmp_opt_es.warnings().map(LookupMeasurementWarning::from));
-                    match res {
+                    // The gain warning is the only weird thing here because it
+                    // is all by itself and the flag is used deep within the
+                    // call logic.
+                    warnings.extend(
+                        spec_res
+                            .ignore_gain_error
+                            .map(LookupTemporalGainError::from)
+                            .map(LookupTemporalWarning::from)
+                            .map(LookupMeasurementWarning::from),
+                    );
+                    match spec_res.this {
                         Ok(tdiag) => {
                             meas.push(Element::Center((name, tdiag.this)));
                             scale_fixes.push(tdiag.scale.into());

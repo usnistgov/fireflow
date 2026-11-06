@@ -3,17 +3,20 @@ use crate::config::EvaledReadStdKeywordsConfig;
 use crate::logging::{LogResult, WarningsAndErrorsResult};
 use crate::std_index::masked::{LookupMask, MaskedEnumString, MaskedString, MaskedVariableString};
 use crate::std_index::nested_string::{NestedEnumString, NestedStringSize, NestedVariableString};
-use crate::text::keywords::{Gate, Par, ValueToStdKey};
+use crate::text::keywords::{
+    Gain, Gate, LookupTemporalGainError, Par, TemporalGainError, ValueToStdKey,
+};
+use crate::text::lookup::OptValue as _;
 
 use fireflow_types::config::{
     KeywordFailureFlag, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,
-    TemporalHasOpticalKeyError, TriErrorFlag as _,
+    ReadDataKeywordsConfig, TemporalHasOpticalKeyError, TriErrorFlag as _,
 };
 use fireflow_types::index::MeasIndex;
 use fireflow_types::keys::nonstd::{DollarWrap, NonStdKey};
 use fireflow_types::keys::raw_std::{
-    CsvFlagKey, DfcKey, EnumIndex as _, GateKey, MeasKey, N_GATE, N_MEAS, N_REGION, N_ROOT,
-    RawStdKey, RegionKey, RootKey, ToStd as _,
+    CsvFlagKey, DfcKey, EnumIndex as _, GateKey, MeasKey, MeasKeyId, N_GATE, N_MEAS, N_REGION,
+    N_ROOT, RawStdKey, RegionKey, RootKey, ToStd as _,
 };
 use fireflow_types::keys::{DollarStdKey, PseudoStdKey, StdKey};
 use fireflow_types::keywords::Version;
@@ -22,6 +25,7 @@ use nonempty::{NEStr, NEString, NEVec};
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
+use num_traits::One as _;
 use thiserror::Error;
 
 use std::iter;
@@ -36,7 +40,21 @@ use {
     pyo3::prelude::*,
 };
 
-type OpticalOnlyResult = (Vec<(StdKey, TruncatedNEString)>, OpticalOnlyErrors);
+#[derive(new)]
+pub(crate) struct NoGainOpticalOnlyResult {
+    pub(crate) pairs: TruncatedOpticalOnly,
+    pub(crate) errors: OpticalOnlyErrors,
+}
+
+#[derive(new)]
+pub(crate) struct OpticalOnlyResult {
+    pub(crate) pairs: TruncatedOpticalOnly,
+    pub(crate) errors: OpticalOnlyErrors,
+    pub(crate) ignore_gain_warning: Option<TemporalGainError>,
+    pub(crate) lookup_gain_error: Option<LookupTemporalGainError>,
+}
+
+type TruncatedOpticalOnly = Vec<(StdKey, TruncatedNEString)>;
 
 #[derive(new)]
 pub struct OpticalOnlyErrors {
@@ -742,36 +760,89 @@ impl StdLookupTx<'_> {
         }
     }
 
-    pub(crate) fn remove_optical_only(
+    pub(crate) fn remove_optical_only_nogain(
         &mut self,
         targets: &[OpticalOnlyKey],
         keys: &OpticalOnlyKeys,
         i: MeasIndex,
         flag: ProcessOpticalOnlyKeys,
-    ) -> OpticalOnlyResult {
+    ) -> NoGainOpticalOnlyResult {
+        let (pairs, es, ws, _, _) = self.remove_optical_only_inner(targets, keys, i, flag);
+        NoGainOpticalOnlyResult::new(pairs, OpticalOnlyErrors::new(i, es, ws))
+    }
+
+    pub(crate) fn remove_optical_only_gain<C>(
+        &mut self,
+        targets: &[OpticalOnlyKey],
+        i: MeasIndex,
+        conf: &C,
+    ) -> OpticalOnlyResult
+    where
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+    {
+        let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
+        let ignored = &sconf.ignore_optical_only_keys;
+        let ignore_flag = sconf.process_optical_only_keys;
+
+        let (mut pairs, es, ws, ignore_action, ignore_warn) =
+            self.remove_optical_only_inner(targets, ignored, i, ignore_flag);
+
+        // Deal with gain separately since it needs to be checked in addition to
+        // it being potentially ignored.
+        let mut ignore_gain_warning = None;
+        let mut lookup_gain_error = None;
+
+        if ignored.gain {
+            let k = MeasKeyId::G.to_std(&i);
+            if let Some(v) = self.remove_unseen(&k) {
+                let vf = v.to_owned();
+                self.set_lookup_action_seen(&k, ignore_action);
+                pairs.push((k, vf.into()));
+                ignore_gain_warning = ignore_warn.then_some(TemporalGainError(i));
+            }
+        } else {
+            // TODO this is confusing, this method is overspecified for Option<>
+            let (gain, ge) = Gain::remove_or_drop_meas_opt(self, i, conf.as_ref());
+            lookup_gain_error = match gain {
+                Some(g) => (!g.0.is_one()).then_some(TemporalGainError(i).into()),
+                None => ge.map(LookupTemporalGainError::from),
+            }
+        }
+
+        OpticalOnlyResult::new(
+            pairs,
+            OpticalOnlyErrors::new(i, es, ws),
+            ignore_gain_warning,
+            lookup_gain_error,
+        )
+    }
+
+    pub(crate) fn remove_optical_only_inner(
+        &mut self,
+        targets: &[OpticalOnlyKey],
+        keys: &OpticalOnlyKeys,
+        i: MeasIndex,
+        flag: ProcessOpticalOnlyKeys,
+    ) -> (
+        TruncatedOpticalOnly,
+        Vec<OpticalOnlyKey>,
+        Vec<OpticalOnlyKey>,
+        LookupAction,
+        bool,
+    ) {
         let mut es = vec![];
         let mut ws = vec![];
         let mut pairs = vec![];
-        let (demote, warn) = match flag {
-            ProcessOpticalOnlyKeys::DemoteWarn => (true, true),
-            ProcessOpticalOnlyKeys::DemoteSilent => (true, false),
-            ProcessOpticalOnlyKeys::DropWarn => (false, true),
-            ProcessOpticalOnlyKeys::DropSilent => (false, false),
-        };
-        let action = if demote {
-            LookupAction::Demote
-        } else {
-            LookupAction::Drop
-        };
+        let (action, warn) = split_process_optical_only_flag(flag);
         // This is in contrast to looking up all other values since in those
-        // cases we need to parse the keywords and therefore record and error if
+        // cases we need to parse the keywords and therefore record an error if
         // this fails. This is easier to do at the call site rather than storing
         // it lazily in the index. Here we only care about the pair and if
         // it has a non-empty value.
         for t in targets {
             let k = DollarWrap(RawStdKey::from_optical_only_key(*t, i));
             if let Some(v) = self.remove_unseen(&k) {
-                if keys.0.contains(t) {
+                if keys.nocheck.contains(t) {
                     let vf = v.to_owned();
                     self.set_lookup_action_seen(&k, action);
                     if warn {
@@ -783,7 +854,7 @@ impl StdLookupTx<'_> {
                 }
             }
         }
-        (pairs, OpticalOnlyErrors::new(i, es, ws))
+        (pairs, es, ws, action, warn)
     }
 
     pub(crate) fn read<K: ValueToStdKey>(&self, i: &K::Index) -> Option<&NEStr> {
@@ -957,6 +1028,23 @@ impl<const HAS_PRE: bool> Serialize for RawStdKeyIndex<HAS_PRE> {
 
 mod build_config {
     include!(concat!(env!("OUT_DIR"), "/build_config.rs"));
+}
+
+// misc functions
+
+fn split_process_optical_only_flag(flag: ProcessOpticalOnlyKeys) -> (LookupAction, bool) {
+    let (demote, warn) = match flag {
+        ProcessOpticalOnlyKeys::DemoteWarn => (true, true),
+        ProcessOpticalOnlyKeys::DemoteSilent => (true, false),
+        ProcessOpticalOnlyKeys::DropWarn => (false, true),
+        ProcessOpticalOnlyKeys::DropSilent => (false, false),
+    };
+    let action = if demote {
+        LookupAction::Demote
+    } else {
+        LookupAction::Drop
+    };
+    (action, warn)
 }
 
 #[cfg(feature = "python")]

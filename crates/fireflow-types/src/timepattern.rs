@@ -280,8 +280,8 @@ mod tests {
             let pat = "%H:%M:%S:%!".parse::<TimePattern>().unwrap();
             let nano = u32::try_from(u64::from(f) * 1_000_000_000 / 60).unwrap();
             let time = NaiveTime::from_hms_nano_opt(h, m, s, nano).unwrap();
-            let s = format!("{h:02}:{m:02}:{s:02}:{f:02}");
-            assert_eq!(pat.parse_str(s.as_str()), Ok(time));
+            let ts = format!("{h:02}:{m:02}:{s:02}:{f:02}");
+            assert_eq!(pat.parse_str(ts.as_str()), Ok(time));
         }
     }
 
@@ -293,8 +293,8 @@ mod tests {
             f in 60_u32..
         ) {
             let pat = "%H:%M:%S:%!".parse::<TimePattern>().unwrap();
-            let s = format!("{h:02}:{m:02}:{s:02}:{f}");
-            assert!(pat.parse_str(s.as_str()).is_err());
+            let ts = format!("{h:02}:{m:02}:{s:02}:{f}");
+            assert!(pat.parse_str(ts.as_str()).is_err());
         }
     }
 
@@ -308,8 +308,8 @@ mod tests {
             let pat = "%H:%M:%S:%@".parse::<TimePattern>().unwrap();
             let nano = f * 10_000_000;
             let time = NaiveTime::from_hms_nano_opt(h, m, s, nano).unwrap();
-            let s = format!("{h:02}:{m:02}:{s:02}:{f:02}");
-            assert_eq!(pat.parse_str(s.as_str()), Ok(time));
+            let ts = format!("{h:02}:{m:02}:{s:02}:{f:02}");
+            assert_eq!(pat.parse_str(ts.as_str()), Ok(time));
         }
     }
 
@@ -321,8 +321,8 @@ mod tests {
             f in 100_u32..
         ) {
             let pat = "%H:%M:%S:%@".parse::<TimePattern>().unwrap();
-            let s = format!("{h:02}:{m:02}:{s:02}:{f}");
-            assert!(pat.parse_str(s.as_str()).is_err());
+            let ts = format!("{h:02}:{m:02}:{s:02}:{f}");
+            assert!(pat.parse_str(ts.as_str()).is_err());
         }
     }
 }

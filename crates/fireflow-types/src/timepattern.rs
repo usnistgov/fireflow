@@ -271,6 +271,7 @@ mod tests {
     }
 
     proptest! {
+        #[test]
         fn parse_frac_sec(
             h in 0_u32..24,
             m in 0_u32..60,
@@ -286,6 +287,7 @@ mod tests {
     }
 
     proptest! {
+        #[test]
         fn parse_frac_sec_error(
             h in 0_u32..23,
             m in 0_u32..59,
@@ -299,6 +301,7 @@ mod tests {
     }
 
     proptest! {
+        #[test]
         fn parse_centisec(
             h in 0_u32..24,
             m in 0_u32..60,
@@ -314,6 +317,7 @@ mod tests {
     }
 
     proptest! {
+        #[test]
         fn parse_centisec_error(
             h in 0_u32..24,
             m in 0_u32..60,

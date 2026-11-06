@@ -318,14 +318,19 @@ enum InnerOffsets {
     Empty,
 }
 
+// TODO this should be in its own mod to ensure proper validation of the innards
 /// An offset as shown in an FCS file.
-#[derive(Debug, Clone, Copy, PartialEq, new)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 struct NonEmptyOffsetsInner {
     /// First coordinate (zero indexed)
+    ///
+    /// Validated to not overflow given the dataset offset.
     begin: u64,
 
     /// Length of segment in bytes, possibly after truncation.
+    ///
+    /// Validated to not overflow given the begin offset and dataset offset.
     length: NonZeroU64,
 
     /// The length of the original segment as written in the FCS file.
@@ -825,7 +830,9 @@ impl IsOffsetPair for NonEmptyOffsetsInner {
     }
 
     fn end(&self) -> u64 {
-        self.begin + self.length.get()
+        self.begin
+            .checked_add(self.length.get())
+            .expect("this is validated to not overflow")
     }
 }
 
@@ -1746,20 +1753,15 @@ impl InnerOffsets {
             let new_begin =
                 u64::try_from(corrected_begin).map_err(|_| err(NewOffsetErrorType::Overflow))?;
 
-            let ne =
-                NonEmptyOffsetsInner::new(new_begin, new_length, new_length, conf.dataset_offset);
+            let ne = NonEmptyOffsetsInner::try_new(new_begin, new_length, conf.dataset_offset)
+                .ok_or(err(NewOffsetErrorType::Overflow))?;
             Ok(Self::NonEmpty(ne))
         }
     }
 
     #[cfg(test)]
     pub(crate) fn new_dummy(len: u64) -> Self {
-        if let Some(ne) = NonZeroU64::new(len) {
-            let inner = NonEmptyOffsetsInner::new(0, ne, ne, DatasetOffset(0));
-            Self::NonEmpty(inner)
-        } else {
-            Self::Empty
-        }
+        NonEmptyOffsetsInner::new_dummy(len).map_or(Self::Empty, Self::NonEmpty)
     }
 
     fn is_empty(&self) -> bool {
@@ -1768,6 +1770,28 @@ impl InnerOffsets {
 }
 
 impl NonEmptyOffsetsInner {
+    fn try_new(begin: u64, length: NonZeroU64, dataset_offset: DatasetOffset) -> Option<Self> {
+        let abs_begin = dataset_offset.0.checked_add(begin)?;
+        let _ = abs_begin.checked_add(length.get())?;
+        let new = Self {
+            begin,
+            length,
+            original_length: length,
+            dataset_offset,
+        };
+        Some(new)
+    }
+
+    #[cfg(test)]
+    fn new_dummy(len: u64) -> Option<Self> {
+        NonZeroU64::new(len).map(|length| Self {
+            begin: 0,
+            length,
+            original_length: length,
+            dataset_offset: DatasetOffset(0),
+        })
+    }
+
     /// Return the number of bytes in this segment
     fn nbytes(&self) -> NonZeroU64 {
         self.length
@@ -2618,7 +2642,7 @@ mod python {
 
     use fireflow_types::python as py;
 
-    use pyo3::exceptions::PyValueError;
+    use pyo3::exceptions::{PyOverflowError, PyValueError};
     use pyo3::types::{PyString, PyTuple};
     use pyo3::{IntoPyObjectExt as _, prelude::*};
 
@@ -2633,11 +2657,15 @@ mod python {
             let (begin, length): (u64, u64) = obj.extract()?;
             let inner = if let Some(n) = NonZeroU64::new(length) {
                 let dso = DatasetOffset(0);
-                InnerOffsets::NonEmpty(NonEmptyOffsetsInner::new(begin, n, n, dso))
+                if let Some(ret) = NonEmptyOffsetsInner::try_new(begin, n, dso) {
+                    Ok(InnerOffsets::NonEmpty(ret))
+                } else {
+                    Err(PyOverflowError::new_err("could not fit offset into u64"))
+                }
             } else {
-                InnerOffsets::Empty
+                Ok(InnerOffsets::Empty)
             };
-            Ok(Self::new(inner))
+            inner.map(Self::new)
         }
     }
 

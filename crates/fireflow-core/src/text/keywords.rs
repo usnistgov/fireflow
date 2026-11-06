@@ -164,11 +164,16 @@ impl Nextdata {
                     {
                         let e = NextdataInPrimaryError(nd, ptext_end);
                         Err(LookupNextdataError::PrimaryTEXT(e))
-                    } else if n + dso >= f {
-                        let e = NextdataEOFError(nd, f);
-                        Err(LookupNextdataError::FileLength(e))
+                    } else if let Some(abs_next) = n.checked_add(dso) {
+                        if abs_next >= f {
+                            let e = NextdataEOFError(nd, f);
+                            Err(LookupNextdataError::FileLength(e))
+                        } else {
+                            Ok(reader.into_text_reader_nextdata(nd))
+                        }
                     } else {
-                        Ok(reader.into_text_reader_nextdata(nd))
+                        let e = NextdataOverflowError(nd, dso);
+                        Err(LookupNextdataError::Overflow(e))
                     }
                 } else {
                     Ok(reader.into_text_reader_no_nextdata())
@@ -216,6 +221,7 @@ impl Nextdata {
 pub enum LookupNextdataError {
     Parse(ReadNextdataError),
     FileLength(NextdataEOFError),
+    Overflow(NextdataOverflowError),
     PrimaryTEXT(NextdataInPrimaryError),
 }
 
@@ -239,6 +245,17 @@ pub enum ParseNextdataError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct NextdataEOFError(Nextdata, u64);
+
+/// Error when $NEXTDATA leads to overflow given the dataset offset.
+#[derive(Debug, Error, PartialEq, Clone)]
+#[error(
+    "$NEXTDATA ({}) in dataset at offset {} cannot fit in u64.",
+    self.0.as_displayable(),
+    self.1
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct NextdataOverflowError(Nextdata, u64);
 
 /// Error when $NEXTDATA exceeds EOF.
 #[derive(Debug, Error, PartialEq, Clone)]

@@ -158,6 +158,7 @@ pub type TextToHeaderOrSuppOffsetsOverlap =
 /// nothing.
 #[derive(Clone, Copy, Debug, new, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+// TODO seal this and validate that begin+length won't overflow
 pub struct NamedOffsets<N> {
     pub(crate) name: N,
     pub(crate) begin: u64,

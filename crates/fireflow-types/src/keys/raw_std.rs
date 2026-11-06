@@ -4,6 +4,7 @@ use crate::keys::DollarStdKey;
 use crate::keys::nonstd::DollarWrap;
 use crate::keywords::{Version, VersionMembership};
 
+use itertools::Itertools as _;
 use nonempty::{
     DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESlice, NEStr, NEString,
     ToDisplayNE, ToNE, ne_str,
@@ -1319,8 +1320,8 @@ fn split_index_and_suffix(bytes: &[u8]) -> Option<(usize, &[u8])> {
         // above).
         for y in it
             .by_ref()
+            .peeking_take_while(|&z| is_digit(z))
             .take(SAFE_DIGITS - 1)
-            .take_while(|&z| is_digit(z))
         {
             index = 10 * index + (usize::from(*y) - 48);
             k += 1;
@@ -1336,7 +1337,7 @@ fn split_index_and_suffix(bytes: &[u8]) -> Option<(usize, &[u8])> {
         // If there are more digits, we have run out of space. Return none which
         // will cause this keyword to be treated as a pseudo-standard keyword
         // (which just happens to have a gigantic number in it).
-        if it.next().is_some() {
+        if it.next().is_some_and(is_digit) {
             None
         } else {
             assert!(index > 0, "index should be greater than 0 here");

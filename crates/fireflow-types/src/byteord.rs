@@ -1,4 +1,4 @@
-use nonempty::NEVec;
+use nonempty::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 
 use derive_more::{AsRef, Display};
 use thiserror::Error;
@@ -46,19 +46,30 @@ impl ConfigByteOrd {
     pub fn try_from_iter(
         xs: impl IntoIterator<Item = NonZeroU8>,
     ) -> Result<Self, NewConfigByteOrdError> {
-        if let Some(ne) = NEVec::try_from_vec(xs.into_iter().collect()) {
-            let mut flags = [false; 8];
-            let n = ne.len().get();
-            if n > 8 {
-                return Err(NewConfigByteOrdError::TooLong(n));
+        const MAX_LEN: usize = 8;
+        let mut it = xs.into_iter();
+        if let Some(ne_it) = it.by_ref().take(MAX_LEN).try_into_nonempty_iter() {
+            let ne: NEVec<_> = ne_it.collect();
+            let n_extra = it.count();
+            if n_extra > 0 {
+                Err(NewConfigByteOrdError::TooLong(n_extra + MAX_LEN))
+            } else if !ne
+                .iter()
+                .all(|x| (1..=MAX_LEN).contains(&usize::from(x.get())))
+            {
+                Err(NewConfigByteOrdError::InvalidIndex)
+            } else {
+                let mut flags = [false; MAX_LEN];
+                for i in &ne {
+                    flags[usize::from(i.get()) - 1] = true;
+                }
+                let n = ne.len().get();
+                if flags.iter().take(n).all(|x| *x) {
+                    Ok(Self(ne))
+                } else {
+                    Err(NewConfigByteOrdError::NonUnique)
+                }
             }
-            for i in &ne {
-                flags[usize::from(i.get()) - 1] = true;
-            }
-            if !flags.iter().take(n).all(|x| *x) {
-                return Err(NewConfigByteOrdError::NonUnique);
-            }
-            Ok(Self(ne))
         } else {
             Err(NewConfigByteOrdError::Empty)
         }
@@ -76,6 +87,8 @@ pub enum NewConfigByteOrdError {
     TooLong(usize),
     #[error("byte order must have all integers 1-<len> exactly once")]
     NonUnique,
+    #[error("byte order must only have integers of <len> or less")]
+    InvalidIndex,
 }
 
 /// Error when parsing [`ConfigByteOrd`] from string

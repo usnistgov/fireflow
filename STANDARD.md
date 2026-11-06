@@ -86,19 +86,6 @@ matches a *$PnN*.
 For FCS 3.2, `fireflow` will ensure all measurement names in this keyword
 match a *$PnN*.
 
-### Timestamp keywords
-
-`fireflow` will check that the "start time" occurs before the "end time".
-
-For the keywords *$BTIM*, *$ETIM* and *$DATE*, this requires all three to be
-present since it is possible for a run to start on one day and end at an earlier
-wall clock time on a subsequent day.
-
-For *$BEGINDATETIME* and *$ENDDATETIME* this comparison is performed directly if
-both are present.
-
-No version explicitly mandates this check, but it makes sense to do.
-
 ### Spillover/Compensation
 
 For *$DFCnTOm* and *$COMP* `fireflow` will only accept matrices that are 2x2 or

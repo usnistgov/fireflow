@@ -1,5 +1,4 @@
 use crate::config::EvaledReadStdKeywordsConfig;
-use crate::logging::{ErrorResult, LogResult};
 use crate::std_index::index::StdLookupTx;
 use crate::text::keyword_enum::{Keyword0FromValue as _, OptRootKeyword, SplitKeyword};
 use crate::text::keywords::ValueToStdKey;
@@ -21,7 +20,6 @@ use regex::Regex;
 use thiserror::Error;
 
 use std::cmp::Ordering;
-use std::mem;
 use std::str::FromStr;
 use std::sync::LazyLock;
 
@@ -31,33 +29,27 @@ use serde::Serialize;
 use super::lookup::ParseKeyError_;
 
 #[cfg(feature = "python")]
-use {
-    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
-    fireflow_types::python as py,
-};
+use fireflow_core_proc::{AllIntoPyErr, FromInnerPyObject};
 
 /// The $DATE/$BTIM/$ETIM keywords
 ///
 /// The generic type parameter is meant to account for the fact that the time
 /// types for different versions are all slightly different in their treatment
 /// of sub-second time.
-///
-/// When $DATE is present, $BTIM and $ETIM are validated to be in the correct
-/// order.
 #[derive(Clone, AsRef, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Timestamps<X> {
     /// The value of the $BTIM key
     #[as_ref(Option<Btim<X>>)]
-    btim: Option<Btim<X>>,
+    pub btim: Option<Btim<X>>,
 
     /// The value of the $ETIM key
     #[as_ref(Option<Etim<X>>)]
-    etim: Option<Etim<X>>,
+    pub etim: Option<Etim<X>>,
 
     /// The value of the $DATE key
     #[as_ref(Option<FCSDate>)]
-    date: Option<FCSDate>,
+    pub date: Option<FCSDate>,
 }
 
 #[derive(new, Default)]
@@ -125,74 +117,27 @@ impl<'a> ToDisplayNE<'a> for FCSDate {
     }
 }
 
-type OldInputs<X> = (Option<Btim<X>>, Option<Etim<X>>, Option<FCSDate>);
-
 impl<X> Timestamps<X> {
-    pub fn try_new(
-        btim: Option<Btim<X>>,
-        etim: Option<Etim<X>>,
-        date: Option<FCSDate>,
-    ) -> ErrorResult<Self, OldInputs<X>, ReversedTimestampsError>
-    where
-        X: PartialOrd,
-    {
-        match Self::try_new_inner(btim, etim, date) {
-            Ok(x) => LogResult::new_ok(x),
-            Err((old, e)) => LogResult::new_err(e).set_err_value(old),
-        }
-    }
+    // pub fn set_btim(&mut self, time: Option<Btim<X>>)
+    // where
+    //     X: PartialOrd,
+    // {
+    //     self.btim = time;
+    // }
 
-    fn try_new_inner(
-        btim: Option<Btim<X>>,
-        etim: Option<Etim<X>>,
-        date: Option<FCSDate>,
-    ) -> Result<Self, (OldInputs<X>, ReversedTimestampsError)>
-    where
-        X: PartialOrd,
-    {
-        let ret = Self::new(btim, etim, date);
-        if ret.valid() {
-            Ok(ret)
-        } else {
-            Err(((ret.btim, ret.etim, ret.date), ReversedTimestampsError))
-        }
-    }
+    // pub fn set_etim(&mut self, time: Option<Etim<X>>)
+    // where
+    //     X: PartialOrd,
+    // {
+    //     self.etim = time;
+    // }
 
-    pub fn set_btim(&mut self, time: Option<Btim<X>>) -> TimestampsResult<()>
-    where
-        X: PartialOrd,
-    {
-        let tmp = mem::replace(&mut self.btim, time);
-        if !self.valid() {
-            self.btim = tmp;
-            return Err(ReversedTimestampsError);
-        }
-        Ok(())
-    }
-
-    pub fn set_etim(&mut self, time: Option<Etim<X>>) -> TimestampsResult<()>
-    where
-        X: PartialOrd,
-    {
-        let tmp = mem::replace(&mut self.etim, time);
-        if !self.valid() {
-            self.etim = tmp;
-            return Err(ReversedTimestampsError);
-        }
-        Ok(())
-    }
-
-    pub fn set_date(&mut self, date: Option<FCSDate>) -> TimestampsResult<()>
-    where
-        X: PartialOrd,
-    {
-        let tmp = mem::replace(&mut self.date, date);
-        if !self.valid() {
-            self.date = tmp;
-            return Err(ReversedTimestampsError);
-        }
-        Ok(())
-    }
+    // pub fn set_date(&mut self, date: Option<FCSDate>)
+    // where
+    //     X: PartialOrd,
+    // {
+    //     self.date = date;
+    // }
 
     pub fn map<F, Y>(self, f: F) -> Timestamps<Y>
     where
@@ -203,16 +148,6 @@ impl<X> Timestamps<X> {
             self.etim.map(|x| Xtim(f(x.0))),
             self.date,
         )
-    }
-
-    pub fn valid(&self) -> bool
-    where
-        X: PartialOrd,
-    {
-        if let (Some(b), Some(e), Some(_)) = (&self.btim, &self.etim, &self.date) {
-            return b.0 <= e.0;
-        }
-        true
     }
 
     #[allow(clippy::type_complexity)]
@@ -233,24 +168,9 @@ impl<X> Timestamps<X> {
         let (btim, be) = Btim::remove_or_drop_root_opt_with(kws, (), conf);
         let (etim, ee) = Etim::remove_or_drop_root_opt_with(kws, (), conf);
         let (date, de) = FCSDate::remove_or_drop_root_opt_with(kws, (), conf);
-        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let diag = TimestampsDiagnostics::new(btim.diagnostic, etim.diagnostic, date.diagnostic);
-        let (ts, rev_e) = match Self::try_new_inner(btim.inner, etim.inner, date.inner) {
-            Ok(ts) => (ts, None),
-            Err((old, rev_e)) => {
-                // If creating the new timestamp object failed,
-                // optionally transfer component keys to nonstandard
-                let bk = old.0.map(|v| v.std0_());
-                let ek = old.1.map(|v| v.std0_());
-                let dk = old.2.map(|v| v.std0_());
-                let flag = rconf.process_optional_failure;
-                for k in [bk, ek, dk].into_iter().flatten() {
-                    kws.set_failure_flag(&k, flag);
-                }
-                (Self::default(), Some(rev_e))
-            }
-        };
-        let es = LookupTimestampsErrorTable::new(be, ee, de, rev_e);
+        let ts = Self::new(btim.inner, etim.inner, date.inner);
+        let es = LookupTimestampsErrorTable::new(be, ee, de);
         (Diagnosed::new(ts, diag), es)
     }
 
@@ -267,18 +187,6 @@ impl<X> Timestamps<X> {
         [a, b, c].into_iter().flatten()
     }
 }
-
-/// Error when $ETIM occurs before $BTIM.
-///
-/// This can only happen when $DATE is also given, because otherwise it cannot
-/// be assumed that $BTIM and $ETIM occur on the same day.
-#[derive(Debug, Error, PartialEq, Clone)]
-#[error("$ETIM is before $BTIM and $DATE is given")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct ReversedTimestampsError;
-
-type TimestampsResult<T> = Result<T, ReversedTimestampsError>;
 
 impl FromStrWith for FCSDate {
     type Err = FCSDateError;
@@ -621,7 +529,6 @@ pub enum LookupTimestampsError<T, E> {
     Date(OptStKeyError<FCSDate>),
     Btim(ParseKeyError_<FCSFixedTimeError<E>, Btim<T>, ()>),
     Etim(ParseKeyError_<FCSFixedTimeError<E>, Etim<T>, ()>),
-    Reversed(ReversedTimestampsError),
 }
 
 #[derive(new)]
@@ -629,8 +536,6 @@ pub(crate) struct LookupTimestampsErrorTable<T, E> {
     btim: Option<ParseKeyError_<FCSFixedTimeError<E>, Btim<T>, ()>>,
     etim: Option<ParseKeyError_<FCSFixedTimeError<E>, Etim<T>, ()>>,
     date: Option<OptStKeyError<FCSDate>>,
-    // TODO this is mutually exclusive from the others
-    reversed: Option<ReversedTimestampsError>,
 }
 
 impl<T, E> LookupTimestampsErrorTable<T, E> {
@@ -638,8 +543,7 @@ impl<T, E> LookupTimestampsErrorTable<T, E> {
         let btim = self.btim.into_iter().map(LookupTimestampsError::Btim);
         let etim = self.etim.into_iter().map(LookupTimestampsError::Etim);
         let date = self.date.into_iter().map(LookupTimestampsError::from);
-        let reversed = self.reversed.into_iter().map(LookupTimestampsError::from);
-        btim.chain(etim).chain(date).chain(reversed)
+        btim.chain(etim).chain(date)
     }
 }
 

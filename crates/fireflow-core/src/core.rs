@@ -106,8 +106,7 @@ use crate::text::relational::{
 use crate::text::spillover::{Spillover, SpilloverDiagnostics};
 use crate::text::timestamps::{
     Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime60Error, FCSTime100, FCSTime100Error,
-    FCSTimeError, LookupTimestampsError, ReversedTimestampsError, Timestamps,
-    TimestampsDiagnostics, Xtim,
+    FCSTimeError, LookupTimestampsError, Timestamps, TimestampsDiagnostics, Xtim,
 };
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflowError, UintSpacePad8, UintSpacePad20,
@@ -1570,8 +1569,6 @@ pub enum LookupTEXTOffsetsWarning {
 pub enum NewCoreTEXTError {
     /// Any new Core* error
     Core(NewCoreError),
-    /// datetimes are flipped; all versions
-    Timestamps(ReversedTimestampsError),
     /// datetimes are flipped; 3.2 only
     Datetimes(ReversedDatetimesError),
 }
@@ -3762,25 +3759,19 @@ impl CoreTEXT2_0 {
         pseudo_nonstd_kws: PseudoNonStdKeywords,
         nonstd_kws: NonStdKeywords,
     ) -> ErrorsResult<Self, (), NewCoreTEXTError> {
-        Timestamps::try_new(btim, etim, date)
-            .map_errors(NewCoreTEXTError::from)
-            .set_err_value(())
-            .into_semigroup()
-            .and_then_commutative(|ts| {
-                let specific =
-                    InnerRootMeta2_0::new(mode, cyt, comp.map(Into::into), ts, applied_gates);
-                let metaroot = RootMeta::new(
-                    abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
-                );
-                Self::try_new_nodrop(
-                    metaroot,
-                    measurements,
-                    data_schema,
-                    pseudo_nonstd_kws,
-                    nonstd_kws,
-                )
-                .map_errors(NewCoreTEXTError::from)
-            })
+        let ts = Timestamps::new(btim, etim, date);
+        let specific = InnerRootMeta2_0::new(mode, cyt, comp.map(Into::into), ts, applied_gates);
+        let metaroot = RootMeta::new(
+            abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
+        );
+        Self::try_new_nodrop(
+            metaroot,
+            measurements,
+            data_schema,
+            pseudo_nonstd_kws,
+            nonstd_kws,
+        )
+        .map_errors(NewCoreTEXTError::from)
     }
 }
 
@@ -3819,33 +3810,28 @@ impl CoreTEXT3_0 {
         nonstd_kws: NonStdKeywords,
     ) -> ErrorsResult<Self, (), NewCoreTEXTError> {
         let subset = SubsetData::new(csvbits, cstot, csvflags);
-        Timestamps::try_new(btim, etim, date)
-            .map_errors(NewCoreTEXTError::from)
-            .set_err_value(())
-            .into_semigroup()
-            .and_then_commutative(|ts| {
-                let specific = InnerRootMeta3_0::new(
-                    mode,
-                    cyt,
-                    comp.map(Into::into),
-                    ts,
-                    cytsn,
-                    unicode,
-                    subset,
-                    applied_gates,
-                );
-                let metaroot = RootMeta::new(
-                    abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
-                );
-                Self::try_new_nodrop(
-                    metaroot,
-                    measurements,
-                    data_schema,
-                    pseudo_nonstd_kws,
-                    nonstd_kws,
-                )
-                .map_errors(NewCoreTEXTError::from)
-            })
+        let ts = Timestamps::new(btim, etim, date);
+        let specific = InnerRootMeta3_0::new(
+            mode,
+            cyt,
+            comp.map(Into::into),
+            ts,
+            cytsn,
+            unicode,
+            subset,
+            applied_gates,
+        );
+        let metaroot = RootMeta::new(
+            abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
+        );
+        Self::try_new_nodrop(
+            metaroot,
+            measurements,
+            data_schema,
+            pseudo_nonstd_kws,
+            nonstd_kws,
+        )
+        .map_errors(NewCoreTEXTError::from)
     }
 }
 
@@ -3890,35 +3876,32 @@ impl CoreTEXT3_1 {
         nonstd_kws: NonStdKeywords,
     ) -> ErrorsResult<Self, (), NewCoreTEXTError> {
         let subset = SubsetData::new(csvbits, cstot, csvflags);
-        Timestamps::try_new(btim, etim, date)
-            .map_errors(NewCoreTEXTError::from)
-            .set_err_value(())
-            .into_semigroup()
-            .and_then_commutative(|ts| {
-                let specific = InnerRootMeta3_1::new(
-                    mode,
-                    cyt,
-                    ts,
-                    cytsn,
-                    spillover,
-                    ModificationData::new(last_modifier, last_mod_date, originality),
-                    PlateData::new(plateid, platename, wellid),
-                    vol,
-                    subset,
-                    applied_gates,
-                );
-                let metaroot = RootMeta::new(
-                    abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
-                );
-                Self::try_new_nodrop(
-                    metaroot,
-                    measurements,
-                    data_schema,
-                    pseudo_nonstd_kws,
-                    nonstd_kws,
-                )
-                .map_errors(NewCoreTEXTError::from)
-            })
+        let ts = Timestamps::new(btim, etim, date);
+        let md = ModificationData::new(last_modifier, last_mod_date, originality);
+        let pd = PlateData::new(plateid, platename, wellid);
+        let specific = InnerRootMeta3_1::new(
+            mode,
+            cyt,
+            ts,
+            cytsn,
+            spillover,
+            md,
+            pd,
+            vol,
+            subset,
+            applied_gates,
+        );
+        let metaroot = RootMeta::new(
+            abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
+        );
+        Self::try_new_nodrop(
+            metaroot,
+            measurements,
+            data_schema,
+            pseudo_nonstd_kws,
+            nonstd_kws,
+        )
+        .map_errors(NewCoreTEXTError::from)
     }
 }
 
@@ -3967,15 +3950,16 @@ impl CoreTEXT3_2 {
         pseudo_nonstd_kws: PseudoNonStdKeywords,
         nonstd_kws: NonStdKeywords,
     ) -> ErrorsResult<Self, (), NewCoreTEXTError> {
-        let ts_res = Timestamps::try_new(btim, etim, date)
+        let ts = Timestamps::new(btim, etim, date);
+        let md = ModificationData::new(last_modifier, last_mod_date, originality);
+        let pd = PlateData::new(plateid, platename, wellid);
+        let cd = CarrierData::new(carrierid, carriertype, locationid);
+        let ud = UnstainedData::new(unstainedcenters, unstainedinfo);
+        Datetimes::try_new(begindatetime, enddatetime)
             .map_errors(NewCoreTEXTError::from)
-            .into_semigroup();
-        let dt_res = Datetimes::try_new(begindatetime, enddatetime)
-            .map_errors(NewCoreTEXTError::from)
-            .into_semigroup();
-        ts_res
-            .zip_commutative(dt_res)
-            .and_then_commutative(|(ts, dt)| {
+            .into_semigroup()
+            .set_err_value(())
+            .and_then_commutative(|dt| {
                 let specific = InnerRootMeta3_2::new(
                     mode,
                     ts,
@@ -3983,11 +3967,11 @@ impl CoreTEXT3_2 {
                     cyt,
                     spillover,
                     cytsn,
-                    ModificationData::new(last_modifier, last_mod_date, originality),
-                    PlateData::new(plateid, platename, wellid),
+                    md,
+                    pd,
                     vol,
-                    CarrierData::new(carrierid, carriertype, locationid),
-                    UnstainedData::new(unstainedcenters, unstainedinfo),
+                    cd,
+                    ud,
                     flowrate,
                     applied_gates,
                 );
@@ -4790,32 +4774,24 @@ where
     ///
     /// Return error if resulting $BTIM starts after $ETIM and $DATE is
     /// specified.
-    pub fn set_btim_naive<X>(
-        &mut self,
-        time: Option<NaiveTime>,
-    ) -> Result<(), ReversedTimestampsError>
+    pub fn set_btim_naive<X>(&mut self, time: Option<NaiveTime>)
     where
         X: PartialOrd + From<NaiveTime>,
         RootMeta<V::RootMeta>: AsMut<Timestamps<X>>,
     {
-        let t = self.rootmeta.as_mut();
-        t.set_btim(time.map(|x| Xtim(x.into())))
+        self.rootmeta.as_mut().btim = time.map(|x| Xtim(x.into()));
     }
 
     /// Set value for $ETIM as a [`NaiveTime`]
     ///
     /// Return error if resulting $BTIM starts after $ETIM and $DATE is
     /// specified.
-    pub fn set_etim_naive<X>(
-        &mut self,
-        time: Option<NaiveTime>,
-    ) -> Result<(), ReversedTimestampsError>
+    pub fn set_etim_naive<X>(&mut self, time: Option<NaiveTime>)
     where
         X: PartialOrd + From<NaiveTime>,
         RootMeta<V::RootMeta>: AsMut<Timestamps<X>>,
     {
-        let t = self.rootmeta.as_mut();
-        t.set_etim(time.map(|x| Xtim(x.into())))
+        self.rootmeta.as_mut().etim = time.map(|x| Xtim(x.into()));
     }
 
     /// Get $DATE as a [`NaiveDate`]
@@ -4830,15 +4806,12 @@ where
     ///
     /// Return error if resulting $BTIM starts after $ETIM and $DATE is
     /// specified.
-    pub fn set_date_naive<X>(
-        &mut self,
-        date: Option<NaiveDate>,
-    ) -> Result<(), ReversedTimestampsError>
+    pub fn set_date_naive<X>(&mut self, date: Option<NaiveDate>)
     where
         X: PartialOrd,
         RootMeta<V::RootMeta>: AsMut<Timestamps<X>>,
     {
-        self.rootmeta.as_mut().set_date(date.map(Into::into))
+        self.rootmeta.as_mut().date = date.map(Into::into);
     }
 
     /// Get $BEGINDATETIME as a [`DateTime<FixedOffset>`]

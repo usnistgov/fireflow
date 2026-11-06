@@ -10153,9 +10153,9 @@ impl DocArgRWIvar {
                 name,
                 PyTime::default(),
                 desc,
-                true,
+                false,
                 |_, _| quote!(self.0.#get_naive()),
-                |n, _| quote!(Ok(self.0.#set_naive(#n)?)),
+                |n, _| quote!(self.0.#set_naive(#n)),
             )
         };
 
@@ -10163,9 +10163,9 @@ impl DocArgRWIvar {
             "date",
             PyDate::default(),
             format!("Value of {DATE}."),
-            true,
+            false,
             |_, _| quote!(self.0.date_naive()),
-            |n, _| quote!(Ok(self.0.set_date_naive(#n)?)),
+            |n, _| quote!(self.0.set_date_naive(#n)),
         );
 
         [make_time_ivar(true), make_time_ivar(false), date_arg]

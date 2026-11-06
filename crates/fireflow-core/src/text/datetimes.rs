@@ -397,7 +397,7 @@ mod tests {
             ..Default::default()
         };
         let s = NEStr::try_new("2112-01-01 00:00:00").unwrap();
-        assert!(FCSDateTime::from_str_with(s, (), &conf).is_ok())
+        assert!(FCSDateTime::from_str_with(s, (), &conf).is_ok());
     }
 
     #[test]
@@ -408,6 +408,6 @@ mod tests {
             ..Default::default()
         };
         let s = NEStr::try_new("2112-01-01 00:00:00 +0001").unwrap();
-        assert!(FCSDateTime::from_str_with(s, (), &conf).is_ok())
+        assert!(FCSDateTime::from_str_with(s, (), &conf).is_ok());
     }
 }

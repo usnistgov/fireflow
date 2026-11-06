@@ -1293,21 +1293,55 @@ impl BlankKeyword for MeasKeyId {
 /// Index will be 0-based. Index will only be parsed if the byte string
 /// starts with it.
 fn split_index_and_suffix(bytes: &[u8]) -> Option<(usize, &[u8])> {
+    // The number of digits we can safely take and raise to power of ten without
+    // overflowing usize. This is one less than the number of digits required to
+    // represent max.
+    #[allow(
+        clippy::as_conversions,
+        reason = "this will be small in all conceivable cases"
+    )]
+    const SAFE_DIGITS: usize = usize::MAX.ilog10() as usize;
     let mut index = 0_usize;
     let mut it = bytes.iter();
+
+    let is_digit = |x| (48..58).contains(x);
+    let is_nonzero_digit = |x| (49..58).contains(x);
+
     // read first character, only continue if a digit 1-9 (no leading
     // zeros)
     if let Some(x) = it.by_ref().next()
-        && (49..58).contains(x)
+        && is_nonzero_digit(x)
     {
         index += usize::from(*x) - 48;
         let mut k = 1;
-        for y in it.take_while(|&&z| (48..58).contains(&z)) {
+        // Take up to the safe number of digits and multiply/add using unchecked
+        // math for speed. (Note the -1 which is due to taking the first digit
+        // above).
+        for y in it
+            .by_ref()
+            .take(SAFE_DIGITS - 1)
+            .take_while(|&z| is_digit(z))
+        {
             index = 10 * index + (usize::from(*y) - 48);
             k += 1;
         }
-        assert!(index > 0, "index should be greater than 0 here");
-        Some((index - 1, bytes.split_at(k).1))
+        // We have exhausted all safe digits, use slowed checked math to ensure
+        // we don't overflow for the last digit.
+        if let Some(y) = it.by_ref().next()
+            && is_digit(y)
+        {
+            index = index.checked_mul(10)?.checked_add(usize::from(*y) - 48)?;
+            k += 1;
+        }
+        // If there are more digits, we have run out of space. Return none which
+        // will cause this keyword to be treated as a pseudo-standard keyword
+        // (which just happens to have a gigantic number in it).
+        if it.next().is_some() {
+            None
+        } else {
+            assert!(index > 0, "index should be greater than 0 here");
+            Some((index - 1, bytes.split_at(k).1))
+        }
     } else {
         None
     }

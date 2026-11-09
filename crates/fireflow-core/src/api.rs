@@ -3043,30 +3043,9 @@ impl ValidKeywords {
             }
         }
 
-        // demote
-
-        let mut demoted = vec![];
-
-        for (k, ()) in &match_demote.literals {
-            if let Some(v) = self.std.delete(k) {
-                self.pnonstd
-                    .insert_demoted(&mut self.nonstd, k, v.to_owned());
-                demoted.push(*k);
-            }
-        }
-
-        if match_demote.has_wildcards() {
-            self.std.delete_when(
-                |k| match_demote.is_wildcard_match(&k),
-                |k, v| {
-                    self.pnonstd
-                        .insert_demoted(&mut self.nonstd, &DollarWrap(k), v.to_owned());
-                    demoted.push(DollarWrap(k));
-                },
-            );
-        }
-
-        // promote
+        // promote (run this before demote so that promote_all runs before
+        // demotion; the alternative would make demotion totally useless if
+        // promote_all were used).
 
         let mut promote_non_unique = vec![];
         let mut promoted = vec![];
@@ -3106,6 +3085,29 @@ impl ValidKeywords {
                     }
                 });
             }
+        }
+
+        // demote
+
+        let mut demoted = vec![];
+
+        for (k, ()) in &match_demote.literals {
+            if let Some(v) = self.std.delete(k) {
+                self.pnonstd
+                    .insert_demoted(&mut self.nonstd, k, v.to_owned());
+                demoted.push(*k);
+            }
+        }
+
+        if match_demote.has_wildcards() {
+            self.std.delete_when(
+                |k| match_demote.is_wildcard_match(&k),
+                |k, v| {
+                    self.pnonstd
+                        .insert_demoted(&mut self.nonstd, &DollarWrap(k), v.to_owned());
+                    demoted.push(DollarWrap(k));
+                },
+            );
         }
 
         // replace

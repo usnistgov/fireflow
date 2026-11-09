@@ -1148,8 +1148,8 @@ where
                 if ignore.is_set() {
                     // If ignore is set, return immediately with uncorrected offsets
                     LogResult::new_ok(header_pair(ChoseHeaderReason::Ignored(Some(uncorr_txt))))
-                } else if uncorr_txt == uncorr_hdr {
-                    // Uncorrected offsets are identical, not a mismatch.
+                } else if uncorr_txt == uncorr_hdr && !header_seg.is_empty() {
+                    // Uncorrected offsets are identical and non-empty, not a mismatch.
                     LogResult::new_ok(header_pair(ChoseHeaderReason::Match))
                 } else {
                     // Offsets not identical, choose one
@@ -1424,8 +1424,8 @@ where
                 if ignore.is_set() {
                     // Ignore is set, return uncorrected offsets immediately
                     LogResult::new_ok(header_pair(ChoseHeaderReason::Ignored(Some(uncorr_txt))))
-                } else if uncorr_txt == uncorr_hdr {
-                    // Uncorrected HEADER and TEXT are identical, just use HEADER
+                } else if uncorr_txt == uncorr_hdr && !header_seg.is_empty() {
+                    // Uncorrected HEADER and TEXT are identical and non-empty, just use HEADER
                     LogResult::new_ok(header_pair(ChoseHeaderReason::Match))
                 } else {
                     // Segments are mismatched, figure out what to do

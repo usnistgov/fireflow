@@ -9138,12 +9138,15 @@ impl<T> AnyOrderedUintDataSchema<T> {
                     )
             }
             ByteordOverride::Endian => bytes_res
-                .map(|(new_bytes, old_bytes)| {
-                    let (new_byteord, old_byteord) = Endian::try_from(bo).map_or((bo, None), |e| {
+                .and_then(|(new_bytes, old_bytes)| {
+                    if let Ok(e) = Endian::try_from(bo) {
                         let new_byteord = ByteOrd2_0::from_endian(e, new_bytes);
-                        (new_byteord, (new_byteord != bo).then_some(bo))
-                    });
-                    (new_byteord, old_byteord, old_bytes)
+                        let old_byteord = (new_byteord != bo).then_some(bo);
+                        Ok((new_byteord, old_byteord, old_bytes))
+                    } else {
+                        check_width_and_byteord(new_bytes, bo).map(|x| (x, old_bytes))?;
+                        Ok((bo, None, old_bytes))
+                    }
                 })
                 .map_or_else(
                     |es| (Err(es), vec![]),

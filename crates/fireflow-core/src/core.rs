@@ -5426,9 +5426,8 @@ where
                 self.meas
                     .meta()
                     .opt_names()
-                    .flatten()
                     .enumerate()
-                    .map(|(i, v)| ReqMeasKeyword::from_ref(v, i.into()))
+                    .filter_map(|(i, v)| v.map(|x| ReqMeasKeyword::from_ref(x, i.into())))
             })
             .into_iter()
             .flatten();

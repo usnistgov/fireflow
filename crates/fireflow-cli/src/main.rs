@@ -35,7 +35,7 @@ use itertools::Itertools as _;
 use itoa::Buffer as IBuf;
 use regex::Regex;
 use serde::Serialize;
-use serde_json::{json, to_writer};
+use serde_json::{Value, json, to_writer};
 use zmij::Buffer as FBuf;
 
 use std::error::Error;
@@ -1266,7 +1266,7 @@ fn run() -> AppResult<()> {
             let (ws, res) = api::fcs_read_flat_texts(filepath, skip, Some(1), false, mmap, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
-            to_writer(stdout, &res?[0])?;
+            to_writer(stdout, &res?.first())?;
             Ok(())
         }
 
@@ -1280,8 +1280,11 @@ fn run() -> AppResult<()> {
             let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, mmap, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
-            let (core, _) = &res?[0];
-            core.print_comp_or_spillover_table(&mut stdout, delim)?;
+            if let Some((core, _)) = res?.first() {
+                core.print_comp_or_spillover_table(&mut stdout, delim)?;
+            } else {
+                to_writer(stdout, &Value::Null)?;
+            }
             Ok(())
         }
 
@@ -1295,8 +1298,11 @@ fn run() -> AppResult<()> {
             let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, mmap, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
-            let (core, _) = &res?[0];
-            core.print_meas_table(&mut stdout, delim)?;
+            if let Some((core, _)) = res?.first() {
+                core.print_meas_table(&mut stdout, delim)?;
+            } else {
+                to_writer(stdout, &Value::Null)?;
+            }
             Ok(())
         }
 
@@ -1309,9 +1315,12 @@ fn run() -> AppResult<()> {
             let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, mmap, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
-            let (core, uncore) = &res?[0];
-            let obj = json!({"core": core, "uncore": uncore});
-            to_writer(stdout, &obj)?;
+            if let Some((core, uncore)) = res?.first() {
+                let obj = json!({"core": core, "uncore": uncore});
+                to_writer(stdout, &obj)?;
+            } else {
+                to_writer(stdout, &Value::Null)?;
+            }
             Ok(())
         }
 
@@ -1325,8 +1334,11 @@ fn run() -> AppResult<()> {
             let (ws, res) = api::fcs_read_std_datasets(filepath, skip, Some(1), false, mmap, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
-            let (core, _) = &res?[0];
-            print_parsed_data(&mut stdout, core, delim)?;
+            if let Some((core, _)) = res?.first() {
+                print_parsed_data(&mut stdout, core, delim)?;
+            } else {
+                to_writer(stdout, &Value::Null)?;
+            }
             Ok(())
         }
 

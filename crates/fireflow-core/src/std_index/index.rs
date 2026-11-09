@@ -649,7 +649,7 @@ impl StdLookupTx<'_> {
         for (k, v, m) in self.dfc.iter_masked() {
             let dk = DollarWrap(k.into());
             let is_hyper_par = usize::from(k.index.i0) >= usize::from(par)
-                || usize::from(k.index.i1) > usize::from(par);
+                || usize::from(k.index.i1) >= usize::from(par);
             match m {
                 LookupMask::Unseen => {
                     if is_hyper_par {

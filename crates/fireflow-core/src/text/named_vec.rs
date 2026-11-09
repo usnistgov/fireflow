@@ -529,7 +529,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             .enumerate()
             .zip(iter::repeat(pos))
             .map(|((i, r), pos_)| {
-                let j = if i > pos_ { i + 1 } else { i };
+                let j = if i >= pos_ { i + 1 } else { i };
                 r.both(
                     |x| x.key.clone(),
                     |x| x.key.as_opt().cloned().unwrap_or(MeasIndex::from(j).into()),

@@ -3158,7 +3158,7 @@ impl VersionedRootMeta for InnerRootMeta2_0 {
         let cyt = OptRootKeyword::from_str(&self.cyt);
         self.comp
             .as_ref()
-            .map(Compensation2_0::non_zero_indices)
+            .map(Compensation2_0::non_zero_keywords)
             .into_iter()
             .flatten()
             .map(|x| SplitKeyword_::new(DollarKey::new_i2(x.col, x.row), x.value))

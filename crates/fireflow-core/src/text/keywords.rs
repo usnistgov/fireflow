@@ -1515,21 +1515,22 @@ impl Compensation2_0 {
         res.extend_deferred_switchable_errors3(warnings.into_iter().flatten())
     }
 
-    pub fn non_zero_indices(&self) -> impl Iterator<Item = DfcKeyword> {
+    pub fn all_keywords(&self) -> impl Iterator<Item = DfcKeyword> {
         let m = self.0.matrix();
-        m.iter()
-            .enumerate()
-            .filter(|(_, value)| !value.is_zero())
-            .map(|(i, &value)| {
-                let n = m.ncols();
-                let row = i / n;
-                let col = i % n;
-                DfcKeyword {
-                    col: col.into(),
-                    row: row.into(),
-                    value: Dfc(value),
-                }
-            })
+        m.iter().enumerate().map(|(i, &value)| {
+            let n = m.ncols();
+            let row = i / n;
+            let col = i % n;
+            DfcKeyword {
+                col: col.into(),
+                row: row.into(),
+                value: Dfc(value),
+            }
+        })
+    }
+
+    pub fn non_zero_keywords(&self) -> impl Iterator<Item = DfcKeyword> {
+        self.all_keywords().filter(|k| !k.value.0.is_zero())
     }
 
     pub(crate) fn invalid_link_errors(
@@ -1538,7 +1539,7 @@ impl Compensation2_0 {
     ) -> impl Iterator<Item = KeyToIndexLinkError<Dfc>> {
         // If $PAR is 1 or matrix is smaller than $PAR, use a cutoff of zero
         // since the entire matrix must be removed.
-        self.non_zero_indices().filter_map(|kw| {
+        self.non_zero_keywords().filter_map(|kw| {
             // TODO throw error if temporal measurement is anything other than ID
             let n = self.0.matrix().nrows();
             let bad_matrix = n < par.0 || par.0 < 2;
@@ -1568,7 +1569,7 @@ impl Compensation2_0 {
         // Scan through matrix and pull out all cells in rows/columns greater
         // or equal to cutoff and whose value is not zero. These are the keywords
         // to return.
-        let es = c.non_zero_indices().filter_map(|kw| {
+        let es = c.non_zero_keywords().filter_map(|kw| {
             let which = match (usize::from(kw.row) >= cutoff, usize::from(kw.col) >= cutoff) {
                 (true, true) => Some(Comp2_0Missing::Both),
                 (true, false) => Some(Comp2_0Missing::Row),
@@ -1589,7 +1590,7 @@ impl Compensation2_0 {
     pub(crate) fn existing_links(
         &self,
     ) -> impl Iterator<Item = ExistingIndexedLinkError<Dfc, MeasIndex>> {
-        self.non_zero_indices().map(|kw| {
+        self.non_zero_keywords().map(|kw| {
             let xs = [kw.col, kw.row].into_nonempty_vec();
             ExistingIndexedLinkError::new(DollarKey::new_i2(kw.col, kw.row), xs)
         })

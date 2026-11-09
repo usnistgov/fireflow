@@ -36,13 +36,14 @@ use hashbrown::HashMap;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::AllIntoPyErr;
+use fireflow_core_proc::{AllIntoPyErr, IntoFlatPyDict};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
 /// Instructions for reading the HEADER segment.
 #[derive(Default, Clone, AsRef, From)]
+#[cfg_attr(feature = "python", derive(IntoFlatPyDict))]
 pub struct ReadHeaderConfig {
     pub header: ReadHeaderInnerConfig,
     pub offset: ReadOffsetConfig,
@@ -50,6 +51,7 @@ pub struct ReadHeaderConfig {
 
 /// Instructions for reading the HEADER and TEXT segments in flat mode.
 #[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(IntoFlatPyDict))]
 pub struct ReadFlatTEXTConfig {
     #[as_ref(ReadHeaderInnerConfig)]
     pub header: ReadHeaderInnerConfig,
@@ -65,6 +67,7 @@ pub struct ReadFlatTEXTConfig {
 
 /// Instructions for reading the HEADER and TEXT segments in standard mode.
 #[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(IntoFlatPyDict))]
 pub struct ReadStdTEXTConfig {
     #[as_ref(ReadHeaderInnerConfig)]
     pub header: ReadHeaderInnerConfig,
@@ -90,6 +93,7 @@ pub struct ReadStdTEXTConfig {
 
 /// Instructions for reading a dataset in flat mode.
 #[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(IntoFlatPyDict))]
 pub struct ReadFlatDatasetConfig {
     #[as_ref(ReadHeaderInnerConfig)]
     pub header: ReadHeaderInnerConfig,
@@ -116,6 +120,7 @@ pub struct ReadFlatDatasetConfig {
 /// Instructions for reading a dataset in standard mode.
 #[derive(Default, Clone, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoFlatPyDict))]
 pub struct ReadStdDatasetConfig {
     #[as_ref(ReadHeaderInnerConfig)]
     pub header: ReadHeaderInnerConfig,
@@ -144,6 +149,7 @@ pub struct ReadStdDatasetConfig {
 
 /// Instructions for reading a dataset in flat mode with a given set of keywords.
 #[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(IntoFlatPyDict))]
 pub struct ReadFlatDatasetFromKeywordsConfig {
     #[as_ref(ReadOffsetConfig)]
     pub offset: ReadOffsetConfig,
@@ -160,6 +166,7 @@ pub struct ReadFlatDatasetFromKeywordsConfig {
 
 /// Instructions for building a new [`crate::core::CoreTEXT`] from keywords.
 #[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(IntoFlatPyDict))]
 pub struct NewCoreTEXTConfig {
     #[as_ref(EvaledReadStdKeywordsConfig)]
     pub standard: EvaledReadStdKeywordsConfig,
@@ -173,6 +180,7 @@ pub struct NewCoreTEXTConfig {
 
 /// Instructions for building a new [`crate::core::CoreDataset`] from keywords.
 #[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(IntoFlatPyDict))]
 pub struct NewCoreDatasetConfig {
     #[as_ref(ReadOffsetConfig)]
     pub offset: ReadOffsetConfig,
@@ -467,76 +475,13 @@ impl HasStrategy for NewCoreDatasetConfig {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{
-        NewCoreDatasetConfig, NewCoreTEXTConfig, ReadFlatDatasetConfig,
-        ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderConfig,
-        ReadStdDatasetConfig, ReadStdTEXTConfig,
-    };
+    use super::{NewCoreDatasetConfig, NewCoreTEXTConfig};
 
     use fireflow_types::config::HasStrategy as _;
     use fireflow_types::keywords::Version;
     use fireflow_types::{args::underscore as ta, config::ReadStrategy};
 
     use pyo3::{prelude::*, types::PyDict};
-
-    macro_rules! impl_into_flat_dict {
-        ($t:ident, $($field:ident),*) => {
-            impl<'py> IntoPyObject<'py> for $t {
-                type Target = PyDict;
-                type Output = Bound<'py, Self::Target>;
-                type Error = PyErr;
-
-                fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-                    let result = PyDict::new(py);
-                    $(
-                        for (k, v) in self.$field.into_pyobject(py)?.iter() {
-                            result.set_item(k, v)?;
-                        }
-                    )*
-                    Ok(result)
-                }
-            }
-        };
-    }
-
-    impl_into_flat_dict!(ReadHeaderConfig, header, offset);
-
-    impl_into_flat_dict!(ReadFlatTEXTConfig, header, flat, offset, shared);
-
-    impl_into_flat_dict!(
-        ReadStdTEXTConfig,
-        header,
-        flat,
-        offset,
-        standard,
-        layout,
-        shared
-    );
-
-    impl_into_flat_dict!(ReadFlatDatasetConfig, header, flat, offset, data, shared);
-
-    impl_into_flat_dict!(
-        ReadStdDatasetConfig,
-        header,
-        flat,
-        offset,
-        standard,
-        layout,
-        data,
-        shared
-    );
-
-    impl_into_flat_dict!(
-        ReadFlatDatasetFromKeywordsConfig,
-        offset,
-        layout,
-        data,
-        shared
-    );
-
-    impl_into_flat_dict!(NewCoreTEXTConfig, standard, layout, shared);
-
-    impl_into_flat_dict!(NewCoreDatasetConfig, offset, standard, layout, data, shared);
 
     impl NewCoreTEXTConfig {
         /// Return dict for this config struct with version-specific keys.

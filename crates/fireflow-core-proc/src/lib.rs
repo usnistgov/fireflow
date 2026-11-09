@@ -394,6 +394,50 @@ pub fn derive_try_from_py(input: TokenStream) -> TokenStream {
     ret.into()
 }
 
+/// Implement IntoFlatPyDict for a struct with named fields.
+///
+/// Its members need to implement IntoPyObject<Target = PyDict>.
+#[proc_macro_derive(IntoFlatPyDict)]
+pub fn derive_into_flat_py_dict(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as DeriveInput);
+    let name = &parsed.ident;
+
+    let setters = if let Data::Struct(s) = &parsed.data
+        && let Fields::Named(fs) = &s.fields
+        && !fs.named.is_empty()
+    {
+        fs.named
+            .iter()
+            .map(|f| {
+                let n = f.ident.as_ref().expect("all fields should be named");
+                quote! {{
+                    let inner = self.#n.into_pyobject(py)?;
+                    for (k, v) in pyo3::types::PyDictMethods::iter(&inner) {
+                        pyo3::types::PyDictMethods::set_item(&ret, k, v)?;
+                    }
+                }}
+            })
+            .collect::<Vec<_>>()
+    } else {
+        panic!("must be a struct with at least one named field")
+    };
+
+    let ret = quote! {
+        impl<'py> pyo3::conversion::IntoPyObject<'py> for #name {
+            type Target = pyo3::types::PyDict;
+            type Output = pyo3::Bound<'py, Self::Target>;
+            type Error = pyo3::PyErr;
+
+            fn into_pyobject(self, py: pyo3::marker::Python<'py>) -> Result<Self::Output, Self::Error> {
+                let ret = pyo3::types::PyDict::new(py);
+                #(#setters)*
+                Ok(ret)
+            }
+        }
+    };
+    ret.into()
+}
+
 fn parse_bounds(parsed: &DeriveInput) -> Vec<WherePredicate> {
     parsed
         .attrs

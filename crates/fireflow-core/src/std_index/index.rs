@@ -932,6 +932,10 @@ impl StdLookupTx<'_> {
     pub(crate) fn n_nonempty_meas(&self) -> usize {
         self.meas.iter().filter(|(_, v)| !v.is_empty()).count()
     }
+
+    pub(crate) fn iter_region_keys(&self) -> impl Iterator<Item = RegionKey> {
+        self.region.iter().map(|(k, _)| k)
+    }
 }
 
 impl OpticalOnlyErrors {

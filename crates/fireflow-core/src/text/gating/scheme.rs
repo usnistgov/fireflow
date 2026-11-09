@@ -2,8 +2,8 @@ use crate::config::EvaledReadStdKeywordsConfig;
 use crate::core::TrimmedKeywords;
 use crate::data::IndexedError;
 use crate::logging::{
-    DeferredIter as _, DeferredSwitchableErrors, DeferredWarningsAndErrors, LogResult,
-    ResultExt as _, SwitchableErrorsResult,
+    DeferredIter as _, DeferredSwitchableErrors, DeferredWarningsAndErrors, ResultExt as _,
+    SwitchableErrorsResult,
 };
 use crate::std_index::index::StdLookupTx;
 use crate::text::gating::{
@@ -29,6 +29,7 @@ use type_families::{BifunctorOnce as _, impl_functor, impl_kind1};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
+use itertools::Itertools as _;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::mem::take;
@@ -269,19 +270,36 @@ impl<I> GatingScheme<I> {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
         let (gating, ge) = Gating::remove_or_drop_root_opt(kws, conf.as_ref());
-        gating
-            .as_ref()
-            .map_or(LogResult::new_ok_default(), |g| {
-                g.region_indices()
-                    .into_iter()
-                    .map(|ri| {
-                        Region::lookup(kws, ri, conf)
-                            .map_deferred_value(|out| out.first_once(|r| r.map(|x| (ri, x))))
-                            .map_errors(LookupGatingSchemeError::Region)
-                            .map_commutative_warnings(LookupGatingSchemeError::Region)
-                    })
-                    .sequence_def()
+        // Looking up each region keyword is tricky. Unlike $Pn* and $Gn*
+        // keywords, there is no $PAR or $GATE equivalent to bound the search.
+        // We could use $GATING but the standard does not explicitly forbid
+        // having $Rn* keywords that are not in $GATING (the opposite is true
+        // however).
+        //
+        // Luckily, we already partitioned each keyword by types, so
+        // exhaustively searching each region keyword and parsing should not be
+        // too challenging and should be effectively a no-op for files without
+        // $Rn* keywords (ie, 99.999999999% of them). First get a list of all
+        // keys, then find which indices are paired (ie have both $RnI and
+        // $RnW). These are the ones we care about. The rest won't be touched
+        // and will wash out later when we process extra keywords that weren't
+        // parsed (which makes sense since there is no obvious reason to have a
+        // non-paired $Rn* keyword).
+        let (ris, rws): (HashSet<_>, HashSet<_>) = kws
+            .iter_region_keys()
+            .map(|rk| match rk.id {
+                RegionKeyId::I => Ok(rk.index),
+                RegionKeyId::W => Err(rk.index),
             })
+            .partition_result();
+        ris.union(&rws)
+            .map(|&ri| {
+                Region::lookup(kws, ri, conf)
+                    .map_deferred_value(|out| out.first_once(|r| r.map(|x| (ri, x))))
+                    .map_errors(LookupGatingSchemeError::Region)
+                    .map_commutative_warnings(LookupGatingSchemeError::Region)
+            })
+            .sequence_def()
             .and_then_deferred_switchable_result3(flag, |rs| {
                 let mut regions = HashMap::new();
                 let mut trimmed = vec![];

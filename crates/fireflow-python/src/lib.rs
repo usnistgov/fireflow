@@ -451,7 +451,7 @@ impl<'py> FromPyObject<'_, 'py> for PyAppliedGates2_0 {
             PyRegionMapping<PyRegion2_0>,
             Option<kws::Gating>,
         ) = obj.extract()?;
-        let scheme = gating::GatingScheme::try_new(gating, regions.into())?;
+        let scheme = gating::scheme::GatingScheme::try_new(gating, regions.into())?;
         Ok(gating::AppliedGates2_0::try_new(gated_measurements.into(), scheme)?.into())
     }
 }
@@ -480,7 +480,7 @@ impl<'py> FromPyObject<'_, 'py> for PyAppliedGates3_0 {
             PyRegionMapping<PyRegion3_0>,
             Option<kws::Gating>,
         ) = obj.extract()?;
-        let scheme = gating::GatingScheme::try_new(gating, regions.into())?;
+        let scheme = gating::scheme::GatingScheme::try_new(gating, regions.into())?;
         Ok(gating::AppliedGates3_0::try_new(Vec::from(gated_measurements), scheme)?.into())
     }
 }

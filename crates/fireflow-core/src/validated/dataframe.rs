@@ -1391,7 +1391,7 @@ impl<Prim, Wrapped> InternalSeries<Prim, Wrapped> {
         let mut xs = mem::take(&mut self.inner)
             .into_mut()
             .right_or_else(Buffer::to_vec);
-        let mut found_upper = false;
+        let mut found_lower = false;
         let mut upper_pos = 0;
         let mut lower_pos = 0;
         for (rowi, x) in xs.iter_mut().enumerate() {
@@ -1400,13 +1400,14 @@ impl<Prim, Wrapped> InternalSeries<Prim, Wrapped> {
             }
             if *x > upper {
                 *x = upper;
-                if !found_upper {
-                    upper_pos = rowi;
+                if !found_lower {
                     lower_pos = rowi;
-                    found_upper = true;
                 }
-            } else if !found_upper {
+                upper_pos = rowi;
+                break;
+            } else if !found_lower {
                 lower_pos = rowi;
+                found_lower = true;
             }
         }
         self.inner = Buffer::from(xs);

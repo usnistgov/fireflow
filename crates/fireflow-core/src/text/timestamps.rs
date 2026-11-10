@@ -622,7 +622,7 @@ mod tests {
             m in 0_usize..60
         ) {
             let ss = format!("{h:02}:{m:02}:60");
-            assert_eq!(ss.parse::<FCSTime>(), Err(FCSTimeError))
+            assert_eq!(ss.parse::<FCSTime>(), Err(FCSTimeError));
         }
     }
 

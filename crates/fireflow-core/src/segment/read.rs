@@ -2658,11 +2658,15 @@ mod python {
     use std::num::NonZeroU64;
 
     // offsets will be tuples like (int, int) where first number is starting
-    // offset and second is length (NOT the final byte as in FCS files)
+    // offset and second is byte after last in segment (NOT the final byte as in
+    // FCS files)
     impl<'a, 'py, I, S> FromPyObject<'a, 'py> for Offsets<I, S> {
         type Error = PyErr;
         fn extract(obj: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
-            let (begin, length): (u64, u64) = obj.extract()?;
+            let (begin, end): (u64, u64) = obj.extract()?;
+            let length = end
+                .checked_sub(begin)
+                .ok_or(PyValueError::new_err("end must be >= begin"))?;
             let inner = if let Some(n) = NonZeroU64::new(length) {
                 let dso = DatasetOffset(0);
                 if let Some(ret) = NonEmptyOffsetsInner::try_new(begin, n, dso) {

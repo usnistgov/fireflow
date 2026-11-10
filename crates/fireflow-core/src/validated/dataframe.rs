@@ -1243,25 +1243,29 @@ impl<C> DataFrame<C> {
         u64::try_from(self.ncols() * self.nrows()).expect("cells in dataframe exceed 2^64")
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.nrows() == 0
-    }
+    // pub(crate) fn is_empty(&self) -> bool {
+    //     self.nrows() == 0
+    // }
 
     pub(crate) fn remove(&mut self, i: usize) -> C {
-        self.series.remove(i)
+        let col = self.series.remove(i);
+        if self.series.is_empty() {
+            self.nrows = 0;
+        }
+        col
     }
 
     pub(crate) fn push_series_nocheck(&mut self, col: C)
     where
         C: HasLen,
     {
-        assert!(
-            self.check_new_series(&col).is_ok(),
-            "new series length differs from number of rows"
-        );
-        if self.is_empty() {
+        if self.series.is_empty() {
             *self = Self::new1(col);
         } else {
+            assert!(
+                self.check_new_series(&col).is_ok(),
+                "new series length differs from number of rows"
+            );
             self.series.push(col);
         }
     }
@@ -1276,7 +1280,7 @@ impl<C> DataFrame<C> {
             self.check_new_series(&col).is_ok(),
             "new series length differs from number of rows"
         );
-        if self.is_empty() {
+        if self.series.is_empty() {
             self.nrows = col.len();
         }
         // don't use Self::new1 here since we want to panic if i is out of

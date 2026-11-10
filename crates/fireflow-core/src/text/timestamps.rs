@@ -284,9 +284,13 @@ impl FromStr for FCSTime {
     type Err = FCSTimeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NaiveTime::parse_from_str(s, DEFAULT_TIME_FORMAT_2_0)
-            .map(FCSTime)
-            .or(Err(FCSTimeError))
+        if let Ok(ts) = NaiveTime::parse_from_str(s, DEFAULT_TIME_FORMAT_2_0)
+            && !has_leap_second(&ts)
+        {
+            Ok(Self(ts))
+        } else {
+            Err(FCSTimeError)
+        }
     }
 }
 
@@ -359,13 +363,12 @@ impl FromStr for FCSTime60 {
     type Err = FCSTime60Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.starts_with("24") || s.starts_with("23:60") | s.starts_with("23:59:60") {
-            // Pre-filter out these edge case since chrono will actually parse
-            // these and return as if they are valid (which they aren't or at
-            // least they shouldn't be in this context)
-            Err(FCSTime60Error)
-        } else if let Ok(ts) = NaiveTime::parse_from_str(s, BASE_TIME_FORMAT) {
-            Ok(Self(ts))
+        if let Ok(ts) = NaiveTime::parse_from_str(s, BASE_TIME_FORMAT) {
+            if has_leap_second(&ts) {
+                Err(FCSTime60Error)
+            } else {
+                Ok(Self(ts))
+            }
         } else {
             let mut it = s.split(':');
             if let (Some(s1), Some(s2), Some(s3), Some(s4), None) = (
@@ -479,7 +482,9 @@ impl FromStr for FCSTime100 {
             // these and return as if they are valid (which they aren't or at
             // least they shouldn't be in this context)
             Err(FCSTime100Error)
-        } else if let Ok(ts) = NaiveTime::parse_from_str(s, BASE_TIME_FORMAT) {
+        } else if let Ok(ts) = NaiveTime::parse_from_str(s, BASE_TIME_FORMAT)
+            && !has_leap_second(&ts)
+        {
             Ok(Self(ts))
         } else if let Some([s1, s2, s3, s4]) = RE.captures(s).map(|cap| cap.extract().1) {
             // ASSUME these will never fail because we matched only digits above
@@ -587,6 +592,10 @@ impl From<FCSTime100> for FCSTime60 {
     }
 }
 
+fn has_leap_second(ts: &NaiveTime) -> bool {
+    ts.second() >= 60 || ts.nanosecond() >= 1_000_000_000
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -597,45 +606,76 @@ mod tests {
     proptest! {
         #[test]
         fn str_timestamps2_0(
-            s in (0_usize..23, 0_usize..59, 0_usize..59)
-                .prop_map(|(h, m, s)| format!("{h:02}:{m:02}:{s:02}"))
-        )
-        {
+            h in 0_usize..24,
+            m in 0_usize..60,
+            s in 0_usize..60
+        ) {
+            let s = format!("{h:02}:{m:02}:{s:02}");
             assert_from_to_str::<FCSTime>(s.as_str());
         }
     }
 
     proptest! {
         #[test]
+        fn str_timestamps2_0_leap_seconds(
+            h in 0_usize..24,
+            m in 0_usize..60
+        ) {
+            let s = format!("{h:02}:{m:02}:60");
+            assert_eq!(s.parse::<FCSTime>(), Err(FCSTimeError))
+        }
+    }
+
+    proptest! {
+        #[test]
         fn str_timestamps3_0(
-            s in (0_usize..23, 0_usize..59, 0_usize..59, 0_usize..59)
-                .prop_map(|(h, m, s, f)| format!("{h:02}:{m:02}:{s:02}:{f:02}"))
-        )
-        {
+            h in 0_usize..24,
+            m in 0_usize..60,
+            s in 0_usize..60,
+            f in 0_usize..60
+        ) {
+            let s = format!("{h:02}:{m:02}:{s:02}:{f:02}");
             assert_from_to_str::<FCSTime60>(s.as_str());
         }
     }
 
-    #[test]
-    fn str_timestamps3_0_too_few_digits() {
-        assert_eq!("23:58:00:1".parse::<FCSTime60>(), Err(FCSTime60Error));
+    proptest! {
+        #[test]
+        fn str_timestamps3_0_too_few_digits(
+            h in 0_usize..24,
+            m in 0_usize..60,
+            s in 0_usize..60,
+            f in 0_usize..10
+        ) {
+            assert_eq!(format!("{h:02}:{m:02}:{s:02}:{f})").parse::<FCSTime60>(), Err(FCSTime60Error));
+        }
     }
 
-    #[test]
-    fn str_timestamps3_0_overflow_subseconds() {
-        assert_eq!("23:58:00:60".parse::<FCSTime60>(), Err(FCSTime60Error));
+    proptest! {
+        #[test]
+        fn str_timestamps3_0_overflow_subseconds(
+            h in 0_usize..24,
+            m in 0_usize..60,
+            s in 0_usize..60,
+        ) {
+            assert_eq!(format!("{h:02}:{m:02}:{s:02}:60").parse::<FCSTime60>(), Err(FCSTime60Error));
+        }
     }
 
-    #[test]
-    fn str_timestamps3_0_overflow_seconds_long() {
-        assert_eq!("23:59:60".parse::<FCSTime60>(), Err(FCSTime60Error));
-        assert_eq!("23:59:60:00".parse::<FCSTime60>(), Err(FCSTime60Error));
+    proptest! {
+        #[test]
+        fn str_timestamps3_0_leap_seconds_long(h in 0_usize..24, m in 0_usize..24) {
+            assert_eq!(format!("{h:02}:{m:02}:60").parse::<FCSTime60>(), Err(FCSTime60Error));
+            assert_eq!(format!("{h:02}:{m:02}:60:00").parse::<FCSTime60>(), Err(FCSTime60Error));
+        }
     }
 
-    #[test]
-    fn str_timestamps3_0_overflow_minutes_long() {
-        assert_eq!("23:60:00".parse::<FCSTime60>(), Err(FCSTime60Error));
-        assert_eq!("23:60:00:00".parse::<FCSTime60>(), Err(FCSTime60Error));
+    proptest! {
+        #[test]
+        fn str_timestamps3_0_overflow_minutes_long(h in 0_usize..24) {
+            assert_eq!(format!("{h:02}:60:00").parse::<FCSTime60>(), Err(FCSTime60Error));
+            assert_eq!(format!("{h:02}:60:00:00").parse::<FCSTime60>(), Err(FCSTime60Error));
+        }
     }
 
     #[test]
@@ -647,34 +687,53 @@ mod tests {
     proptest! {
         #[test]
         fn str_timestamps3_1(
-            s in (0_usize..23, 0_usize..59, 0_usize..59, 0_usize..99)
-                .prop_map(|(h, m, s, f)| format!("{h:02}:{m:02}:{s:02}.{f:02}"))
-        )
-        {
+            h in 0_usize..24,
+            m in 0_usize..60,
+            s in 0_usize..60,
+            f in 0_usize..100
+        ) {
+            let s = format!("{h:02}:{m:02}:{s:02}.{f:02}");
             assert_from_to_str::<FCSTime100>(s.as_str());
         }
     }
 
-    #[test]
-    fn str_timestamps3_1_too_few_digits() {
-        assert_eq!("23:58:00.1".parse::<FCSTime100>(), Err(FCSTime100Error));
+    proptest! {
+        #[test]
+        fn str_timestamps3_1_too_few_digits(
+            h in 0_usize..24,
+            m in 0_usize..60,
+            s in 0_usize..60,
+            f in 0_usize..10
+        ) {
+            assert_eq!(format!("{h:02}:{m:02}:{s:02}.{f})").parse::<FCSTime100>(), Err(FCSTime100Error));
+        }
     }
 
-    #[test]
-    fn str_timestamps3_1_overflow() {
-        assert_eq!("23:58:00.100".parse::<FCSTime100>(), Err(FCSTime100Error));
+    proptest! {
+        #[test]
+        fn str_timestamps3_1_overflow(
+            h in 0_usize..24,
+            m in 0_usize..60,
+            s in 0_usize..60,
+        ) {
+            assert_eq!(format!("{h:02}:{m:02}:{s:02}.100").parse::<FCSTime100>(), Err(FCSTime100Error));
+        }
     }
 
-    #[test]
-    fn str_timestamps3_1_overflow_seconds_long() {
-        assert_eq!("23:59:60".parse::<FCSTime100>(), Err(FCSTime100Error));
-        assert_eq!("23:59:60.00".parse::<FCSTime100>(), Err(FCSTime100Error));
+    proptest! {
+        #[test]
+        fn str_timestamps3_1_leap_seconds_long(h in 0_usize..24, m in 0_usize..24) {
+            assert_eq!(format!("{h:02}:{m:02}:60").parse::<FCSTime100>(), Err(FCSTime100Error));
+            assert_eq!(format!("{h:02}:{m:02}:60.00").parse::<FCSTime100>(), Err(FCSTime100Error));
+        }
     }
 
-    #[test]
-    fn str_timestamps3_1_overflow_minutes_long() {
-        assert_eq!("23:60:00".parse::<FCSTime100>(), Err(FCSTime100Error));
-        assert_eq!("23:60:00.00".parse::<FCSTime100>(), Err(FCSTime100Error));
+    proptest! {
+        #[test]
+        fn str_timestamps3_1_overflow_minutes_long(h in 0_usize..24) {
+            assert_eq!(format!("{h:02}:60:00").parse::<FCSTime100>(), Err(FCSTime100Error));
+            assert_eq!(format!("{h:02}:60:00.00").parse::<FCSTime100>(), Err(FCSTime100Error));
+        }
     }
 
     #[test]

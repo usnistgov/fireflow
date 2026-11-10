@@ -1243,10 +1243,6 @@ impl<C> DataFrame<C> {
         u64::try_from(self.ncols() * self.nrows()).expect("cells in dataframe exceed 2^64")
     }
 
-    // pub(crate) fn is_empty(&self) -> bool {
-    //     self.nrows() == 0
-    // }
-
     pub(crate) fn remove(&mut self, i: usize) -> C {
         let col = self.series.remove(i);
         if self.series.is_empty() {
@@ -1321,6 +1317,11 @@ impl<C> DataFrame<C> {
             }
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.nrows() == 0
     }
 }
 

@@ -2383,7 +2383,12 @@ impl OtherOffsets20 {
                 } else {
                     non_null_pos
                 };
-                bs[first_digit..].iter().all(|&x| x == CharType::Digit)
+                let digits = &bs[first_digit..];
+                if digits.is_empty() {
+                    false
+                } else {
+                    bs[first_digit..].iter().all(|&x| x == CharType::Digit)
+                }
             } else {
                 false
             }

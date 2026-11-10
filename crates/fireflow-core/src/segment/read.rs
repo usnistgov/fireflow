@@ -2423,7 +2423,9 @@ impl OtherOffsets20 {
             //    offset can be found by trimming nulls/spaces, followed by zero
             //    or one minus signs, followed by the digits themselves.
             if total_bytes.is_multiple_of(ww) {
-                xs.as_slice().chunks_exact(usize::from(w)).all(is_offset)
+                xs.as_slice()[..total_bytes]
+                    .chunks_exact(usize::from(w))
+                    .all(is_offset)
             } else {
                 false
             }

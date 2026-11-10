@@ -3012,7 +3012,7 @@ impl ValidKeywords {
                     } else if let Some(v) = go!() {
                         let vf = v.into_owned();
                         // we checked above so this shouldn't return anything
-                        let _ = self.std.insert(k1_, vf.as_ne_str());
+                        let _ = self.std.try_insert(k1_, vf.as_ne_str());
                     }
                 }
                 AnyKey::PseudoNonStd(k1_) => {
@@ -3021,7 +3021,7 @@ impl ValidKeywords {
                     } else if let Some(v) = go!() {
                         let vf = v.into_owned();
                         // we checked above so this shouldn't return anything
-                        let _ = self.pnonstd.insert(k1_, vf.as_ne_str());
+                        let _ = self.pnonstd.try_insert(k1_, vf.as_ne_str());
                     }
                 }
                 AnyKey::PseudoStd(k1_) => {
@@ -3047,13 +3047,13 @@ impl ValidKeywords {
         // demotion; the alternative would make demotion totally useless if
         // promote_all were used).
 
-        let mut promote_non_unique = vec![];
+        let mut promoted_non_unique = vec![];
         let mut promoted = vec![];
 
         if conf.promote_all_nonstandard_keys.is_set() {
             self.pnonstd.retain(|k, v| {
-                if let Some(vf) = self.std.insert(k.rewrap_ref(), v) {
-                    promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
+                if let Some(vf) = self.std.try_insert(k.rewrap_ref(), v) {
+                    promoted_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
                 } else {
                     promoted.push(*k);
                 }
@@ -3062,8 +3062,8 @@ impl ValidKeywords {
         } else {
             for (k, ()) in &match_promote.literals {
                 if let Some(v) = self.pnonstd.delete(k) {
-                    if let Some(vf) = self.std.insert(k.rewrap_ref(), v) {
-                        promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
+                    if let Some(vf) = self.std.try_insert(k.rewrap_ref(), v) {
+                        promoted_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
                     } else {
                         promoted.push(*k);
                     }
@@ -3073,8 +3073,8 @@ impl ValidKeywords {
             if match_promote.has_wildcards() {
                 self.pnonstd.retain(|k, v| {
                     if match_promote.is_wildcard_match(&k.0) {
-                        if let Some(vf) = self.std.insert(k.rewrap_ref(), v) {
-                            promote_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
+                        if let Some(vf) = self.std.try_insert(k.rewrap_ref(), v) {
+                            promoted_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
                             true
                         } else {
                             promoted.push(*k);
@@ -3117,7 +3117,7 @@ impl ValidKeywords {
         for (k, vf) in &conf.replace_standard_key_values {
             if let Some(v) = self.std.delete(k) {
                 replaced.push((*k, TruncatedNEString(v.to_owned())));
-                let _ = self.std.insert(k, vf.as_ne_str());
+                let _ = self.std.try_insert(k, vf.as_ne_str());
             }
         }
 
@@ -3130,7 +3130,7 @@ impl ValidKeywords {
             if let Some(v) = self.std.delete(k) {
                 if let Ok(vf) = NEString::try_from(subpat.sub(v.as_str())) {
                     subbed.push((*k, TruncatedNEString(v.to_owned())));
-                    let _ = self.std.insert(k, vf.as_ne_str());
+                    let _ = self.std.try_insert(k, vf.as_ne_str());
                 } else {
                     removed.push((*k, TruncatedNEString(v.to_owned())));
                 }
@@ -3160,7 +3160,7 @@ impl ValidKeywords {
         // TODO this is easy to optimize since we know the length of the inputs
         // and there are no pesky regex expressions
         for (k, v) in &conf.append_standard_keywords {
-            if let Some(vf) = self.std.insert(k, v.as_ne_str()) {
+            if let Some(vf) = self.std.try_insert(k, v.as_ne_str()) {
                 appended_non_unique.push((*k, TruncatedNEString(vf.to_owned())));
             }
         }
@@ -3176,7 +3176,7 @@ impl ValidKeywords {
             renamed_non_unique,
             ignored,
             removed,
-            promoted_non_unique: promote_non_unique,
+            promoted_non_unique,
             appended_non_unique,
         };
 

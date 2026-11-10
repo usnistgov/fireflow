@@ -265,7 +265,7 @@ impl RawStdKeyIndex<false> {
             }
             assert!(nonstd.insert(k, value).is_none(), "key not disambiguated");
         } else {
-            let _ = self.insert(key.rewrap_ref(), value.as_ne_str());
+            let _ = self.try_insert(key.rewrap_ref(), value.as_ne_str());
         }
     }
 }
@@ -365,14 +365,22 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
         NEStr::try_new(s)
     }
 
-    pub(crate) fn insert(&mut self, k: &DollarStdKey<HAS_PRE>, v: &NEStr) -> Option<&NEStr> {
+    /// Try to insert new value into index.
+    ///
+    /// If index already has a value, return the new value and keep old
+    /// unchanged.
+    pub(crate) fn try_insert<'a>(
+        &mut self,
+        k: &DollarStdKey<HAS_PRE>,
+        v: &'a NEStr,
+    ) -> Option<&'a NEStr> {
         match &k.0 {
-            RawStdKey::Root(rk) => self.root.insert_array(rk, v),
-            RawStdKey::Meas(mk) => self.meas.insert_var(mk, v),
-            RawStdKey::Gate(gk) => self.gate.insert_var(gk, v),
-            RawStdKey::Region(rk) => self.region.insert_var(rk, v),
-            RawStdKey::CsvFlag(ck) => self.csv_flag.insert_var(ck, v),
-            RawStdKey::Dfc(dk) => self.dfc.insert_var(dk, v),
+            RawStdKey::Root(rk) => self.root.try_insert_array(rk, v),
+            RawStdKey::Meas(mk) => self.meas.try_insert_var(mk, v),
+            RawStdKey::Gate(gk) => self.gate.try_insert_var(gk, v),
+            RawStdKey::Region(rk) => self.region.try_insert_var(rk, v),
+            RawStdKey::CsvFlag(ck) => self.csv_flag.try_insert_var(ck, v),
+            RawStdKey::Dfc(dk) => self.dfc.try_insert_var(dk, v),
         }
     }
 

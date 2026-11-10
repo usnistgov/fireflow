@@ -79,21 +79,20 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
 
     /// Insert new value into index.
     ///
-    /// Return old value if it exists. The old data is not actually overwritten;
-    /// The old index is overwritten and the new data is appended to the string
-    /// pool.
-    ///
-    /// Return reference to old data if present, or nothing if old data was not
-    /// overwritten.
-    pub(crate) fn insert_array<V>(&mut self, k: &K, v: V) -> Option<&NEStr>
+    /// If index already has a value, return new value and leave old value
+    /// unchanged.
+    pub(crate) fn try_insert_array<V>(&mut self, k: &K, v: V) -> Option<V>
     where
         V: AsRef<NEStr>,
         K: EnumIndex<SubDimension = ()>,
     {
         let i = k.offset0();
-        let rng = self.offsets[i].clone();
-        self.push_ne(i, v.as_ref());
-        NEStr::try_new(self.get_range_unchecked(&rng))
+        if self.get_index(i).is_some_and(str::is_empty) {
+            self.push_ne(i, v.as_ref());
+            None
+        } else {
+            Some(v)
+        }
     }
 }
 
@@ -111,26 +110,23 @@ impl<K, S> NestedVariableString<K, S> {
 
     /// Insert new value into index.
     ///
-    /// Return old value if it exists. The old data is not actually overwritten;
-    /// The old index is overwritten and the new data is appended to the string
-    /// pool.
-    ///
-    /// Return reference to old data if present, or nothing if old data was not
-    /// overwritten.
+    /// If index already has value, return new value and leave old unchanged.
     ///
     /// Will never panic. If the index points outside the range of the
     /// existing index entries, the index is extended to accommodate.
-    pub(crate) fn insert_var<V>(&mut self, k: &K, v: V) -> Option<&NEStr>
+    pub(crate) fn try_insert_var<V>(&mut self, k: &K, v: V) -> Option<V>
     where
         V: AsRef<NEStr>,
         K: EnumIndex<SubDimension = S>,
     {
         let i = k.offset(&self.sub_dimension);
-        let n = self.offsets.len();
-        if i < n {
-            let rng = self.offsets[i].clone();
-            self.push_ne(i, v.as_ref());
-            NEStr::try_new(self.get_range_unchecked(&rng))
+        if let Some(cur_val) = self.get_index(i) {
+            if cur_val.is_empty() {
+                self.push_ne(i, v.as_ref());
+                None
+            } else {
+                Some(v)
+            }
         } else {
             self.offsets.resize(i + 1, 0..0);
             self.push_ne(i, v.as_ref());

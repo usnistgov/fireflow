@@ -285,7 +285,7 @@ impl FromStr for FCSTime {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Ok(ts) = NaiveTime::parse_from_str(s, DEFAULT_TIME_FORMAT_2_0)
-            && !has_leap_second(&ts)
+            && !has_leap_second(ts)
         {
             Ok(Self(ts))
         } else {
@@ -364,7 +364,7 @@ impl FromStr for FCSTime60 {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Ok(ts) = NaiveTime::parse_from_str(s, BASE_TIME_FORMAT) {
-            if has_leap_second(&ts) {
+            if has_leap_second(ts) {
                 Err(FCSTime60Error)
             } else {
                 Ok(Self(ts))
@@ -483,7 +483,7 @@ impl FromStr for FCSTime100 {
             // least they shouldn't be in this context)
             Err(FCSTime100Error)
         } else if let Ok(ts) = NaiveTime::parse_from_str(s, BASE_TIME_FORMAT)
-            && !has_leap_second(&ts)
+            && !has_leap_second(ts)
         {
             Ok(Self(ts))
         } else if let Some([s1, s2, s3, s4]) = RE.captures(s).map(|cap| cap.extract().1) {
@@ -592,7 +592,7 @@ impl From<FCSTime100> for FCSTime60 {
     }
 }
 
-fn has_leap_second(ts: &NaiveTime) -> bool {
+fn has_leap_second(ts: NaiveTime) -> bool {
     ts.second() >= 60 || ts.nanosecond() >= 1_000_000_000
 }
 
@@ -610,8 +610,8 @@ mod tests {
             m in 0_usize..60,
             s in 0_usize..60
         ) {
-            let s = format!("{h:02}:{m:02}:{s:02}");
-            assert_from_to_str::<FCSTime>(s.as_str());
+            let ss = format!("{h:02}:{m:02}:{s:02}");
+            assert_from_to_str::<FCSTime>(ss.as_str());
         }
     }
 
@@ -621,8 +621,8 @@ mod tests {
             h in 0_usize..24,
             m in 0_usize..60
         ) {
-            let s = format!("{h:02}:{m:02}:60");
-            assert_eq!(s.parse::<FCSTime>(), Err(FCSTimeError))
+            let ss = format!("{h:02}:{m:02}:60");
+            assert_eq!(ss.parse::<FCSTime>(), Err(FCSTimeError))
         }
     }
 
@@ -634,8 +634,8 @@ mod tests {
             s in 0_usize..60,
             f in 0_usize..60
         ) {
-            let s = format!("{h:02}:{m:02}:{s:02}:{f:02}");
-            assert_from_to_str::<FCSTime60>(s.as_str());
+            let ss = format!("{h:02}:{m:02}:{s:02}:{f:02}");
+            assert_from_to_str::<FCSTime60>(ss.as_str());
         }
     }
 
@@ -692,8 +692,8 @@ mod tests {
             s in 0_usize..60,
             f in 0_usize..100
         ) {
-            let s = format!("{h:02}:{m:02}:{s:02}.{f:02}");
-            assert_from_to_str::<FCSTime100>(s.as_str());
+            let ss = format!("{h:02}:{m:02}:{s:02}.{f:02}");
+            assert_from_to_str::<FCSTime100>(ss.as_str());
         }
     }
 

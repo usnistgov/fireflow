@@ -1705,19 +1705,14 @@ pub enum ParseCompError {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Unicode {
     pub page: u32,
-    pub kws: Vec<NoCommaNEString>,
+    pub kws: NEVec<NoCommaNEString>,
 }
 
 impl<'a> ToDisplayNE<'a> for Unicode {
-    type NE = NEAlt<u32, NEConcat3<u32, char, NEDelim<&'a NESlice<ToNE<NoCommaNEString>>>>>;
+    type NE = NEConcat3<u32, char, NEDelim<&'a NESlice<ToNE<NoCommaNEString>>>>;
     fn to_ne(&'a self) -> Self::NE {
-        if let Some(kws) = NESlice::try_from_slice(&self.kws[..]) {
-            NEAlt::Right(
-                NEConcat::new(self.page, ',').append(NEDelim::new(',', kws.wrap_ne_slice())),
-            )
-        } else {
-            NEAlt::Left(self.page)
-        }
+        let kws = self.kws.as_nonempty_slice();
+        NEConcat::new(self.page, ',').append(NEDelim::new(',', kws.wrap_ne_slice()))
     }
 }
 
@@ -1733,14 +1728,13 @@ impl FromStrDelim for Unicode {
 
     fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
         if let Some(page) = iter.next().and_then(|x| x.parse().ok()) {
-            let kws = iter
-                .map(str::parse)
-                .collect::<Result<Vec<NoCommaNEString>, _>>()
-                .map_err(|_| UnicodeError::EmptyKws)?;
-            if kws.is_empty() {
-                Err(UnicodeError::Empty)
-            } else {
+            if let Some(ne) = iter.map(str::parse).try_into_nonempty_iter() {
+                let kws = ne
+                    .collect::<Result<NEVec<NoCommaNEString>, _>>()
+                    .map_err(|_| UnicodeError::EmptyKws)?;
                 Ok(Self { page, kws })
+            } else {
+                Err(UnicodeError::Empty)
             }
         } else {
             Err(UnicodeError::BadFormat)
@@ -4422,6 +4416,26 @@ mod tests {
     }
 
     #[test]
+    fn unicode_empty() {
+        let v = ne_str!("50");
+        let conf = EvaledReadStdKeywordsConfig::default();
+        assert_eq!(
+            Unicode::from_str_with(v, (), &conf),
+            Err(UnicodeError::Empty)
+        );
+    }
+
+    #[test]
+    fn unicode_empty_key() {
+        let v = ne_str!("50,");
+        let conf = EvaledReadStdKeywordsConfig::default();
+        assert_eq!(
+            Unicode::from_str_with(v, (), &conf),
+            Err(UnicodeError::EmptyKws)
+        );
+    }
+
+    #[test]
     fn unicode_commas() {
         let v = ne_str!("50 ,something tour");
         let mut conf = EvaledReadStdKeywordsConfig::default();
@@ -5029,7 +5043,7 @@ mod python {
         TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED,
     };
     use fireflow_types::ranged_float::PositiveFloat;
-    use nonempty::{NEStr, NEString};
+    use nonempty::{NEStr, NEString, NEVec};
 
     use pyo3::conversion::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;
@@ -5141,7 +5155,7 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for Unicode {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let (page, kws): (u32, Vec<NoCommaNEString>) = obj.extract()?;
+            let (page, kws): (u32, NEVec<NoCommaNEString>) = obj.extract()?;
             Ok(Self { page, kws })
         }
     }

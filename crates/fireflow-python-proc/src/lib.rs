@@ -3,6 +3,7 @@ extern crate proc_macro;
 use fireflow_types::args::underscore as ta;
 use fireflow_types::config::{self as tc, EnumStrIter as _};
 use fireflow_types::keys::raw_std as sk;
+use fireflow_types::std_pattern::PATTERN_DELIMITER;
 use fireflow_types::{keywords as tk, python as tp};
 
 use nonempty::{IntoNonEmptyIterator as _, NEStr, NEVec, NonEmptyIterator as _};
@@ -11743,7 +11744,14 @@ impl DocArgParam {
     fn new_std_key_patterns_param(argname: &str, desc: impl fmt::Display, dollar: bool) -> Self {
         let inner = PyAlias::new_std_key_patterns(dollar);
         let pt = PyAlias::new_appendable_selector(inner);
-        Self::new_param(argname, pt, desc).def_auto()
+        let full_desc = format!(
+            "{desc} Values that start and end with {delim} will be interpreted \
+             as a regexp-like pattern where '[n-m]' matches indices from 'n' to \
+             'm' (inclusive to exclusive) in such cases {delim} is not \
+             interpreted as a delimiter.",
+            delim = code_str(PATTERN_DELIMITER),
+        );
+        Self::new_param(argname, pt, full_desc).def_auto()
     }
 
     fn new_rename_standard_keys() -> Self {
@@ -11773,7 +11781,12 @@ impl DocArgParam {
     fn new_substitute_standard_key_values() -> Self {
         let d = format!(
             "Apply sed-like substitution operation on matching standard keys. \
-             The leading {DOLLAR_STR} is implied when matching keys.",
+             The leading {DOLLAR_STR} is implied when matching keys. \
+             Keys that start and end with {delim} will be interpreted \
+             as a regexp-like pattern where '[n-m]' matches indices from 'n' to \
+             'm' (inclusive to exclusive) in such cases {delim} is not \
+             interpreted as a delimiter.",
+            delim = code_str(PATTERN_DELIMITER),
         );
         let p = PyAlias::new_appendable_selector(PyAlias::new_sub_patterns());
         Self::new_param(ta::SUB_STD_KEY_VALS, p, d).def_auto()

@@ -477,8 +477,8 @@ fn run() -> AppResult<()> {
              If a single value starts and ends with the same value, encapsulate \
              this with two delimiters. Delimiters must be ASCII characters. Values \
              that start and end with {delim} will be interpreted as a regexp-like \
-             pattern where '[n-m]' matches indices (such as that for {pn_n}; in \
-             such cases {delim} is not interpreted as a delimiter. \
+             pattern where '[n-m]' matches indices from 'n' to 'm' (inclusive to exclusive) \
+             in such cases {delim} is not interpreted as a delimiter. \
              An empty string encodes an empty list of values.",
             delim = fmt_val(PATTERN_DELIMITER)
         );

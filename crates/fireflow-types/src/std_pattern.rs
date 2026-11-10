@@ -51,6 +51,7 @@ pub type StdKeyPatterns<const HAS_PRE: bool> = StdKeysOrPatterns<HAS_PRE, ()>;
 /// A list of substitutions that match [`StdKey`]s.
 pub type SubPatterns = StdKeysOrPatterns<true, SubPattern>;
 
+/// Either a literal standard key or a pattern which matches multiple standard keys.
 #[derive(From, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum StdKeyOrPattern<const HAS_PRE: bool> {
     Key(DollarStdKey<HAS_PRE>),
@@ -78,12 +79,18 @@ impl<const HAS_PRE: bool> fmt::Display for StdKeyOrPattern<HAS_PRE> {
 
 pub type StdIndexPattern<const HAS_PRE: bool> = DollarWrap<HAS_PRE, StdIndexPattern_>;
 
+/// A pattern which matches multiple standard keys with indices.
 #[derive(From, Clone, PartialEq, Eq, Hash, Display, Debug)]
 pub enum StdIndexPattern_ {
+    /// Pattern which matches explicit indices for a given key.
     Discrete(StdIndexedKeys),
+    /// Pattern which matches all indices for a given key.
     Wildcard(StdWildcard),
 }
 
+/// Pattern which matches all indices for a given key.
+///
+/// May only match keys which contain indices ($Pn*, $Gn*, etc).
 #[derive(From, Clone, PartialEq, Eq, Hash, Display, Debug)]
 pub enum StdWildcard {
     #[from]
@@ -108,6 +115,12 @@ pub enum StdWildcard {
     AnyDfc2(StdIndices),
 }
 
+/// Pattern which matches explicitly specified indices for a given key.
+///
+/// Indices may be given individually like `1,2,3` or as a range like `1-4`
+/// (where the top of the range is exclusive).
+///
+/// May only match keys which contain indices ($Pn*, $Gn*, etc).
 #[derive(Clone, PartialEq, Eq, Hash, Display, Debug)]
 pub enum StdIndexedKeys {
     #[display("P[{_0}]{}", _1.suffix())]

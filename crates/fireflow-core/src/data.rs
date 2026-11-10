@@ -7545,7 +7545,7 @@ where
                 if self.series.any_gt(&bitmask) {
                     self.check_overrange1(i, &bitmask, er, is_error)
                 } else if bitmask > int_upper && self.series.any_gt(&int_upper) {
-                    self.check_overrange1(i, &int_upper, er, is_error)
+                    self.check_overrange1(i, &int_upper, er, r_is_error)
                 } else {
                     LogResult::new_ok(())
                 }

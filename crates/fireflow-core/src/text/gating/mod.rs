@@ -882,6 +882,7 @@ impl GatedMeasurements {
         let flag = rconf.process_optional_failure;
         let (maybe_gate, ge) = Gate::remove_or_drop_root_opt(kws, conf.as_ref());
         if let Some(n) = maybe_gate {
+            // TODO large $GATE could crash process
             (0..n.0)
                 .map(|i| {
                     GatedMeasurement::lookup(kws, i.into(), conf)

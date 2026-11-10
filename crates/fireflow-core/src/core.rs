@@ -7314,17 +7314,14 @@ impl CSVFlags {
         let flag = conf.process_optional_failure;
         let (csmode, ce) = CSMode::remove_or_drop_root_opt(kws, conf);
         es.extend(ce.map(LookupCSVFlagsError::from));
-        // .map_switchable_errors(LookupCSVFlagsError::from)
-        // .switchable_into_commutative()
-        // .into_semigroup()
-        // .and_then_deferred(|m| {
-        // NOTE the standard seems to say that these flags are only
-        // required if the user wishes to encode a subset value using
-        // 0 as the identifier. This is in contrast to the paper it
-        // references (Redelman and Coder 1994) which seems to say
-        // they are required. Either way, I'm still not sure how these
-        // were ever supposed to be used. Good luck ;)
+        // NOTE the standard seems to say that these flags are only required if
+        // the user wishes to encode a subset value using 0 as the identifier.
+        // This is in contrast to the paper it references (Redelman and Coder
+        // 1994) which seems to say they are required. Either way, I'm still not
+        // sure how these were ever supposed to be used. Good luck ;)
         let n = csmode.map(|x| x.0).unwrap_or_default();
+        // TODO large $CSMODE could crash the process since it drives the
+        // allocation.
         let flags = (0..n)
             .map(|i| {
                 let (f, fe) = CSVFlag::remove_or_drop_meas_opt(kws, i.into(), conf);

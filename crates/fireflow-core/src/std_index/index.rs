@@ -413,10 +413,7 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
         macro_rules! go {
             ($field:ident) => {
                 self.$field.replace_when::<&NEStr, _, _, ()>(
-                    |&k| {
-                        fwhen(k.into());
-                        Some(())
-                    },
+                    |&k| fwhen(k.into()).then_some(()),
                     |&k, v, ()| {
                         fwith(k.into(), v);
                         None

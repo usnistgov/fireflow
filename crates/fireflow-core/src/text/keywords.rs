@@ -1376,17 +1376,13 @@ impl FromStrWith for LastModified {
                 .map(Self)
                 .map(|x| Diagnosed::new(x, Some(pat.clone())))
                 .map_err(|_| LastModifiedError::AltFormat(pat.to_owned()))
-        } else if s.as_str().contains("23:59:60")
-            || s.as_str().contains("23:60:00")
-            || s.as_str().contains("24:00:00")
-        {
-            // Filter out overflow times that chrono may parse as valid even
-            // though they don't make sense
-            Err(LastModifiedError::Format)
         } else {
             let mut it = s.as_str().split('.');
             if let (Some(t), s1, None) = (it.by_ref().next(), it.by_ref().next(), it.next())
                 && let Ok(dt) = NaiveDateTime::parse_from_str(t, DATETIME_FMT)
+                // filter out leap seconds
+                && dt.nanosecond() < 1_000_000_000
+                && dt.second() < 60
             {
                 if let Some(cc) = s1 {
                     if cc.len() == 2
@@ -4382,7 +4378,7 @@ mod tests {
     }
 
     #[test]
-    fn last_modified_overflow_seconds() {
+    fn last_modified_leap_seconds() {
         assert_last_modified_format_error(ne_str!("01-Jan-2112 23:59:60"));
         assert_last_modified_format_error(ne_str!("01-Jan-2112 23:59:60.00"));
     }

@@ -4602,28 +4602,81 @@ mod tests {
         assert_from_to_str_almost_with::<RegionWindow>(v, "1,1;2,2", (), &conf);
     }
 
-    #[test]
-    fn gating() {
-        assert_from_to_str::<Gating>("R1");
-        assert_from_to_str_almost::<Gating>("R1 AND (R2.OR.R3)", "(R1 AND (R2 OR R3))");
-        assert_from_to_str::<Gating>("((NOT R1) AND R2)");
-        assert_from_to_str::<Gating>("((NOT R1) AND (NOT R2))");
-        assert_from_to_str_almost::<Gating>("(NOT R1 )", "(NOT R1)");
+    proptest! {
+        #[test]
+        fn gating_one(s in "R[1-9]{1,19}") {
+            assert_from_to_str::<Gating>(s.as_str());
+        }
+    }
 
+    proptest! {
+        #[test]
+        fn gating_nested_and(s in "[. ]*R1[. ]+AND[. ]+\\([. ]*R2[. ]+OR[. ]+R3[. ]*\\)[. ]*") {
+            assert_from_to_str_almost::<Gating>(s.as_str(), "(R1 AND (R2 OR R3))");
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn gating_nested_not(s in "[. ]*\\([. ]*\\(NOT[. ]+R1[. ]*\\)[. ]+AND[. ]+R2[. ]*\\)[. ]*") {
+            assert_from_to_str_almost::<Gating>(s.as_str(), "((NOT R1) AND R2)");
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn gating_nested_not2(
+            s in "[. ]*\\([. ]*\\([. ]*NOT[. ]+R1\\)[. ]+AND[. ]+\\([. ]*NOT[. ]+R2[. ]*\\)[. ]*\\)[. ]*"
+        ) {
+            assert_from_to_str_almost::<Gating>(s.as_str(), "((NOT R1) AND (NOT R2))");
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn gating_not(
+            s in "[. ]*\\([. ]*NOT[. ]+R1[. ]+\\)[. ]*"
+        ) {
+            assert_from_to_str_almost::<Gating>(s.as_str(), "(NOT R1)");
+        }
+    }
+
+    #[test]
+    fn gating_blank_error() {
         assert_eq!(Gating::from_str(""), Err(GatingError::EmptyExpr));
+    }
+
+    #[test]
+    fn gating_bad_token_error() {
         assert_eq!(
             Gating::from_str("NAND R1"),
             Err(GatingError::BadToken("NAND".into()))
         );
+    }
+
+    #[test]
+    fn gating_missing_right_paren_error() {
         assert_eq!(Gating::from_str("(NOT R1"), Err(GatingError::MissingParen));
+    }
+
+    #[test]
+    fn gating_missing_left_paren_error() {
         assert_eq!(
             Gating::from_str("NOT R1)"),
             Err(GatingError::InvalidBinaryToken(GatingToken::RParen))
         );
+    }
+
+    #[test]
+    fn gating_missing_left_paren_and_error() {
         assert_eq!(
             Gating::from_str("AND R1)"),
             Err(GatingError::InvalidExprToken(GatingToken::And))
         );
+    }
+
+    #[test]
+    fn gating_missing_missing_right_and_error() {
         assert_eq!(Gating::from_str("R1 AND"), Err(GatingError::EmptyExpr));
     }
 

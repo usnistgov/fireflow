@@ -473,13 +473,12 @@ fn run() -> AppResult<()> {
     let make_key_str_args = |name, help| {
         let more = format!(
             "If first and last character are the same, they are treated as \
-             delimiters (<#>) which can be used to \
-             separate multiple values. If a single value starts and ends with \
-             the same value, encapsulate this with two delimiters. \
-             Values that start and end with {delim} will be \
-             interpreted as a regexp-like pattern where '[n-m]' matches indices \
-             (such as that for {pn_n}; in such cases {delim} \
-             is not interpreted as a delimiter. \
+             delimiters (<#>) which can be used to separate multiple values. \
+             If a single value starts and ends with the same value, encapsulate \
+             this with two delimiters. Delimiters must be ASCII characters. Values \
+             that start and end with {delim} will be interpreted as a regexp-like \
+             pattern where '[n-m]' matches indices (such as that for {pn_n}; in \
+             such cases {delim} is not interpreted as a delimiter. \
              An empty string encodes an empty list of values.",
             delim = fmt_val(PATTERN_DELIMITER)
         );
@@ -716,6 +715,7 @@ fn run() -> AppResult<()> {
              First character is considered to be the delimiter (<#>) for \
              separating OLD and NEW as well as multiple pairs of OLD/NEW. \
              An empty list or single delimiter encodes an empty list. \
+             Delimiters must be ASCII characters. \
              If duplicate OLD keys are found, only the last is kept.",
         );
 
@@ -727,6 +727,7 @@ fn run() -> AppResult<()> {
              First character is considered to be the delimiter (<#>) for \
              separating KEY and VAL as well as multiple pairs of KEY/VAL. \
              An empty list or single delimiter encodes an empty list. \
+             Delimiters must be ASCII characters. \
              If duplicate keys are found, only the last is kept.",
         )
         .value_parser(ValueParser::new(parse_keystring_string_pair));
@@ -739,6 +740,7 @@ fn run() -> AppResult<()> {
              First character is considered to be the delimiter (<#>) for \
              separating KEY and VAL as well as multiple pairs of KEY/VAL. \
              An empty list or single delimiter encodes an empty list. \
+             Delimiters must be ASCII characters. \
              If duplicate keys are found, only the last is kept.",
         )
         .value_parser(ValueParser::new(parse_keystring_string_pair));
@@ -751,6 +753,7 @@ fn run() -> AppResult<()> {
              First character is considered to be the delimiter (<#>) for \
              separating KEY and SUB as well as multiple pairs of KEY/SUB. \
              An empty list or single delimiter encodes an empty list. \
+             Delimiters must be ASCII characters. \
              If duplicate keys are found, only the last is kept.",
         ))
         .value_parser(ValueParser::new(parse_sub_pattern_pair));
@@ -1968,9 +1971,12 @@ where
     let single = || Ok(vec![go(s)?]);
     if let Some(b0) = s.as_bytes().first() {
         let delim = char::from(*b0);
+        let rest = s.strip_prefix(delim).unwrap();
         if !b0.is_ascii() {
             Err(format!("delimiter must be an ASCII character, got {delim}"))
-        } else if s.strip_prefix(delim).unwrap().strip_suffix(delim).is_some() {
+        } else if rest.is_empty() {
+            Ok(vec![])
+        } else if rest.strip_suffix(delim).is_some() {
             if b0 == &PATTERN_DELIMITER {
                 // String starts and ends with delimiter but delimiter is the
                 // same as the regex pattern specifier; treat as a single
@@ -2021,9 +2027,12 @@ where
 {
     if let Some(b0) = s.as_bytes().first() {
         let delim = char::from(*b0);
+        let rest = s.strip_prefix(delim).unwrap();
         if !b0.is_ascii() {
             Err(format!("delimiter must be an ASCII character, got {delim}"))
-        } else if let Some(mid) = s.strip_prefix(delim).unwrap().strip_suffix(delim) {
+        } else if rest.is_empty() {
+            Ok(vec![])
+        } else if let Some(mid) = rest.strip_suffix(delim) {
             let go = |a: &str, b: &str| Ok((fk(a)?, fv(b)?));
             let mut it = mid.split(delim).tuples();
             let out = it.by_ref().map(|(a, b)| go(a, b)).collect();

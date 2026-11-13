@@ -23,14 +23,13 @@ use fireflow_types::textdelim::TEXTDelim;
 use fireflow_types::timepattern::TimePattern;
 use fireflow_types::{args::dash as ta, config::OpticalOnlyKeys};
 use fireflow_types::{byteord::ConfigByteOrd, std_pattern::StdKeyOrPattern};
-use nonempty::{NEStr, NEString};
+use nonempty::NEString;
 
-use ansi_term::{ANSIString, Style};
 use clap::builder::{IntoResettable, StyledStr, ValueParser};
 use clap::error::ErrorKind;
 use clap::value_parser;
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use const_format::formatcp;
+use const_format::{concatcp, formatcp};
 use hashbrown::HashMap;
 use itertools::Itertools as _;
 use itoa::Buffer as IBuf;
@@ -43,7 +42,6 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::Display;
 use std::io::{self, Write};
-use std::iter::once;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::str::FromStr;
@@ -58,152 +56,40 @@ fn main() -> ExitCode {
     }
 }
 
+macro_rules! fmt_arg {
+    ($s:expr) => {
+        formatcp!("{BOLD}--{}{RESET}", $s)
+    };
+}
+
+macro_rules! fmt_val {
+    ($s:expr) => {
+        formatcp!("'{}'", $s)
+    };
+}
+
+macro_rules! fmt_config_val {
+    ($s:ident) => {
+        formatcp!("'{}'", tc::$s.as_str())
+    };
+}
+
 #[allow(clippy::too_many_lines)]
 fn run() -> AppResult<()> {
     let mut stdout = io::BufWriter::new(io::stdout().lock());
     let mut stderr = io::BufWriter::new(io::stderr().lock());
 
-    let kw_style = Style::new().italic();
-    let seg_style = Style::new().italic();
-    let arg_style = Style::new().bold();
-
-    let header_seg = seg_style.paint("HEADER");
-    let text_seg = seg_style.paint("TEXT");
-    let prim_text_seg = seg_style.paint("primary TEXT");
-    let supp_text_seg = seg_style.paint("supplemental TEXT");
-    let data_seg = seg_style.paint("DATA");
-    let analysis_seg = seg_style.paint("ANALYSIS");
-    let other_seg = seg_style.paint("OTHER");
-
-    let fmt_arg = |arg| arg_style.paint(format!("--{arg}"));
-
-    let paint = |s: &'static NEStr| kw_style.paint(s.as_str());
-
-    let par = paint(sk::PAR);
-    let tot = paint(sk::TOT);
-    let byteord = paint(sk::BYTEORD);
-    let datatype = paint(sk::DATATYPE);
-    let timestep = paint(sk::TIMESTEP);
-    let date = paint(sk::DATE);
-    let btim = paint(sk::BTIM);
-    let etim = paint(sk::ETIM);
-    let last_modified = paint(sk::LAST_MODIFIED);
-    let begindatetime = paint(sk::BEGINDATETIME);
-    let enddatetime = paint(sk::ENDDATETIME);
-    let nextdata = paint(sk::NEXTDATA);
-    let spillover = paint(sk::SPILLOVER);
-    let pnfeature = paint(sk::PNFEATURE);
-    let pn_b = paint(sk::PNB);
-    let pn_r = paint(sk::PNR);
-    let pn_n = paint(sk::PNN);
-    let pn_e = paint(sk::PNE);
-    let pndatatype = paint(sk::PNDATATYPE);
-
-    let pn_any = kw_style.paint("$PnX");
-
-    let (delim_header, delim_help) = format_section(
-        "DELIMITER ESCAPING",
-        [
-            "The standard allows delimiters to be included in keys or values \
-             (tokens) if they are \"escaped\" with another delimiter. This also \
-             implies that delimiters can never start or end a token since it is \
-             impossible to unambiguously assign such escaped delimiters to \
-             either side of the real delimiter. This also means empty tokens are \
-             not allowed."
-                .into(),
-            "In reality, many files use delimiters as if they are not supposed \
-             to be escaped."
-                .into(),
-            format!(
-                "If {esc} or {unesc}, escape or do not escape delimiters respectively.",
-                esc = fmt_val(tc::DELIM_ESCAPED_LEVEL),
-                unesc = fmt_val(tc::DELIM_UNESCAPED_LEVEL)
-            ),
-            format!(
-                "If {esc} or {unesc} attempt to guess how delimiters should be \
-                 treated, falling back to escaped or unescaped mode respectively \
-                 if the choice is ambiguous. The determination will be made by \
-                 first scanning {text_seg} to find all delimiter positions and \
-                 choosing the mode which results in an even number of tokens \
-                 with no delimiters in keys (escaped mode) and no blank keys \
-                 (unescaped mode).",
-                esc = fmt_val(tc::DELIM_ESCAPED_LEVEL),
-                unesc = fmt_val(tc::DELIM_UNESCAPED_LEVEL)
-            ),
-            format!(
-                "Using the guessing algorithm has a significant performance penalty \
-                 since {text_seg} needs to be parsed twice. Furthermore, this \
-                 algorithm is heuristic and not guaranteed to succeed. An uneven \
-                 number of tokens implies that {text_seg} is malformed which will \
-                 likely be the case assuming that the ending offset for {text_seg} \
-                 will be too high (if at all) therefore all delimiters should be in \
-                 the {text_seg} segment and can be counted. Keys likely will not have \
-                 escaped delimiters in them. Keys should almost never be blank in \
-                 unescaped mode since '\"\"' is almost never a sensible key value."
-            ),
-            format!(
-                "The guessing algorithm is independent of {odd} and {final} \
-                 which will trigger as normal if their respective violations \
-                 are found.",
-                odd = fmt_arg(ta::ALLOW_ODD_TOKENS),
-                final = fmt_arg(ta::ALLOW_EVEN_DELIMS),
-            ),
-        ],
-    );
-
-    let (sub_header, sub_help) = format_section(
-        "SUBSTITUTION",
-        [format!(
-            "The SUB part in {pat} is a sed-like pattern which will \
-             be used to edit the value of KEY. It must be a string like \
-             's<D><FROM><D><TO>[<D>g]' where 'D' is a delimiter (any character), \
-             FROM is a regular expression and TO is a replacement pattern. FROM \
-             and TO must follow the syntax outlined in {REGEXP_REF} and \
-             {REGEXP_REP_REF} respectively, with the caveat that only bracketed \
-             replacement syntax is allowed.",
-            pat = fmt_arg(ta::SUB_STD_KEY_VALS),
-        )],
-    );
-
-    let (date_header, date_help) = format_section(
-        "DATE PATTERN",
-        [format!(
-            "The value for {pat} will be used as an alternative pattern when \
-             parsing {date}. It should have specifiers for year, month, and \
-             day as outlined in {CHRONO_REF}. If not supplied, {date} will \
-             be parsed according to the standard pattern which is \
-             {fmt}.",
-            pat = fmt_arg(ta::DATE_PATTERN),
-            fmt = fmt_val(tc::DEFAULT_DATE_FORMAT),
-        )],
-    );
-
-    let (time_header, time_help) = format_section(
-        "TIME PATTERN",
-        [format!(
-            "If supplied, will be used as an alternative pattern when parsing \
-             {btim} and {etim} It should have specifiers for hours, minutes, and \
-             seconds as outlined in {CHRONO_REF}. It may optionally also have a \
-             sub-seconds specifier as shown in the same link. Furthermore, the \
-             specifiers {base60} and {base100} may be used to match 1/60 and \
-             centiseconds respectively. If not supplied, {btim} and {etim} will \
-             be parsed according to the standard pattern which is {fmt2_0} for \
-             2.0, {fmt3_0} for 3.0, and {fmt3_1} for 3.1 and up.",
-            base60 = fmt_val(tc::BASE60_SECOND_SPEC),
-            base100 = fmt_val(tc::BASE100_SECOND_SPEC),
-            fmt2_0 = fmt_val(tc::DEFAULT_TIME_FORMAT_2_0),
-            fmt3_0 = fmt_val(tc::DEFAULT_TIME_FORMAT_3_0),
-            fmt3_1 = fmt_val(tc::DEFAULT_TIME_FORMAT_3_1)
-        )],
-    );
-
-    let flat_long_help = [&delim_help, &sub_help].iter().join("\n\n");
-    let std_long_help = [&delim_help, &sub_help, &date_help, &time_help]
+    let flat_long_help = [&DELIM_SECTION, &SUB_SECTION]
         .iter()
+        .map(|s| s.paragraphs)
+        .join("\n\n");
+    let std_long_help = [&DELIM_SECTION, &SUB_SECTION, &DATE_SECTION, &TIME_SECTION]
+        .iter()
+        .map(|s| s.paragraphs)
         .join("\n\n");
 
-    let correction_arg = |long: &'static str, in_header: bool, seg: &ANSIString| {
-        let src = if in_header { &header_seg } else { &text_seg };
+    let correction_arg = |long: &'static str, in_header: bool, seg: &'static str| {
+        let src = if in_header { &HEADER_SEG } else { &TEXT_SEG };
         let h = format!("Correction for {seg} offsets from {src}.");
         Arg::new(long)
             .long(long)
@@ -214,26 +100,26 @@ fn run() -> AppResult<()> {
 
     // header args
 
-    let text_correction = correction_arg(ta::TEXT_CORR, true, &text_seg);
-    let data_correction = correction_arg(ta::DATA_CORR, true, &data_seg);
-    let analysis_correction = correction_arg(ta::ANALYSIS_CORR, true, &analysis_seg);
+    let text_correction = correction_arg(ta::TEXT_CORR, true, TEXT_SEG);
+    let data_correction = correction_arg(ta::DATA_CORR, true, DATA_SEG);
+    let analysis_correction = correction_arg(ta::ANALYSIS_CORR, true, ANALYSIS_SEG);
 
     let other_correction = Arg::new(ta::OTHER_CORRS)
         .long(ta::OTHER_CORRS)
         .value_name(formatcp!("BEGIN,END[{OFFSET_DELIM}..]"))
         .value_parser(ValueParser::new(parse_offsets))
         .help(format!(
-            "Correction for {other_seg} offsets. \
+            "Correction for {OTHER_SEG} offsets. \
              Pairs are separated by a comma. \
              Multiple pairs are separated by a {delim}. \
              An empty string represents an empty list.",
-            delim = fmt_val(OFFSET_DELIM),
+            delim = fmt_val!(OFFSET_DELIM),
         ));
 
     let max_other = opt_arg_nonstr::<usize>(
         ta::MAX_OTHER,
         "BYTES",
-        format!("Max number of {other_seg} segments to parse."),
+        format!("Max number of {OTHER_SEG} segments to parse."),
     );
 
     let other_width = Arg::new(ta::OTHER_WIDTH)
@@ -241,7 +127,7 @@ fn run() -> AppResult<()> {
         .value_name("WIDTH")
         .value_parser(value_parser!(OtherWidth))
         .help(format!(
-            "Width of {other_seg} segments. Defaults to {OTHER_WIDTH_DEFAULT}"
+            "Width of {OTHER_SEG} segments. Defaults to {OTHER_WIDTH_DEFAULT}"
         ));
 
     let guess_other_width = Arg::new(ta::GUESS_OTHER_WIDTH)
@@ -249,21 +135,21 @@ fn run() -> AppResult<()> {
         .value_name("LEVEL")
         .value_parser(value_parser!(tc::GuessOtherWidth))
         .help(format!(
-            "Guess the width of {other_seg} segments. Valid values are {none} \
+            "Guess the width of {OTHER_SEG} segments. Valid values are {none} \
              (no guessing) or {error}, {warn} or {silent} which will guess and \
              throw an error, warning, or nothing on failure. For {warn} and \
              {silent}, failure will fall back to 8 or whatever was given in {arg}.",
-            none = fmt_val(tc::OTHER_WIDTH_NONE_LEVEL),
-            error = fmt_val(tc::OTHER_WIDTH_ERROR_LEVEL),
-            warn = fmt_val(tc::OTHER_WIDTH_WARN_LEVEL),
-            silent = fmt_val(tc::OTHER_WIDTH_SILENT_LEVEL),
-            arg = fmt_arg(ta::OTHER_WIDTH),
+            none = fmt_config_val!(OTHER_WIDTH_NONE_LEVEL),
+            error = fmt_config_val!(OTHER_WIDTH_ERROR_LEVEL),
+            warn = fmt_config_val!(OTHER_WIDTH_WARN_LEVEL),
+            silent = fmt_config_val!(OTHER_WIDTH_SILENT_LEVEL),
+            arg = fmt_arg!(ta::OTHER_WIDTH),
         ));
 
     let squish_offsets = override_flag_arg(
         ta::SQUISH_OFFSETS,
         format!(
-            "If {data_seg}/{analysis_seg} end in 0, use 0 for start as well. \
+            "If {DATA_SEG}/{ANALYSIS_SEG} end in 0, use 0 for start as well. \
              Should not be used for FCS 2.0 files."
         ),
     );
@@ -312,33 +198,33 @@ fn run() -> AppResult<()> {
         ta::VERSION_OVERRIDE,
         "OVERRIDE",
         format!(
-            "Override the FCS version from {header_seg}. Can be an FCS version \
+            "Override the FCS version from {HEADER_SEG}. Can be an FCS version \
              string (like 'FCS3.2') which will force to a fixed version. Can \
              also autodetect version with one of {latest} or {earliest} (the \
              latest or earliest available version respectively) or {loose} or \
              {strict} (the available version with the most or least optional \
              keywords respectively). Append \"current_or\" to any of these \
              to prioritize the current version before ranking others.",
-            latest = fmt_val(tc::VERSION_LATEST_LEVEL),
-            earliest = fmt_val(tc::VERSION_EARLIEST_LEVEL),
-            loose = fmt_val(tc::VERSION_LOOSE_LEVEL),
-            strict = fmt_val(tc::VERSION_STRICT_LEVEL),
+            latest = fmt_config_val!(VERSION_LATEST_LEVEL),
+            earliest = fmt_config_val!(VERSION_EARLIEST_LEVEL),
+            loose = fmt_config_val!(VERSION_LOOSE_LEVEL),
+            strict = fmt_config_val!(VERSION_STRICT_LEVEL),
         ),
     );
 
-    let supp_text_correction = correction_arg(ta::SUPP_TEXT_COR, false, &supp_text_seg);
+    let supp_text_correction = correction_arg(ta::SUPP_TEXT_COR, false, SUPP_TEXT_SEG);
 
     let nextdata_correction = Arg::new(ta::NEXTDATA_COR)
         .long(ta::NEXTDATA_COR)
         .value_name("INT")
         .value_parser(value_parser!(i32))
-        .help(format!("Correction for {nextdata}"));
+        .help(format!("Correction for {NEXTDATA}"));
 
     let allow_overlapping_supp_text = tri_flag_arg::<tc::AllowDuplicatedSuppTEXT>(
         ta::ALLOW_DUPLICATED_SUPP_TEXT,
         format!(
-            "Allow {supp_text_seg} offsets to overlap those for \
-             {prim_text_seg} or the boundaries of {header_seg}."
+            "Allow {SUPP_TEXT_SEG} offsets to overlap those for \
+             {PRIM_TEXT_SEG} or the boundaries of {HEADER_SEG}."
         ),
     );
 
@@ -347,12 +233,12 @@ fn run() -> AppResult<()> {
         .value_name("LEVEL")
         .value_parser(value_parser!(tc::ProcessSuppText))
         .help(format!(
-            "Choose how to process {supp_text_seg}. \
+            "Choose how to process {SUPP_TEXT_SEG}. \
              Set to {asis} to process as normal, {other} to convert \
-             it to an {other_seg}, or {ignore} to ignore entirely",
-            asis = fmt_val(tc::PROCESS_SUPP_TEXT_ASIS_LEVEL),
-            other = fmt_val(tc::PROCESS_SUPP_TEXT_OTHER_LEVEL),
-            ignore = fmt_val(tc::PROCESS_SUPP_TEXT_IGNORE_LEVEL),
+             it to an {OTHER_SEG}, or {ignore} to ignore entirely",
+            asis = fmt_config_val!(PROCESS_SUPP_TEXT_ASIS_LEVEL),
+            other = fmt_config_val!(PROCESS_SUPP_TEXT_OTHER_LEVEL),
+            ignore = fmt_config_val!(PROCESS_SUPP_TEXT_IGNORE_LEVEL),
         ));
 
     let lit_delims = Arg::new(ta::DELIM_ESCAPE_MODE)
@@ -360,23 +246,24 @@ fn run() -> AppResult<()> {
         .value_name("MODE")
         .value_parser(value_parser!(tc::DelimEscapeMode))
         .help(format!(
-            "Choose how to escape delimiters in {text_seg}. \
-             See {delim_header} for details."
+            "Choose how to escape delimiters in {TEXT_SEG}. \
+             See {} for details.",
+            DELIM_SECTION.header,
         ));
 
     let non_ascii_delim = tri_flag_arg::<tc::AllowNonAsciiDelim>(
         ta::ALLOW_NON_ASCII_DELIM,
-        format!("Allow {text_seg} delimiter to be non-ASCII character."),
+        format!("Allow {TEXT_SEG} delimiter to be non-ASCII character."),
     );
 
     let missing_final_delim = tri_flag_arg::<tc::AllowEvenDelims>(
         ta::ALLOW_EVEN_DELIMS,
-        format!("Allow final {text_seg} delimiter to be missing."),
+        format!("Allow final {TEXT_SEG} delimiter to be missing."),
     );
 
     let allow_non_unique = tri_flag_arg::<tc::AllowNonunique>(
         ta::ALLOW_NONUNIQUE,
-        format!("Allow non-unique keys to exist in {text_seg}."),
+        format!("Allow non-unique keys to exist in {TEXT_SEG}."),
     );
 
     let allow_odd =
@@ -389,7 +276,7 @@ fn run() -> AppResult<()> {
 
     let allow_delim_at_bound = tri_flag_arg::<tc::AllowDelimAtBoundary>(
         ta::ALLOW_DELIM_AT_BOUNDARY,
-        format!("Allow {text_seg} delimiter(s) to be at token boundaries."),
+        format!("Allow {TEXT_SEG} delimiter(s) to be at token boundaries."),
     );
 
     let use_encoding = Arg::new(ta::USE_ENCODING)
@@ -397,13 +284,13 @@ fn run() -> AppResult<()> {
         .value_name("ENC")
         .value_parser(value_parser!(tc::UseEncoding))
         .help(format!(
-            "Choose how to interpret characters in {text_seg}. Choose {single}, \
+            "Choose how to interpret characters in {TEXT_SEG}. Choose {single}, \
              {utf8}, or {guess} to interpret bytes as IANA ISO/IEC-8859-1 UTF-8, \
              or first as UTF-8 and falling back to IANA ISO/IEC-8859-1 if a \
              non-UTF-8 byte is found.",
-            single = fmt_val(tc::ENCODING_SINGLE_LEVEL),
-            utf8 = fmt_val(tc::ENCODING_UTF8_LEVEL),
-            guess = fmt_val(tc::ENCODING_GUESS_LEVEL)
+            single = fmt_config_val!(ENCODING_SINGLE_LEVEL),
+            utf8 = fmt_config_val!(ENCODING_UTF8_LEVEL),
+            guess = fmt_config_val!(ENCODING_GUESS_LEVEL)
         ));
 
     let allow_non_ascii_keywords = tri_flag_arg::<tc::AllowNonAsciiKeywords>(
@@ -413,22 +300,22 @@ fn run() -> AppResult<()> {
 
     let allow_non_utf8 = tri_flag_arg::<tc::AllowNonUtf8>(
         ta::ALLOW_NON_UTF8_VALUES,
-        format!("Allow non-UTF8 characters in {text_seg} segment."),
+        format!("Allow non-UTF8 characters in {TEXT_SEG} segment."),
     );
 
     let allow_missing_supp_text = tri_flag_arg::<tc::AllowMissingSuppTEXT>(
         ta::ALLOW_MISSING_SUPP_TEXT,
-        format!("Allow {supp_text_seg} offsets to be missing."),
+        format!("Allow {SUPP_TEXT_SEG} offsets to be missing."),
     );
 
     let allow_supp_text_own_delim = tri_flag_arg::<tc::AllowSuppTEXTOwnDelim>(
         ta::ALLOW_SUPP_TEXT_OWN_DELIM,
-        format!("Allow delimiters in {prim_text_seg} and {supp_text_seg} to differ."),
+        format!("Allow delimiters in {PRIM_TEXT_SEG} and {SUPP_TEXT_SEG} to differ."),
     );
 
     let allow_missing_nextdata = tri_flag_arg::<tc::AllowMissingNextdata>(
         ta::ALLOW_MISSING_NEXTDATA,
-        format!("Allow {nextdata} to be missing."),
+        format!("Allow {NEXTDATA} to be missing."),
     );
 
     let trim_value_whitespace = Arg::new(ta::TRIM_VALUE_WHITESPACE)
@@ -441,10 +328,10 @@ fn run() -> AppResult<()> {
              Set to {none} to not trim at all (default). Set to {error}, {warn}, \
              or {silent} to enable trimming and throw error, warning, or nothing \
              when trimming results in a blank.",
-            none = fmt_val(tc::TRIM_NONE_LEVEL),
-            error = fmt_val(tc::TRIM_ERROR_LEVEL),
-            warn = fmt_val(tc::TRIM_BLANK_WARN_LEVEL),
-            silent = fmt_val(tc::TRIM_BLANK_SILENT_LEVEL),
+            none = fmt_config_val!(TRIM_NONE_LEVEL),
+            error = fmt_config_val!(TRIM_ERROR_LEVEL),
+            warn = fmt_config_val!(TRIM_BLANK_WARN_LEVEL),
+            silent = fmt_config_val!(TRIM_BLANK_SILENT_LEVEL),
         ));
 
     let all_read_flat_args = vec![
@@ -481,7 +368,7 @@ fn run() -> AppResult<()> {
              pattern where '[n-m]' matches indices from 'n' to 'm' (inclusive to exclusive) \
              in such cases {delim} is not interpreted as a delimiter. \
              An empty string encodes an empty list of values.",
-            delim = fmt_val(PATTERN_DELIMITER)
+            delim = fmt_val!(PATTERN_DELIMITER)
         );
         let more_help = format!("{help} {more}");
         Arg::new(name)
@@ -493,9 +380,9 @@ fn run() -> AppResult<()> {
     let dedup_meas_names = override_flag_arg(
         ta::DEDUP_MEAS_NAMES,
         format!(
-            "Force all {pn_n} to be unique by appending {} \
+            "Force all {PN_N} to be unique by appending '{}X' \
              to each duplicate and appending 'X' (starting at 0)",
-            fmt_val(format!("{}X", tc::DEDUP_PNN_SEP)),
+            tc::DEDUP_PNN_SEP,
         ),
     );
 
@@ -510,7 +397,7 @@ fn run() -> AppResult<()> {
         .help(format!(
             "Use REGEXP when matching time measurement (defaults to {default}). \
              Set to blank string to not look for a time measurement.",
-            default = fmt_val(tc::TIME_MEAS_NAME_PATTERN_DEFAULT),
+            default = fmt_val!(tc::TIME_MEAS_NAME_PATTERN_DEFAULT),
         ))
         .value_parser(value_parser!(tc::TimeMeasNamePattern));
 
@@ -522,7 +409,7 @@ fn run() -> AppResult<()> {
     let add_missing_timestep = opt_arg_nonstr::<PositiveFloat>(
         ta::ADD_MISSING_TIMESTEP,
         "TIMESTEP",
-        format!("Add {timestep} if it is missing."),
+        format!("Add {TIMESTEP} if it is missing."),
     );
 
     let force_linear_scale = Arg::new(ta::FORCE_LINEAR_SCALE)
@@ -530,14 +417,14 @@ fn run() -> AppResult<()> {
         .value_name("WHICH")
         .value_parser(value_parser!(tc::ForceLinearScale))
         .help(format!(
-            "Force {pn_e} keywords to be linear. Pass {time} to only set the \
+            "Force {PN_E} keywords to be linear. Pass {time} to only set the \
              temporal measurement, {non_int} to set temporal measurements and \
              non-integer measurements, {all} to set all measurements, and {none} \
              for no measurements. Affected columns will never fail.",
-            time = fmt_val(tc::FORCE_LINEAR_TIME_LEVEL),
-            non_int = fmt_val(tc::FORCE_LINEAR_NON_INT_LEVEL),
-            all = fmt_val(tc::FORCE_LINEAR_ALL_LEVEL),
-            none = fmt_val(tc::FORCE_LINEAR_NONE_LEVEL),
+            time = fmt_config_val!(FORCE_LINEAR_TIME_LEVEL),
+            non_int = fmt_config_val!(FORCE_LINEAR_NON_INT_LEVEL),
+            all = fmt_config_val!(FORCE_LINEAR_ALL_LEVEL),
+            none = fmt_config_val!(FORCE_LINEAR_NONE_LEVEL),
         ));
 
     let ignore_time_optical_keys = Arg::new(ta::IGNORE_OPTICAL_ONLY_KEYS)
@@ -545,7 +432,7 @@ fn run() -> AppResult<()> {
         .value_name("SYMS")
         .help(format!(
             "Ignore optical keyword for temporal measurement. Must be a \
-             comma-separated list of strings like the X in {pn_any}.",
+             comma-separated list of strings like the X in {PN_ANY}.",
         ))
         .value_parser(parse_optical_only_keys);
 
@@ -565,11 +452,11 @@ fn run() -> AppResult<()> {
              {demote_warn}, {demote_silent}, {drop_warn}, or {drop_silent} to \
              demote found keys to nonstandard (with or without warning) or drop \
              keys entirely (with or without warning) respectively.",
-            arg = fmt_arg(ta::IGNORE_OPTICAL_ONLY_KEYS),
-            demote_warn = fmt_val(tc::TMP_OPT_DEMOTE_WARN_LEVEL),
-            demote_silent = fmt_val(tc::TMP_OPT_DEMOTE_SILENT_LEVEL),
-            drop_warn = fmt_val(tc::TMP_OPT_DROP_WARN_LEVEL),
-            drop_silent = fmt_val(tc::TMP_OPT_DROP_SILENT_LEVEL),
+            arg = fmt_arg!(ta::IGNORE_OPTICAL_ONLY_KEYS),
+            demote_warn = fmt_config_val!(TMP_OPT_DEMOTE_WARN_LEVEL),
+            demote_silent = fmt_config_val!(TMP_OPT_DEMOTE_SILENT_LEVEL),
+            drop_warn = fmt_config_val!(TMP_OPT_DROP_WARN_LEVEL),
+            drop_silent = fmt_config_val!(TMP_OPT_DROP_SILENT_LEVEL),
         ));
 
     let spillover_measurement_mode = Arg::new(ta::SPILLOVER_MEASUREMENT_MODE)
@@ -577,23 +464,23 @@ fn run() -> AppResult<()> {
         .value_name("MODE")
         .value_parser(value_parser!(tc::SpilloverMeasurementMode))
         .help(format!(
-            "Choose how to interpret measurement strings in {spillover}. Set to \
-             {named} to interpret as names which link to {pn_n}. Set to \
+            "Choose how to interpret measurement strings in {SPILLOVER}. Set to \
+             {named} to interpret as names which link to {PN_N}. Set to \
              {indexed} to interpret as 1-indices which point to measurements. \
              Set to {guess} to automatically choose the prior two modes.",
-            named = fmt_val(tc::SPILLOVER_NAMED_LEVEL),
-            indexed = fmt_val(tc::SPILLOVER_INDEXED_LEVEL),
-            guess = fmt_val(tc::SPILLOVER_GUESS_LEVEL)
+            named = fmt_config_val!(SPILLOVER_NAMED_LEVEL),
+            indexed = fmt_config_val!(SPILLOVER_INDEXED_LEVEL),
+            guess = fmt_config_val!(SPILLOVER_GUESS_LEVEL)
         ));
 
     let allow_other_feature = override_flag_arg(
         ta::ALLOW_OTHER_FEATURE,
-        format!("Allow {pnfeature} to be a value other than \"Area\", \"Width\", or \"Height\""),
+        format!("Allow {PNFEATURE} to be a value other than \"Area\", \"Width\", or \"Height\""),
     );
 
     let process_hyper_par = proc_kw_fail_arg(
         ta::PROCESS_HYPER_PAR,
-        format!("Process measurement keywords whose index is greater than {par}."),
+        format!("Process measurement keywords whose index is greater than {PAR}."),
     )
     .value_parser(value_parser!(tc::ProcessHyperPar));
 
@@ -606,7 +493,7 @@ fn run() -> AppResult<()> {
     let process_extra_timestep = proc_kw_fail_arg(
         ta::PROCESS_EXTRA_TIMESTEP,
         format!(
-            "Process unused {timestep}, which may indicate that a time measurement \
+            "Process unused {TIMESTEP}, which may indicate that a time measurement \
              is present but not identified.",
         ),
     )
@@ -615,7 +502,7 @@ fn run() -> AppResult<()> {
     let fix_log_scale_offset = override_flag_arg(
         ta::FIX_LOG_SCALE_OFFSETS,
         format!(
-            "Fix {pn_e} keys that have log scaling with zero offset. \
+            "Fix {PN_E} keys that have log scaling with zero offset. \
              Specifically, this will replace values like 'X,0.0' with 'X,1.0' \
              where 'X' is a positive decimal number. Having '0.0' for log offset \
              is mathematical nonsense.",
@@ -625,7 +512,7 @@ fn run() -> AppResult<()> {
     let disallow_localtime = override_flag_arg(
         ta::DISALLOW_LOCALTIME,
         format!(
-            "Require that {begindatetime} and {enddatetime} have a timezone if \
+            "Require that {BEGINDATETIME} and {ENDDATETIME} have a timezone if \
              provided. This is not required by the standard, but not having a \
              timezone is ambiguous since the absolute value of the timestamp is \
              dependent on localtime and therefore is location-dependent. Only \
@@ -636,13 +523,19 @@ fn run() -> AppResult<()> {
     let date_pattern = opt_arg_ne_str::<DatePattern>(
         ta::DATE_PATTERN,
         "PATTERN",
-        format!("Pattern to match {date} keyword. See {date_header}."),
+        format!(
+            "Pattern to match {DATE} keyword. See {}.",
+            DATE_SECTION.header
+        ),
     );
 
     let time_pattern = opt_arg_ne_str::<TimePattern>(
         ta::TIME_PATTERN,
         "PATTERN",
-        format!("Pattern to match {btim}/{etim} keywords. See {time_header}."),
+        format!(
+            "Pattern to match {BTIM}/{ETIM} keywords. See {}.",
+            TIME_SECTION.header
+        ),
     );
 
     let datetime_pattern = opt_arg_ne_str::<String>(
@@ -650,7 +543,7 @@ fn run() -> AppResult<()> {
         "PATTERN",
         format!(
             "If supplied, will be used as an alternative pattern when parsing \
-             {begindatetime} and {enddatetime}. It should follow the format \
+             {BEGINDATETIME} and {ENDDATETIME}. It should follow the format \
              outline in {CHRONO_REF}.",
         ),
     );
@@ -660,7 +553,7 @@ fn run() -> AppResult<()> {
         "PATTERN",
         format!(
             "If supplied, will be used as an alternative pattern when parsing \
-             {last_modified}. It should follow the format outline in {CHRONO_REF}.",
+             {LAST_MODIFIED}. It should follow the format outline in {CHRONO_REF}.",
         ),
     );
 
@@ -750,12 +643,13 @@ fn run() -> AppResult<()> {
         .long(ta::SUB_STD_KEY_VALS)
         .value_name("<#>KEY<#>SUB[<#>KEY<#>SUB..]<#>")
         .help(format!(
-            "Edit standard key values using KEY and SUB. See {sub_header} for details. \
+            "Edit standard key values using KEY and SUB. See {} for details. \
              First character is considered to be the delimiter (<#>) for \
              separating KEY and SUB as well as multiple pairs of KEY/SUB. \
              An empty list or single delimiter encodes an empty list. \
              Delimiters must be ASCII characters. \
              If duplicate keys are found, only the last is kept.",
+            SUB_SECTION.header,
         ))
         .value_parser(ValueParser::new(parse_sub_pattern_pair));
 
@@ -785,17 +679,17 @@ fn run() -> AppResult<()> {
 
     // read dataset args
 
-    let text_data_correction = correction_arg(ta::TEXT_DATA_CORR, false, &data_seg);
-    let text_analysis_correction = correction_arg(ta::TEXT_ANALYSIS_CORR, false, &analysis_seg);
+    let text_data_correction = correction_arg(ta::TEXT_DATA_CORR, false, DATA_SEG);
+    let text_analysis_correction = correction_arg(ta::TEXT_ANALYSIS_CORR, false, ANALYSIS_SEG);
 
     let ignore_text_data_offsets = override_flag_arg(
         ta::IGNORE_TEXT_DATA_OFFSETS,
-        format!("Ignore offsets for {data_seg} from {text_seg}."),
+        format!("Ignore offsets for {DATA_SEG} from {TEXT_SEG}."),
     );
 
     let ignore_text_analysis_offsets = override_flag_arg(
         ta::IGNORE_TEXT_ANALYSIS_OFFSETS,
-        format!("Ignore offsets for {analysis_seg} from {text_seg}."),
+        format!("Ignore offsets for {ANALYSIS_SEG} from {TEXT_SEG}."),
     );
 
     let allow_header_text_offset_mismatch = Arg::new(ta::ALLOW_HEADER_TEXT_OFFSET_MISMATCH)
@@ -803,21 +697,21 @@ fn run() -> AppResult<()> {
         .value_name("LEVEL")
         .value_parser(value_parser!(tc::AllowHeaderTEXTOffsetMismatch))
         .help(format!(
-            "Allow {header_seg} and {text_seg} offsets to be different. If \
-             {hdr_warn} or {hdr_silent}, choose {header_seg} and throw a warning \
+            "Allow {HEADER_SEG} and {TEXT_SEG} offsets to be different. If \
+             {hdr_warn} or {hdr_silent}, choose {HEADER_SEG} and throw a warning \
              or nothing on mismatch. If {text_warn} or {text_silent} behave \
-             analogously for {text_seg}. If {error} (default) throw error.",
-            hdr_warn = fmt_val(tc::MISMATCH_HEADER_WARN_LEVEL),
-            hdr_silent = fmt_val(tc::MISMATCH_HEADER_SILENT_LEVEL),
-            text_warn = fmt_val(tc::MISMATCH_TEXT_WARN_LEVEL),
-            text_silent = fmt_val(tc::MISMATCH_TEXT_SILENT_LEVEL),
-            error = fmt_val(tc::MISMATCH_ERROR_LEVEL),
+             analogously for {TEXT_SEG}. If {error} (default) throw error.",
+            hdr_warn = fmt_config_val!(MISMATCH_HEADER_WARN_LEVEL),
+            hdr_silent = fmt_config_val!(MISMATCH_HEADER_SILENT_LEVEL),
+            text_warn = fmt_config_val!(MISMATCH_TEXT_WARN_LEVEL),
+            text_silent = fmt_config_val!(MISMATCH_TEXT_SILENT_LEVEL),
+            error = fmt_config_val!(MISMATCH_ERROR_LEVEL),
         ));
 
     let allow_missing_required_offsets = tri_flag_arg::<tc::AllowMissingRequiredOffsets>(
         ta::ALLOW_MISSING_REQUIRED_OFFSETS,
         format!(
-            "Allow required offsets to be missing from {text_seg}. \
+            "Allow required offsets to be missing from {TEXT_SEG}. \
              Only applies to FCS 3.0/3.1."
         ),
     );
@@ -833,11 +727,11 @@ fn run() -> AppResult<()> {
         .value_name("INT_OR_FLAG")
         .value_parser(parse_int_width_override)
         .help(format!(
-            "Fix {pn_b}. Only has effect on integer layouts in FCS 2.0/3.0. \
+            "Fix {PN_B}. Only has effect on integer layouts in FCS 2.0/3.0. \
              Set to {} or {} to round up to next multiple of 8 or do nothing. \
-             Set to an integer 1-8 to override all {pn_b} explicitly.",
-            fmt_val(tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL),
-            fmt_val(tc::FIX_INT_WIDTH_NEVER_LEVEL)
+             Set to an integer 1-8 to override all {PN_B} explicitly.",
+            fmt_config_val!(FIX_INT_WIDTH_NEXT_BYTE_LEVEL),
+            fmt_config_val!(FIX_INT_WIDTH_NEVER_LEVEL)
         ));
 
     let int_byteord_override = Arg::new(ta::BYTEORD_OVERRIDE)
@@ -845,19 +739,19 @@ fn run() -> AppResult<()> {
         .value_name("BYTEORD")
         .value_parser(parse_byteord_override)
         .help(format!(
-            "Override the value of {byteord}. Set to {} or {} to do nothing \
-             or interpret {byteord} based on its endian-ness (ie without its \
+            "Override the value of {BYTEORD}. Set to {} or {} to do nothing \
+             or interpret {BYTEORD} based on its endian-ness (ie without its \
              length). Set to an explicit comma-separated integer sequence to \
-             set {byteord} directly.",
-            fmt_val(tc::BYTEORD_OVERRIDE_NONE_LEVEL),
-            fmt_val(tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL)
+             set {BYTEORD} directly.",
+            fmt_config_val!(BYTEORD_OVERRIDE_NONE_LEVEL),
+            fmt_config_val!(BYTEORD_OVERRIDE_ENDIAN_LEVEL)
         ));
 
     let disallow_range_truncation = tri_flag_arg::<tc::DisallowRangeTrunc>(
         ta::DISALLOW_RANGE_TRUNCATION,
         format!(
-            "Disallow {pn_r} values which need to be truncated to fit in type \
-             dictated by {datatype} (and {pndatatype} for FCS 3.2) and {pn_b} \
+            "Disallow {PN_R} values which need to be truncated to fit in type \
+             dictated by {DATATYPE} (and {PNDATATYPE} for FCS 3.2) and {PN_B} \
              for a given measurement."
         ),
     );
@@ -882,18 +776,18 @@ fn run() -> AppResult<()> {
         .value_name("LIMIT")
         .value_parser(value_parser!(tc::DataRemainderLimit))
         .help(format!(
-            "Limit by which ending {data_seg} offset can be truncated if \
+            "Limit by which ending {DATA_SEG} offset can be truncated if \
              its length modulo event width produces a remainder."
         ));
 
     let allow_uneven_event_width = tri_flag_arg::<tc::AllowUnevenEventWidth>(
         ta::ALLOW_UNEVEN_EVENT_WIDTH,
-        format!("Allow event width to not evenly divide length of {data_seg}."),
+        format!("Allow event width to not evenly divide length of {DATA_SEG}."),
     );
 
     let allow_tot_mismatch = tri_flag_arg::<tc::AllowTotMismatch>(
         ta::ALLOW_TOT_MISMATCH,
-        format!("Allow {tot} to mismatch the number of events that are actually in {data_seg}."),
+        format!("Allow {TOT} to mismatch the number of events that are actually in {DATA_SEG}."),
     );
 
     let over_bitmask_action = Arg::new(ta::OVER_BITMASK_ACTION)
@@ -901,15 +795,15 @@ fn run() -> AppResult<()> {
         .value_name("WHICH")
         .value_parser(value_parser!(tc::OverBitmaskAction))
         .help(format!(
-            "Choose how to handle integer values in {data_seg} to exceed bitmask. \
+            "Choose how to handle integer values in {DATA_SEG} to exceed bitmask. \
              Pass {error} to emit error, {warn} to emit warning, {silent} to do \
              nothing, {trunc_warn} to truncate and emit warning, and \
              {trunc_silent} to truncate with no warning.",
-            error = fmt_val(tc::OVER_LIMIT_ACTION_ERROR_LEVEL),
-            warn = fmt_val(tc::OVER_LIMIT_ACTION_WARN_LEVEL),
-            silent = fmt_val(tc::OVER_LIMIT_ACTION_SILENT_LEVEL),
-            trunc_warn = fmt_val(tc::OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL),
-            trunc_silent = fmt_val(tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL),
+            error = fmt_config_val!(OVER_LIMIT_ACTION_ERROR_LEVEL),
+            warn = fmt_config_val!(OVER_LIMIT_ACTION_WARN_LEVEL),
+            silent = fmt_config_val!(OVER_LIMIT_ACTION_SILENT_LEVEL),
+            trunc_warn = fmt_config_val!(OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL),
+            trunc_silent = fmt_config_val!(OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL),
         ));
 
     let over_range_action = Arg::new(ta::OVER_RANGE_ACTION)
@@ -917,15 +811,15 @@ fn run() -> AppResult<()> {
         .value_name("ACTION")
         .value_parser(value_parser!(tc::OverLimitAction))
         .help(format!(
-            "Choose how to handle values in {data_seg} to exceed {pn_r}. Pass \
+            "Choose how to handle values in {DATA_SEG} to exceed {PN_R}. Pass \
              {error} to emit error, {warn} to emit warning, {silent} to do \
              nothing, {trunc_warn} to truncate and emit warning, and \
              {trunc_silent} to truncate with no warning.",
-            error = fmt_val(tc::OVER_LIMIT_ACTION_ERROR_LEVEL),
-            warn = fmt_val(tc::OVER_LIMIT_ACTION_WARN_LEVEL),
-            silent = fmt_val(tc::OVER_LIMIT_ACTION_SILENT_LEVEL),
-            trunc_warn = fmt_val(tc::OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL),
-            trunc_silent = fmt_val(tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL),
+            error = fmt_config_val!(OVER_LIMIT_ACTION_ERROR_LEVEL),
+            warn = fmt_config_val!(OVER_LIMIT_ACTION_WARN_LEVEL),
+            silent = fmt_config_val!(OVER_LIMIT_ACTION_SILENT_LEVEL),
+            trunc_warn = fmt_config_val!(OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL),
+            trunc_silent = fmt_config_val!(OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL),
         ));
 
     let allow_missing_crc = tri_flag_arg::<tc::AllowMissingCRC>(
@@ -956,11 +850,11 @@ fn run() -> AppResult<()> {
         .value_name("BYTES")
         .value_parser(value_parser!(tc::RowBufferSize))
         .help(format!(
-            "Set the size in bytes for the internal buffer used to read {data_seg}. \
+            "Set the size in bytes for the internal buffer used to read {DATA_SEG}. \
              This is a performance parameter that balances read syscalls (too low) \
              and cache misses (too high). It should generally be 90% of the CPU's \
              L1D cache size. Defaults to {}.",
-            fmt_val(tc::RowBufferSize::default())
+            fmt_val!(tc::DEFAULT_ROW_BUFFER_SIZE)
         ));
 
     let all_read_dataset_args = [
@@ -993,13 +887,13 @@ fn run() -> AppResult<()> {
         .value_name("CHAR")
         .value_parser(value_parser!(TEXTDelim))
         .help(format!(
-            "The delimiter to use when writing {text_seg} to file. \
+            "The delimiter to use when writing {TEXT_SEG} to file. \
              Must be an ASCII character 1-31. Defaults to 30 (record separator)."
         ));
 
     let big_other = flag_arg(
         BIG_OTHER,
-        format!("If set, use 20 for {other_seg} offset width, otherwise 8."),
+        format!("If set, use 20 for {OTHER_SEG} offset width, otherwise 8."),
     );
 
     let all_write_args = [write_delim, big_other];
@@ -1038,7 +932,7 @@ fn run() -> AppResult<()> {
         .action(ArgAction::SetTrue)
         .help(format!(
             "If given, scan for the next dataset by looking for version \
-             tags rather then relying on {nextdata}"
+             tags rather then relying on {NEXTDATA}"
         ));
 
     let input_arg = Arg::new(INPUT_PATH)
@@ -1069,9 +963,9 @@ fn run() -> AppResult<()> {
              Set to {sledge} to parse non-compliant files while dropping \
              non-compliant metadata that cannot be fixed. Set to {strict} to \
              enforce the standard (default).",
-            scalpel = fmt_val(tc::READ_STRATEGY_SCALPEL_LEVEL),
-            sledge = fmt_val(tc::READ_STRATEGY_SLEDGEHAMMER_LEVEL),
-            strict = fmt_val(tc::READ_STRATEGY_STRICT_LEVEL),
+            scalpel = fmt_config_val!(READ_STRATEGY_SCALPEL_LEVEL),
+            sledge = fmt_config_val!(READ_STRATEGY_SLEDGEHAMMER_LEVEL),
+            strict = fmt_config_val!(READ_STRATEGY_STRICT_LEVEL),
         ));
 
     let vendor_heuristics_arg = Arg::new(VENDOR_HEURISTICS)
@@ -1163,7 +1057,7 @@ fn run() -> AppResult<()> {
         .after_long_help(&std_long_help);
 
     let data_cmd = Command::new(SUBCMD_DATA)
-        .about(format!("Show a table of the {data_seg} segment."))
+        .about(format!("Show a table of the {DATA_SEG} segment."))
         .arg(&input_arg)
         .arg(&strategy_arg)
         .arg(&vendor_heuristics_arg)
@@ -1449,7 +1343,7 @@ where
         .value_parser(ValueParser::new(parse_opt_nonstr::<T>))
         .help(format!(
             "{help} Set to {none} to supply no value.",
-            none = fmt_val("none")
+            none = fmt_val!("none")
         ))
 }
 
@@ -1474,11 +1368,11 @@ fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {
          {drop_warn}, or {drop_silent} which will throw an error, demote to \
          non-standard with warning, demote to non-standard silently, drop with \
          warning, or drop silently respectively",
-        error = fmt_val(tc::KW_ERROR_LEVEL),
-        demote_warn = fmt_val(tc::KW_DEMOTE_WARN_LEVEL),
-        demote_silent = fmt_val(tc::KW_DEMOTE_SILENT_LEVEL),
-        drop_warn = fmt_val(tc::KW_DROP_WARN_LEVEL),
-        drop_silent = fmt_val(tc::KW_DROP_SILENT_LEVEL)
+        error = fmt_config_val!(KW_ERROR_LEVEL),
+        demote_warn = fmt_config_val!(KW_DEMOTE_WARN_LEVEL),
+        demote_silent = fmt_config_val!(KW_DEMOTE_SILENT_LEVEL),
+        drop_warn = fmt_config_val!(KW_DROP_WARN_LEVEL),
+        drop_silent = fmt_config_val!(KW_DROP_SILENT_LEVEL)
     ))
 }
 
@@ -1495,27 +1389,15 @@ where
     let h = format!(
         "{help_front} If {true_}, throw {what_true}. If {false_}, throw \
          {what_false}. If {silent}, ignore completely.",
-        false_ = fmt_val(tc::TRI_FALSE_LEVEL),
-        true_ = fmt_val(tc::TRI_TRUE_LEVEL),
-        silent = fmt_val(tc::TRI_SILENT_LEVEL),
+        false_ = fmt_config_val!(TRI_FALSE_LEVEL),
+        true_ = fmt_config_val!(TRI_TRUE_LEVEL),
+        silent = fmt_config_val!(TRI_SILENT_LEVEL),
     );
     Arg::new(long)
         .long(long)
         .value_name("LEVEL")
         .value_parser(parser)
         .help(h)
-}
-
-fn format_section(
-    header: &'_ str,
-    paragraphs: impl IntoIterator<Item = impl Display>,
-) -> (ANSIString<'_>, String) {
-    let header_style = Style::new().bold();
-    let h = header_style.paint(header);
-    let s = once(format!("{h}:"))
-        .chain(paragraphs.into_iter().map(|s| s.to_string()))
-        .join("\n\n    ");
-    (h, s)
 }
 
 fn get_header_config(sargs: &ArgMatches) -> cfg::ReadHeaderConfig {
@@ -2195,10 +2077,6 @@ fn post_validation_error(cmd: &Command, arg_name: &str, msg: impl Display) -> cl
     .with_cmd(cmd)
 }
 
-fn fmt_val(val: impl Display) -> String {
-    format!("'{val}'")
-}
-
 type AppResult<T> = Result<T, Box<dyn Error>>;
 
 type StrResult<T> = Result<T, String>;
@@ -2258,3 +2136,158 @@ const REGEXP_REP_REF: &str = "https://docs.rs/regex/latest/regex/struct.Regex.ht
 // misc
 
 const OFFSET_DELIM: char = '/';
+
+// formatted segments
+
+macro_rules! fmt_seg {
+    ($s:expr) => {
+        formatcp!("{ITALIC}{}{RESET}", $s)
+    };
+}
+
+const HEADER_SEG: &str = fmt_seg!("HEADER");
+const TEXT_SEG: &str = fmt_seg!("TEXT");
+const PRIM_TEXT_SEG: &str = fmt_seg!("primary TEXT");
+const SUPP_TEXT_SEG: &str = fmt_seg!("supplemental TEXT");
+const DATA_SEG: &str = fmt_seg!("DATA");
+const ANALYSIS_SEG: &str = fmt_seg!("ANALYSIS");
+const OTHER_SEG: &str = fmt_seg!("OTHER");
+
+// formatted keywords
+
+macro_rules! fmt_kw {
+    ($s:expr) => {
+        formatcp!("{ITALIC}{}{RESET}", $s)
+    };
+}
+
+const PAR: &str = fmt_kw!(sk::PAR.as_str());
+const TOT: &str = fmt_kw!(sk::TOT.as_str());
+const BYTEORD: &str = fmt_kw!(sk::BYTEORD.as_str());
+const DATATYPE: &str = fmt_kw!(sk::DATATYPE.as_str());
+const TIMESTEP: &str = fmt_kw!(sk::TIMESTEP.as_str());
+const DATE: &str = fmt_kw!(sk::DATE.as_str());
+const BTIM: &str = fmt_kw!(sk::BTIM.as_str());
+const ETIM: &str = fmt_kw!(sk::ETIM.as_str());
+const LAST_MODIFIED: &str = fmt_kw!(sk::LAST_MODIFIED.as_str());
+const BEGINDATETIME: &str = fmt_kw!(sk::BEGINDATETIME.as_str());
+const ENDDATETIME: &str = fmt_kw!(sk::ENDDATETIME.as_str());
+const NEXTDATA: &str = fmt_kw!(sk::NEXTDATA.as_str());
+const SPILLOVER: &str = fmt_kw!(sk::SPILLOVER.as_str());
+const PNFEATURE: &str = fmt_kw!(sk::PNFEATURE.as_str());
+const PN_B: &str = fmt_kw!(sk::PNB.as_str());
+const PN_R: &str = fmt_kw!(sk::PNR.as_str());
+const PN_N: &str = fmt_kw!(sk::PNN.as_str());
+const PN_E: &str = fmt_kw!(sk::PNE.as_str());
+const PNDATATYPE: &str = fmt_kw!(sk::PNDATATYPE.as_str());
+const PN_ANY: &str = fmt_kw!("$PnX");
+
+// formatted subsections
+
+macro_rules! fmt_section {
+    ($header:expr, $($para:expr),*) => {{
+        const HEADER: &str = formatcp!("{BOLD}{}{RESET}", $header);
+        let p = concatcp!(HEADER, $("\n\n    ", $para),*);
+        Section { header: HEADER, paragraphs: p}
+    }};
+}
+
+struct Section {
+    header: &'static str,
+    paragraphs: &'static str,
+}
+
+const DELIM_SECTION: Section = fmt_section!(
+    "DELIMITER ESCAPING",
+    "The standard allows delimiters to be included in keys or values (tokens) if \
+     they are \"escaped\" with another delimiter. This also implies that \
+     delimiters can never start or end a token since it is impossible to \
+     unambiguously assign such escaped delimiters to either side of the real \
+     delimiter. This also means empty tokens are not allowed.",
+    "In reality, many files use delimiters as if they are not supposed \
+     to be escaped.",
+    formatcp!(
+        "If {esc} or {unesc}, escape or do not escape delimiters respectively.",
+        esc = fmt_config_val!(DELIM_ESCAPED_LEVEL),
+        unesc = fmt_config_val!(DELIM_UNESCAPED_LEVEL),
+    ),
+    formatcp!(
+        "If {esc} or {unesc} attempt to guess how delimiters should be treated, \
+         falling back to escaped or unescaped mode respectively if the choice is \
+         ambiguous. The determination will be made by first scanning {TEXT_SEG} \
+         to find all delimiter positions and choosing the mode which results in \
+         an even number of tokens with no delimiters in keys (escaped mode) and \
+         no blank keys (unescaped mode).",
+        esc = fmt_config_val!(DELIM_ESCAPED_LEVEL),
+        unesc = fmt_config_val!(DELIM_UNESCAPED_LEVEL),
+    ),
+    formatcp!(
+        "Using the guessing algorithm has a significant performance penalty \
+         since {TEXT_SEG} needs to be parsed twice. Furthermore, this \
+         algorithm is heuristic and not guaranteed to succeed. An uneven \
+         number of tokens implies that {TEXT_SEG} is malformed which will \
+         likely be the case assuming that the ending offset for {TEXT_SEG} \
+         will be too high (if at all) therefore all delimiters should be in \
+         the {TEXT_SEG} segment and can be counted. Keys likely will not have \
+         escaped delimiters in them. Keys should almost never be blank in \
+         unescaped mode since '\"\"' is almost never a sensible key value."
+    ),
+    formatcp!(
+        "The guessing algorithm is independent of {odd} and {final_} which will \
+         trigger as normal if their respective violations are found.",
+        odd = fmt_arg!(ta::ALLOW_ODD_TOKENS),
+        final_ = fmt_arg!(ta::ALLOW_EVEN_DELIMS),
+    )
+);
+
+const SUB_SECTION: Section = fmt_section!(
+    "SUBSTITUTION",
+    formatcp!(
+        "The SUB part in {pat} is a sed-like pattern which will be used to edit \
+         the value of KEY. It must be a string like 's<D><FROM><D><TO>[<D>g]' \
+         where 'D' is a delimiter (any character), FROM is a regular expression \
+         and TO is a replacement pattern. FROM and TO must follow the syntax \
+         outlined in {REGEXP_REF} and {REGEXP_REP_REF} respectively, with the \
+         caveat that only bracketed replacement syntax is allowed.",
+        pat = fmt_arg!(ta::SUB_STD_KEY_VALS),
+    )
+);
+
+const DATE_SECTION: Section = fmt_section!(
+    "DATE PATTERN",
+    formatcp!(
+        "The value for {pat} will be used as an alternative pattern when parsing \
+         {DATE}. It should have specifiers for year, month, and day as outlined \
+         in {CHRONO_REF}. If not supplied, {DATE} will be parsed according to \
+         the standard pattern which is {fmt}.",
+        pat = fmt_arg!(ta::DATE_PATTERN),
+        fmt = fmt_val!(tc::DEFAULT_DATE_FORMAT),
+    )
+);
+
+const TIME_SECTION: Section = fmt_section!(
+    "TIME PATTERN",
+    formatcp!(
+        "If supplied, will be used as an alternative pattern when parsing {BTIM} \
+         and {ETIM} It should have specifiers for hours, minutes, and seconds as \
+         outlined in {CHRONO_REF}. It may optionally also have a sub-seconds \
+         specifier as shown in the same link. Furthermore, the specifiers \
+         {base60} and {base100} may be used to match 1/60 and centiseconds \
+         respectively. If not supplied, {BTIM} and {ETIM} will be parsed \
+         according to the standard pattern which is {fmt2_0} for 2.0, {fmt3_0} \
+         for 3.0, and {fmt3_1} for 3.1 and up.",
+        base60 = fmt_val!(tc::BASE60_SECOND_SPEC),
+        base100 = fmt_val!(tc::BASE100_SECOND_SPEC),
+        fmt2_0 = fmt_val!(tc::DEFAULT_TIME_FORMAT_2_0),
+        fmt3_0 = fmt_val!(tc::DEFAULT_TIME_FORMAT_3_0),
+        fmt3_1 = fmt_val!(tc::DEFAULT_TIME_FORMAT_3_1)
+    )
+);
+
+// formatting primitives
+
+pub static BOLD: &str = "\x1B[1m";
+
+pub static ITALIC: &str = "\x1B[3m";
+
+pub static RESET: &str = "\x1B[0m";

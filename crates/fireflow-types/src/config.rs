@@ -1057,7 +1057,7 @@ impl TriErrorFlag for DummyTriFlag {
 #[cfg_attr(feature = "python", derive(FromPyString))]
 #[cfg_attr(feature = "python", derive(IntoPyString))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "serde", serde(into = "&'static str"))]
+#[cfg_attr(feature = "serde", serde(into = "&'static NEStr"))]
 pub enum VersionOverride {
     /// Force the version to one chosen by the user.
     Force(Version),
@@ -1092,29 +1092,33 @@ impl FromStr for VersionOverride {
         if let Ok(ret) = s.parse::<Version>() {
             Ok(Self::Force(ret))
         } else {
-            let (t, p) = match s {
-                VERSION_LATEST_LEVEL => (SelectVersionStrategy::Latest, false),
-                VERSION_EARLIEST_LEVEL => (SelectVersionStrategy::Earliest, false),
-                VERSION_LOOSE_LEVEL => (SelectVersionStrategy::Loose, false),
-                VERSION_STRICT_LEVEL => (SelectVersionStrategy::Strict, false),
-                VERSION_CURRENT_OR_LATEST_LEVEL => (SelectVersionStrategy::Latest, true),
-                VERSION_CURRENT_OR_EARLIEST_LEVEL => (SelectVersionStrategy::Earliest, true),
-                VERSION_CURRENT_OR_LOOSE_LEVEL => (SelectVersionStrategy::Loose, true),
-                VERSION_CURRENT_OR_STRICT_LEVEL => (SelectVersionStrategy::Strict, true),
-                _ => return Err(VersionOverrideError),
-            };
-            Ok(Self::AutoDetect {
-                strategy: t,
-                prioritize_current: p,
-            })
+            macro_rules! go {
+                ($s:expr, $strat:ident, $cur:expr) => {
+                    if $s == s {
+                        return Ok(Self::AutoDetect {
+                            strategy: SelectVersionStrategy::$strat,
+                            prioritize_current: $cur,
+                        });
+                    }
+                };
+            }
+            go!(VERSION_LATEST_LEVEL, Latest, false);
+            go!(VERSION_EARLIEST_LEVEL, Earliest, false);
+            go!(VERSION_LOOSE_LEVEL, Loose, false);
+            go!(VERSION_STRICT_LEVEL, Strict, false);
+            go!(VERSION_CURRENT_OR_LATEST_LEVEL, Latest, true);
+            go!(VERSION_CURRENT_OR_EARLIEST_LEVEL, Earliest, true);
+            go!(VERSION_CURRENT_OR_LOOSE_LEVEL, Loose, true);
+            go!(VERSION_CURRENT_OR_STRICT_LEVEL, Strict, true);
+            Err(VersionOverrideError)
         }
     }
 }
 
-impl From<VersionOverride> for &'static str {
+impl From<VersionOverride> for &'static NEStr {
     fn from(value: VersionOverride) -> Self {
         match value {
-            VersionOverride::Force(x) => x.as_str(),
+            VersionOverride::Force(x) => x.as_ne_str(),
             VersionOverride::AutoDetect {
                 strategy,
                 prioritize_current,
@@ -1134,8 +1138,8 @@ impl From<VersionOverride> for &'static str {
 
 impl fmt::Display for VersionOverride {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s: &'static str = (*self).into();
-        f.write_str(s)
+        let s: &'static NEStr = (*self).into();
+        f.write_str(s.as_str())
     }
 }
 
@@ -1181,7 +1185,7 @@ pub struct SelectVersionStrategyError;
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct VersionOverrideError;
 
-pub const VERSION_STRATEGY_ALL_LEVELS: [&str; 8] = [
+pub const VERSION_STRATEGY_ALL_LEVELS: [&NEStr; 8] = [
     VERSION_LATEST_LEVEL,
     VERSION_EARLIEST_LEVEL,
     VERSION_STRICT_LEVEL,
@@ -1192,14 +1196,14 @@ pub const VERSION_STRATEGY_ALL_LEVELS: [&str; 8] = [
     VERSION_CURRENT_OR_STRICT_LEVEL,
 ];
 
-pub const VERSION_LATEST_LEVEL: &str = "latest";
-pub const VERSION_EARLIEST_LEVEL: &str = "earliest";
-pub const VERSION_LOOSE_LEVEL: &str = "loose";
-pub const VERSION_STRICT_LEVEL: &str = "strict";
-pub const VERSION_CURRENT_OR_LATEST_LEVEL: &str = "current_or_latest";
-pub const VERSION_CURRENT_OR_EARLIEST_LEVEL: &str = "current_or_earliest";
-pub const VERSION_CURRENT_OR_LOOSE_LEVEL: &str = "current_or_loose";
-pub const VERSION_CURRENT_OR_STRICT_LEVEL: &str = "current_or_strict";
+pub const VERSION_LATEST_LEVEL: &NEStr = ne_str!("latest");
+pub const VERSION_EARLIEST_LEVEL: &NEStr = ne_str!("earliest");
+pub const VERSION_LOOSE_LEVEL: &NEStr = ne_str!("loose");
+pub const VERSION_STRICT_LEVEL: &NEStr = ne_str!("strict");
+pub const VERSION_CURRENT_OR_LATEST_LEVEL: &NEStr = ne_str!("current_or_latest");
+pub const VERSION_CURRENT_OR_EARLIEST_LEVEL: &NEStr = ne_str!("current_or_earliest");
+pub const VERSION_CURRENT_OR_LOOSE_LEVEL: &NEStr = ne_str!("current_or_loose");
+pub const VERSION_CURRENT_OR_STRICT_LEVEL: &NEStr = ne_str!("current_or_strict");
 
 /// Fix $PnB for 2.0/3.0 integer layouts.
 ///
@@ -1328,8 +1332,7 @@ pub struct RowBufferSize(usize);
 
 impl Default for RowBufferSize {
     fn default() -> Self {
-        // 90% of the most common L1D cache size which is 32k
-        Self(28_000)
+        Self(DEFAULT_ROW_BUFFER_SIZE)
     }
 }
 
@@ -1359,7 +1362,19 @@ impl TryFrom<usize> for RowBufferSize {
     }
 }
 
+impl RowBufferSize {
+    #[must_use]
+    pub const fn inner(&self) -> usize {
+        self.0
+    }
+}
+
 const MIN_ROW_BUFFER_SIZE: usize = 4096;
+
+/// The default size of the row buffer.
+///
+/// Chosen as 90% of the most common L1D cache size (which is 32k).
+pub const DEFAULT_ROW_BUFFER_SIZE: usize = 28000;
 
 /// A pattern to match the $PnN for the time measurement.
 ///

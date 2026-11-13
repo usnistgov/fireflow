@@ -39,7 +39,6 @@ serde = "1.0.228"
 serde_json = "1.0.149"
 
 # cli
-ansi_term = "0.12.1"
 clap = "4.6.1"
 itoa = "1.0.18"
 zmij = "1.0.21"

@@ -3,7 +3,7 @@ use fireflow_core::{
     config::{self as cfg},
     core::AnyCoreDataset,
     selector::{AppendableSelector, Selector},
-    text::keywords::{AlphaNumType, Timestep},
+    text::keywords::AlphaNumType,
     validated::read_state::DatasetOffset,
 };
 
@@ -15,6 +15,7 @@ use fireflow_types::keys::raw_std as sk;
 use fireflow_types::keys::{AnyKey, StdKey};
 use fireflow_types::keywords as tk;
 use fireflow_types::other_width::{OTHER_WIDTH_DEFAULT, OtherWidth};
+use fireflow_types::ranged_float::PositiveFloat;
 use fireflow_types::segment::OffsetsCorrection;
 use fireflow_types::std_pattern::PATTERN_DELIMITER;
 use fireflow_types::sub_pattern::SubPattern;
@@ -518,7 +519,7 @@ fn run() -> AppResult<()> {
         "Allow time measurement to be missing.",
     );
 
-    let add_missing_timestep = opt_arg_nonstr::<Timestep>(
+    let add_missing_timestep = opt_arg_nonstr::<PositiveFloat>(
         ta::ADD_MISSING_TIMESTEP,
         "TIMESTEP",
         format!("Add {timestep} if it is missing."),

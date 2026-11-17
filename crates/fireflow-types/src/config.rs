@@ -1224,6 +1224,29 @@ pub enum IntWidthOverride {
     NextByte,
 }
 
+/// Error when making new [`RowBufferSize`].
+#[derive(Error, Debug)]
+#[error(
+    "Integer width override must be '{FIX_INT_WIDTH_NEVER_LEVEL}', \
+     '{FIX_INT_WIDTH_NEXT_BYTE_LEVEL}', or an integer 1-8."
+)]
+pub struct ParseIntWidthOverride;
+
+impl FromStr for IntWidthOverride {
+    type Err = ParseIntWidthOverride;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if FIX_INT_WIDTH_NEVER_LEVEL == s {
+            Ok(Self::Never)
+        } else if FIX_INT_WIDTH_NEXT_BYTE_LEVEL == s {
+            Ok(Self::NextByte)
+        } else if let Ok(x) = s.parse::<NumericByteWidth>() {
+            Ok(Self::Explicit(x))
+        } else {
+            Err(ParseIntWidthOverride)
+        }
+    }
+}
+
 impl From<IntWidthOverride> for &'static str {
     fn from(value: IntWidthOverride) -> Self {
         match value {
@@ -1253,6 +1276,30 @@ pub enum ByteordOverride {
     ///
     /// This is option is ignored for mixed $BYTEORD.
     Endian,
+}
+
+/// Error when making new [`RowBufferSize`].
+#[derive(Error, Debug)]
+#[error(
+    "Byte order override must be '{BYTEORD_OVERRIDE_ENDIAN_LEVEL}', \
+     '{BYTEORD_OVERRIDE_NONE_LEVEL}', or a list of integers 1-N."
+)]
+pub struct ParseByteordOverrideError;
+
+impl FromStr for ByteordOverride {
+    type Err = ParseByteordOverrideError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if BYTEORD_OVERRIDE_ENDIAN_LEVEL == s {
+            Ok(ByteordOverride::Endian)
+        } else if BYTEORD_OVERRIDE_NONE_LEVEL == s {
+            Ok(ByteordOverride::None)
+        } else if let Ok(x) = s.parse::<ConfigByteOrd>() {
+            Ok(ByteordOverride::Explicit(x))
+        } else {
+            Err(ParseByteordOverrideError)
+        }
+    }
 }
 
 #[cfg(feature = "serde")]

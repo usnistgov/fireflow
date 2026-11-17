@@ -239,7 +239,7 @@ pub enum TextOffsetsName {
 
 /// Any segment source type from an FCS file.
 #[derive(Clone, Copy, Debug, Display, PartialEq)]
-pub(crate) enum AnySrc {
+pub enum AnySrc {
     #[display("HEADER")]
     Header,
     #[display("TEXT")]
@@ -248,7 +248,7 @@ pub(crate) enum AnySrc {
 
 /// Any segment region type from an FCS file.
 #[derive(Clone, Copy, Debug, Display, PartialEq)]
-pub(crate) enum AnyRegion {
+pub enum AnyRegion {
     #[display("ANALYSIS")]
     Analysis,
     #[display("DATA")]
@@ -1462,7 +1462,7 @@ impl KeyedOptSegmentWithDefault for AnalysisSegmentId {
 // Implement mapping between source marker type and valued enum
 
 /// Denotes that a type comes from a specific part of the FCS file
-pub(crate) trait HasSource {
+pub trait HasSource {
     const SRC: AnySrc;
 }
 
@@ -1477,7 +1477,7 @@ impl HasSource for OffsetsFromTEXT {
 // Implement mapping between region marker type and valued enum
 
 /// Denotes that a type pertains to a region of the FCS file
-pub(crate) trait HasRegion {
+pub trait HasRegion {
     const REGION: AnyRegion;
 }
 

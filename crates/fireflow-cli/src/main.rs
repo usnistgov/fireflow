@@ -9,22 +9,25 @@ use fireflow_core::{
 
 use fireflow_core::segment::read::{HasRegion, HasSource};
 
-use fireflow_types::keywords as tk;
 use fireflow_types::other_width::{OTHER_WIDTH_DEFAULT, OtherWidth};
 use fireflow_types::ranged_float::PositiveFloat;
 use fireflow_types::segment as ts;
 use fireflow_types::segment::OffsetsCorrection;
 use fireflow_types::std_pattern::PATTERN_DELIMITER;
+use fireflow_types::std_pattern::StdKeyOrPattern;
 use fireflow_types::sub_pattern::SubPattern;
 use fireflow_types::textdelim::TEXTDelim;
 use fireflow_types::timepattern::TimePattern;
 use fireflow_types::{args::dash as ta, config::OpticalOnlyKeys};
-use fireflow_types::{byteord::ConfigByteOrd, std_pattern::StdKeyOrPattern};
+use fireflow_types::{config::TriFlag, keywords as tk};
 use fireflow_types::{
     config::{
-        self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, NumericByteWidth,
-        ParseOpticalOnlyKeysError,
+        self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, ParseOpticalOnlyKeysError,
     },
+    segment::{HeaderCorrection, OtherSegmentId},
+};
+use fireflow_types::{
+    config::{PartialTriErrorFlagError, TriErrorFlag},
     keystring_pairs::KeyPairs,
 };
 use fireflow_types::{datepattern::DatePattern, std_pattern::SubPatterns};
@@ -35,10 +38,7 @@ use fireflow_types::{
 };
 use nonempty::NEString;
 
-use clap::builder::{IntoResettable, StyledStr, ValueParser};
-use clap::error::ErrorKind;
-use clap::value_parser;
-use clap::{Arg, ArgAction, ArgMatches, Args, Command, Parser};
+use clap::{ArgAction, Args, Parser};
 use const_format::{concatcp, formatcp};
 use hashbrown::HashMap;
 use itertools::Itertools as _;
@@ -407,7 +407,6 @@ struct ReadHeaderArgs_ {
 
     #[arg(long = ta::OTHER_CORRS)]
     #[arg(name = formatcp!("BEGIN,END[{OFFSET_DELIM}..]"))]
-    #[arg(value_parser = parse_offsets)]
     #[arg(help = format!(
         "Correction for {OTHER_SEG} offsets. \
          Pairs are separated by a comma. \
@@ -415,7 +414,7 @@ struct ReadHeaderArgs_ {
          An empty string represents an empty list.",
         delim = fmt_val!(OFFSET_DELIM)
     ))]
-    other_correction: Option<Vec<(i32, i32)>>,
+    other_correction: Option<CliOtherOffsetCorrections>,
 
     #[command(flatten)]
     max_other: MaxOtherArg,
@@ -461,76 +460,6 @@ struct ReadOffsetArgs_ {
     #[arg(help = "Limit by which ending segment offset can be \
                   truncated if they overlap another offset.")]
     overlap_correction_limit: Option<tc::OverlapCorrectionLimit>,
-}
-
-#[derive(Clone)]
-struct CliOpticalOnlyKeys(OpticalOnlyKeys);
-
-impl FromStr for CliOpticalOnlyKeys {
-    type Err = ParseOpticalOnlyKeysError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.is_empty() {
-            Ok(Self(OpticalOnlyKeys::default()))
-        } else {
-            OpticalOnlyKeys::try_from_iter(s.split(',')).map(Self)
-        }
-    }
-}
-
-/// An optional non-empty string where empty string on CLI maps to "none".
-#[derive(Clone, Copy)]
-struct NENullable<T>(Option<T>);
-
-impl<T: FromStr> FromStr for NENullable<T> {
-    type Err = T::Err;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let ret = if s.is_empty() {
-            None
-        } else {
-            Some(s.parse::<T>()?)
-        };
-        Ok(Self(ret))
-    }
-}
-
-#[derive(Clone, Copy)]
-struct Nullable<T>(Option<T>);
-
-impl<T: FromStr> FromStr for Nullable<T> {
-    type Err = T::Err;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let ret = if s == "none" {
-            None
-        } else {
-            Some(s.parse::<T>()?)
-        };
-        Ok(Self(ret))
-    }
-}
-
-#[derive(Clone, Copy)]
-struct StrOffsetsCorrection<I, S>(OffsetsCorrection<I, S>);
-
-impl<I, S> FromStr for StrOffsetsCorrection<I, S>
-where
-    (i32, i32): Into<OffsetsCorrection<I, S>>,
-{
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let xs = s.split(',').collect::<Vec<_>>();
-        match &xs[..] {
-            [a, b] => {
-                let aa = a.parse::<i32>().map_err(|e| e.to_string())?;
-                let bb = b.parse::<i32>().map_err(|e| e.to_string())?;
-                Ok(Self((aa, bb).into()))
-            }
-            _ => Err("offsets must be a pair of integers like 'X,Y'".into()),
-        }
-    }
 }
 
 #[derive(Args)]
@@ -1352,9 +1281,8 @@ macro_rules! tri_flag_arg {
             #[arg(id = $long)]
             #[arg(long = $long)]
             #[arg(value_name = "LEVEL")]
-            #[arg(value_parser = ValueParser::new(<$inner as tc::TriErrorFlag>::from_partial_str))]
             #[arg(help = tri_flag_help::<$inner>($help))]
-            inner: Option<$inner>,
+            inner: Option<CliTriFlag<$inner>>,
         }
     };
 }
@@ -1610,7 +1538,6 @@ fn run() -> AppResult<()> {
         Cli::Version => {
             let vi = api::build_info();
             to_writer(stdout, &vi)?;
-            Ok(())
         }
 
         Cli::Header(sargs) => {
@@ -1620,7 +1547,6 @@ fn run() -> AppResult<()> {
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             to_writer(stdout, &res?)?;
-            Ok(())
         }
 
         Cli::Flat(sargs) => {
@@ -1632,7 +1558,6 @@ fn run() -> AppResult<()> {
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             to_writer(stdout, &res?.first())?;
-            Ok(())
         }
 
         Cli::Std(sargs) => {
@@ -1649,8 +1574,8 @@ fn run() -> AppResult<()> {
             } else {
                 to_writer(stdout, &Value::Null)?;
             }
-            Ok(())
         }
+
         Cli::Meas(sargs) => {
             let conf = get_read_tabular_config(&sargs);
             let delim = sargs.delim.inner.unwrap_or_default();
@@ -1665,7 +1590,6 @@ fn run() -> AppResult<()> {
             } else {
                 to_writer(stdout, &Value::Null)?;
             }
-            Ok(())
         }
 
         Cli::Spill(sargs) => {
@@ -1682,7 +1606,6 @@ fn run() -> AppResult<()> {
             } else {
                 to_writer(stdout, &Value::Null)?;
             }
-            Ok(())
         }
 
         Cli::Data(sargs) => {
@@ -1700,7 +1623,6 @@ fn run() -> AppResult<()> {
             } else {
                 to_writer(stdout, &Value::Null)?;
             }
-            Ok(())
         }
 
         Cli::Summarize(sargs) => {
@@ -1714,7 +1636,6 @@ fn run() -> AppResult<()> {
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             to_writer(stdout, &res?)?;
-            Ok(())
         }
 
         Cli::Repair(sargs) => {
@@ -1738,7 +1659,6 @@ fn run() -> AppResult<()> {
             print_warnings(write_ws, &mut stderr)?;
             let _ = write_res?;
             to_writer(stdout, &outs[..])?;
-            Ok(())
         }
 
         Cli::Scan(sargs) => {
@@ -1755,1307 +1675,15 @@ fn run() -> AppResult<()> {
                 .map(|(version, offset)| Bounds { version, offset })
                 .collect();
             to_writer(stdout, &arr)?;
-            Ok(())
         }
 
         Cli::Strategies(sargs) => {
             let strat = sargs.inner.unwrap_or_default();
             let conf = cfg::ReadStdDatasetConfig::new_with_strategy(strat);
             to_writer(stdout, &conf)?;
-            Ok(())
         }
     }
-}
-
-#[allow(clippy::too_many_lines)]
-fn run0() -> AppResult<()> {
-    let mut stdout = io::BufWriter::new(io::stdout().lock());
-    let mut stderr = io::BufWriter::new(io::stderr().lock());
-
-    let correction_arg = |long: &'static str, in_header: bool, seg: &'static str| {
-        let src = if in_header { &HEADER_SEG } else { &TEXT_SEG };
-        let h = format!("Correction for {seg} offsets from {src}.");
-        Arg::new(long)
-            .long(long)
-            .value_name("BEGIN,END")
-            .help(h)
-            .value_parser(ValueParser::new(parse_offset_pair))
-    };
-
-    // header args
-
-    let text_correction = correction_arg(ta::TEXT_CORR, true, TEXT_SEG);
-    let data_correction = correction_arg(ta::DATA_CORR, true, DATA_SEG);
-    let analysis_correction = correction_arg(ta::ANALYSIS_CORR, true, ANALYSIS_SEG);
-
-    let other_correction = Arg::new(ta::OTHER_CORRS)
-        .long(ta::OTHER_CORRS)
-        .value_name(formatcp!("BEGIN,END[{OFFSET_DELIM}..]"))
-        .value_parser(ValueParser::new(parse_offsets))
-        .help(format!(
-            "Correction for {OTHER_SEG} offsets. \
-             Pairs are separated by a comma. \
-             Multiple pairs are separated by a {delim}. \
-             An empty string represents an empty list.",
-            delim = fmt_val!(OFFSET_DELIM),
-        ));
-
-    let max_other = opt_arg_nonstr::<usize>(
-        ta::MAX_OTHER,
-        "BYTES",
-        format!("Max number of {OTHER_SEG} segments to parse."),
-    );
-
-    let other_width = Arg::new(ta::OTHER_WIDTH)
-        .long(ta::OTHER_WIDTH)
-        .value_name("WIDTH")
-        .value_parser(value_parser!(OtherWidth))
-        .help(format!(
-            "Width of {OTHER_SEG} segments. Defaults to {OTHER_WIDTH_DEFAULT}"
-        ));
-
-    let guess_other_width = Arg::new(ta::GUESS_OTHER_WIDTH)
-        .long(ta::GUESS_OTHER_WIDTH)
-        .value_name("LEVEL")
-        .value_parser(value_parser!(tc::GuessOtherWidth))
-        .help(format!(
-            "Guess the width of {OTHER_SEG} segments. Valid values are {none} \
-             (no guessing) or {error}, {warn} or {silent} which will guess and \
-             throw an error, warning, or nothing on failure. For {warn} and \
-             {silent}, failure will fall back to 8 or whatever was given in {arg}.",
-            none = fmt_config_val!(OTHER_WIDTH_NONE_LEVEL),
-            error = fmt_config_val!(OTHER_WIDTH_ERROR_LEVEL),
-            warn = fmt_config_val!(OTHER_WIDTH_WARN_LEVEL),
-            silent = fmt_config_val!(OTHER_WIDTH_SILENT_LEVEL),
-            arg = fmt_arg!(ta::OTHER_WIDTH),
-        ));
-
-    let squish_offsets = override_flag_arg(
-        ta::SQUISH_OFFSETS,
-        format!(
-            "If {DATA_SEG}/{ANALYSIS_SEG} end in 0, use 0 for start as well. \
-             Should not be used for FCS 2.0 files."
-        ),
-    );
-
-    let all_read_header_args = [
-        text_correction,
-        data_correction,
-        analysis_correction,
-        other_correction,
-        max_other,
-        other_width,
-        guess_other_width,
-        squish_offsets,
-    ];
-
-    // offset args
-
-    let allow_pseudoempty = override_flag_arg(
-        ta::ALLOW_PSEUDOEMPTY,
-        "Treat offsets like '0,-1' or '1000,999' as '0,0'.",
-    );
-
-    let truncate_offset_limit = Arg::new(ta::DATASET_OVERFLOW_LIMIT)
-        .long(ta::DATASET_OVERFLOW_LIMIT)
-        .value_name("LIMIT")
-        .value_parser(value_parser!(tc::DatasetOverflowLimit))
-        .help("Limit by which offsets can be truncated if they exceed end of file.");
-
-    let overlap_correction_limit = Arg::new(ta::OVERLAP_CORRECTION_LIMIT)
-        .long(ta::OVERLAP_CORRECTION_LIMIT)
-        .value_name("LIMIT")
-        .value_parser(value_parser!(tc::OverlapCorrectionLimit))
-        .help(
-            "Limit by which ending segment offset can be truncated if they overlap another offset.",
-        );
-
-    let all_read_offset_args = [
-        allow_pseudoempty,
-        truncate_offset_limit,
-        overlap_correction_limit,
-    ];
-
-    // "flat" args
-
-    let version_override = opt_arg_nonstr::<tc::VersionOverride>(
-        ta::VERSION_OVERRIDE,
-        "OVERRIDE",
-        format!(
-            "Override the FCS version from {HEADER_SEG}. Can be an FCS version \
-             string (like 'FCS3.2') which will force to a fixed version. Can \
-             also autodetect version with one of {latest} or {earliest} (the \
-             latest or earliest available version respectively) or {loose} or \
-             {strict} (the available version with the most or least optional \
-             keywords respectively). Append \"current_or\" to any of these \
-             to prioritize the current version before ranking others.",
-            latest = fmt_config_val!(VERSION_LATEST_LEVEL),
-            earliest = fmt_config_val!(VERSION_EARLIEST_LEVEL),
-            loose = fmt_config_val!(VERSION_LOOSE_LEVEL),
-            strict = fmt_config_val!(VERSION_STRICT_LEVEL),
-        ),
-    );
-
-    let supp_text_correction = correction_arg(ta::SUPP_TEXT_COR, false, SUPP_TEXT_SEG);
-
-    let nextdata_correction = Arg::new(ta::NEXTDATA_COR)
-        .long(ta::NEXTDATA_COR)
-        .value_name("INT")
-        .value_parser(value_parser!(i32))
-        .help(format!("Correction for {NEXTDATA}"));
-
-    let allow_overlapping_supp_text = tri_flag_arg::<tc::AllowDuplicatedSuppTEXT>(
-        ta::ALLOW_DUPLICATED_SUPP_TEXT,
-        format!(
-            "Allow {SUPP_TEXT_SEG} offsets to overlap those for \
-             {PRIM_TEXT_SEG} or the boundaries of {HEADER_SEG}."
-        ),
-    );
-
-    let process_supp_text = Arg::new(ta::PROCESS_SUPP_TEXT)
-        .long(ta::PROCESS_SUPP_TEXT)
-        .value_name("LEVEL")
-        .value_parser(value_parser!(tc::ProcessSuppText))
-        .help(format!(
-            "Choose how to process {SUPP_TEXT_SEG}. \
-             Set to {asis} to process as normal, {other} to convert \
-             it to an {OTHER_SEG}, or {ignore} to ignore entirely",
-            asis = fmt_config_val!(PROCESS_SUPP_TEXT_ASIS_LEVEL),
-            other = fmt_config_val!(PROCESS_SUPP_TEXT_OTHER_LEVEL),
-            ignore = fmt_config_val!(PROCESS_SUPP_TEXT_IGNORE_LEVEL),
-        ));
-
-    let lit_delims = Arg::new(ta::DELIM_ESCAPE_MODE)
-        .long(ta::DELIM_ESCAPE_MODE)
-        .value_name("MODE")
-        .value_parser(value_parser!(tc::DelimEscapeMode))
-        .help(format!(
-            "Choose how to escape delimiters in {TEXT_SEG}. \
-             See {} for details.",
-            DELIM_SECTION.header,
-        ));
-
-    let non_ascii_delim = tri_flag_arg::<tc::AllowNonAsciiDelim>(
-        ta::ALLOW_NON_ASCII_DELIM,
-        format!("Allow {TEXT_SEG} delimiter to be non-ASCII character."),
-    );
-
-    let missing_final_delim = tri_flag_arg::<tc::AllowEvenDelims>(
-        ta::ALLOW_EVEN_DELIMS,
-        format!("Allow final {TEXT_SEG} delimiter to be missing."),
-    );
-
-    let allow_non_unique = tri_flag_arg::<tc::AllowNonunique>(
-        ta::ALLOW_NONUNIQUE,
-        format!("Allow non-unique keys to exist in {TEXT_SEG}."),
-    );
-
-    let allow_odd =
-        tri_flag_arg::<tc::AllowOddTokens>(ta::ALLOW_ODD_TOKENS, "Allow odd number of tokens.");
-
-    let allow_empty_keys = tri_flag_arg::<tc::AllowEmptyKeys>(
-        ta::ALLOW_EMPTY_KEYS,
-        "Allow keys to be blank (relatively rare).",
-    );
-
-    let allow_delim_at_bound = tri_flag_arg::<tc::AllowDelimAtBoundary>(
-        ta::ALLOW_DELIM_AT_BOUNDARY,
-        format!("Allow {TEXT_SEG} delimiter(s) to be at token boundaries."),
-    );
-
-    let use_encoding = Arg::new(ta::USE_ENCODING)
-        .long(ta::USE_ENCODING)
-        .value_name("ENC")
-        .value_parser(value_parser!(tc::UseEncoding))
-        .help(format!(
-            "Choose how to interpret characters in {TEXT_SEG}. Choose {single}, \
-             {utf8}, or {guess} to interpret bytes as IANA ISO/IEC-8859-1 UTF-8, \
-             or first as UTF-8 and falling back to IANA ISO/IEC-8859-1 if a \
-             non-UTF-8 byte is found.",
-            single = fmt_config_val!(ENCODING_SINGLE_LEVEL),
-            utf8 = fmt_config_val!(ENCODING_UTF8_LEVEL),
-            guess = fmt_config_val!(ENCODING_GUESS_LEVEL)
-        ));
-
-    let allow_non_ascii_keywords = tri_flag_arg::<tc::AllowNonAsciiKeywords>(
-        ta::ALLOW_NON_ASCII_KEYS,
-        "Allow non-ASCII characters in keys.",
-    );
-
-    let allow_non_utf8 = tri_flag_arg::<tc::AllowNonUtf8>(
-        ta::ALLOW_NON_UTF8_VALUES,
-        format!("Allow non-UTF8 characters in {TEXT_SEG} segment."),
-    );
-
-    let allow_missing_supp_text = tri_flag_arg::<tc::AllowMissingSuppTEXT>(
-        ta::ALLOW_MISSING_SUPP_TEXT,
-        format!("Allow {SUPP_TEXT_SEG} offsets to be missing."),
-    );
-
-    let allow_supp_text_own_delim = tri_flag_arg::<tc::AllowSuppTEXTOwnDelim>(
-        ta::ALLOW_SUPP_TEXT_OWN_DELIM,
-        format!("Allow delimiters in {PRIM_TEXT_SEG} and {SUPP_TEXT_SEG} to differ."),
-    );
-
-    let allow_missing_nextdata = tri_flag_arg::<tc::AllowMissingNextdata>(
-        ta::ALLOW_MISSING_NEXTDATA,
-        format!("Allow {NEXTDATA} to be missing."),
-    );
-
-    let trim_value_whitespace = Arg::new(ta::TRIM_VALUE_WHITESPACE)
-        .long(ta::TRIM_VALUE_WHITESPACE)
-        .value_name("LEVEL")
-        .value_parser(value_parser!(tc::TrimValueWhitespace))
-        .help(format!(
-            "Trim whitespace from beginning and end of all values. This may \
-             create blank values if the starting string is entirely whitespace. \
-             Set to {none} to not trim at all (default). Set to {error}, {warn}, \
-             or {silent} to enable trimming and throw error, warning, or nothing \
-             when trimming results in a blank.",
-            none = fmt_config_val!(TRIM_NONE_LEVEL),
-            error = fmt_config_val!(TRIM_ERROR_LEVEL),
-            warn = fmt_config_val!(TRIM_BLANK_WARN_LEVEL),
-            silent = fmt_config_val!(TRIM_BLANK_SILENT_LEVEL),
-        ));
-
-    let all_read_flat_args = vec![
-        version_override,
-        supp_text_correction,
-        nextdata_correction,
-        allow_overlapping_supp_text,
-        process_supp_text,
-        lit_delims,
-        non_ascii_delim,
-        missing_final_delim,
-        allow_non_unique,
-        allow_odd,
-        allow_empty_keys,
-        allow_delim_at_bound,
-        allow_non_utf8,
-        use_encoding,
-        allow_non_ascii_keywords,
-        allow_missing_supp_text,
-        allow_supp_text_own_delim,
-        allow_missing_nextdata,
-        trim_value_whitespace,
-    ];
-
-    // std args
-
-    let dedup_meas_names = override_flag_arg(
-        ta::DEDUP_MEAS_NAMES,
-        format!(
-            "Force all {PN_N} to be unique by appending '{}X' \
-             to each duplicate and appending 'X' (starting at 0)",
-            tc::DEDUP_PNN_SEP,
-        ),
-    );
-
-    let trim_intra_value_whitespace = override_flag_arg(
-        ta::TRIM_INTRA_VALUE_WHITESPACE,
-        "Remove spaces between comma-separated values.",
-    );
-
-    let time_meas_pattern = Arg::new(ta::TIME_MEAS_PATTERN)
-        .long(ta::TIME_MEAS_PATTERN)
-        .value_name("REGEXP")
-        .help(format!(
-            "Use REGEXP when matching time measurement (defaults to {default}). \
-             Set to blank string to not look for a time measurement.",
-            default = fmt_val!(tc::TIME_MEAS_NAME_PATTERN_DEFAULT),
-        ))
-        .value_parser(value_parser!(tc::TimeMeasNamePattern));
-
-    let allow_missing_time = tri_flag_arg::<tc::AllowMissingTime>(
-        ta::ALLOW_MISSING_TIME,
-        "Allow time measurement to be missing.",
-    );
-
-    let add_missing_timestep = opt_arg_nonstr::<PositiveFloat>(
-        ta::ADD_MISSING_TIMESTEP,
-        "TIMESTEP",
-        format!("Add {TIMESTEP} if it is missing."),
-    );
-
-    let force_linear_scale = Arg::new(ta::FORCE_LINEAR_SCALE)
-        .long(ta::FORCE_LINEAR_SCALE)
-        .value_name("WHICH")
-        .value_parser(value_parser!(tc::ForceLinearScale))
-        .help(format!(
-            "Force {PN_E} keywords to be linear. Pass {time} to only set the \
-             temporal measurement, {non_int} to set temporal measurements and \
-             non-integer measurements, {all} to set all measurements, and {none} \
-             for no measurements. Affected columns will never fail.",
-            time = fmt_config_val!(FORCE_LINEAR_TIME_LEVEL),
-            non_int = fmt_config_val!(FORCE_LINEAR_NON_INT_LEVEL),
-            all = fmt_config_val!(FORCE_LINEAR_ALL_LEVEL),
-            none = fmt_config_val!(FORCE_LINEAR_NONE_LEVEL),
-        ));
-
-    let ignore_time_optical_keys = Arg::new(ta::IGNORE_OPTICAL_ONLY_KEYS)
-        .long(ta::IGNORE_OPTICAL_ONLY_KEYS)
-        .value_name("SYMS")
-        .help(format!(
-            "Ignore optical keyword for temporal measurement. Must be a \
-             comma-separated list of strings like the X in {PN_ANY}.",
-        ))
-        .value_parser(parse_optical_only_keys);
-
-    let process_pseudostandard = proc_kw_fail_arg(
-        ta::PROCESS_PSEUDOSTANDARD,
-        "Process non-standard keywords that start with a '$'.",
-    )
-    .value_parser(value_parser!(tc::ProcessPseudostandard));
-
-    let process_time_optical_keys = Arg::new(ta::PROCESS_OPTICAL_ONLY_KEYS)
-        .long(ta::PROCESS_OPTICAL_ONLY_KEYS)
-        .value_name("LEVEL")
-        .value_parser(value_parser!(tc::ProcessOpticalOnlyKeys))
-        .help(format!(
-            "Choose how to handle optical keys found in temporal measurements. \
-             Does nothing unless keys are specified with {arg}. Pass \
-             {demote_warn}, {demote_silent}, {drop_warn}, or {drop_silent} to \
-             demote found keys to nonstandard (with or without warning) or drop \
-             keys entirely (with or without warning) respectively.",
-            arg = fmt_arg!(ta::IGNORE_OPTICAL_ONLY_KEYS),
-            demote_warn = fmt_config_val!(TMP_OPT_DEMOTE_WARN_LEVEL),
-            demote_silent = fmt_config_val!(TMP_OPT_DEMOTE_SILENT_LEVEL),
-            drop_warn = fmt_config_val!(TMP_OPT_DROP_WARN_LEVEL),
-            drop_silent = fmt_config_val!(TMP_OPT_DROP_SILENT_LEVEL),
-        ));
-
-    let spillover_measurement_mode = Arg::new(ta::SPILLOVER_MEASUREMENT_MODE)
-        .long(ta::SPILLOVER_MEASUREMENT_MODE)
-        .value_name("MODE")
-        .value_parser(value_parser!(tc::SpilloverMeasurementMode))
-        .help(format!(
-            "Choose how to interpret measurement strings in {SPILLOVER}. Set to \
-             {named} to interpret as names which link to {PN_N}. Set to \
-             {indexed} to interpret as 1-indices which point to measurements. \
-             Set to {guess} to automatically choose the prior two modes.",
-            named = fmt_config_val!(SPILLOVER_NAMED_LEVEL),
-            indexed = fmt_config_val!(SPILLOVER_INDEXED_LEVEL),
-            guess = fmt_config_val!(SPILLOVER_GUESS_LEVEL)
-        ));
-
-    let allow_other_feature = override_flag_arg(
-        ta::ALLOW_OTHER_FEATURE,
-        format!("Allow {PNFEATURE} to be a value other than \"Area\", \"Width\", or \"Height\""),
-    );
-
-    let process_hyper_par = proc_kw_fail_arg(
-        ta::PROCESS_HYPER_PAR,
-        format!("Process measurement keywords whose index is greater than {PAR}."),
-    )
-    .value_parser(value_parser!(tc::ProcessHyperPar));
-
-    let process_other_version = proc_kw_fail_arg(
-        ta::PROCESS_OTHER_VERSION,
-        "Process standard keywords from different FCS version.",
-    )
-    .value_parser(value_parser!(tc::ProcessOtherVersion));
-
-    let process_extra_timestep = proc_kw_fail_arg(
-        ta::PROCESS_EXTRA_TIMESTEP,
-        format!(
-            "Process unused {TIMESTEP}, which may indicate that a time measurement \
-             is present but not identified.",
-        ),
-    )
-    .value_parser(value_parser!(tc::ProcessExtraTimestep));
-
-    let fix_log_scale_offset = override_flag_arg(
-        ta::FIX_LOG_SCALE_OFFSETS,
-        format!(
-            "Fix {PN_E} keys that have log scaling with zero offset. \
-             Specifically, this will replace values like 'X,0.0' with 'X,1.0' \
-             where 'X' is a positive decimal number. Having '0.0' for log offset \
-             is mathematical nonsense.",
-        ),
-    );
-
-    let disallow_localtime = override_flag_arg(
-        ta::DISALLOW_LOCALTIME,
-        format!(
-            "Require that {BEGINDATETIME} and {ENDDATETIME} have a timezone if \
-             provided. This is not required by the standard, but not having a \
-             timezone is ambiguous since the absolute value of the timestamp is \
-             dependent on localtime and therefore is location-dependent. Only \
-             affects FCS 3.2.",
-        ),
-    );
-
-    let date_pattern = opt_arg_ne_str::<DatePattern>(
-        ta::DATE_PATTERN,
-        "PATTERN",
-        format!(
-            "Pattern to match {DATE} keyword. See {}.",
-            DATE_SECTION.header
-        ),
-    );
-
-    let time_pattern = opt_arg_ne_str::<TimePattern>(
-        ta::TIME_PATTERN,
-        "PATTERN",
-        format!(
-            "Pattern to match {BTIM}/{ETIM} keywords. See {}.",
-            TIME_SECTION.header
-        ),
-    );
-
-    let datetime_pattern = opt_arg_ne_str::<String>(
-        ta::DATETIME_PATTERN,
-        "PATTERN",
-        format!(
-            "If supplied, will be used as an alternative pattern when parsing \
-             {BEGINDATETIME} and {ENDDATETIME}. It should follow the format \
-             outline in {CHRONO_REF}.",
-        ),
-    );
-
-    let last_modified_pattern = opt_arg_ne_str::<String>(
-        ta::LAST_MODIFIED_PATTERN,
-        "PATTERN",
-        format!(
-            "If supplied, will be used as an alternative pattern when parsing \
-             {LAST_MODIFIED}. It should follow the format outline in {CHRONO_REF}.",
-        ),
-    );
-
-    let all_read_std_args = [
-        dedup_meas_names,
-        trim_intra_value_whitespace,
-        time_meas_pattern,
-        allow_missing_time,
-        add_missing_timestep,
-        force_linear_scale,
-        ignore_time_optical_keys,
-        process_pseudostandard,
-        process_time_optical_keys,
-        spillover_measurement_mode,
-        date_pattern,
-        time_pattern,
-        datetime_pattern,
-        last_modified_pattern,
-        allow_other_feature,
-        process_hyper_par,
-        process_other_version,
-        process_extra_timestep,
-        fix_log_scale_offset,
-        disallow_localtime,
-    ];
-
-    // repair args
-
-    let make_key_str_args = |name, help| {
-        let more = format!(
-            "If first and last character are the same, they are treated as \
-             delimiters (<#>) which can be used to separate multiple values. \
-             If a single value starts and ends with the same value, encapsulate \
-             this with two delimiters. Delimiters must be ASCII characters. Values \
-             that start and end with {delim} will be interpreted as a regexp-like \
-             pattern where '[n-m]' matches indices from 'n' to 'm' (inclusive to exclusive) \
-             in such cases {delim} is not interpreted as a delimiter. \
-             An empty string encodes an empty list of values.",
-            delim = fmt_val!(PATTERN_DELIMITER)
-        );
-        let more_help = format!("{help} {more}");
-        Arg::new(name)
-            .long(name)
-            .value_name("<#>KEY_OR_PAT[<#>KEY_OR_PAT..]<#>")
-            .help(more_help)
-    };
-
-    let ignore_std_key = make_key_str_args(
-        ta::IGNORE_STD_KEYS,
-        "Ignore standard keys exactly matching KEY_OR_PAT.",
-    )
-    .value_parser(ValueParser::new(parse_std_key_or_pattern_list::<true>));
-
-    let promote_to_std = make_key_str_args(
-        ta::PROMOTE_TO_STD,
-        "Promote non-standard keys matching KEY_OR_PAT to standard.",
-    )
-    .value_parser(ValueParser::new(parse_std_key_or_pattern_list::<false>));
-
-    let demote_from_std = make_key_str_args(
-        ta::DEMOTE_FROM_STD,
-        "Demote standard keys matching KEY_OR_PAT to non-standard.",
-    )
-    .value_parser(ValueParser::new(parse_std_key_or_pattern_list::<true>));
-
-    let rename_standard_keys = Arg::new(ta::RENAME_STD_KEYS)
-        .long(ta::RENAME_STD_KEYS)
-        .value_name("<#>OLD<#>NEW[<#>OLD<#>NEW]<#>")
-        .value_parser(ValueParser::new(parse_two_keystring_pair))
-        .help(
-            "Rename standard keys from OLD to NEW. \
-             First character is considered to be the delimiter (<#>) for \
-             separating OLD and NEW as well as multiple pairs of OLD/NEW. \
-             An empty list or single delimiter encodes an empty list. \
-             Delimiters must be ASCII characters. \
-             If duplicate OLD keys are found, only the last is kept.",
-        );
-
-    let replace_std_key_vals = Arg::new(ta::REPLACE_STD_KEY_VALS)
-        .long(ta::REPLACE_STD_KEY_VALS)
-        .value_name("<#>KEY<#>VAL[<#>KEY<#>VAL..]<#>")
-        .help(
-            "Replace values of standard keys matching KEY with VAl. \
-             First character is considered to be the delimiter (<#>) for \
-             separating KEY and VAL as well as multiple pairs of KEY/VAL. \
-             An empty list or single delimiter encodes an empty list. \
-             Delimiters must be ASCII characters. \
-             If duplicate keys are found, only the last is kept.",
-        )
-        .value_parser(ValueParser::new(parse_keystring_string_pair));
-
-    let append_std_key_vals = Arg::new(ta::APPEND_STD_KEYWORDS)
-        .long(ta::APPEND_STD_KEYWORDS)
-        .value_name("<#>KEY<#>VAL[<#>KEY<#>VAL..]<#>")
-        .help(
-            "Append standard keys with KEY and VAL to list of existing standard keys. \
-             First character is considered to be the delimiter (<#>) for \
-             separating KEY and VAL as well as multiple pairs of KEY/VAL. \
-             An empty list or single delimiter encodes an empty list. \
-             Delimiters must be ASCII characters. \
-             If duplicate keys are found, only the last is kept.",
-        )
-        .value_parser(ValueParser::new(parse_keystring_string_pair));
-
-    let sub_key_vals = Arg::new(ta::SUB_STD_KEY_VALS)
-        .long(ta::SUB_STD_KEY_VALS)
-        .value_name("<#>KEY<#>SUB[<#>KEY<#>SUB..]<#>")
-        .help(format!(
-            "Edit standard key values using KEY and SUB. See {} for details. \
-             First character is considered to be the delimiter (<#>) for \
-             separating KEY and SUB as well as multiple pairs of KEY/SUB. \
-             An empty list or single delimiter encodes an empty list. \
-             Delimiters must be ASCII characters. \
-             If duplicate keys are found, only the last is kept.",
-            SUB_SECTION.header,
-        ))
-        .value_parser(ValueParser::new(parse_sub_pattern_pair));
-
-    let promote_all_to_std = flag_arg(
-        ta::PROMOTE_ALL_TO_STD,
-        "Promote all non-standard keys to standard where possible.",
-    );
-
-    let allow_repair_non_unique = tri_flag_arg::<tc::AllowRepairNonUnique>(
-        ta::ALLOW_REPAIR_NON_UNIQUE,
-        "Choose how to handle key collisions when repairing keywords. \
-         Non-unique keywords will not be kept in the final FCS file since each \
-         list of standard and non-standard keywords must be unique.",
-    );
-
-    let all_repair_args = [
-        ignore_std_key,
-        promote_to_std,
-        demote_from_std,
-        rename_standard_keys,
-        replace_std_key_vals,
-        append_std_key_vals,
-        sub_key_vals,
-        promote_all_to_std,
-        allow_repair_non_unique,
-    ];
-
-    // read dataset args
-
-    let text_data_correction = correction_arg(ta::TEXT_DATA_CORR, false, DATA_SEG);
-    let text_analysis_correction = correction_arg(ta::TEXT_ANALYSIS_CORR, false, ANALYSIS_SEG);
-
-    let ignore_text_data_offsets = override_flag_arg(
-        ta::IGNORE_TEXT_DATA_OFFSETS,
-        format!("Ignore offsets for {DATA_SEG} from {TEXT_SEG}."),
-    );
-
-    let ignore_text_analysis_offsets = override_flag_arg(
-        ta::IGNORE_TEXT_ANALYSIS_OFFSETS,
-        format!("Ignore offsets for {ANALYSIS_SEG} from {TEXT_SEG}."),
-    );
-
-    let allow_header_text_offset_mismatch = Arg::new(ta::ALLOW_HEADER_TEXT_OFFSET_MISMATCH)
-        .long(ta::ALLOW_HEADER_TEXT_OFFSET_MISMATCH)
-        .value_name("LEVEL")
-        .value_parser(value_parser!(tc::AllowHeaderTEXTOffsetMismatch))
-        .help(format!(
-            "Allow {HEADER_SEG} and {TEXT_SEG} offsets to be different. If \
-             {hdr_warn} or {hdr_silent}, choose {HEADER_SEG} and throw a warning \
-             or nothing on mismatch. If {text_warn} or {text_silent} behave \
-             analogously for {TEXT_SEG}. If {error} (default) throw error.",
-            hdr_warn = fmt_config_val!(MISMATCH_HEADER_WARN_LEVEL),
-            hdr_silent = fmt_config_val!(MISMATCH_HEADER_SILENT_LEVEL),
-            text_warn = fmt_config_val!(MISMATCH_TEXT_WARN_LEVEL),
-            text_silent = fmt_config_val!(MISMATCH_TEXT_SILENT_LEVEL),
-            error = fmt_config_val!(MISMATCH_ERROR_LEVEL),
-        ));
-
-    let allow_missing_required_offsets = tri_flag_arg::<tc::AllowMissingRequiredOffsets>(
-        ta::ALLOW_MISSING_REQUIRED_OFFSETS,
-        format!(
-            "Allow required offsets to be missing from {TEXT_SEG}. \
-             Only applies to FCS 3.0/3.1."
-        ),
-    );
-
-    let process_optional_failure = proc_kw_fail_arg(
-        ta::PROCESS_OPTIONAL_FAILURE,
-        "Process optional keys if they cause an error.",
-    )
-    .value_parser(value_parser!(tc::ProcessOptionalFailure));
-
-    let int_widths_from_byteord = Arg::new(ta::INT_WIDTH_OVERRIDE)
-        .long(ta::INT_WIDTH_OVERRIDE)
-        .value_name("INT_OR_FLAG")
-        .value_parser(parse_int_width_override)
-        .help(format!(
-            "Fix {PN_B}. Only has effect on integer layouts in FCS 2.0/3.0. \
-             Set to {} or {} to round up to next multiple of 8 or do nothing. \
-             Set to an integer 1-8 to override all {PN_B} explicitly.",
-            fmt_config_val!(FIX_INT_WIDTH_NEXT_BYTE_LEVEL),
-            fmt_config_val!(FIX_INT_WIDTH_NEVER_LEVEL)
-        ));
-
-    let int_byteord_override = Arg::new(ta::BYTEORD_OVERRIDE)
-        .long(ta::BYTEORD_OVERRIDE)
-        .value_name("BYTEORD")
-        .value_parser(parse_byteord_override)
-        .help(format!(
-            "Override the value of {BYTEORD}. Set to {} or {} to do nothing \
-             or interpret {BYTEORD} based on its endian-ness (ie without its \
-             length). Set to an explicit comma-separated integer sequence to \
-             set {BYTEORD} directly.",
-            fmt_config_val!(BYTEORD_OVERRIDE_NONE_LEVEL),
-            fmt_config_val!(BYTEORD_OVERRIDE_ENDIAN_LEVEL)
-        ));
-
-    let disallow_range_truncation = tri_flag_arg::<tc::DisallowRangeTrunc>(
-        ta::DISALLOW_RANGE_TRUNCATION,
-        format!(
-            "Disallow {PN_R} values which need to be truncated to fit in type \
-             dictated by {DATATYPE} (and {PNDATATYPE} for FCS 3.2) and {PN_B} \
-             for a given measurement."
-        ),
-    );
-
-    let all_read_dataset_kws_args = [
-        text_data_correction,
-        text_analysis_correction,
-        ignore_text_data_offsets,
-        ignore_text_analysis_offsets,
-        allow_header_text_offset_mismatch,
-        allow_missing_required_offsets,
-        process_optional_failure,
-        int_widths_from_byteord,
-        int_byteord_override,
-        disallow_range_truncation,
-    ];
-
-    // dataset args
-
-    let data_remainder_limit = Arg::new(ta::DATA_REMAINDER_LIMIT)
-        .long(ta::DATA_REMAINDER_LIMIT)
-        .value_name("LIMIT")
-        .value_parser(value_parser!(tc::DataRemainderLimit))
-        .help(format!(
-            "Limit by which ending {DATA_SEG} offset can be truncated if \
-             its length modulo event width produces a remainder."
-        ));
-
-    let allow_uneven_event_width = tri_flag_arg::<tc::AllowUnevenEventWidth>(
-        ta::ALLOW_UNEVEN_EVENT_WIDTH,
-        format!("Allow event width to not evenly divide length of {DATA_SEG}."),
-    );
-
-    let allow_tot_mismatch = tri_flag_arg::<tc::AllowTotMismatch>(
-        ta::ALLOW_TOT_MISMATCH,
-        format!("Allow {TOT} to mismatch the number of events that are actually in {DATA_SEG}."),
-    );
-
-    let over_bitmask_action = Arg::new(ta::OVER_BITMASK_ACTION)
-        .long(ta::OVER_BITMASK_ACTION)
-        .value_name("WHICH")
-        .value_parser(value_parser!(tc::OverBitmaskAction))
-        .help(format!(
-            "Choose how to handle integer values in {DATA_SEG} to exceed bitmask. \
-             Pass {error} to emit error, {warn} to emit warning, {silent} to do \
-             nothing, {trunc_warn} to truncate and emit warning, and \
-             {trunc_silent} to truncate with no warning.",
-            error = fmt_config_val!(OVER_LIMIT_ACTION_ERROR_LEVEL),
-            warn = fmt_config_val!(OVER_LIMIT_ACTION_WARN_LEVEL),
-            silent = fmt_config_val!(OVER_LIMIT_ACTION_SILENT_LEVEL),
-            trunc_warn = fmt_config_val!(OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL),
-            trunc_silent = fmt_config_val!(OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL),
-        ));
-
-    let over_range_action = Arg::new(ta::OVER_RANGE_ACTION)
-        .long(ta::OVER_RANGE_ACTION)
-        .value_name("ACTION")
-        .value_parser(value_parser!(tc::OverLimitAction))
-        .help(format!(
-            "Choose how to handle values in {DATA_SEG} to exceed {PN_R}. Pass \
-             {error} to emit error, {warn} to emit warning, {silent} to do \
-             nothing, {trunc_warn} to truncate and emit warning, and \
-             {trunc_silent} to truncate with no warning.",
-            error = fmt_config_val!(OVER_LIMIT_ACTION_ERROR_LEVEL),
-            warn = fmt_config_val!(OVER_LIMIT_ACTION_WARN_LEVEL),
-            silent = fmt_config_val!(OVER_LIMIT_ACTION_SILENT_LEVEL),
-            trunc_warn = fmt_config_val!(OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL),
-            trunc_silent = fmt_config_val!(OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL),
-        ));
-
-    let allow_missing_crc = tri_flag_arg::<tc::AllowMissingCRC>(
-        ta::ALLOW_MISSING_CRC,
-        "Allow CRC word at the end of the dataset to be missing.",
-    );
-
-    let allow_mismatch_crc = tri_flag_arg::<tc::AllowMismatchCRC>(
-        ta::ALLOW_MISMATCH_CRC,
-        "Allow computed CRC to not match the CRC word at the end of the dataset.",
-    );
-
-    let compute_crc = Arg::new(ta::COMPUTE_CRC)
-        .long(ta::COMPUTE_CRC)
-        .value_name("LEVEL")
-        .value_parser(value_parser!(tc::ComputeCRC))
-        .help(format!(
-            "When to compute the CRC of the dataset. \
-             Pass {} to never compute, pass {} to always compute, and pass {} \
-             to compute only when the CRC word is available.",
-            tc::COMPUTE_CRC_NEVER_LEVEL,
-            tc::COMPUTE_CRC_ALWAYS_LEVEL,
-            tc::COMPUTE_CRC_TEST_LEVEL,
-        ));
-
-    let row_buffer_size = Arg::new(ta::ROW_BUFFER_SIZE)
-        .long(ta::ROW_BUFFER_SIZE)
-        .value_name("BYTES")
-        .value_parser(value_parser!(tc::RowBufferSize))
-        .help(format!(
-            "Set the size in bytes for the internal buffer used to read {DATA_SEG}. \
-             This is a performance parameter that balances read syscalls (too low) \
-             and cache misses (too high). It should generally be 90% of the CPU's \
-             L1D cache size. Defaults to {}.",
-            fmt_val!(tc::DEFAULT_ROW_BUFFER_SIZE)
-        ));
-
-    let all_read_dataset_args = [
-        data_remainder_limit,
-        allow_uneven_event_width,
-        allow_tot_mismatch,
-        over_bitmask_action,
-        over_range_action,
-        allow_missing_crc,
-        allow_mismatch_crc,
-        compute_crc,
-        row_buffer_size,
-    ];
-
-    // shared args
-
-    let warnings_are_errors = flag_arg(
-        ta::WARNINGS_ARE_ERRORS,
-        "Treat all warnings as fatal errors.",
-    );
-
-    let hide_warnings = flag_arg(ta::HIDE_WARNINGS, "Hide all warnings.");
-
-    let all_read_shared_args = [warnings_are_errors, hide_warnings];
-
-    // write args
-
-    let write_delim = Arg::new(WRITE_DELIM)
-        .long(WRITE_DELIM)
-        .value_name("CHAR")
-        .value_parser(value_parser!(TEXTDelim))
-        .help(format!(
-            "The delimiter to use when writing {TEXT_SEG} to file. \
-             Must be an ASCII character 1-31. Defaults to 30 (record separator)."
-        ));
-
-    let big_other = flag_arg(
-        BIG_OTHER,
-        format!("If set, use 20 for {OTHER_SEG} offset width, otherwise 8."),
-    );
-
-    let all_write_args = [write_delim, big_other];
-
-    // other args
-
-    let delim_arg = Arg::new(PRINT_DELIM)
-        .long(PRINT_DELIM)
-        .short('d')
-        .value_name("CHAR")
-        .help("Delimiter to use for tabular output.")
-        .value_parser(ValueParser::new(parse_delim))
-        .default_value("\t");
-
-    let dataset_index_arg = Arg::new(DATASET_INDEX)
-        .long(DATASET_INDEX)
-        .short('I')
-        .value_name("INDEX")
-        .value_parser(value_parser!(usize))
-        .help("Index of the dataset to parse (starting from 0)");
-
-    let skip_arg = Arg::new(ta::SKIP)
-        .long(ta::SKIP)
-        .value_name("INT")
-        .value_parser(value_parser!(usize))
-        .help("Number of datasets to skip");
-
-    let limit_arg = Arg::new(ta::LIMIT)
-        .long(ta::LIMIT)
-        .value_name("INT")
-        .value_parser(value_parser!(usize))
-        .help("Number of datasets to return");
-
-    let scan_arg = Arg::new(ta::SCAN)
-        .long(ta::SCAN)
-        .action(ArgAction::SetTrue)
-        .help(format!(
-            "If given, scan for the next dataset by looking for version \
-             tags rather then relying on {NEXTDATA}"
-        ));
-
-    let input_arg = Arg::new(INPUT_PATH)
-        .short('i')
-        .long(INPUT_PATH)
-        .value_name("PATH")
-        .value_parser(value_parser!(PathBuf))
-        .help("Path to FCS file to parse.")
-        .required(true);
-
-    let output_arg = Arg::new(OUTPUT_PATH)
-        .short('o')
-        .long(OUTPUT_PATH)
-        .value_name("PATH")
-        .value_parser(value_parser!(PathBuf))
-        .help("Path to FCS file to write.")
-        .required(true);
-
-    let strategy_arg = Arg::new(STRATEGY)
-        .short('s')
-        .long(STRATEGY)
-        .value_name("WHICH")
-        .value_parser(value_parser!(tc::ReadStrategy))
-        .help(format!(
-            "Overall strategy to use when parsing file. This will enable many \
-             options by default which can be overridden. Set to {scalpel} to \
-             parse non-compliant files while attempting to preserve metadata. \
-             Set to {sledge} to parse non-compliant files while dropping \
-             non-compliant metadata that cannot be fixed. Set to {strict} to \
-             enforce the standard (default).",
-            scalpel = fmt_config_val!(READ_STRATEGY_SCALPEL_LEVEL),
-            sledge = fmt_config_val!(READ_STRATEGY_SLEDGEHAMMER_LEVEL),
-            strict = fmt_config_val!(READ_STRATEGY_STRICT_LEVEL),
-        ));
-
-    let vendor_heuristics_arg = Arg::new(VENDOR_HEURISTICS)
-        .short('H')
-        .long(VENDOR_HEURISTICS)
-        .action(ArgAction::SetTrue)
-        .help("Enable vendor-specific heuristics when parsing files.");
-
-    let mmap_arg = Arg::new(ta::MMAP)
-        .short('m')
-        .long(ta::MMAP)
-        .action(ArgAction::SetTrue)
-        .help(
-            "Memory-map the file while reading. This is likely to be faster. \
-             The user must ensure that the file is not modified while being \
-             read, otherwise the mapping will be invalid and terrible things \
-             will happen.",
-        );
-
-    let version_cmd = Command::new(SUBCMD_VERSION).about("Show version information.");
-
-    let header_cmd = Command::new(SUBCMD_HEADER)
-        .about("Show header as JSON.")
-        .arg(&input_arg)
-        .arg(&strategy_arg)
-        .args(&all_read_header_args)
-        .args(&all_read_offset_args);
-
-    let flat_cmd = Command::new(SUBCMD_FLAT)
-        .about("Show flat keywords as JSON.")
-        .arg(&input_arg)
-        .arg(&strategy_arg)
-        .arg(&dataset_index_arg)
-        .arg(&mmap_arg)
-        .args(&all_read_header_args)
-        .args(&all_read_offset_args)
-        .args(&all_read_flat_args)
-        .args(&all_read_shared_args)
-        .after_long_help(FLAT_LONG_HELP);
-
-    let std_cmd = Command::new(SUBCMD_STD)
-        .about("Dump standardized keywords as JSON.")
-        .arg(&input_arg)
-        .arg(&strategy_arg)
-        .arg(&vendor_heuristics_arg)
-        .arg(&dataset_index_arg)
-        .arg(&mmap_arg)
-        .args(&all_read_header_args)
-        .args(&all_read_offset_args)
-        .args(&all_read_flat_args)
-        .args(&all_read_std_args)
-        .args(&all_repair_args)
-        .args(&all_read_dataset_kws_args)
-        .args(&all_read_shared_args)
-        .after_long_help(&STD_LONG_HELP);
-
-    let meas_cmd = Command::new(SUBCMD_MEAS)
-        .about("Show a table of standardized measurement values.")
-        .arg(&input_arg)
-        .arg(&strategy_arg)
-        .arg(&vendor_heuristics_arg)
-        .arg(&dataset_index_arg)
-        .arg(&delim_arg)
-        .arg(&mmap_arg)
-        .args(&all_read_header_args)
-        .args(&all_read_offset_args)
-        .args(&all_read_flat_args)
-        .args(&all_read_std_args)
-        .args(&all_repair_args)
-        .args(&all_read_dataset_kws_args)
-        .args(&all_read_shared_args)
-        .after_long_help(&STD_LONG_HELP);
-
-    let spill_cmd = Command::new(SUBCMD_SPILL)
-        .about("Dump the spillover matrix if present.")
-        .arg(&input_arg)
-        .arg(&strategy_arg)
-        .arg(&vendor_heuristics_arg)
-        .arg(&dataset_index_arg)
-        .arg(&delim_arg)
-        .arg(&mmap_arg)
-        .args(&all_read_header_args)
-        .args(&all_read_offset_args)
-        .args(&all_read_flat_args)
-        .args(&all_read_std_args)
-        .args(&all_repair_args)
-        .args(&all_read_dataset_kws_args)
-        .args(&all_read_shared_args)
-        .after_long_help(&STD_LONG_HELP);
-
-    let data_cmd = Command::new(SUBCMD_DATA)
-        .about(format!("Show a table of the {DATA_SEG} segment."))
-        .arg(&input_arg)
-        .arg(&strategy_arg)
-        .arg(&vendor_heuristics_arg)
-        .arg(&dataset_index_arg)
-        .arg(&delim_arg)
-        .arg(&mmap_arg)
-        .args(&all_read_header_args)
-        .args(&all_read_offset_args)
-        .args(&all_read_flat_args)
-        .args(&all_read_std_args)
-        .args(&all_repair_args)
-        .args(&all_read_dataset_kws_args)
-        .args(&all_read_dataset_args)
-        .args(&all_read_shared_args)
-        .after_long_help(&STD_LONG_HELP);
-
-    let repair_cmd = Command::new(SUBCMD_REPAIR)
-        .about("Read a non-compliant FCS file and save as a compliant FCS file.")
-        .arg(&input_arg)
-        .arg(&output_arg)
-        .arg(&strategy_arg)
-        .arg(&vendor_heuristics_arg)
-        .arg(&mmap_arg)
-        .args(&all_read_header_args)
-        .args(&all_read_offset_args)
-        .args(&all_read_flat_args)
-        .args(&all_read_std_args)
-        .args(&all_repair_args)
-        .args(&all_read_dataset_kws_args)
-        .args(&all_read_dataset_args)
-        .args(&all_read_shared_args)
-        .args(&all_write_args)
-        .arg(&skip_arg)
-        .arg(&limit_arg)
-        .arg(&scan_arg)
-        .after_long_help(&STD_LONG_HELP);
-
-    let strategies_cmd = Command::new(SUBCMD_STRATEGIES)
-        .about("Show configuration arguments for a given strategy.")
-        .arg(&strategy_arg);
-
-    let summarize_cmd = Command::new(SUBCMD_SUMMARIZE)
-        .about("Summarize datasets in FCS file")
-        .arg(&input_arg)
-        .arg(&strategy_arg)
-        .arg(&skip_arg)
-        .arg(&limit_arg)
-        .arg(&scan_arg)
-        .arg(&mmap_arg)
-        .args(&all_read_header_args)
-        .args(&all_read_offset_args)
-        .args(&all_read_flat_args)
-        .args(&all_repair_args)
-        .args(&all_read_dataset_kws_args)
-        .args(&all_read_dataset_args)
-        .args(&all_read_shared_args);
-
-    let scan_cmd = Command::new(SUBCMD_SCAN)
-        .about("Scan FCS file for dataset boundaries")
-        .arg(&input_arg)
-        .arg(&mmap_arg);
-
-    let mut cmd = Command::new("fireflow")
-        .about("Read FCS files in standards-compliant manner")
-        .arg_required_else_help(true)
-        .next_line_help(true)
-        .max_term_width(80)
-        .subcommand(version_cmd)
-        .subcommand(header_cmd)
-        .subcommand(flat_cmd)
-        .subcommand(std_cmd)
-        .subcommand(meas_cmd)
-        .subcommand(spill_cmd)
-        .subcommand(data_cmd)
-        .subcommand(repair_cmd)
-        .subcommand(strategies_cmd)
-        .subcommand(summarize_cmd)
-        .subcommand(scan_cmd);
-
-    let args = cmd.clone().get_matches();
-
-    match args.subcommand() {
-        Some((SUBCMD_VERSION, _)) => {
-            let vi = api::build_info();
-            to_writer(stdout, &vi)?;
-            Ok(())
-        }
-
-        // Some((SUBCMD_HEADER, sargs)) => {
-        //     let conf = get_header_config(sargs);
-        //     let filepath = get_path(sargs, INPUT_PATH);
-        //     let (ws, res) = api::fcs_read_header(filepath, DatasetOffset(0), &conf)
-        //         .resolve_commutative(|ws| ws, |s| s);
-        //     print_warnings(ws, &mut stderr)?;
-        //     to_writer(stdout, &res?)?;
-        //     Ok(())
-        // }
-        // Some((SUBCMD_FLAT, sargs)) => {
-        //     let conf = get_read_flat_text_config(sargs);
-        //     let filepath = get_path(sargs, INPUT_PATH);
-        //     let skip = get_dataset_index(sargs);
-        //     let mmap = get_mmap(sargs);
-        //     let (ws, res) = api::fcs_read_flat_texts(filepath, skip, Some(1), false, mmap, &conf)
-        //         .resolve_commutative(|ws| ws, |s| s);
-        //     print_warnings(ws, &mut stderr)?;
-        //     to_writer(stdout, &res?.first())?;
-        //     Ok(())
-        // }
-
-        // Some((SUBCMD_SPILL, sargs)) => {
-        //     let subcmd = cmd.find_subcommand_mut(SUBCMD_SPILL).unwrap();
-        //     let conf = get_read_std_text_config(subcmd, sargs);
-        //     let delim = get_delim(sargs);
-        //     let filepath = get_path(sargs, INPUT_PATH);
-        //     let skip = get_dataset_index(sargs);
-        //     let mmap = get_mmap(sargs);
-        //     let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, mmap, &conf)
-        //         .resolve_commutative(|ws| ws, |s| s);
-        //     print_warnings(ws, &mut stderr)?;
-        //     if let Some((core, _)) = res?.first() {
-        //         core.print_comp_or_spillover_table(&mut stdout, delim)?;
-        //     } else {
-        //         to_writer(stdout, &Value::Null)?;
-        //     }
-        //     Ok(())
-        // }
-
-        // Some((SUBCMD_MEAS, sargs)) => {
-        //     let subcmd = cmd.find_subcommand_mut(SUBCMD_MEAS).unwrap();
-        //     let conf = get_read_std_text_config(subcmd, sargs);
-        //     let delim = get_delim(sargs);
-        //     let filepath = get_path(sargs, INPUT_PATH);
-        //     let skip = get_dataset_index(sargs);
-        //     let mmap = get_mmap(sargs);
-        //     let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, mmap, &conf)
-        //         .resolve_commutative(|ws| ws, |s| s);
-        //     print_warnings(ws, &mut stderr)?;
-        //     if let Some((core, _)) = res?.first() {
-        //         core.print_meas_table(&mut stdout, delim)?;
-        //     } else {
-        //         to_writer(stdout, &Value::Null)?;
-        //     }
-        //     Ok(())
-        // }
-
-        // Some((SUBCMD_STD, sargs)) => {
-        //     let subcmd = cmd.find_subcommand_mut(SUBCMD_STD).unwrap();
-        //     let conf = get_read_std_text_config(subcmd, sargs);
-        //     let filepath = get_path(sargs, INPUT_PATH);
-        //     let skip = get_dataset_index(sargs);
-        //     let mmap = get_mmap(sargs);
-        //     let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, mmap, &conf)
-        //         .resolve_commutative(|ws| ws, |s| s);
-        //     print_warnings(ws, &mut stderr)?;
-        //     if let Some((core, uncore)) = res?.first() {
-        //         let obj = json!({"core": core, "uncore": uncore});
-        //         to_writer(stdout, &obj)?;
-        //     } else {
-        //         to_writer(stdout, &Value::Null)?;
-        //     }
-        //     Ok(())
-        // }
-
-        // Some((SUBCMD_DATA, sargs)) => {
-        //     let subcmd = cmd.find_subcommand_mut(SUBCMD_DATA).unwrap();
-        //     let conf = get_read_std_dataset_config(subcmd, sargs);
-        //     let delim = get_delim(sargs);
-        //     let filepath = get_path(sargs, INPUT_PATH);
-        //     let skip = get_dataset_index(sargs);
-        //     let mmap = get_mmap(sargs);
-        //     let (ws, res) = api::fcs_read_std_datasets(filepath, skip, Some(1), false, mmap, &conf)
-        //         .resolve_commutative(|ws| ws, |s| s);
-        //     print_warnings(ws, &mut stderr)?;
-        //     if let Some((core, _)) = res?.first() {
-        //         print_parsed_data(&mut stdout, core, delim)?;
-        //     } else {
-        //         to_writer(stdout, &Value::Null)?;
-        //     }
-        //     Ok(())
-        // }
-
-        // Some((SUBCMD_REPAIR, sargs)) => {
-        //     let subcmd = cmd.find_subcommand_mut(SUBCMD_REPAIR).unwrap();
-        //     let read_conf = get_read_std_dataset_config(subcmd, sargs);
-        //     let write_conf = get_write_std_dataset_config(sargs);
-        //     let ipath = get_path(sargs, INPUT_PATH);
-        //     let opath = get_path(sargs, OUTPUT_PATH);
-        //     let skip = get_skip(sargs);
-        //     let scan = get_scan(sargs);
-        //     let limit = get_limit(sargs);
-        //     let mmap = get_mmap(sargs);
-        //     let (read_ws, read_res) =
-        //         api::fcs_read_std_datasets(ipath, skip, limit, scan, mmap, &read_conf)
-        //             .resolve_commutative(|ws| ws, |s| s);
-        //     // order matters, print warnings before unpacking the result which
-        //     // will short-circuit on error
-        //     print_warnings(read_ws, &mut stderr)?;
-        //     let (cores, outs): (Vec<_>, Vec<_>) = read_res?.into_iter().unzip();
-        //     let (write_ws, write_res) = api::fcs_write_datasets(opath, &cores[..], &write_conf)
-        //         .resolve_commutative(|ws| ws, |e| e);
-        //     print_warnings(write_ws, &mut stderr)?;
-        //     let _ = write_res?;
-        //     to_writer(stdout, &outs[..])?;
-        //     Ok(())
-        // }
-
-        // Some((SUBCMD_SUMMARIZE, sargs)) => {
-        //     let subcmd = cmd.find_subcommand_mut(SUBCMD_SUMMARIZE).unwrap();
-        //     let conf = get_read_flat_dataset_config(subcmd, sargs);
-        //     let filepath = get_path(sargs, INPUT_PATH);
-        //     let skip = get_skip(sargs);
-        //     let limit = get_limit(sargs);
-        //     let scan = get_scan(sargs);
-        //     let mmap = get_mmap(sargs);
-        //     let (ws, res) = api::fcs_summarize(filepath, skip, limit, scan, mmap, &conf)
-        //         .resolve_commutative(|ws| ws, |s| s);
-        //     print_warnings(ws, &mut stderr)?;
-        //     to_writer(stdout, &res?)?;
-        //     Ok(())
-        // }
-        Some((SUBCMD_SCAN, sargs)) => {
-            #[derive(Serialize)]
-            struct Bounds {
-                version: tk::Version,
-                offset: DatasetOffset,
-            }
-            let filepath = get_path(sargs, INPUT_PATH);
-            let mmap = get_mmap(sargs);
-            let bounds = api::fcs_scan_dataset_boundaries(filepath, mmap)?;
-            let arr: Vec<_> = bounds
-                .into_iter()
-                .map(|(version, offset)| Bounds { version, offset })
-                .collect();
-            to_writer(stdout, &arr)?;
-            Ok(())
-        }
-
-        Some((SUBCMD_STRATEGIES, sargs)) => {
-            let strat = get_strategy(sargs);
-            let conf = cfg::ReadStdDatasetConfig::new_with_strategy(strat);
-            to_writer(stdout, &conf)?;
-            Ok(())
-        }
-
-        _ => Ok(()),
-    }
-}
-
-fn flag_arg(long: &'static str, help: impl IntoResettable<StyledStr>) -> Arg {
-    Arg::new(long)
-        .long(long)
-        .help(help)
-        .action(ArgAction::SetTrue)
-}
-
-fn override_flag_arg(long: &'static str, help: impl IntoResettable<StyledStr>) -> Arg {
-    // unlike the default flags in clap, this can be overridden by passing true
-    // or false. The flag without any value is true, and no flag is false.
-    Arg::new(long)
-        .long(long)
-        .help(help)
-        .value_name("BOOL")
-        .default_missing_value("true")
-        .value_parser(value_parser!(bool))
-        .require_equals(true)
-        .num_args(0..=1)
-}
-
-/// Create an optional argument (non-string)
-///
-/// This should not be used for arguments that may be optional strings since
-/// 'none' maps to `None`.
-fn opt_arg_nonstr<T>(long: &'static str, name: &'static str, help: impl Display) -> Arg
-where
-    T: FromStr + Clone + Send + Sync + 'static,
-    T::Err: Error + 'static,
-{
-    Arg::new(long)
-        .long(long)
-        .value_name(name)
-        .value_parser(ValueParser::new(parse_opt_nonstr::<T>))
-        .help(format!(
-            "{help} Set to {none} to supply no value.",
-            none = fmt_val!("none")
-        ))
-}
-
-/// Create an optional argument (non-empty string)
-///
-/// An empty string will be mapped to `None`.
-fn opt_arg_ne_str<T>(long: &'static str, name: &'static str, help: impl Display) -> Arg
-where
-    T: FromStr + Clone + Send + Sync + 'static,
-    T::Err: Error + 'static,
-{
-    Arg::new(long)
-        .long(long)
-        .value_name(name)
-        .value_parser(ValueParser::new(parse_opt_ne_str::<T>))
-        .help(format!("{help} Set to blank string to supply no value."))
-}
-
-fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {
-    Arg::new(long).long(long).value_name("LEVEL").help(format!(
-        "{help_front} Must be one of {error}, {demote_warn}, {demote_silent}, \
-         {drop_warn}, or {drop_silent} which will throw an error, demote to \
-         non-standard with warning, demote to non-standard silently, drop with \
-         warning, or drop silently respectively",
-        error = fmt_config_val!(KW_ERROR_LEVEL),
-        demote_warn = fmt_config_val!(KW_DEMOTE_WARN_LEVEL),
-        demote_silent = fmt_config_val!(KW_DEMOTE_SILENT_LEVEL),
-        drop_warn = fmt_config_val!(KW_DROP_WARN_LEVEL),
-        drop_silent = fmt_config_val!(KW_DROP_SILENT_LEVEL)
-    ))
+    Ok(())
 }
 
 fn tri_flag_help<T>(help_front: impl Display) -> String
@@ -3076,30 +1704,6 @@ where
     )
 }
 
-fn tri_flag_arg<T>(long: &'static str, help_front: impl Display) -> Arg
-where
-    T: From<tc::TriFlag> + Clone + Send + Sync + 'static + tc::TriErrorFlag,
-{
-    let parser = ValueParser::new(T::from_partial_str);
-    let (what_true, what_false) = if T::FALSE_IS_ERROR {
-        ("warning", "error")
-    } else {
-        ("error", "warning")
-    };
-    let h = format!(
-        "{help_front} If {true_}, throw {what_true}. If {false_}, throw \
-         {what_false}. If {silent}, ignore completely.",
-        false_ = fmt_config_val!(TRI_FALSE_LEVEL),
-        true_ = fmt_config_val!(TRI_TRUE_LEVEL),
-        silent = fmt_config_val!(TRI_SILENT_LEVEL),
-    );
-    Arg::new(long)
-        .long(long)
-        .value_name("LEVEL")
-        .value_parser(parser)
-        .help(h)
-}
-
 fn get_header_config(args: &ReadHeaderArgs) -> cfg::ReadHeaderConfig {
     let strat = args.strategy.inner.unwrap_or_default();
     cfg::ReadHeaderConfig {
@@ -3118,9 +1722,10 @@ fn get_header_inner_config(
     let _ = args.data_corr.inner.map(|x| conf.data_correction = x.0);
     let _ = args.anal_corr.inner.map(|x| conf.analysis_correction = x.0);
 
-    let _ = args.other_correction.as_ref().map(|xs| {
-        conf.other_corrections = xs.iter().copied().map(OffsetsCorrection::from).collect();
-    });
+    let _ = args
+        .other_correction
+        .as_ref()
+        .map(|xs| conf.other_corrections.clone_from(&xs.0));
 
     let _ = args.max_other.inner.map(|x| conf.max_other = x.0);
     let _ = args.other_width.map(|x| conf.other_width = x);
@@ -3163,48 +1768,48 @@ fn get_header_and_text_config(
     let _ = s
         .allow_duplicated_supp_text
         .inner
-        .map(|x| c.allow_duplicated_supp_text = x);
+        .map(|x| c.allow_duplicated_supp_text = x.0);
 
     let _ = s.process_supp_text.map(|x| c.process_supp_text = x);
     let _ = s.delim_escape_mode.map(|x| c.delim_escape_mode = x);
     let _ = s
         .allow_non_ascii_delim
         .inner
-        .map(|x| c.allow_non_ascii_delim = x);
+        .map(|x| c.allow_non_ascii_delim = x.0);
 
-    let _ = s.allow_even_delims.inner.map(|x| c.allow_even_delims = x);
-    let _ = s.allow_nonunique.inner.map(|x| c.allow_nonunique = x);
-    let _ = s.allow_odd_tokens.inner.map(|x| c.allow_odd_tokens = x);
-    let _ = s.allow_empty_keys.inner.map(|x| c.allow_empty_keys = x);
+    let _ = s.allow_even_delims.inner.map(|x| c.allow_even_delims = x.0);
+    let _ = s.allow_nonunique.inner.map(|x| c.allow_nonunique = x.0);
+    let _ = s.allow_odd_tokens.inner.map(|x| c.allow_odd_tokens = x.0);
+    let _ = s.allow_empty_keys.inner.map(|x| c.allow_empty_keys = x.0);
     let _ = s
         .allow_delim_at_boundary
         .inner
-        .map(|x| c.allow_delim_at_boundary = x);
+        .map(|x| c.allow_delim_at_boundary = x.0);
 
     let _ = s.use_encoding.map(|x| c.use_encoding = x);
     let _ = s
         .allow_non_ascii_keys
         .inner
-        .map(|x| c.allow_non_ascii_keys = x);
+        .map(|x| c.allow_non_ascii_keys = x.0);
     let _ = s
         .allow_non_utf8_values
         .inner
-        .map(|x| c.allow_non_utf8_values = x);
+        .map(|x| c.allow_non_utf8_values = x.0);
 
     let _ = s
         .allow_missing_supp_text
         .inner
-        .map(|x| c.allow_missing_supp_text = x);
+        .map(|x| c.allow_missing_supp_text = x.0);
 
     let _ = s
         .allow_supp_text_own_delim
         .inner
-        .map(|x| c.allow_supp_text_own_delim = x);
+        .map(|x| c.allow_supp_text_own_delim = x.0);
 
     let _ = s
         .allow_missing_nextdata
         .inner
-        .map(|x| c.allow_missing_nextdata = x);
+        .map(|x| c.allow_missing_nextdata = x.0);
 
     let _ = s.trim_value_whitespace.map(|x| c.trim_value_whitespace = x);
 
@@ -3238,7 +1843,10 @@ fn get_std_kws_config(s: &ReadStdKwsArgs_, strat: tc::ReadStrategy) -> cfg::Read
     let _ = s
         .process_optical_only_keys
         .map(|x| c.process_optical_only_keys = x);
-    let _ = s.allow_missing_time.inner.map(|x| c.allow_missing_time = x);
+    let _ = s
+        .allow_missing_time
+        .inner
+        .map(|x| c.allow_missing_time = x.0);
     let _ = s
         .add_missing_timestep
         .inner
@@ -3356,7 +1964,7 @@ fn get_repair_config(
     let _ = s
         .allow_repair_non_unique
         .inner
-        .map(|x| c.allow_repair_non_unique = x.into());
+        .map(|x| c.allow_repair_non_unique = x.0);
 
     c
 }
@@ -3392,7 +2000,7 @@ fn get_data_kws_config(
     let _ = s
         .allow_missing_required_offsets
         .inner
-        .map(|x| c.allow_missing_required_offsets = x);
+        .map(|x| c.allow_missing_required_offsets = x.0);
 
     let _ = s
         .process_optional_failure
@@ -3407,7 +2015,7 @@ fn get_data_kws_config(
     let _ = s
         .disallow_range_truncation
         .inner
-        .map(|x| c.disallow_range_truncation = x);
+        .map(|x| c.disallow_range_truncation = x.0);
 
     c
 }
@@ -3416,17 +2024,23 @@ fn get_dataset_config(s: &ReadDatasetArgs_, strat: tc::ReadStrategy) -> tc::Read
     let mut c = tc::ReadDatasetConfig::new_with_strategy(strat);
 
     let _ = s.data_remainder_limit.map(|x| c.data_remainder_limit = x);
-    let _ = s.allow_tot_mismatch.inner.map(|x| c.allow_tot_mismatch = x);
+    let _ = s
+        .allow_tot_mismatch
+        .inner
+        .map(|x| c.allow_tot_mismatch = x.0);
     let _ = s
         .allow_uneven_event_width
         .inner
-        .map(|x| c.allow_uneven_event_width = x);
+        .map(|x| c.allow_uneven_event_width = x.0);
 
     let _ = s.over_bitmask_action.map(|x| c.over_bitmask_action = x);
     let _ = s.over_range_action.map(|x| c.over_range_action = x);
 
-    let _ = s.allow_missing_crc.inner.map(|x| c.allow_missing_crc = x);
-    let _ = s.allow_mismatch_crc.inner.map(|x| c.allow_mismatch_crc = x);
+    let _ = s.allow_missing_crc.inner.map(|x| c.allow_missing_crc = x.0);
+    let _ = s
+        .allow_mismatch_crc
+        .inner
+        .map(|x| c.allow_mismatch_crc = x.0);
     let _ = s.compute_crc.map(|x| c.compute_crc = x);
     let _ = s.row_buffer_size.map(|x| c.row_buffer_size = x);
 
@@ -3527,96 +2141,89 @@ fn get_write_std_dataset_config(sargs: &WriteArgs) -> tc::WriteDatasetInnerConfi
     conf
 }
 
-fn get_path<'a>(sargs: &'a ArgMatches, name: &'a str) -> &'a PathBuf {
-    sargs.get_one::<PathBuf>(name).expect("path is required")
-}
+#[derive(Clone, Copy)]
+struct CliTriFlag<T>(T);
 
-fn get_mmap(sargs: &ArgMatches) -> bool {
-    sargs.get_flag(ta::MMAP)
-}
-
-fn get_strategy(sargs: &ArgMatches) -> tc::ReadStrategy {
-    sargs.get_one(STRATEGY).copied().unwrap_or_default()
-}
-
-fn get_dataset_index(sargs: &ArgMatches) -> Option<usize> {
-    sargs.get_one::<usize>(DATASET_INDEX).copied()
-}
-
-fn get_skip(sargs: &ArgMatches) -> Option<usize> {
-    sargs.get_one::<usize>(ta::SKIP).copied()
-}
-
-fn get_limit(sargs: &ArgMatches) -> Option<usize> {
-    sargs.get_one::<usize>(ta::LIMIT).copied()
-}
-
-fn get_scan(sargs: &ArgMatches) -> bool {
-    sargs.get_flag(ta::SCAN)
-}
-
-fn get_delim(sargs: &ArgMatches) -> u8 {
-    sargs.get_one::<u8>(PRINT_DELIM).copied().unwrap()
-}
-
-fn get_opt<T, F>(sargs: &ArgMatches, name: &str, f: F)
+impl<T> FromStr for CliTriFlag<T>
 where
-    F: FnMut(T),
-    T: Clone + Sync + Send + 'static,
+    T: TriErrorFlag,
+    TriFlag: Into<T>,
 {
-    let _ = sargs.get_one(name).cloned().map(f);
-}
+    type Err = PartialTriErrorFlagError;
 
-fn get_many<T, F, X>(sargs: &ArgMatches, name: &str, mut f: F)
-where
-    X: FromIterator<T>,
-    F: FnMut(X),
-    T: Clone + Sync + Send + 'static,
-{
-    let _ = sargs
-        .get_one::<Vec<T>>(name)
-        .map(|xs| f(xs.iter().cloned().collect()));
-}
-
-fn get_flag<T, F>(sargs: &ArgMatches, name: &str, f: F)
-where
-    F: FnMut(T),
-    T: Copy + Sync + Send + 'static + From<bool>,
-{
-    let _ = sargs.get_one::<bool>(name).copied().map(T::from).map(f);
-}
-
-fn get_correction<I, S, F>(sargs: &ArgMatches, name: &str, f: F)
-where
-    F: FnMut(OffsetsCorrection<I, S>),
-{
-    let _ = sargs
-        .get_one::<(i32, i32)>(name)
-        .copied()
-        .map(Into::into)
-        .map(f);
-}
-
-fn parse_opt_nonstr<T>(s: &str) -> StrResult<Option<T>>
-where
-    T: FromStr,
-    T::Err: Error + 'static,
-{
-    if s == "none" {
-        return Ok(None);
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        T::from_partial_str(s).map(Self)
     }
-    Ok(Some(s.parse::<T>().map_err(|e| e.to_string())?))
 }
 
-fn parse_opt_ne_str<T>(s: &str) -> StrResult<Option<T>>
-where
-    T: FromStr,
-    T::Err: Error + 'static,
-{
-    if s.is_empty() {
-        return Ok(None);
+#[derive(Clone)]
+struct CliOpticalOnlyKeys(OpticalOnlyKeys);
+
+impl FromStr for CliOpticalOnlyKeys {
+    type Err = ParseOpticalOnlyKeysError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.is_empty() {
+            Ok(Self(OpticalOnlyKeys::default()))
+        } else {
+            OpticalOnlyKeys::try_from_iter(s.split(',')).map(Self)
+        }
     }
-    Ok(Some(s.parse::<T>().map_err(|e| e.to_string())?))
+}
+
+/// An optional non-empty string where empty string on CLI maps to "none".
+#[derive(Clone, Copy)]
+struct NENullable<T>(Option<T>);
+
+impl<T: FromStr> FromStr for NENullable<T> {
+    type Err = T::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let ret = if s.is_empty() {
+            None
+        } else {
+            Some(s.parse::<T>()?)
+        };
+        Ok(Self(ret))
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Nullable<T>(Option<T>);
+
+impl<T: FromStr> FromStr for Nullable<T> {
+    type Err = T::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let ret = if s == "none" {
+            None
+        } else {
+            Some(s.parse::<T>()?)
+        };
+        Ok(Self(ret))
+    }
+}
+
+#[derive(Clone, Copy)]
+struct StrOffsetsCorrection<I, S>(OffsetsCorrection<I, S>);
+
+impl<I, S> FromStr for StrOffsetsCorrection<I, S>
+where
+    (i32, i32): Into<OffsetsCorrection<I, S>>,
+{
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let xs = s.split(',').collect::<Vec<_>>();
+        match &xs[..] {
+            [a, b] => {
+                let aa = a.parse::<i32>().map_err(|e| e.to_string())?;
+                let bb = b.parse::<i32>().map_err(|e| e.to_string())?;
+                Ok(Self((aa, bb).into()))
+            }
+            _ => Err("offsets must be a pair of integers like 'X,Y'".into()),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -3639,37 +2246,31 @@ impl FromStr for CliDelim {
     }
 }
 
-fn parse_delim(s: &str) -> StrResult<u8> {
-    let c = s.parse::<char>().map_err(|e| e.to_string())?;
-    c.try_into()
-        .map_err(|_| "must be a single ASCII character".into())
-}
+#[derive(Clone)]
+struct CliOtherOffsetCorrections(Vec<HeaderCorrection<OtherSegmentId>>);
 
-fn parse_offsets(s: &str) -> StrResult<Vec<(i32, i32)>> {
-    if s.is_empty() {
-        Ok(vec![])
-    } else {
-        s.split(OFFSET_DELIM).map(parse_offset_pair).collect()
-    }
-}
+impl FromStr for CliOtherOffsetCorrections {
+    type Err = String;
 
-fn parse_offset_pair(s: &str) -> StrResult<(i32, i32)> {
-    let xs = s.split(',').collect::<Vec<_>>();
-    match &xs[..] {
-        [a, b] => {
-            let aa = a.parse::<i32>().map_err(|e| e.to_string())?;
-            let bb = b.parse::<i32>().map_err(|e| e.to_string())?;
-            Ok((aa, bb))
-        }
-        _ => Err("offsets must be a pair of integers like 'X,Y'".into()),
-    }
-}
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let go = |x: &str| -> Result<HeaderCorrection<OtherSegmentId>, String> {
+            let xs = x.split(',').collect::<Vec<_>>();
+            match &xs[..] {
+                [a, b] => {
+                    let aa = a.parse::<i32>().map_err(|e| e.to_string())?;
+                    let bb = b.parse::<i32>().map_err(|e| e.to_string())?;
+                    Ok((aa, bb).into())
+                }
+                _ => Err("offsets must be a pair of integers like 'X,Y'".into()),
+            }
+        };
 
-fn parse_optical_only_keys(s: &str) -> StrResult<OpticalOnlyKeys> {
-    if s.is_empty() {
-        Ok(OpticalOnlyKeys::default())
-    } else {
-        OpticalOnlyKeys::try_from_iter(s.split(',')).map_err(|e| e.to_string())
+        let ret = if s.is_empty() {
+            vec![]
+        } else {
+            s.split(OFFSET_DELIM).map(go).collect::<Result<_, _>>()?
+        };
+        Ok(Self(ret))
     }
 }
 
@@ -3723,48 +2324,6 @@ where
     }
 }
 
-fn parse_std_key_or_pattern_list<const HAS_PRE: bool>(
-    s: &str,
-) -> StrResult<Vec<StdKeyOrPattern<HAS_PRE>>>
-where
-    StdKeyOrPattern<HAS_PRE>: FromStr,
-    <StdKeyOrPattern<HAS_PRE> as FromStr>::Err: fmt::Display,
-{
-    let go = |ss: &str| {
-        ss.parse::<StdKeyOrPattern<HAS_PRE>>()
-            .map_err(|e| e.to_string())
-    };
-    let single = || Ok(vec![go(s)?]);
-    if let Some(b0) = s.as_bytes().first() {
-        let delim = char::from(*b0);
-        let rest = s.strip_prefix(delim).unwrap();
-        if !b0.is_ascii() {
-            Err(format!("delimiter must be an ASCII character, got {delim}"))
-        } else if rest.is_empty() {
-            Ok(vec![])
-        } else if rest.strip_suffix(delim).is_some() {
-            if b0 == &PATTERN_DELIMITER {
-                // String starts and ends with delimiter but delimiter is the
-                // same as the regex pattern specifier; treat as a single
-                // pattern.
-                single()
-            } else {
-                // Otherwise delimiters should be treated as real delimiters,
-                // strip off the start and end delimiter and split on whatever
-                // other delimiters we find.
-                let mid = s.strip_prefix(delim).unwrap().strip_suffix(delim).unwrap();
-                mid.split(delim).map(go).collect()
-            }
-        } else {
-            // String is either a single character or does not start/end with
-            // the same character, interpret as a single value.
-            single()
-        }
-    } else {
-        Ok(vec![])
-    }
-}
-
 #[derive(Clone)]
 struct CliKeyPairs(KeyPairs);
 
@@ -3815,27 +2374,6 @@ impl FromStr for CliSubPatterns {
         let ret = xs.iter().cloned().collect::<HashMap<_, _>>();
         Ok(Self(StdKeysOrPatterns(ret)))
     }
-}
-
-fn parse_two_keystring_pair(s: &str) -> StrResult<Vec<BiKeyPair>> {
-    let go_k = |x: &str| x.parse::<AnyKey>().map_err(|e| e.to_string());
-    let go_v = |x: &str| x.parse::<AnyKey>().map_err(|e| e.to_string());
-    parse_pairs(s, go_k, go_v)
-}
-
-fn parse_keystring_string_pair(s: &str) -> StrResult<Vec<KeystringStringPair>> {
-    let go_k = |x: &str| x.parse::<StdKey>().map_err(|e| e.to_string());
-    let go_v = |x: &str| x.parse::<NEString>().map_err(|e| e.to_string());
-    parse_pairs(s, go_k, go_v)
-}
-
-fn parse_sub_pattern_pair(s: &str) -> StrResult<Vec<SubPatternPair>> {
-    let go_k = |x: &str| {
-        x.parse::<StdKeyOrPattern<true>>()
-            .map_err(|e| e.to_string())
-    };
-    let go_v = |x: &str| parse_sub_pattern_inner(x).map_err(|e| e.to_string());
-    parse_pairs(s, go_k, go_v)
 }
 
 fn parse_pairs<K, V, Fk, Fv>(s: &str, fk: Fk, fv: Fv) -> StrResult<Vec<(K, V)>>
@@ -3893,30 +2431,6 @@ fn parse_sub_pattern_inner(s: &str) -> AppResult<SubPattern> {
     };
     let r = Regex::new(from)?;
     Ok(SubPattern::try_new(r, to.to_owned(), global)?)
-}
-
-fn parse_int_width_override(s: &str) -> StrResult<IntWidthOverride> {
-    let out = if s == tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str() {
-        IntWidthOverride::Never
-    } else if s == tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL.as_str() {
-        IntWidthOverride::NextByte
-    } else {
-        let x = s.parse::<NumericByteWidth>().map_err(|e| e.to_string())?;
-        IntWidthOverride::Explicit(x)
-    };
-    Ok(out)
-}
-
-fn parse_byteord_override(s: &str) -> StrResult<ByteordOverride> {
-    let out = if s == tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL.as_str() {
-        ByteordOverride::Endian
-    } else if s == tc::BYTEORD_OVERRIDE_NONE_LEVEL.as_str() {
-        ByteordOverride::None
-    } else {
-        let x = s.parse::<ConfigByteOrd>().map_err(|e| e.to_string())?;
-        ByteordOverride::Explicit(x)
-    };
-    Ok(out)
 }
 
 pub fn print_parsed_data<W: Write>(w: &mut W, core: &AnyCoreDataset, delim: u8) -> io::Result<()> {
@@ -4003,74 +2517,9 @@ fn print_warnings<W: Write, Warn: Display>(
     Ok(())
 }
 
-fn post_validation_error(cmd: &Command, arg_name: &str, msg: impl Display) -> clap::Error {
-    let lit = cmd.get_styles().get_literal();
-    clap::Error::raw(
-        ErrorKind::ValueValidation,
-        format!("validation failed for '{lit}--{arg_name}{lit:#}': {msg}\n"),
-    )
-    .with_cmd(cmd)
-}
-
 type AppResult<T> = Result<T, Box<dyn Error>>;
 
 type StrResult<T> = Result<T, String>;
-
-type BiKeyPair = (AnyKey, AnyKey);
-
-type KeystringStringPair = (StdKey, NEString);
-
-type SubPatternPair = (StdKeyOrPattern<true>, SubPattern);
-
-const SUBCMD_VERSION: &str = "version";
-
-const SUBCMD_HEADER: &str = "header";
-
-const SUBCMD_FLAT: &str = "flat";
-
-const SUBCMD_STD: &str = "std";
-
-const SUBCMD_DATA: &str = "data";
-
-const SUBCMD_SUMMARIZE: &str = "summarize";
-
-const SUBCMD_SCAN: &str = "scan";
-
-const SUBCMD_MEAS: &str = "measurements";
-
-const SUBCMD_SPILL: &str = "spillover";
-
-const SUBCMD_REPAIR: &str = "repair";
-
-const SUBCMD_STRATEGIES: &str = "strategies";
-
-// other flags
-
-const PRINT_DELIM: &str = "print-delim";
-
-const DATASET_INDEX: &str = "dataset-index";
-
-const WRITE_DELIM: &str = "write-delim";
-
-const BIG_OTHER: &str = "big-other";
-
-const INPUT_PATH: &str = "input-path";
-
-const OUTPUT_PATH: &str = "output-path";
-
-const STRATEGY: &str = "strategy";
-
-const VENDOR_HEURISTICS: &str = "vendor-heuristics";
-
-const CHRONO_REF: &str = "https://docs.rs/chrono/latest/chrono/format/strftime/index.html";
-
-const REGEXP_REF: &str = "https://docs.rs/regex/latest/regex/#syntax";
-
-const REGEXP_REP_REF: &str = "https://docs.rs/regex/latest/regex/struct.Regex.html#method.replace";
-
-// misc
-
-const OFFSET_DELIM: char = '/';
 
 // formatted segments
 
@@ -4236,3 +2685,15 @@ pub static BOLD: &str = "\x1B[1m";
 pub static ITALIC: &str = "\x1B[3m";
 
 pub static RESET: &str = "\x1B[0m";
+
+// static urls
+
+const CHRONO_REF: &str = "https://docs.rs/chrono/latest/chrono/format/strftime/index.html";
+
+const REGEXP_REF: &str = "https://docs.rs/regex/latest/regex/#syntax";
+
+const REGEXP_REP_REF: &str = "https://docs.rs/regex/latest/regex/struct.Regex.html#method.replace";
+
+// misc
+
+const OFFSET_DELIM: char = '/';

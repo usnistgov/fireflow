@@ -1603,7 +1603,10 @@ fn run() -> AppResult<()> {
     let mut stdout = io::BufWriter::new(io::stdout().lock());
     let mut stderr = io::BufWriter::new(io::stderr().lock());
 
-    match Cli::try_parse()? {
+    // NOTE this will call exit if arg parsing fails; it is the "simple" way
+    // to return colored output. Using try_parse() requires manually rendering
+    // the string to get color.
+    match Cli::parse() {
         Cli::Version => {
             let vi = api::build_info();
             to_writer(stdout, &vi)?;

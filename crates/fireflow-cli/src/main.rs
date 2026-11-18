@@ -10,14 +10,17 @@ use fireflow_core::segment::read::{HasRegion, HasSource};
 use fireflow_types::config::{
     self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, ParseOpticalOnlyKeysError,
 };
-use fireflow_types::keys::{AnyKey, StdKey};
+use fireflow_types::keys::{AnyKey, AnyKeyError, StdKey, StdKeyError};
+use fireflow_types::keystring_pairs::KeyPairsError;
 use fireflow_types::other_width::{OTHER_WIDTH_DEFAULT, OtherWidth};
 use fireflow_types::ranged_float::PositiveFloat;
 use fireflow_types::segment as ts;
 use fireflow_types::segment::OffsetsCorrection;
 use fireflow_types::segment::{HeaderCorrection, OtherSegmentId};
-use fireflow_types::std_pattern::{PATTERN_DELIMITER, StdKeyOrPattern, StdKeyPatterns};
-use fireflow_types::sub_pattern::SubPattern;
+use fireflow_types::std_pattern::{
+    PATTERN_DELIMITER, StdKeyOrPattern, StdKeyOrPatternError, StdKeyPatterns,
+};
+use fireflow_types::sub_pattern::{SubPattern, SubPatternError};
 use fireflow_types::textdelim::TEXTDelim;
 use fireflow_types::timepattern::TimePattern;
 use fireflow_types::{args::dash as ta, config::OpticalOnlyKeys};
@@ -29,21 +32,21 @@ use fireflow_types::{
 use fireflow_types::{datepattern::DatePattern, std_pattern::SubPatterns};
 use fireflow_types::{keys::raw_std as sk, std_pattern::StdKeysOrPatterns};
 
-use nonempty::NEString;
+use nonempty::{NEString, NonEmptyStringError};
 
 use clap::{ArgAction, Args, Parser};
 use const_format::{concatcp, formatcp};
-use derive_more::Into;
+use derive_more::{Display, From, Into};
 use hashbrown::HashMap;
 use itertools::Itertools as _;
 use itoa::Buffer as IBuf;
-use regex::Regex;
+use regex::{Error as RegexError, Regex};
 use serde::Serialize;
 use serde_json::{Value, json, to_writer};
+use thiserror::Error;
 use zmij::Buffer as FBuf;
 
 use std::error::Error;
-use std::fmt;
 use std::fmt::Display;
 use std::io::{self, Write};
 use std::iter::once;
@@ -1029,24 +1032,50 @@ where
 ///
 /// These will be parsed as pairs like "X,Y".
 #[derive(Clone, Copy, Into)]
-struct StrOffsetsCorrection<I, S>(OffsetsCorrection<I, S>);
+struct CliOffsetsCorrection<I, S>(OffsetsCorrection<I, S>);
 
-impl<I, S> FromStr for StrOffsetsCorrection<I, S>
+#[derive(Error, Debug)]
+#[error("offsets must be a pair of integers like 'X,Y'")]
+struct ParseCliOffsetsCorrectionError;
+
+impl<I, S> FromStr for CliOffsetsCorrection<I, S>
 where
     (i32, i32): Into<OffsetsCorrection<I, S>>,
 {
-    type Err = String;
+    type Err = ParseCliOffsetsCorrectionError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let xs = s.split(',').collect::<Vec<_>>();
-        match &xs[..] {
-            [a, b] => {
-                let aa = a.parse::<i32>().map_err(|e| e.to_string())?;
-                let bb = b.parse::<i32>().map_err(|e| e.to_string())?;
-                Ok(Self((aa, bb).into()))
-            }
-            _ => Err("offsets must be a pair of integers like 'X,Y'".into()),
-        }
+        parse_offset_pair(s)
+            .map(Self)
+            .ok_or(ParseCliOffsetsCorrectionError)
+    }
+}
+
+/// CLI wrapper for other offset corrections.
+///
+/// This is parsed as a single comma-separated string of pairs.
+#[derive(Clone, Into)]
+struct CliOtherOffsetCorrections(Vec<HeaderCorrection<OtherSegmentId>>);
+
+#[derive(Error, Debug)]
+#[error(
+    "{OTHER_SEG} offsets must be a pairs of integers \
+     like 'X,Y' separated by {OFFSET_DELIM}"
+)]
+struct ParseCliOtherOffsetCorrections;
+
+impl FromStr for CliOtherOffsetCorrections {
+    type Err = ParseCliOtherOffsetCorrections;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let go = |pair: &str| parse_offset_pair(pair).ok_or(ParseCliOtherOffsetCorrections);
+
+        let ret = if s.is_empty() {
+            vec![]
+        } else {
+            s.split(OFFSET_DELIM).map(go).collect::<Result<_, _>>()?
+        };
+        Ok(Self(ret))
     }
 }
 
@@ -1068,61 +1097,37 @@ impl FromStr for CliOpticalOnlyKeys {
     }
 }
 
-/// CLI wrapper for other offset corrections.
-///
-/// This is parsed as a single comma-separated string of pairs.
-#[derive(Clone, Into)]
-struct CliOtherOffsetCorrections(Vec<HeaderCorrection<OtherSegmentId>>);
-
-impl FromStr for CliOtherOffsetCorrections {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let go = |x: &str| -> Result<HeaderCorrection<OtherSegmentId>, String> {
-            let xs = x.split(',').collect::<Vec<_>>();
-            match &xs[..] {
-                [a, b] => {
-                    let aa = a.parse::<i32>().map_err(|e| e.to_string())?;
-                    let bb = b.parse::<i32>().map_err(|e| e.to_string())?;
-                    Ok((aa, bb).into())
-                }
-                _ => Err("offsets must be a pair of integers like 'X,Y'".into()),
-            }
-        };
-
-        let ret = if s.is_empty() {
-            vec![]
-        } else {
-            s.split(OFFSET_DELIM).map(go).collect::<Result<_, _>>()?
-        };
-        Ok(Self(ret))
-    }
-}
-
 /// CLI wrapper for [`StdKeyPatterns`].
 ///
 /// This is parsed as a single delim-separated string.
 #[derive(Clone, Default, Into)]
 struct CliStdKeyPatterns<const HAS_PRE: bool>(StdKeyPatterns<HAS_PRE>);
 
+#[derive(Error, Debug)]
+enum ParseCliStdKeyPatternsError {
+    #[error("delimiter must be an ASCII character, got {0}")]
+    Delim(char),
+    #[error("{0}")]
+    Inner(StdKeyOrPatternError),
+}
+
 impl<const HAS_PRE: bool> FromStr for CliStdKeyPatterns<HAS_PRE>
 where
-    StdKeyOrPattern<HAS_PRE>: FromStr,
-    <StdKeyOrPattern<HAS_PRE> as FromStr>::Err: fmt::Display,
+    StdKeyOrPattern<HAS_PRE>: FromStr<Err = StdKeyOrPatternError>,
 {
-    type Err = String;
+    type Err = ParseCliStdKeyPatternsError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let go = |ss: &str| {
             ss.parse::<StdKeyOrPattern<HAS_PRE>>()
-                .map_err(|e| e.to_string())
+                .map_err(ParseCliStdKeyPatternsError::Inner)
         };
         let single = || Ok(Self(once(go(s)?).collect()));
         if let Some(b0) = s.as_bytes().first() {
             let delim = char::from(*b0);
             let rest = s.strip_prefix(delim).unwrap();
             if !b0.is_ascii() {
-                Err(format!("delimiter must be an ASCII character, got {delim}"))
+                Err(ParseCliStdKeyPatternsError::Delim(delim))
             } else if rest.is_empty() {
                 Ok(Self::default())
             } else if rest.strip_suffix(delim).is_some() {
@@ -1158,19 +1163,20 @@ where
 #[derive(Clone, Into)]
 struct CliKeyPairs(KeyPairs);
 
+#[derive(Error, Debug, From, Display)]
+enum ParseCliKeyPairsError {
+    Inner(ParsePairsError<AnyKeyError>),
+    New(KeyPairsError),
+}
+
 impl FromStr for CliKeyPairs {
-    type Err = String;
+    type Err = ParseCliKeyPairsError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let go_k = |x: &str| x.parse::<AnyKey>().map_err(|e| e.to_string());
-        let go_v = |x: &str| x.parse::<AnyKey>().map_err(|e| e.to_string());
-        let xs = parse_pairs(s, go_k, go_v)?;
-        xs.iter()
-            .cloned()
-            .collect::<HashMap<_, _>>()
-            .try_into()
-            .map(Self)
-            .map_err(|e| e.to_string())
+        let go = |x: &str| x.parse::<AnyKey>();
+        let xs = parse_pairs(s, go, go)?;
+        let ret = xs.iter().cloned().collect::<HashMap<_, _>>().try_into()?;
+        Ok(Self(ret))
     }
 }
 
@@ -1180,12 +1186,18 @@ impl FromStr for CliKeyPairs {
 #[derive(Clone, Into)]
 struct CliStdKeyValues(StdKeyValues);
 
+#[derive(Error, Debug, From, Display)]
+enum ParseCliStdKeyValuesInnerError {
+    Key(StdKeyError),
+    Value(NonEmptyStringError),
+}
+
 impl FromStr for CliStdKeyValues {
-    type Err = String;
+    type Err = ParsePairsError<ParseCliStdKeyValuesInnerError>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let go_k = |x: &str| x.parse::<StdKey>().map_err(|e| e.to_string());
-        let go_v = |x: &str| x.parse::<NEString>().map_err(|e| e.to_string());
+        let go_k = |x: &str| Ok(x.parse::<StdKey>()?);
+        let go_v = |x: &str| Ok(x.parse::<NEString>()?);
         let xs = parse_pairs(s, go_k, go_v)?;
         let ret = xs.iter().cloned().collect::<HashMap<_, _>>();
         Ok(Self(ret))
@@ -1198,73 +1210,114 @@ impl FromStr for CliStdKeyValues {
 #[derive(Clone, Into)]
 struct CliSubPatterns(SubPatterns);
 
+#[derive(Error, Debug, From, Display)]
+enum ParseCliSubPatternsInnerError {
+    Key(StdKeyOrPatternError),
+    Value(ParseCliSubPatternError),
+}
+
+#[derive(Error, Debug, From)]
+enum ParseCliSubPatternError {
+    #[error("sub pattern must not be empty")]
+    Empty,
+    #[error("no delimiter found")]
+    NoDelim,
+    #[error("sub pattern must start with 's', got {0}")]
+    Op(char),
+    #[error("sub pattern delimiter is not a valid ASCII byte, got {0}")]
+    DelimNotAscii(char),
+    #[error(
+        "sub pattern string must be like 's<D><FROM><D><TO>[<D>g]' \
+         where 'D' is a delimiter (any character), FROM is a \
+         regular expression and TO is a replacement pattern"
+    )]
+    WrongSub,
+    #[error("{0}")]
+    #[from(RegexError)]
+    Regex(RegexError),
+    #[error("{0}")]
+    #[from(SubPatternError)]
+    Inner(SubPatternError),
+}
+
 impl FromStr for CliSubPatterns {
-    type Err = String;
+    type Err = ParsePairsError<ParseCliSubPatternsInnerError>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let go_k = |k: &str| {
-            k.parse::<StdKeyOrPattern<true>>()
-                .map_err(|e| e.to_string())
-        };
+        let go_k = |k: &str| Ok(k.parse::<StdKeyOrPattern<true>>()?);
 
         let go_v = |v: &str| {
-            let (op, r0) = v
-                .split_at_checked(1)
-                .ok_or("sub pattern must not be empty")?;
-            if op != "s" {
-                return Err(format!("sub pattern must start with 's', got {op}"));
-            }
-            if r0.is_empty() {
-                return Err("no delimiter found".into());
-            }
-            let (delim, r1) = r0
-                .split_at_checked(1)
-                .ok_or("sub pattern delimiter is not a valid UTF-8 byte")?;
-            let parts: Vec<_> = r1.split(delim).collect();
-            let (from, to, global) = match &parts[..] {
-                [x, y] | [x, y, ""] => (*x, *y, false),
-                [x, y, "g"] => (*x, *y, true),
-                _ => {
-                    let msg = "sub pattern string must be like 's<D><FROM><D><TO>[<D>g]' \
-                       where 'D' is a delimiter (any character), FROM is a \
-                       regular expression and TO is a replacement pattern";
-                    return Err(msg.into());
+            let bytes = v.as_bytes();
+            let (&b0, r0) = bytes.split_first().ok_or(ParseCliSubPatternError::Empty)?;
+            if b0 != b's' {
+                Err(ParseCliSubPatternError::Op(char::from(b0)))
+            } else if let Some((&b1, r1)) = r0.split_first() {
+                let delim = char::from(b1);
+                if b1.is_ascii() {
+                    // SAFETY: first two bytes are ASCII, UTF8 cannot be broken
+                    let sub = unsafe { str::from_utf8_unchecked(r1) };
+                    let parts: Vec<_> = sub.split(delim).collect();
+                    let (from, to, global) = match &parts[..] {
+                        [x, y] | [x, y, ""] => Ok((*x, *y, false)),
+                        [x, y, "g"] => Ok((*x, *y, true)),
+                        _ => Err(ParseCliSubPatternError::WrongSub),
+                    }?;
+                    let r = Regex::new(from)?;
+                    Ok(SubPattern::try_new(r, to.to_owned(), global)?)
+                } else {
+                    Err(ParseCliSubPatternError::DelimNotAscii(delim))
                 }
-            };
-            let r = Regex::new(from).map_err(|e| e.to_string())?;
-            SubPattern::try_new(r, to.to_owned(), global).map_err(|e| e.to_string())
+            } else {
+                Err(ParseCliSubPatternError::NoDelim)
+            }
         };
 
-        let xs = parse_pairs(s, go_k, go_v)?;
+        let xs = parse_pairs(s, go_k, |v| Ok(go_v(v)?))?;
         let ret = xs.iter().cloned().collect::<HashMap<_, _>>();
 
         Ok(Self(StdKeysOrPatterns(ret)))
     }
 }
 
-fn parse_pairs<K, V, Fk, Fv>(s: &str, fk: Fk, fv: Fv) -> StrResult<Vec<(K, V)>>
+#[derive(Error, Debug)]
+enum ParsePairsError<E> {
+    #[error("First and last character must be the same")]
+    FirstLastNotSame,
+    #[error("number of delimited values must be even")]
+    NotEven,
+    #[error("delimiter must be an ASCII character, got {0}")]
+    Delim(char),
+    #[error("{0}")]
+    Inner(E),
+}
+
+fn parse_pairs<K, V, E, Fk, Fv>(s: &str, fk: Fk, fv: Fv) -> Result<Vec<(K, V)>, ParsePairsError<E>>
 where
-    Fk: Fn(&str) -> StrResult<K>,
-    Fv: Fn(&str) -> StrResult<V>,
+    Fk: Fn(&str) -> Result<K, E>,
+    Fv: Fn(&str) -> Result<V, E>,
 {
     if let Some(b0) = s.as_bytes().first() {
         let delim = char::from(*b0);
         let rest = s.strip_prefix(delim).unwrap();
         if !b0.is_ascii() {
-            Err(format!("delimiter must be an ASCII character, got {delim}"))
+            Err(ParsePairsError::Delim(delim))
         } else if rest.is_empty() {
             Ok(vec![])
         } else if let Some(mid) = rest.strip_suffix(delim) {
-            let go = |a: &str, b: &str| Ok((fk(a)?, fv(b)?));
+            let go = |a: &str, b: &str| {
+                let k = fk(a).map_err(ParsePairsError::Inner)?;
+                let v = fv(b).map_err(ParsePairsError::Inner)?;
+                Ok((k, v))
+            };
             let mut it = mid.split(delim).tuples();
             let out = it.by_ref().map(|(a, b)| go(a, b)).collect();
             if it.into_buffer().next().is_some() {
-                Err("number of delimited values must be even".into())
+                Err(ParsePairsError::NotEven)
             } else {
                 out
             }
         } else {
-            Err("First and last character must be the same".into())
+            Err(ParsePairsError::FirstLastNotSame)
         }
     } else {
         Ok(vec![])
@@ -1542,7 +1595,7 @@ macro_rules! corr_arg {
             #[arg(long = $long)]
             #[arg(value_name = "BEGIN,END")]
             #[arg(help = format!("Correction for {seg} offsets from {src}.", seg = <$seg as HasRegion>::REGION, src = <$src as HasSource>::SRC))]
-            inner: Option<StrOffsetsCorrection<$seg, $src>>,
+            inner: Option<CliOffsetsCorrection<$seg, $src>>,
         }
 
         impl MapConfig for $t {
@@ -2616,6 +2669,21 @@ impl WriteDatasetInnerConfigArgs {
 
 // misc functions/aliases
 
+fn parse_offset_pair<I, S>(s: &str) -> Option<OffsetsCorrection<I, S>>
+where
+    (i32, i32): Into<OffsetsCorrection<I, S>>,
+{
+    let xs = s.split(',').collect::<Vec<_>>();
+    if let [a, b] = &xs[..]
+        && let Ok(aa) = a.parse::<i32>()
+        && let Ok(bb) = b.parse::<i32>()
+    {
+        Some((aa, bb).into())
+    } else {
+        None
+    }
+}
+
 fn print_warnings<W: Write, Warn: Display>(
     ws: impl IntoIterator<Item = Warn>,
     w: &mut W,
@@ -2627,8 +2695,6 @@ fn print_warnings<W: Write, Warn: Display>(
 }
 
 type AppResult<T> = Result<T, Box<dyn Error>>;
-
-type StrResult<T> = Result<T, String>;
 
 // formatted segments
 

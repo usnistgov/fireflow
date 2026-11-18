@@ -85,24 +85,6 @@ fn main() -> ExitCode {
     }
 }
 
-macro_rules! fmt_arg {
-    ($s:expr) => {
-        formatcp!("{BOLD}--{}{RESET}", $s)
-    };
-}
-
-macro_rules! fmt_val {
-    ($s:expr) => {
-        formatcp!("'{}'", $s)
-    };
-}
-
-macro_rules! fmt_config_val {
-    ($s:ident) => {
-        formatcp!("'{}'", tc::$s.as_str())
-    };
-}
-
 /// Main command tree for the CLI.
 #[derive(Parser)]
 #[command(name = "fireflow")]
@@ -115,102 +97,46 @@ enum Cli {
     Version,
 
     #[command(about = "Show header as JSON.")]
-    Header(ReadHeaderArgs),
+    Header(HeaderCmdArgs),
 
     #[command(about = "Show flat keywords as JSON.")]
     #[command(after_long_help(FLAT_LONG_HELP))]
-    Flat(ReadFlatArgs),
+    Flat(FlatCmdArgs),
 
     #[command(about = "Dump standardized keywords as JSON.")]
     #[command(after_long_help(STD_LONG_HELP))]
-    Std(ReadStdArgs),
+    Std(StdCmdArgs),
 
     #[command(about = "Show a table of standardized measurement values.")]
     #[command(after_long_help(STD_LONG_HELP))]
-    Measurements(ReadStdTabularArgs),
+    Measurements(TabularCmdArgs),
 
     #[command(about = "Dump the spillover matrix if present.")]
     #[command(after_long_help(STD_LONG_HELP))]
-    Spillover(ReadStdTabularArgs),
+    Spillover(TabularCmdArgs),
 
     #[command(about = formatcp!("Show a table of the {DATA_SEG} segment."))]
     #[command(after_long_help(STD_LONG_HELP))]
-    Data(ReadDatasetArgs),
+    Data(DatasetCmdArgs),
 
     #[command(about = "Read a non-compliant FCS file and save as a compliant FCS file.")]
     #[command(after_long_help(STD_LONG_HELP))]
-    Repair(RepairFileArgs),
+    Repair(RepairCmdArgs),
 
     #[command(about = "Show configuration arguments for a given strategy.")]
     #[command(after_long_help(STD_LONG_HELP))]
     Strategies(StrategyArg),
 
     #[command(about = "Summarize datasets in FCS file")]
-    Summarize(SummarizeArgs),
+    Summarize(SummarizeCmdArgs),
 
     #[command(about = "Scan FCS file for dataset boundaries")]
-    Scan(ScanArgs),
-}
-
-impl Cli {
-    fn run() -> AppResult<()> {
-        let stdout = io::BufWriter::new(io::stdout().lock());
-        let stderr = io::BufWriter::new(io::stderr().lock());
-
-        // NOTE this will call exit if arg parsing fails; it is the "simple" way
-        // to return colored output. Using try_parse() requires manually rendering
-        // the string to get color.
-        match Self::parse() {
-            Self::Version => {
-                let vi = api::build_info();
-                to_writer(stdout, &vi)?;
-            }
-
-            Self::Header(sargs) => sargs.run(stdout, stderr)?,
-
-            Self::Flat(sargs) => sargs.run(stdout, stderr)?,
-
-            Self::Std(sargs) => sargs.run(stdout, stderr)?,
-
-            Self::Measurements(sargs) => sargs.run_meas(stdout, stderr)?,
-
-            Self::Spillover(sargs) => sargs.run_spillover(stdout, stderr)?,
-
-            Self::Data(sargs) => sargs.run(stdout, stderr)?,
-
-            Self::Summarize(sargs) => sargs.run(stdout, stderr)?,
-
-            Self::Repair(sargs) => sargs.run(stdout, stderr)?,
-
-            Self::Scan(sargs) => {
-                #[derive(Serialize)]
-                struct Bounds {
-                    version: tk::Version,
-                    offset: DatasetOffset,
-                }
-                let filepath = sargs.input.inner;
-                let mmap = sargs.mmap.inner;
-                let bounds = api::fcs_scan_dataset_boundaries(&filepath, mmap)?;
-                let arr: Vec<_> = bounds
-                    .into_iter()
-                    .map(|(version, offset)| Bounds { version, offset })
-                    .collect();
-                to_writer(stdout, &arr)?;
-            }
-
-            Self::Strategies(sargs) => {
-                let strat = sargs.inner.unwrap_or_default();
-                let conf = cfg::ReadStdDatasetConfig::new_with_strategy(strat);
-                to_writer(stdout, &conf)?;
-            }
-        }
-        Ok(())
-    }
+    Scan(ScanCmdArgs),
 }
 
 /// Arguments for "header" subcommand.
 #[derive(Args)]
-struct ReadHeaderArgs {
+struct HeaderCmdArgs {
     #[command(flatten)]
     input: InputArg,
 
@@ -226,7 +152,7 @@ struct ReadHeaderArgs {
 
 /// Arguments for "flat" subcommand.
 #[derive(Args)]
-struct ReadFlatArgs {
+struct FlatCmdArgs {
     #[command(flatten)]
     input: InputArg,
 
@@ -240,12 +166,12 @@ struct ReadFlatArgs {
     mmap: MmapArg,
 
     #[command(flatten)]
-    flat: ReadFlatKwsArgs_,
+    flat: AllReadFlatKwsConfigArgs,
 }
 
 /// Arguments for "std" subcommand.
 #[derive(Args)]
-struct ReadStdArgs {
+struct StdCmdArgs {
     #[command(flatten)]
     input: InputArg,
 
@@ -262,12 +188,12 @@ struct ReadStdArgs {
     mmap: MmapArg,
 
     #[command(flatten)]
-    std: ReadStdKwsArgs_,
+    std: AllReadStdKwsConfigArgs,
 }
 
 /// Arguments for "measurements" and "spillover" subcommands.
 #[derive(Args)]
-struct ReadStdTabularArgs {
+struct TabularCmdArgs {
     #[command(flatten)]
     input: InputArg,
 
@@ -287,12 +213,12 @@ struct ReadStdTabularArgs {
     mmap: MmapArg,
 
     #[command(flatten)]
-    std: ReadStdKwsArgs_,
+    std: AllReadStdKwsConfigArgs,
 }
 
 /// Arguments for "data" subcommand.
 #[derive(Args)]
-struct ReadDatasetArgs {
+struct DatasetCmdArgs {
     #[command(flatten)]
     input: InputArg,
 
@@ -312,12 +238,12 @@ struct ReadDatasetArgs {
     mmap: MmapArg,
 
     #[command(flatten)]
-    dataset: ReadStdDatasetArgs_,
+    dataset: AllReadStdDatasetConfigArgs,
 }
 
 /// Arguments for "repair" subcommand.
 #[derive(Args)]
-struct RepairFileArgs {
+struct RepairCmdArgs {
     #[command(flatten)]
     input: InputArg,
 
@@ -340,12 +266,12 @@ struct RepairFileArgs {
     write: WriteDatasetInnerConfigArgs,
 
     #[command(flatten)]
-    dataset: ReadStdDatasetArgs_,
+    dataset: AllReadStdDatasetConfigArgs,
 }
 
 /// Arguments for "summarize" subcommand.
 #[derive(Args)]
-struct SummarizeArgs {
+struct SummarizeCmdArgs {
     #[command(flatten)]
     input: InputArg,
 
@@ -359,7 +285,7 @@ struct SummarizeArgs {
     multi: MultiDatasetArgs,
 
     #[command(flatten)]
-    flat: ReadFlatKwsArgs_,
+    flat: AllReadFlatKwsConfigArgs,
 
     #[command(flatten)]
     repair: ReadRepairKeywordsConfigArgs,
@@ -373,7 +299,7 @@ struct SummarizeArgs {
 
 /// Arguments for "scan" subcommand.
 #[derive(Args)]
-struct ScanArgs {
+struct ScanCmdArgs {
     #[command(flatten)]
     input: InputArg,
 
@@ -383,7 +309,7 @@ struct ScanArgs {
 
 /// Config-specific arguments for reading flat keywords.
 #[derive(Args)]
-struct ReadFlatKwsArgs_ {
+struct AllReadFlatKwsConfigArgs {
     #[command(flatten)]
     header: ReadHeaderInnerConfigArgs,
 
@@ -399,9 +325,9 @@ struct ReadFlatKwsArgs_ {
 
 /// Config-specific arguments for reading std keywords.
 #[derive(Args)]
-struct ReadStdKwsArgs_ {
+struct AllReadStdKwsConfigArgs {
     #[command(flatten)]
-    flat: ReadFlatKwsArgs_,
+    flat: AllReadFlatKwsConfigArgs,
 
     #[command(flatten)]
     std: ReadStdKeywordsConfigArgs,
@@ -415,12 +341,57 @@ struct ReadStdKwsArgs_ {
 
 /// Config-specific arguments for reading std dataset.
 #[derive(Args)]
-struct ReadStdDatasetArgs_ {
+struct AllReadStdDatasetConfigArgs {
     #[command(flatten)]
-    std: ReadStdKwsArgs_,
+    std: AllReadStdKwsConfigArgs,
 
     #[command(flatten)]
     dataset: ReadDatasetConfigArgs,
+}
+
+// Implement individual arguments.
+
+/// Format an argument for use in help text.
+macro_rules! fmt_arg {
+    ($s:expr) => {
+        formatcp!("{BOLD}--{}{RESET}", $s)
+    };
+}
+
+/// Format a value for use in help text.
+macro_rules! fmt_val {
+    ($s:expr) => {
+        formatcp!("'{}'", $s)
+    };
+}
+
+/// Format a non-empty string for use in help text.
+macro_rules! fmt_config_val {
+    ($s:ident) => {
+        formatcp!("'{}'", tc::$s.as_str())
+    };
+}
+
+/// Format the value name for a string that has multiple key/val pairs
+macro_rules! std_key_val_pair_value_name {
+    ($k:expr, $v:expr) => {
+        formatcp!("<#>{k}<#>{v}[<#>{k}<#>{v}]<#>", k = $k, v = $v)
+    };
+}
+
+/// Format common for a string that has multiple key/val pairs
+macro_rules! std_key_val_pair_help_common {
+    ($k:expr, $v:expr) => {
+        formatcp!(
+            "First character is considered to be the delimiter (<#>) for \
+             separating {k} and {v} as well as multiple pairs of {k}/{v}. An \
+             empty list or single delimiter encodes an empty list. Delimiters \
+             must be ASCII characters. If duplicate keys are found, only the \
+             last is kept.",
+            k = $k,
+            v = $v
+        )
+    };
 }
 
 /// Arguments which map onto [`tc::ReadHeaderInnerConfig`].
@@ -438,10 +409,8 @@ struct ReadHeaderInnerConfigArgs {
     #[arg(long = ta::OTHER_CORRS)]
     #[arg(name = formatcp!("BEGIN,END[{OFFSET_DELIM}..]"))]
     #[arg(help = format!(
-        "Correction for {OTHER_SEG} offsets. \
-         Pairs are separated by a comma. \
-         Multiple pairs are separated by a {delim}. \
-         An empty string represents an empty list.",
+        "Correction for {OTHER_SEG} offsets. Pairs are separated by a comma. \
+         Multiple pairs are separated by a {delim}. An empty string represents an empty list.",
         delim = fmt_val!(OFFSET_DELIM)
     ))]
     other_corrections: Option<CliOtherOffsetCorrections>,
@@ -488,8 +457,10 @@ struct ReadOffsetConfigArgs {
 
     #[arg(long = ta::OVERLAP_CORRECTION_LIMIT)]
     #[arg(value_name = "LIMIT")]
-    #[arg(help = "Limit by which ending segment offset can be \
-                  truncated if they overlap another offset.")]
+    #[arg(help = {
+        "Limit by which ending segment offset can be \
+         truncated if they overlap another offset."
+    })]
     overlap_correction_limit: Option<tc::OverlapCorrectionLimit>,
 }
 
@@ -714,45 +685,35 @@ struct ReadRepairKeywordsConfigArgs {
     demote_standard_keys: DemoteStdKeysArg,
 
     #[arg(long = ta::RENAME_STD_KEYS)]
-    #[arg(value_name = "<#>OLD<#>NEW[<#>OLD<#>NEW]<#>")]
-    #[arg(help = "Rename standard keys from OLD to NEW. First character is \
-                  considered to be the delimiter (<#>) for separating OLD and \
-                  NEW as well as multiple pairs of OLD/NEW. An empty list or \
-                  single delimiter encodes an empty list. Delimiters must be \
-                  ASCII characters. If duplicate OLD keys are found, only the \
-                  last is kept.")]
+    #[arg(value_name = std_key_val_pair_value_name!("OLD", "NEW"))]
+    #[arg(help = concatcp!(
+        "Rename standard keys from OLD to NEW. ",
+        std_key_val_pair_help_common!("OLD", "NEW")
+    ))]
     rename_standard_keys: Option<CliKeyPairs>,
 
     #[arg(long = ta::REPLACE_STD_KEY_VALS)]
-    #[arg(value_name = "<#>KEY<#>VAL[<#>KEY<#>VAL..]<#>")]
-    #[arg(help = "Replace values of standard keys matching KEY with VAl. \
-                  First character is considered to be the delimiter (<#>) for \
-                  separating KEY and VAL as well as multiple pairs of KEY/VAL. \
-                  An empty list or single delimiter encodes an empty list. \
-                  Delimiters must be ASCII characters. \
-                  If duplicate keys are found, only the last is kept.")]
+    #[arg(value_name = std_key_val_pair_value_name!("KEY", "VAL"))]
+    #[arg(help = concatcp!(
+        "Replace values of standard keys matching KEY with VAl. ",
+        std_key_val_pair_help_common!("KEY", "VAL")
+    ))]
     replace_std_key_vals: Option<CliStdKeyValues>,
 
     #[arg(long = ta::APPEND_STD_KEYWORDS)]
-    #[arg(value_name = "<#>KEY<#>VAL[<#>KEY<#>VAL..]<#>")]
-    #[arg(help = "Append standard keys with KEY and VAL to list of existing \
-                  standard keys. First character is considered to be the \
-                  delimiter (<#>) for separating KEY and VAL as well as multiple \
-                  pairs of KEY/VAL. An empty list or single delimiter encodes an \
-                  empty list. Delimiters must be ASCII characters. If duplicate \
-                  keys are found, only the last is kept.")]
+    #[arg(value_name = std_key_val_pair_value_name!("KEY", "VAL"))]
+    #[arg(help = concatcp!(
+        "Append standard keys with KEY and VAL to list of existing standard keys. ",
+        std_key_val_pair_help_common!("KEY", "VAL")
+    ))]
     append_std_keywords: Option<CliStdKeyValues>,
 
     #[arg(long = ta::SUB_STD_KEY_VALS)]
-    #[arg(value_name = "<#>KEY<#>SUB[<#>KEY<#>SUB..]<#>")]
+    #[arg(value_name = std_key_val_pair_value_name!("KEY", "SUB"))]
     #[arg(help = formatcp!(
-            "Edit standard key values using KEY and SUB. See {} for details. \
-             First character is considered to be the delimiter (<#>) for \
-             separating KEY and SUB as well as multiple pairs of KEY/SUB. \
-             An empty list or single delimiter encodes an empty list. \
-             Delimiters must be ASCII characters. \
-             If duplicate keys are found, only the last is kept.",
-            SUB_SECTION.header,
+        "Edit standard key values using KEY and SUB. See {} for details. {}",
+        SUB_SECTION.header,
+        std_key_val_pair_help_common!("KEY", "SUB")
     ))]
     substitute_standard_key_vals: Option<CliSubPatterns>,
 
@@ -827,17 +788,6 @@ struct ReadDataKeywordsConfigArgs {
     #[command(flatten)]
     disallow_range_truncation: DisallowRangeTruncationArg,
 }
-
-const OVER_LIMIT_HELP_COMMON: &str = formatcp!(
-    "Pass {error} to emit error, {warn} to emit warning, {silent} to do \
-     nothing, {trunc_warn} to truncate and emit warning, and \
-     {trunc_silent} to truncate with no warning.",
-    error = fmt_config_val!(OVER_LIMIT_ACTION_ERROR_LEVEL),
-    warn = fmt_config_val!(OVER_LIMIT_ACTION_WARN_LEVEL),
-    silent = fmt_config_val!(OVER_LIMIT_ACTION_SILENT_LEVEL),
-    trunc_warn = fmt_config_val!(OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL),
-    trunc_silent = fmt_config_val!(OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL)
-);
 
 /// Arguments which map onto [`tc::ReadDatasetConfig`].
 #[derive(Args)]
@@ -996,8 +946,10 @@ struct VendorHeuristicsArg {
     #[arg(short = 'H')]
     #[arg(long = "vendor-heuristics")]
     #[arg(action = ArgAction::SetTrue)]
-    #[arg(help = "Enable vendor-specific heuristics when parsing files. \
-                  This currently does nothing but might be implemented in the future.")]
+    #[arg(help = {
+        "Enable vendor-specific heuristics when parsing files. \
+         This currently does nothing but might be implemented in the future."
+    })]
     inner: bool,
 }
 
@@ -1019,12 +971,12 @@ struct MmapArg {
     #[arg(short = 'm')]
     #[arg(long = "mmap")]
     #[arg(action = ArgAction::SetTrue)]
-    #[arg(
-        help = "Memory-map the file while reading. This is likely to be faster. \
-                The user must ensure that the file is not modified while being \
-                read, otherwise the mapping will be invalid and terrible things \
-                will happen."
-    )]
+    #[arg(help = {
+        "Memory-map the file while reading. This is likely to be faster. \
+         The user must ensure that the file is not modified while being \
+         read, otherwise the mapping will be invalid and terrible things \
+         will happen."
+    })]
     inner: bool,
 }
 
@@ -1050,1181 +1002,12 @@ struct MultiDatasetArgs {
     scan: Option<bool>,
 }
 
-const KEY_STR_OR_PAT_HELP_COMMON: &str = formatcp!(
-    "If first and last character are the same, they are treated as \
-     delimiters (<#>) which can be used to separate multiple values. \
-     If a single value starts and ends with the same value, encapsulate \
-     this with two delimiters. Delimiters must be ASCII characters. Values \
-     that start and end with {delim} will be interpreted as a regexp-like \
-     pattern where '[n-m]' matches indices from 'n' to 'm' (inclusive to \
-     exclusive) in such cases {delim} is not interpreted as a delimiter. \
-     An empty string encodes an empty list of values.",
-    delim = fmt_val!(PATTERN_DELIMITER)
-);
-
-macro_rules! key_str_or_pat_arg {
-    ($t:ident, $long:expr, $has_pre:expr, $help:expr) => {
-        #[derive(Args)]
-        struct $t {
-            #[arg(id = $long)]
-            #[arg(long = $long)]
-            #[arg(value_name = "<#>KEY_OR_PAT[<#>KEY_OR_PAT..]<#>")]
-            #[arg(help = concatcp!($help, " ", KEY_STR_OR_PAT_HELP_COMMON))]
-            inner: Option<CliStdKeyPatterns<$has_pre>>,
-        }
-
-        impl MapConfig for $t {
-            type Inner = StdKeyPatterns<$has_pre>;
-
-            fn cmap<F>(&self, f: F)
-            where
-                F: FnOnce(Self::Inner),
-            {
-                let _ = self.inner.as_ref().map(|x| f(x.0.clone()));
-            }
-        }
-    };
-}
-
-key_str_or_pat_arg!(
-    IgnoreStdKeysArg,
-    ta::IGNORE_STD_KEYS,
-    true,
-    "Ignore standard keys exactly matching KEY_OR_PAT."
-);
-
-key_str_or_pat_arg!(
-    PromoteNonStdKeysArg,
-    ta::PROMOTE_TO_STD,
-    false,
-    "Promote non-standard keys matching KEY_OR_PAT to standard."
-);
-
-key_str_or_pat_arg!(
-    DemoteStdKeysArg,
-    ta::DEMOTE_FROM_STD,
-    true,
-    "Demote standard keys matching KEY_OR_PAT to non-standard."
-);
-
-macro_rules! corr_arg {
-    ($t:ident, $long:expr, $seg:path, $src:path) => {
-        #[derive(Args)]
-        struct $t {
-            #[arg(id = $long)]
-            #[arg(long = $long)]
-            #[arg(value_name = "BEGIN,END")]
-            #[arg(help = format!("Correction for {seg} offsets from {src}.", seg = <$seg as HasRegion>::REGION, src = <$src as HasSource>::SRC))]
-            inner: Option<StrOffsetsCorrection<$seg, $src>>,
-        }
-
-        impl MapConfig for $t {
-            type Inner = OffsetsCorrection<$seg, $src>;
-
-            fn cmap<F>(&self, f: F)
-            where
-                F: FnOnce(Self::Inner),
-            {
-                let _ = self.inner.as_ref().map(|x| f(x.0));
-            }
-        }
-    };
-}
-
-corr_arg!(
-    HdrTextCorrArg,
-    ta::TEXT_CORR,
-    ts::PrimaryTextSegmentId,
-    ts::OffsetsFromHeader
-);
-
-corr_arg!(
-    HdrDataCorrArg,
-    ta::DATA_CORR,
-    ts::DataSegmentId,
-    ts::OffsetsFromHeader
-);
-
-corr_arg!(
-    HdrAnalCorrArg,
-    ta::ANALYSIS_CORR,
-    ts::AnalysisSegmentId,
-    ts::OffsetsFromHeader
-);
-
-corr_arg!(
-    SuppTextCorrArg,
-    ta::SUPP_TEXT_COR,
-    ts::SupplementalTextSegmentId,
-    ts::OffsetsFromTEXT
-);
-
-corr_arg!(
-    TextDataCorrArg,
-    ta::TEXT_DATA_CORR,
-    ts::DataSegmentId,
-    ts::OffsetsFromTEXT
-);
-
-corr_arg!(
-    TextAnalCorrArg,
-    ta::TEXT_ANALYSIS_CORR,
-    ts::AnalysisSegmentId,
-    ts::OffsetsFromTEXT
-);
-
-macro_rules! ne_nullable_arg {
-    ($t:ident, $long:expr, $valuename:expr, $inner:path, $help:expr) => {
-        #[derive(Args)]
-        struct $t {
-            #[arg(id = $long)]
-            #[arg(long = $long)]
-            #[arg(value_name = $valuename)]
-            #[arg(help = concatcp!($help, " Set to blank string to supply no value."))]
-            inner: Option<NENullable<$inner>>,
-        }
-
-        impl MapConfig for $t {
-            type Inner = Option<$inner>;
-
-            fn cmap<F>(&self, f: F)
-            where
-                F: FnOnce(Self::Inner),
-            {
-                let _ = self.inner.as_ref().map(|x| f(x.0.clone()));
-            }
-        }
-    };
-}
-
-ne_nullable_arg!(
-    DatePatternArg,
-    ta::DATE_PATTERN,
-    "PATTERN",
-    DatePattern,
-    formatcp!(
-        "Pattern to match {DATE} keyword. See {}.",
-        DATE_SECTION.header
-    )
-);
-
-ne_nullable_arg!(
-    TimePatternArg,
-    ta::TIME_PATTERN,
-    "PATTERN",
-    TimePattern,
-    formatcp!(
-        "Pattern to match {BTIM}/{ETIM} keywords. See {}.",
-        TIME_SECTION.header
-    )
-);
-
-ne_nullable_arg!(
-    DatetimePatternArg,
-    ta::DATETIME_PATTERN,
-    "PATTERN",
-    String,
-    formatcp!(
-        "If supplied, will be used as an alternative pattern when parsing \
-         {BEGINDATETIME} and {ENDDATETIME}. It should follow the format \
-         outline in {CHRONO_REF}.",
-    )
-);
-
-ne_nullable_arg!(
-    LastModifiedPatternArg,
-    ta::LAST_MODIFIED_PATTERN,
-    "PATTERN",
-    String,
-    formatcp!(
-        "If supplied, will be used as an alternative pattern when parsing \
-         {LAST_MODIFIED}. It should follow the format outline in {CHRONO_REF}.",
-    )
-);
-
-macro_rules! nullable_arg {
-    ($t:ident, $long:expr, $valuename:expr, $inner:path, $help:expr) => {
-        #[derive(Args)]
-        struct $t {
-            #[arg(id = $long)]
-            #[arg(long = $long)]
-            #[arg(value_name = $valuename)]
-            #[arg(help = concatcp!($help, " Set to {none} to supply no value."))]
-            inner: Option<Nullable<$inner>>,
-        }
-
-        impl MapConfig for $t {
-            type Inner = Option<$inner>;
-
-            fn cmap<F>(&self, f: F)
-            where
-                F: FnOnce(Self::Inner),
-            {
-                let _ = self.inner.as_ref().map(|x| f(x.0));
-            }
-        }
-    };
-}
-
-nullable_arg!(
-    VersionOverrideArg,
-    ta::VERSION_OVERRIDE,
-    "OVERRIDE",
-    tc::VersionOverride,
-    formatcp!(
-        "Override the FCS version from {HEADER_SEG}. Can be an FCS version \
-         string (like 'FCS3.2') which will force to a fixed version. Can \
-         also autodetect version with one of {latest} or {earliest} (the \
-         latest or earliest available version respectively) or {loose} or \
-         {strict} (the available version with the most or least optional \
-         keywords respectively). Append \"current_or\" to any of these \
-         to prioritize the current version before ranking others.",
-        latest = fmt_config_val!(VERSION_LATEST_LEVEL),
-        earliest = fmt_config_val!(VERSION_EARLIEST_LEVEL),
-        loose = fmt_config_val!(VERSION_LOOSE_LEVEL),
-        strict = fmt_config_val!(VERSION_STRICT_LEVEL),
-    )
-);
-
-nullable_arg!(
-    MaxOtherArg,
-    ta::MAX_OTHER,
-    "BYTES",
-    usize,
-    formatcp!("Max number of {OTHER_SEG} segments to parse.")
-);
-
-nullable_arg!(
-    AddMissingTimestepArg,
-    ta::ADD_MISSING_TIMESTEP,
-    "TIMESTEP",
-    PositiveFloat,
-    formatcp!("Add {TIMESTEP} if it is missing.")
-);
-
-const PROC_KW_FAIL_HELP_COMMON: &str = formatcp!(
-    "Must be one of {error}, {demote_warn}, {demote_silent}, \
-     {drop_warn}, or {drop_silent} which will throw an error, demote to \
-     non-standard with warning, demote to non-standard silently, drop with \
-     warning, or drop silently respectively",
-    error = fmt_config_val!(KW_ERROR_LEVEL),
-    demote_warn = fmt_config_val!(KW_DEMOTE_WARN_LEVEL),
-    demote_silent = fmt_config_val!(KW_DEMOTE_SILENT_LEVEL),
-    drop_warn = fmt_config_val!(KW_DROP_WARN_LEVEL),
-    drop_silent = fmt_config_val!(KW_DROP_SILENT_LEVEL)
-);
-
-macro_rules! proc_kw_fail_arg {
-    ($t:ident, $long:expr, $inner:path, $help:expr) => {
-        #[derive(Args)]
-        struct $t {
-            #[arg(id = $long)]
-            #[arg(long = $long)]
-            #[arg(value_name = "LEVEL")]
-            #[arg(help = concatcp!($help, " ", PROC_KW_FAIL_HELP_COMMON))]
-            inner: Option<$inner>,
-        }
-
-        impl MapConfig for $t {
-            type Inner = $inner;
-
-            fn cmap<F>(&self, f: F)
-            where
-                F: FnOnce(Self::Inner),
-            {
-                let _ = self.inner.as_ref().map(|&x| f(x));
-            }
-        }
-    };
-}
-
-proc_kw_fail_arg!(
-    ProcessPseudostandardArg,
-    ta::PROCESS_PSEUDOSTANDARD,
-    tc::ProcessPseudostandard,
-    "Process non-standard keywords that start with a '$'."
-);
-
-proc_kw_fail_arg!(
-    ProcessHyperParArg,
-    ta::PROCESS_HYPER_PAR,
-    tc::ProcessHyperPar,
-    formatcp!("Process measurement keywords whose index is greater than {PAR}.")
-);
-
-proc_kw_fail_arg!(
-    ProcessOtherVersionArg,
-    ta::PROCESS_OTHER_VERSION,
-    tc::ProcessOtherVersion,
-    "Process standard keywords from different FCS version."
-);
-
-proc_kw_fail_arg!(
-    ProcessExtraTimestepArg,
-    ta::PROCESS_EXTRA_TIMESTEP,
-    tc::ProcessExtraTimestep,
-    formatcp!(
-        "Process unused {TIMESTEP}, which may indicate that a time measurement \
-         is present but not identified."
-    )
-);
-
-proc_kw_fail_arg!(
-    ProcessOptionalFailureArg,
-    ta::PROCESS_OPTIONAL_FAILURE,
-    tc::ProcessOptionalFailure,
-    "Process optional keys if they cause an error."
-);
-
-macro_rules! tri_flag_arg {
-    ($t:ident, $long:expr, $inner:path, $help:expr) => {
-        #[derive(Args)]
-        struct $t {
-            #[arg(id = $long)]
-            #[arg(long = $long)]
-            #[arg(value_name = "LEVEL")]
-            #[arg(help = tri_flag_help::<$inner>($help))]
-            inner: Option<CliTriFlag<$inner>>,
-        }
-
-        impl MapConfig for $t {
-            type Inner = $inner;
-
-            fn cmap<F>(&self, f: F)
-            where
-                F: FnOnce(Self::Inner),
-            {
-                let _ = self.inner.as_ref().map(|x| f(x.0));
-            }
-        }
-    };
-}
-
-tri_flag_arg!(
-    AllowDuplicatedSuppTextArg,
-    ta::ALLOW_DUPLICATED_SUPP_TEXT,
-    tc::AllowDuplicatedSuppTEXT,
-    formatcp!(
-        "Allow {SUPP_TEXT_SEG} offsets to overlap those for \
-         {PRIM_TEXT_SEG} or the boundaries of {HEADER_SEG}."
-    )
-);
-
-tri_flag_arg!(
-    AllowNonAsciiDelimArg,
-    ta::ALLOW_NON_ASCII_DELIM,
-    tc::AllowNonAsciiDelim,
-    formatcp!("Allow {TEXT_SEG} delimiter to be non-ASCII character.")
-);
-
-tri_flag_arg!(
-    AllowEvenDelimsArg,
-    ta::ALLOW_EVEN_DELIMS,
-    tc::AllowEvenDelims,
-    formatcp!("Allow final {TEXT_SEG} delimiter to be missing.")
-);
-
-tri_flag_arg!(
-    AllowNonUniqueArg,
-    ta::ALLOW_NONUNIQUE,
-    tc::AllowNonunique,
-    formatcp!("Allow non-unique keys to exist in {TEXT_SEG}.")
-);
-
-tri_flag_arg!(
-    AllowOddTokensArg,
-    ta::ALLOW_ODD_TOKENS,
-    tc::AllowOddTokens,
-    "Allow odd number of tokens."
-);
-
-tri_flag_arg!(
-    AllowEmptyKeysArg,
-    ta::ALLOW_EMPTY_KEYS,
-    tc::AllowEmptyKeys,
-    "Allow keys to be blank (relatively rare)."
-);
-
-tri_flag_arg!(
-    AllowDelimAtBoundaryArg,
-    ta::ALLOW_DELIM_AT_BOUNDARY,
-    tc::AllowDelimAtBoundary,
-    formatcp!("Allow {TEXT_SEG} delimiter(s) to be at token boundaries.")
-);
-
-tri_flag_arg!(
-    AllowNonAsciiKeysArg,
-    ta::ALLOW_NON_ASCII_KEYS,
-    tc::AllowNonAsciiKeywords,
-    "Allow non-ASCII characters in keys."
-);
-
-tri_flag_arg!(
-    AllowNonUtf8ValuesArg,
-    ta::ALLOW_NON_UTF8_VALUES,
-    tc::AllowNonUtf8,
-    formatcp!("Allow non-UTF8 characters in {TEXT_SEG} segment.")
-);
-
-tri_flag_arg!(
-    AllowMissingSuppTextArg,
-    ta::ALLOW_MISSING_SUPP_TEXT,
-    tc::AllowMissingSuppTEXT,
-    formatcp!("Allow {SUPP_TEXT_SEG} offsets to be missing.")
-);
-
-tri_flag_arg!(
-    AllowSuppTextOwnDelimArg,
-    ta::ALLOW_SUPP_TEXT_OWN_DELIM,
-    tc::AllowSuppTEXTOwnDelim,
-    formatcp!("Allow delimiters in {PRIM_TEXT_SEG} and {SUPP_TEXT_SEG} to differ.")
-);
-
-tri_flag_arg!(
-    AllowMissingNextdataArg,
-    ta::ALLOW_MISSING_NEXTDATA,
-    tc::AllowMissingNextdata,
-    formatcp!("Allow {NEXTDATA} to be missing.")
-);
-
-tri_flag_arg!(
-    AllowMissingTimeArg,
-    ta::ALLOW_MISSING_TIME,
-    tc::AllowMissingTime,
-    "Allow time measurement to be missing."
-);
-
-tri_flag_arg!(
-    AllowRepairNonUniqueArg,
-    ta::ALLOW_REPAIR_NON_UNIQUE,
-    tc::AllowRepairNonUnique,
-    "Choose how to handle key collisions when repairing keywords. \
-     Non-unique keywords will not be kept in the final FCS file since each \
-     list of standard and non-standard keywords must be unique."
-);
-
-tri_flag_arg!(
-    AllowMissingRequiredOffsetsArg,
-    ta::ALLOW_MISSING_REQUIRED_OFFSETS,
-    tc::AllowMissingRequiredOffsets,
-    formatcp!(
-        "Allow required offsets to be missing from {TEXT_SEG}. \
-             Only applies to FCS 3.0/3.1."
-    )
-);
-
-tri_flag_arg!(
-    DisallowRangeTruncationArg,
-    ta::DISALLOW_RANGE_TRUNCATION,
-    tc::DisallowRangeTrunc,
-    formatcp!(
-        "Disallow {PN_R} values which need to be truncated to fit in type \
-         dictated by {DATATYPE} (and {PNDATATYPE} for FCS 3.2) and {PN_B} \
-         for a given measurement."
-    )
-);
-
-tri_flag_arg!(
-    AllowUnevenEventWidthArg,
-    ta::ALLOW_UNEVEN_EVENT_WIDTH,
-    tc::AllowUnevenEventWidth,
-    formatcp!("Allow event width to not evenly divide length of {DATA_SEG}.")
-);
-
-tri_flag_arg!(
-    AllowTotMismatchArg,
-    ta::ALLOW_TOT_MISMATCH,
-    tc::AllowTotMismatch,
-    formatcp!("Allow {TOT} to mismatch the number of events that are actually in {DATA_SEG}.")
-);
-
-tri_flag_arg!(
-    AllowMissingCRCArg,
-    ta::ALLOW_MISSING_CRC,
-    tc::AllowMissingCRC,
-    "Allow CRC word at the end of the dataset to be missing."
-);
-
-tri_flag_arg!(
-    AllowMismatchCRCArg,
-    ta::ALLOW_MISMATCH_CRC,
-    tc::AllowMismatchCRC,
-    "Allow computed CRC to not match the CRC word at the end of the dataset."
-);
-
-macro_rules! override_flag_arg {
-    ($t:ident, $inner:path, $long:expr, $help:expr) => {
-        #[derive(Args)]
-        struct $t {
-            #[arg(id = $long)]
-            #[arg(long = $long)]
-            #[arg(value_name = "BOOL")]
-            #[arg(default_missing_value("true"))]
-            #[arg(require_equals(true))]
-            #[arg(num_args(0..=1))]
-            #[arg(help = $help)]
-            inner: Option<bool>,
-        }
-
-        impl MapConfig for $t {
-            type Inner = $inner;
-
-            fn cmap<F>(&self, f: F)
-            where
-                F: FnOnce(Self::Inner),
-            {
-                let _ = self.inner.as_ref().map(|&x| f(x.into()));
-            }
-        }
-    };
-}
-
-override_flag_arg!(
-    SquishOffsetsArg,
-    tc::SquishOffsets,
-    ta::SQUISH_OFFSETS,
-    formatcp!(
-        "If {DATA_SEG}/{ANALYSIS_SEG} end in 0, use 0 for start as well. \
-             Should not be used for FCS 2.0 files."
-    )
-);
-
-override_flag_arg!(
-    AllowPseudoEmptyArg,
-    tc::AllowPseudoempty,
-    ta::ALLOW_PSEUDOEMPTY,
-    "Treat offsets like '0,-1' or '1000,999' as '0,0'."
-);
-
-override_flag_arg!(
-    DedupMeasNamesArg,
-    tc::DedupMeasNames,
-    ta::DEDUP_MEAS_NAMES,
-    formatcp!(
-        "Force all {PN_N} to be unique by appending '{}X' \
-         to each duplicate and appending 'X' (starting at 0)",
-        tc::DEDUP_PNN_SEP,
-    )
-);
-
-override_flag_arg!(
-    TrimIntraValueWhitespaceArg,
-    tc::TrimIntraValueWhitespace,
-    ta::TRIM_INTRA_VALUE_WHITESPACE,
-    "Remove spaces between comma-separated values."
-);
-
-override_flag_arg!(
-    AllowOtherFeatureArg,
-    tc::AllowOtherFeature,
-    ta::ALLOW_OTHER_FEATURE,
-    formatcp!("Allow {PNFEATURE} to be a value other than \"Area\", \"Width\", or \"Height\"")
-);
-
-override_flag_arg!(
-    FixLogScaleOffsetArg,
-    tc::FixLogScaleOffsets,
-    ta::FIX_LOG_SCALE_OFFSETS,
-    formatcp!(
-        "Fix {PN_E} keys that have log scaling with zero offset. \
-         Specifically, this will replace values like 'X,0.0' with 'X,1.0' \
-         where 'X' is a positive decimal number. Having '0.0' for log offset \
-         is mathematical nonsense.",
-    )
-);
-
-override_flag_arg!(
-    DisallowLocaltimeArg,
-    tc::DisallowLocaltime,
-    ta::DISALLOW_LOCALTIME,
-    formatcp!(
-        "Require that {BEGINDATETIME} and {ENDDATETIME} have a timezone if \
-         provided. This is not required by the standard, but not having a \
-         timezone is ambiguous since the absolute value of the timestamp is \
-         dependent on localtime and therefore is location-dependent. Only \
-         affects FCS 3.2.",
-    )
-);
-
-override_flag_arg!(
-    IgnoreTextDataOffsetsArg,
-    tc::IgnoreTEXTDataOffsets,
-    ta::IGNORE_TEXT_DATA_OFFSETS,
-    formatcp!("Ignore offsets for {DATA_SEG} from {TEXT_SEG}.")
-);
-
-override_flag_arg!(
-    IgnoreTextAnalysisOffsetsArg,
-    tc::IgnoreTEXTAnalysisOffsets,
-    ta::IGNORE_TEXT_ANALYSIS_OFFSETS,
-    formatcp!("Ignore offsets for {ANALYSIS_SEG} from {TEXT_SEG}.")
-);
-
-fn tri_flag_help<T>(help_front: impl Display) -> String
-where
-    T: tc::TriErrorFlag,
-{
-    let (what_true, what_false) = if T::FALSE_IS_ERROR {
-        ("warning", "error")
-    } else {
-        ("error", "warning")
-    };
-    format!(
-        "{help_front} If {true_}, throw {what_true}. If {false_}, throw \
-         {what_false}. If {silent}, ignore completely.",
-        false_ = fmt_config_val!(TRI_FALSE_LEVEL),
-        true_ = fmt_config_val!(TRI_TRUE_LEVEL),
-        silent = fmt_config_val!(TRI_SILENT_LEVEL),
-    )
-}
-
-impl ReadHeaderArgs {
-    fn run<Wout: Write, Werr: Write>(&self, stdout: Wout, mut stderr: Werr) -> AppResult<()> {
-        let conf = self.config();
-        let filepath = &self.input.inner;
-        let (ws, res) = api::fcs_read_header(filepath, DatasetOffset(0), &conf)
-            .resolve_commutative(|ws| ws, |s| s);
-        print_warnings(ws, &mut stderr)?;
-        to_writer(stdout, &res?)?;
-        Ok(())
-    }
-
-    fn config(&self) -> cfg::ReadHeaderConfig {
-        let strat = self.strategy.inner.unwrap_or_default();
-        cfg::ReadHeaderConfig {
-            header: self.header.config(strat),
-            offset: self.offset.config(strat),
-        }
-    }
-}
-
-impl ReadFlatArgs {
-    fn run<Wout: Write, Werr: Write>(&self, stdout: Wout, mut stderr: Werr) -> AppResult<()> {
-        let conf = self.config();
-        let filepath = &self.input.inner;
-        let skip = self.dataset_index.inner;
-        let mmap = self.mmap.inner;
-        let (ws, res) = api::fcs_read_flat_texts(filepath, skip, Some(1), false, mmap, &conf)
-            .resolve_commutative(|ws| ws, |s| s);
-        print_warnings(ws, &mut stderr)?;
-        to_writer(stdout, &res?.first())?;
-        Ok(())
-    }
-
-    fn config(&self) -> cfg::ReadFlatTEXTConfig {
-        let strat = self.strategy.inner.unwrap_or_default();
-        cfg::ReadFlatTEXTConfig {
-            header: self.flat.header.config(strat),
-            flat: self.flat.flat.config(strat),
-            offset: self.flat.offset.config(strat),
-            shared: self.flat.shared.config(),
-        }
-    }
-}
-
-impl ReadStdArgs {
-    fn run<Wout: Write, Werr: Write>(&self, stdout: Wout, mut stderr: Werr) -> AppResult<()> {
-        let conf = self.config();
-        let filepath = &self.input.inner;
-        let skip = self.dataset_index.inner;
-        let mmap = self.mmap.inner;
-        let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, mmap, &conf)
-            .resolve_commutative(|ws| ws, |s| s);
-        print_warnings(ws, &mut stderr)?;
-        if let Some((core, uncore)) = res?.first() {
-            let obj = json!({"core": core, "uncore": uncore});
-            to_writer(stdout, &obj)?;
-        } else {
-            to_writer(stdout, &Value::Null)?;
-        }
-        Ok(())
-    }
-
-    fn config(&self) -> cfg::ReadStdTEXTConfig {
-        let strat = self.strategy.inner.unwrap_or_default();
-        self.std.config(strat)
-    }
-}
-
-impl ReadStdTabularArgs {
-    fn run_meas<Wout: Write, Werr: Write>(&self, stdout: Wout, stderr: Werr) -> AppResult<()> {
-        self.run_inner(stdout, stderr, |core, out, delim| {
-            Ok(core.print_meas_table(out, delim.0)?)
-        })
-    }
-
-    fn run_spillover<Wout: Write, Werr: Write>(&self, stdout: Wout, stderr: Werr) -> AppResult<()> {
-        self.run_inner(stdout, stderr, |core, out, delim| {
-            Ok(core.print_comp_or_spillover_table(out, delim.0)?)
-        })
-    }
-
-    fn run_inner<F, Wout: Write, Werr: Write>(
-        &self,
-        mut stdout: Wout,
-        mut stderr: Werr,
-        f: F,
-    ) -> AppResult<()>
-    where
-        F: FnOnce(&AnyCoreTEXT, &mut Wout, CliDelim) -> AppResult<()>,
-    {
-        let conf = self.config();
-        let delim = self.delim.inner.unwrap_or_default();
-        let filepath = &self.input.inner;
-        let skip = self.dataset_index.inner;
-        let mmap = self.mmap.inner;
-        let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, mmap, &conf)
-            .resolve_commutative(|ws| ws, |s| s);
-        print_warnings(ws, &mut stderr)?;
-        if let Some((core, _)) = res?.first() {
-            f(core, &mut stdout, delim)?;
-        } else {
-            to_writer(stdout, &Value::Null)?;
-        }
-        Ok(())
-    }
-
-    fn config(&self) -> cfg::ReadStdTEXTConfig {
-        let strat = self.strategy.inner.unwrap_or_default();
-        self.std.config(strat)
-    }
-}
-
-impl ReadDatasetArgs {
-    fn run<Wout: Write, Werr: Write>(&self, mut stdout: Wout, mut stderr: Werr) -> AppResult<()> {
-        let conf = self.config();
-        let delim = self.delim.inner.unwrap_or_default();
-        let filepath = &self.input.inner;
-        let skip = self.dataset_index.inner;
-        let mmap = self.mmap.inner;
-        let (ws, res) = api::fcs_read_std_datasets(filepath, skip, Some(1), false, mmap, &conf)
-            .resolve_commutative(|ws| ws, |s| s);
-        print_warnings(ws, &mut stderr)?;
-        if let Some((core, _)) = res?.first() {
-            Self::print_parsed_data(&mut stdout, core, delim.0)?;
-        } else {
-            to_writer(stdout, &Value::Null)?;
-        }
-        Ok(())
-    }
-
-    fn print_parsed_data<W: Write>(w: &mut W, core: &AnyCoreDataset, delim: u8) -> io::Result<()> {
-        // 32k / 8 bytes since we are storing everything as u64
-        const BUF_SIZE: usize = 1 << 12;
-
-        let mut ibuf = IBuf::new();
-        let mut fbuf = FBuf::new();
-
-        let df = core.as_data();
-        let nrows = df.nrows();
-        let cols: Vec<_> = df.iter().collect();
-        let ncols = cols.len();
-        let dtypes = core.datatypes();
-        assert_eq!(dtypes.len(), ncols, "datatypes are wrong length");
-
-        if ncols == 0 {
-            return Ok(());
-        }
-
-        let mut first = true;
-        for n in core.shortnames() {
-            if !first {
-                w.write_all(&[delim])?;
-            }
-            first = false;
-            w.write_all(AsRef::<str>::as_ref(&n).as_bytes())?;
-        }
-        writeln!(w)?;
-
-        // Max to always ensure there is one row, which only matters if we ever
-        // encounter a machine with more than 4096 parameters.
-        let rows_per_buf = (BUF_SIZE / ncols).max(1);
-        let real_buf_size = ncols * rows_per_buf;
-        let buf_reads = nrows.div_ceil(rows_per_buf);
-        let buf_tail_rows = nrows % rows_per_buf;
-
-        let mut buf = Vec::with_capacity(real_buf_size);
-
-        for b in 0..buf_reads {
-            buf.clear();
-            let next_rows = if b + 1 == buf_reads && buf_tail_rows > 0 {
-                buf_tail_rows
-            } else {
-                rows_per_buf
-            };
-            for col in &cols {
-                for r in 0..next_rows {
-                    buf.push(col.as_u64(r + rows_per_buf * b));
-                }
-            }
-            for r in 0..next_rows {
-                first = true;
-                for (c, d) in dtypes.iter().enumerate() {
-                    let i = r + c * next_rows;
-                    let v = buf[i];
-                    let bs = match d {
-                        AlphaNumType::Float => {
-                            let vv = u32::try_from(v).expect("f32 should be encoded as u32");
-                            fbuf.format(f32::from_bits(vv)).as_bytes()
-                        }
-                        AlphaNumType::Double => fbuf.format(f64::from_bits(v)).as_bytes(),
-                        _ => ibuf.format(v).as_bytes(),
-                    };
-                    if !first {
-                        w.write_all(&[delim])?;
-                    }
-                    first = false;
-                    w.write_all(bs)?;
-                }
-                writeln!(w)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn config(&self) -> cfg::ReadStdDatasetConfig {
-        let strat = self.strategy.inner.unwrap_or_default();
-        self.dataset.config(strat)
-    }
-}
-
-impl ReadStdKwsArgs_ {
-    fn config(&self, strat: tc::ReadStrategy) -> cfg::ReadStdTEXTConfig {
-        cfg::ReadStdTEXTConfig {
-            header: self.flat.header.config(strat),
-            flat: self.flat.flat.config(strat),
-            offset: self.flat.offset.config(strat),
-            standard: self.std.config(strat),
-            repair: self.repair.config(strat),
-            layout: self.data.config(strat),
-            shared: self.flat.shared.config(),
-        }
-    }
-}
-
-impl ReadStdDatasetArgs_ {
-    fn config(&self, strat: tc::ReadStrategy) -> cfg::ReadStdDatasetConfig {
-        cfg::ReadStdDatasetConfig {
-            header: self.std.flat.header.config(strat),
-            flat: self.std.flat.flat.config(strat),
-            offset: self.std.flat.offset.config(strat),
-            standard: self.std.std.config(strat),
-            repair: self.std.repair.config(strat),
-            layout: self.std.data.config(strat),
-            data: self.dataset.config(strat),
-            shared: self.std.flat.shared.config(),
-        }
-    }
-}
-
-impl RepairFileArgs {
-    fn run<Wout: Write, Werr: Write>(&self, stdout: Wout, mut stderr: Werr) -> AppResult<()> {
-        let read_conf = self.config();
-        let write_conf = self.write.config();
-        let ipath = &self.input.inner;
-        let opath = &self.output.inner;
-        let skip = self.multi.skip;
-        let limit = self.multi.limit;
-        let scan = self.multi.scan.unwrap_or_default();
-        let mmap = self.mmap.inner;
-        let (read_ws, read_res) =
-            api::fcs_read_std_datasets(ipath, skip, limit, scan, mmap, &read_conf)
-                .resolve_commutative(|ws| ws, |s| s);
-        // order matters, print warnings before unpacking the result which
-        // will short-circuit on error
-        print_warnings(read_ws, &mut stderr)?;
-        let (cores, outs): (Vec<_>, Vec<_>) = read_res?.into_iter().unzip();
-        let (write_ws, write_res) = api::fcs_write_datasets(opath, &cores[..], &write_conf)
-            .resolve_commutative(|ws| ws, |e| e);
-        print_warnings(write_ws, &mut stderr)?;
-        let _ = write_res?;
-        to_writer(stdout, &outs[..])?;
-        Ok(())
-    }
-
-    fn config(&self) -> cfg::ReadStdDatasetConfig {
-        let strat = self.strategy.inner.unwrap_or_default();
-        self.dataset.config(strat)
-    }
-}
-
-impl SummarizeArgs {
-    fn run<Wout: Write, Werr: Write>(&self, stdout: Wout, mut stderr: Werr) -> AppResult<()> {
-        let conf = self.config();
-        let filepath = &self.input.inner;
-        let skip = self.multi.skip;
-        let limit = self.multi.limit;
-        let scan = self.multi.scan.unwrap_or_default();
-        let mmap = self.mmap.inner;
-        let (ws, res) = api::fcs_summarize(filepath, skip, limit, scan, mmap, &conf)
-            .resolve_commutative(|ws| ws, |s| s);
-        print_warnings(ws, &mut stderr)?;
-        to_writer(stdout, &res?)?;
-        Ok(())
-    }
-
-    fn config(&self) -> cfg::ReadFlatDatasetConfig {
-        let strat = self.strategy.inner.unwrap_or_default();
-        cfg::ReadFlatDatasetConfig {
-            header: self.flat.header.config(strat),
-            flat: self.flat.flat.config(strat),
-            offset: self.flat.offset.config(strat),
-            repair: self.repair.config(strat),
-            layout: self.data.config(strat),
-            data: self.dataset.config(strat),
-            shared: self.flat.shared.config(),
-        }
-    }
-}
-
-macro_rules! assign_conf {
-    ($this:expr, $conf:expr, $($field:ident),*) => {
-        $(
-            $this.$field.cmap(|x| $conf.$field = x.into());
-        )*
-    };
-}
-
-impl ReadHeaderInnerConfigArgs {
-    fn config(&self, strat: tc::ReadStrategy) -> tc::ReadHeaderInnerConfig {
-        let mut conf = tc::ReadHeaderInnerConfig::new_with_strategy(strat);
-
-        assign_conf!(
-            self,
-            conf,
-            text_correction,
-            data_correction,
-            analysis_correction,
-            other_corrections,
-            max_other,
-            other_width,
-            guess_other_width,
-            squish_offsets
-        );
-
-        conf
-    }
-}
-
-impl ReadOffsetConfigArgs {
-    fn config(&self, strat: tc::ReadStrategy) -> tc::ReadOffsetConfig {
-        let mut conf = tc::ReadOffsetConfig::new_with_strategy(strat);
-
-        assign_conf!(
-            self,
-            conf,
-            allow_pseudoempty,
-            dataset_overflow_limit,
-            overlap_correction_limit
-        );
-
-        conf
-    }
-}
-
-impl ReadFlatTEXTInnerConfigArgs {
-    fn config(&self, strat: tc::ReadStrategy) -> tc::ReadFlatTEXTInnerConfig {
-        let mut conf = tc::ReadFlatTEXTInnerConfig::new_with_strategy(strat);
-
-        assign_conf!(
-            self,
-            conf,
-            version_override,
-            supp_text_correction,
-            nextdata_correction,
-            allow_duplicated_supp_text,
-            process_supp_text,
-            delim_escape_mode,
-            allow_non_ascii_delim,
-            allow_even_delims,
-            allow_nonunique,
-            allow_odd_tokens,
-            allow_empty_keys,
-            allow_delim_at_boundary,
-            use_encoding,
-            allow_non_ascii_keys,
-            allow_non_utf8_values,
-            allow_missing_supp_text,
-            allow_supp_text_own_delim,
-            allow_missing_nextdata,
-            trim_value_whitespace
-        );
-
-        conf
-    }
-}
-
-impl ReadStdKeywordsConfigArgs {
-    fn config(&self, strat: tc::ReadStrategy) -> cfg::ReadStdKeywordsConfig {
-        let mut conf = cfg::ReadStdKeywordsConfig::new_with_strategy(strat);
-
-        assign_conf!(
-            self,
-            conf,
-            dedup_measurement_names,
-            trim_intra_value_whitespace,
-            force_linear_scale,
-            ignore_optical_only_keys,
-            process_optical_only_keys,
-            allow_missing_time,
-            add_missing_timestep,
-            spillover_measurement_mode,
-            allow_other_feature,
-            process_pseudostandard,
-            process_hyper_par,
-            process_other_version,
-            process_extra_timestep,
-            fix_log_scale_offsets,
-            disallow_localtime
-        );
-
-        self.time_meas_pattern
-            .cmap(|x| conf.time_meas_pattern = Selector::Root(x));
-
-        self.date_pattern
-            .cmap(|x| conf.date_pattern = Selector::Root(x));
-
-        self.time_pattern
-            .cmap(|x| conf.time_pattern = Selector::Root(x));
-
-        self.datetime_pattern
-            .cmap(|x| conf.datetime_pattern = Selector::Root(x));
-
-        self.last_modified_pattern
-            .cmap(|x| conf.last_modified_pattern = Selector::Root(x));
-
-        conf
-    }
-}
-
-impl ReadRepairKeywordsConfigArgs {
-    fn config(&self, strat: tc::ReadStrategy) -> cfg::ReadRepairKeywordsConfig {
-        let mut c = cfg::ReadRepairKeywordsConfig::new_with_strategy(strat);
-
-        self.ignore_std_keys
-            .cmap(|x| c.ignore_standard_keys = AppendableSelector::root(x));
-
-        self.promote_nonstandard_keys
-            .cmap(|x| c.promote_nonstandard_keys = AppendableSelector::root(x));
-
-        self.demote_standard_keys
-            .cmap(|x| c.demote_standard_keys = AppendableSelector::root(x));
-
-        self.rename_standard_keys
-            .cmap(|x| c.rename_standard_keys = AppendableSelector::root(x.0));
-
-        self.replace_std_key_vals
-            .cmap(|x| c.replace_standard_key_values = AppendableSelector::root(x.0));
-
-        self.append_std_keywords
-            .cmap(|x| c.append_standard_keywords = AppendableSelector::root(x.0));
-
-        self.substitute_standard_key_vals
-            .cmap(|x| c.substitute_standard_key_values = AppendableSelector::root(x.0));
-
-        self.promote_all_nonstandard_keys
-            .cmap(|x| c.promote_all_nonstandard_keys = x.into());
-
-        self.allow_repair_non_unique
-            .cmap(|x| c.allow_repair_non_unique = x);
-
-        c
-    }
-}
-
-impl ReadDataKeywordsConfigArgs {
-    fn config(&self, strat: tc::ReadStrategy) -> tc::ReadDataKeywordsConfig {
-        let mut conf = tc::ReadDataKeywordsConfig::new_with_strategy(strat);
-
-        assign_conf!(
-            self,
-            conf,
-            text_data_correction,
-            text_analysis_correction,
-            ignore_text_data_offsets,
-            ignore_text_analysis_offsets,
-            allow_header_text_offset_mismatch,
-            allow_missing_required_offsets,
-            process_optional_failure,
-            int_width_override,
-            byteord_override,
-            disallow_range_truncation
-        );
-
-        conf
-    }
-}
-
-impl ReadDatasetConfigArgs {
-    fn config(&self, strat: tc::ReadStrategy) -> tc::ReadDatasetConfig {
-        let mut conf = tc::ReadDatasetConfig::new_with_strategy(strat);
-
-        assign_conf!(
-            self,
-            conf,
-            data_remainder_limit,
-            allow_tot_mismatch,
-            allow_uneven_event_width,
-            over_bitmask_action,
-            over_range_action,
-            allow_missing_crc,
-            allow_mismatch_crc,
-            compute_crc,
-            row_buffer_size
-        );
-
-        conf
-    }
-}
-
-impl ReadSharedConfigArgs {
-    fn config(&self) -> tc::ReadSharedConfig {
-        tc::ReadSharedConfig {
-            warnings_are_errors: self.warnings_are_errors,
-            hide_warnings: self.hide_warnings,
-        }
-    }
-}
-
-impl WriteDatasetInnerConfigArgs {
-    fn config(&self) -> tc::WriteDatasetInnerConfig {
-        let mut conf = tc::WriteDatasetInnerConfig::default();
-
-        self.write_delim.cmap(|x| conf.text.delim = x);
-        self.big_other.cmap(|x| conf.text.big_other = x.into());
-
-        conf
-    }
-}
-
-/// Type which might be assigned to a configuration using a function.
-///
-/// (Almost) all types in the config structs are optional arguments on the CLI.
-/// Since we have strategies that can select preset values for each config
-/// struct, we only want to override a given value if it is supplied on the CLI
-/// explicitly by the user. The type should be constructed to encode whether or
-/// or not a value was explicitly supplied.
-///
-/// Therefore, impls of this trait should only call the assignment function if
-/// the explicit value is present.
-trait MapConfig {
-    type Inner;
-
-    fn cmap<F>(&self, f: F)
-    where
-        F: FnOnce(Self::Inner);
-}
-
-impl<T: Clone> MapConfig for Option<T> {
-    type Inner = T;
-
-    fn cmap<F>(&self, f: F)
-    where
-        F: FnOnce(Self::Inner),
-    {
-        let _ = self.as_ref().map(|x| f(x.clone()));
-    }
-}
+// Implement CLI-specific type wrappers.
+//
+// Each of these have a FromStr impl which allows them to be parsed from the CLI
+// using the value_parser! macro (which is used by default in clap-derive as of
+// v4). This avoids the possibility of having the CLI string parsed as one type
+// and stored as another, which causes a panic.
 
 /// CLI wrapper for types implementing [`tc::TriFlag`].
 #[derive(Clone, Copy)]
@@ -2239,46 +1022,6 @@ where
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         T::from_partial_str(s).map(Self)
-    }
-}
-
-/// An optional non-empty string where empty string on CLI maps to `None`.
-///
-/// These values can be set to `None` with something like "--flag=".
-#[derive(Clone, Copy, Into)]
-struct NENullable<T>(Option<T>);
-
-impl<T: FromStr> FromStr for NENullable<T> {
-    type Err = T::Err;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let ret = if s.is_empty() {
-            None
-        } else {
-            Some(s.parse::<T>()?)
-        };
-        Ok(Self(ret))
-    }
-}
-
-/// An optional string where "none" maps to `None`.
-///
-/// Values for the inner string type should either be impossible or very
-/// unlikely to be meaningful if set to "none", since "none" has special meaning
-/// on the CLI with this wrapper.
-#[derive(Clone, Copy, Into)]
-struct Nullable<T>(Option<T>);
-
-impl<T: FromStr> FromStr for Nullable<T> {
-    type Err = T::Err;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let ret = if s == "none" {
-            None
-        } else {
-            Some(s.parse::<T>()?)
-        };
-        Ok(Self(ret))
     }
 }
 
@@ -2551,6 +1294,1328 @@ impl FromStr for CliDelim {
     }
 }
 
+// Implement non-empty optional string (empty maps to 'None') args
+
+macro_rules! ne_nullable_arg {
+    ($t:ident, $long:expr, $valuename:expr, $inner:path, $help:expr) => {
+        #[derive(Args)]
+        struct $t {
+            #[arg(id = $long)]
+            #[arg(long = $long)]
+            #[arg(value_name = $valuename)]
+            #[arg(help = concatcp!($help, " Set to blank string to supply no value."))]
+            inner: Option<NENullable<$inner>>,
+        }
+
+        impl MapConfig for $t {
+            type Inner = Option<$inner>;
+
+            fn cmap<F>(&self, f: F)
+            where
+                F: FnOnce(Self::Inner),
+            {
+                let _ = self.inner.as_ref().map(|x| f(x.0.clone()));
+            }
+        }
+    };
+}
+
+/// An optional non-empty string where empty string on CLI maps to `None`.
+///
+/// These values can be set to `None` with something like "--flag=".
+#[derive(Clone, Copy, Into)]
+struct NENullable<T>(Option<T>);
+
+impl<T: FromStr> FromStr for NENullable<T> {
+    type Err = T::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let ret = if s.is_empty() {
+            None
+        } else {
+            Some(s.parse::<T>()?)
+        };
+        Ok(Self(ret))
+    }
+}
+
+ne_nullable_arg!(
+    DatePatternArg,
+    ta::DATE_PATTERN,
+    "PATTERN",
+    DatePattern,
+    formatcp!(
+        "Pattern to match {DATE} keyword. See {}.",
+        DATE_SECTION.header
+    )
+);
+
+ne_nullable_arg!(
+    TimePatternArg,
+    ta::TIME_PATTERN,
+    "PATTERN",
+    TimePattern,
+    formatcp!(
+        "Pattern to match {BTIM}/{ETIM} keywords. See {}.",
+        TIME_SECTION.header
+    )
+);
+
+ne_nullable_arg!(
+    DatetimePatternArg,
+    ta::DATETIME_PATTERN,
+    "PATTERN",
+    String,
+    formatcp!(
+        "If supplied, will be used as an alternative pattern when parsing \
+         {BEGINDATETIME} and {ENDDATETIME}. It should follow the format \
+         outline in {CHRONO_REF}.",
+    )
+);
+
+ne_nullable_arg!(
+    LastModifiedPatternArg,
+    ta::LAST_MODIFIED_PATTERN,
+    "PATTERN",
+    String,
+    formatcp!(
+        "If supplied, will be used as an alternative pattern when parsing \
+         {LAST_MODIFIED}. It should follow the format outline in {CHRONO_REF}.",
+    )
+);
+
+// Implement nullable type ("none" maps to 'None') args
+//
+// This is necessary to override some arguments where a strategy might set a
+// non-null value.
+
+macro_rules! nullable_arg {
+    ($t:ident, $long:expr, $valuename:expr, $inner:path, $help:expr) => {
+        #[derive(Args)]
+        struct $t {
+            #[arg(id = $long)]
+            #[arg(long = $long)]
+            #[arg(value_name = $valuename)]
+            #[arg(help = concatcp!($help, " Set to {none} to supply no value."))]
+            inner: Option<Nullable<$inner>>,
+        }
+
+        impl MapConfig for $t {
+            type Inner = Option<$inner>;
+
+            fn cmap<F>(&self, f: F)
+            where
+                F: FnOnce(Self::Inner),
+            {
+                let _ = self.inner.as_ref().map(|x| f(x.0));
+            }
+        }
+    };
+}
+
+/// An optional type where "none" maps to `None`.
+///
+/// Values for the inner string type should either be impossible or very
+/// unlikely to be meaningful if set to "none", since "none" has special meaning
+/// on the CLI with this wrapper.
+#[derive(Clone, Copy, Into)]
+struct Nullable<T>(Option<T>);
+
+impl<T: FromStr> FromStr for Nullable<T> {
+    type Err = T::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let ret = if s == "none" {
+            None
+        } else {
+            Some(s.parse::<T>()?)
+        };
+        Ok(Self(ret))
+    }
+}
+
+nullable_arg!(
+    VersionOverrideArg,
+    ta::VERSION_OVERRIDE,
+    "OVERRIDE",
+    tc::VersionOverride,
+    formatcp!(
+        "Override the FCS version from {HEADER_SEG}. Can be an FCS version \
+         string (like 'FCS3.2') which will force to a fixed version. Can \
+         also autodetect version with one of {latest} or {earliest} (the \
+         latest or earliest available version respectively) or {loose} or \
+         {strict} (the available version with the most or least optional \
+         keywords respectively). Append \"current_or\" to any of these \
+         to prioritize the current version before ranking others.",
+        latest = fmt_config_val!(VERSION_LATEST_LEVEL),
+        earliest = fmt_config_val!(VERSION_EARLIEST_LEVEL),
+        loose = fmt_config_val!(VERSION_LOOSE_LEVEL),
+        strict = fmt_config_val!(VERSION_STRICT_LEVEL),
+    )
+);
+
+nullable_arg!(
+    MaxOtherArg,
+    ta::MAX_OTHER,
+    "BYTES",
+    usize,
+    formatcp!("Max number of {OTHER_SEG} segments to parse.")
+);
+
+nullable_arg!(
+    AddMissingTimestepArg,
+    ta::ADD_MISSING_TIMESTEP,
+    "TIMESTEP",
+    PositiveFloat,
+    formatcp!("Add {TIMESTEP} if it is missing.")
+);
+
+// Implement std key patterns args.
+//
+// These types are used multiple times and share nearly identical impl/docs,
+// hence the macro.
+
+macro_rules! key_std_key_patterns_arg {
+    ($t:ident, $long:expr, $has_pre:expr, $help:expr) => {
+        #[derive(Args)]
+        struct $t {
+            #[arg(id = $long)]
+            #[arg(long = $long)]
+            #[arg(value_name = "<#>KEY_OR_PAT[<#>KEY_OR_PAT..]<#>")]
+            #[arg(help = concatcp!($help, " ", KEY_STR_OR_PAT_HELP_COMMON))]
+            inner: Option<CliStdKeyPatterns<$has_pre>>,
+        }
+
+        impl MapConfig for $t {
+            type Inner = StdKeyPatterns<$has_pre>;
+
+            fn cmap<F>(&self, f: F)
+            where
+                F: FnOnce(Self::Inner),
+            {
+                let _ = self.inner.as_ref().map(|x| f(x.0.clone()));
+            }
+        }
+    };
+}
+
+const KEY_STR_OR_PAT_HELP_COMMON: &str = formatcp!(
+    "If first and last character are the same, they are treated as \
+     delimiters (<#>) which can be used to separate multiple values. \
+     If a single value starts and ends with the same value, encapsulate \
+     this with two delimiters. Delimiters must be ASCII characters. Values \
+     that start and end with {delim} will be interpreted as a regexp-like \
+     pattern where '[n-m]' matches indices from 'n' to 'm' (inclusive to \
+     exclusive) in such cases {delim} is not interpreted as a delimiter. \
+     An empty string encodes an empty list of values.",
+    delim = fmt_val!(PATTERN_DELIMITER)
+);
+
+key_std_key_patterns_arg!(
+    IgnoreStdKeysArg,
+    ta::IGNORE_STD_KEYS,
+    true,
+    "Ignore standard keys exactly matching KEY_OR_PAT."
+);
+
+key_std_key_patterns_arg!(
+    PromoteNonStdKeysArg,
+    ta::PROMOTE_TO_STD,
+    false,
+    "Promote non-standard keys matching KEY_OR_PAT to standard."
+);
+
+key_std_key_patterns_arg!(
+    DemoteStdKeysArg,
+    ta::DEMOTE_FROM_STD,
+    true,
+    "Demote standard keys matching KEY_OR_PAT to non-standard."
+);
+
+// Implement offset correction args
+
+macro_rules! corr_arg {
+    ($t:ident, $long:expr, $seg:path, $src:path) => {
+        #[derive(Args)]
+        struct $t {
+            #[arg(id = $long)]
+            #[arg(long = $long)]
+            #[arg(value_name = "BEGIN,END")]
+            #[arg(help = format!("Correction for {seg} offsets from {src}.", seg = <$seg as HasRegion>::REGION, src = <$src as HasSource>::SRC))]
+            inner: Option<StrOffsetsCorrection<$seg, $src>>,
+        }
+
+        impl MapConfig for $t {
+            type Inner = OffsetsCorrection<$seg, $src>;
+
+            fn cmap<F>(&self, f: F)
+            where
+                F: FnOnce(Self::Inner),
+            {
+                let _ = self.inner.as_ref().map(|x| f(x.0));
+            }
+        }
+    };
+}
+
+corr_arg!(
+    HdrTextCorrArg,
+    ta::TEXT_CORR,
+    ts::PrimaryTextSegmentId,
+    ts::OffsetsFromHeader
+);
+
+corr_arg!(
+    HdrDataCorrArg,
+    ta::DATA_CORR,
+    ts::DataSegmentId,
+    ts::OffsetsFromHeader
+);
+
+corr_arg!(
+    HdrAnalCorrArg,
+    ta::ANALYSIS_CORR,
+    ts::AnalysisSegmentId,
+    ts::OffsetsFromHeader
+);
+
+corr_arg!(
+    SuppTextCorrArg,
+    ta::SUPP_TEXT_COR,
+    ts::SupplementalTextSegmentId,
+    ts::OffsetsFromTEXT
+);
+
+corr_arg!(
+    TextDataCorrArg,
+    ta::TEXT_DATA_CORR,
+    ts::DataSegmentId,
+    ts::OffsetsFromTEXT
+);
+
+corr_arg!(
+    TextAnalCorrArg,
+    ta::TEXT_ANALYSIS_CORR,
+    ts::AnalysisSegmentId,
+    ts::OffsetsFromTEXT
+);
+
+// Implement 5-level processing flags for dropping/demoting
+
+macro_rules! proc_kw_fail_arg {
+    ($t:ident, $long:expr, $inner:path, $help:expr) => {
+        #[derive(Args)]
+        struct $t {
+            #[arg(id = $long)]
+            #[arg(long = $long)]
+            #[arg(value_name = "LEVEL")]
+            #[arg(help = concatcp!($help, " ", PROC_KW_FAIL_HELP_COMMON))]
+            inner: Option<$inner>,
+        }
+
+        impl MapConfig for $t {
+            type Inner = $inner;
+
+            fn cmap<F>(&self, f: F)
+            where
+                F: FnOnce(Self::Inner),
+            {
+                let _ = self.inner.as_ref().map(|&x| f(x));
+            }
+        }
+    };
+}
+
+const PROC_KW_FAIL_HELP_COMMON: &str = formatcp!(
+    "Must be one of {error}, {demote_warn}, {demote_silent}, \
+     {drop_warn}, or {drop_silent} which will throw an error, demote to \
+     non-standard with warning, demote to non-standard silently, drop with \
+     warning, or drop silently respectively",
+    error = fmt_config_val!(KW_ERROR_LEVEL),
+    demote_warn = fmt_config_val!(KW_DEMOTE_WARN_LEVEL),
+    demote_silent = fmt_config_val!(KW_DEMOTE_SILENT_LEVEL),
+    drop_warn = fmt_config_val!(KW_DROP_WARN_LEVEL),
+    drop_silent = fmt_config_val!(KW_DROP_SILENT_LEVEL)
+);
+
+proc_kw_fail_arg!(
+    ProcessPseudostandardArg,
+    ta::PROCESS_PSEUDOSTANDARD,
+    tc::ProcessPseudostandard,
+    "Process non-standard keywords that start with a '$'."
+);
+
+proc_kw_fail_arg!(
+    ProcessHyperParArg,
+    ta::PROCESS_HYPER_PAR,
+    tc::ProcessHyperPar,
+    formatcp!("Process measurement keywords whose index is greater than {PAR}.")
+);
+
+proc_kw_fail_arg!(
+    ProcessOtherVersionArg,
+    ta::PROCESS_OTHER_VERSION,
+    tc::ProcessOtherVersion,
+    "Process standard keywords from different FCS version."
+);
+
+proc_kw_fail_arg!(
+    ProcessExtraTimestepArg,
+    ta::PROCESS_EXTRA_TIMESTEP,
+    tc::ProcessExtraTimestep,
+    formatcp!(
+        "Process unused {TIMESTEP}, which may indicate that a time measurement \
+         is present but not identified."
+    )
+);
+
+proc_kw_fail_arg!(
+    ProcessOptionalFailureArg,
+    ta::PROCESS_OPTIONAL_FAILURE,
+    tc::ProcessOptionalFailure,
+    "Process optional keys if they cause an error."
+);
+
+// Implement TriFlag arguments
+//
+// These need to map to strings "false"/"true"/"silent" and docs need to
+// reflect the behavior of the flag based on error=false or error=true.
+
+macro_rules! tri_flag_arg {
+    ($t:ident, $long:expr, $inner:path, $help:expr) => {
+        #[derive(Args)]
+        struct $t {
+            #[arg(id = $long)]
+            #[arg(long = $long)]
+            #[arg(value_name = "LEVEL")]
+            #[arg(help = tri_flag_help::<$inner>($help))]
+            inner: Option<CliTriFlag<$inner>>,
+        }
+
+        impl MapConfig for $t {
+            type Inner = $inner;
+
+            fn cmap<F>(&self, f: F)
+            where
+                F: FnOnce(Self::Inner),
+            {
+                let _ = self.inner.as_ref().map(|x| f(x.0));
+            }
+        }
+    };
+}
+
+fn tri_flag_help<T>(help_front: impl Display) -> String
+where
+    T: tc::TriErrorFlag,
+{
+    let (what_true, what_false) = if T::FALSE_IS_ERROR {
+        ("warning", "error")
+    } else {
+        ("error", "warning")
+    };
+    format!(
+        "{help_front} If {true_}, throw {what_true}. If {false_}, throw \
+         {what_false}. If {silent}, ignore completely.",
+        false_ = fmt_config_val!(TRI_FALSE_LEVEL),
+        true_ = fmt_config_val!(TRI_TRUE_LEVEL),
+        silent = fmt_config_val!(TRI_SILENT_LEVEL),
+    )
+}
+
+tri_flag_arg!(
+    AllowDuplicatedSuppTextArg,
+    ta::ALLOW_DUPLICATED_SUPP_TEXT,
+    tc::AllowDuplicatedSuppTEXT,
+    formatcp!(
+        "Allow {SUPP_TEXT_SEG} offsets to overlap those for \
+         {PRIM_TEXT_SEG} or the boundaries of {HEADER_SEG}."
+    )
+);
+
+tri_flag_arg!(
+    AllowNonAsciiDelimArg,
+    ta::ALLOW_NON_ASCII_DELIM,
+    tc::AllowNonAsciiDelim,
+    formatcp!("Allow {TEXT_SEG} delimiter to be non-ASCII character.")
+);
+
+tri_flag_arg!(
+    AllowEvenDelimsArg,
+    ta::ALLOW_EVEN_DELIMS,
+    tc::AllowEvenDelims,
+    formatcp!("Allow final {TEXT_SEG} delimiter to be missing.")
+);
+
+tri_flag_arg!(
+    AllowNonUniqueArg,
+    ta::ALLOW_NONUNIQUE,
+    tc::AllowNonunique,
+    formatcp!("Allow non-unique keys to exist in {TEXT_SEG}.")
+);
+
+tri_flag_arg!(
+    AllowOddTokensArg,
+    ta::ALLOW_ODD_TOKENS,
+    tc::AllowOddTokens,
+    "Allow odd number of tokens."
+);
+
+tri_flag_arg!(
+    AllowEmptyKeysArg,
+    ta::ALLOW_EMPTY_KEYS,
+    tc::AllowEmptyKeys,
+    "Allow keys to be blank (relatively rare)."
+);
+
+tri_flag_arg!(
+    AllowDelimAtBoundaryArg,
+    ta::ALLOW_DELIM_AT_BOUNDARY,
+    tc::AllowDelimAtBoundary,
+    formatcp!("Allow {TEXT_SEG} delimiter(s) to be at token boundaries.")
+);
+
+tri_flag_arg!(
+    AllowNonAsciiKeysArg,
+    ta::ALLOW_NON_ASCII_KEYS,
+    tc::AllowNonAsciiKeywords,
+    "Allow non-ASCII characters in keys."
+);
+
+tri_flag_arg!(
+    AllowNonUtf8ValuesArg,
+    ta::ALLOW_NON_UTF8_VALUES,
+    tc::AllowNonUtf8,
+    formatcp!("Allow non-UTF8 characters in {TEXT_SEG} segment.")
+);
+
+tri_flag_arg!(
+    AllowMissingSuppTextArg,
+    ta::ALLOW_MISSING_SUPP_TEXT,
+    tc::AllowMissingSuppTEXT,
+    formatcp!("Allow {SUPP_TEXT_SEG} offsets to be missing.")
+);
+
+tri_flag_arg!(
+    AllowSuppTextOwnDelimArg,
+    ta::ALLOW_SUPP_TEXT_OWN_DELIM,
+    tc::AllowSuppTEXTOwnDelim,
+    formatcp!("Allow delimiters in {PRIM_TEXT_SEG} and {SUPP_TEXT_SEG} to differ.")
+);
+
+tri_flag_arg!(
+    AllowMissingNextdataArg,
+    ta::ALLOW_MISSING_NEXTDATA,
+    tc::AllowMissingNextdata,
+    formatcp!("Allow {NEXTDATA} to be missing.")
+);
+
+tri_flag_arg!(
+    AllowMissingTimeArg,
+    ta::ALLOW_MISSING_TIME,
+    tc::AllowMissingTime,
+    "Allow time measurement to be missing."
+);
+
+tri_flag_arg!(
+    AllowRepairNonUniqueArg,
+    ta::ALLOW_REPAIR_NON_UNIQUE,
+    tc::AllowRepairNonUnique,
+    "Choose how to handle key collisions when repairing keywords. \
+     Non-unique keywords will not be kept in the final FCS file since each \
+     list of standard and non-standard keywords must be unique."
+);
+
+tri_flag_arg!(
+    AllowMissingRequiredOffsetsArg,
+    ta::ALLOW_MISSING_REQUIRED_OFFSETS,
+    tc::AllowMissingRequiredOffsets,
+    formatcp!(
+        "Allow required offsets to be missing from {TEXT_SEG}. \
+         Only applies to FCS 3.0/3.1."
+    )
+);
+
+tri_flag_arg!(
+    DisallowRangeTruncationArg,
+    ta::DISALLOW_RANGE_TRUNCATION,
+    tc::DisallowRangeTrunc,
+    formatcp!(
+        "Disallow {PN_R} values which need to be truncated to fit in type \
+         dictated by {DATATYPE} (and {PNDATATYPE} for FCS 3.2) and {PN_B} \
+         for a given measurement."
+    )
+);
+
+tri_flag_arg!(
+    AllowUnevenEventWidthArg,
+    ta::ALLOW_UNEVEN_EVENT_WIDTH,
+    tc::AllowUnevenEventWidth,
+    formatcp!("Allow event width to not evenly divide length of {DATA_SEG}.")
+);
+
+tri_flag_arg!(
+    AllowTotMismatchArg,
+    ta::ALLOW_TOT_MISMATCH,
+    tc::AllowTotMismatch,
+    formatcp!("Allow {TOT} to mismatch the number of events that are actually in {DATA_SEG}.")
+);
+
+tri_flag_arg!(
+    AllowMissingCRCArg,
+    ta::ALLOW_MISSING_CRC,
+    tc::AllowMissingCRC,
+    "Allow CRC word at the end of the dataset to be missing."
+);
+
+tri_flag_arg!(
+    AllowMismatchCRCArg,
+    ta::ALLOW_MISMATCH_CRC,
+    tc::AllowMismatchCRC,
+    "Allow computed CRC to not match the CRC word at the end of the dataset."
+);
+
+// Implement override-able boolean flags
+//
+// These are flags with four possible states:
+// 1. not given (does not change the config)
+// 2. given with no value (defaults to true)
+// 3. given with "true"
+// 4. given with "false"
+//
+// All except (1) will set the corresponding field in the config, which will
+// "override" whatever was there before (true/false depending on strategy).
+
+macro_rules! override_flag_arg {
+    ($t:ident, $inner:path, $long:expr, $help:expr) => {
+        #[derive(Args)]
+        struct $t {
+            #[arg(id = $long)]
+            #[arg(long = $long)]
+            #[arg(value_name = "BOOL")]
+            #[arg(default_missing_value("true"))]
+            #[arg(require_equals(true))]
+            #[arg(num_args(0..=1))]
+            #[arg(help = $help)]
+            inner: Option<bool>,
+        }
+
+        impl MapConfig for $t {
+            type Inner = $inner;
+
+            fn cmap<F>(&self, f: F)
+            where
+                F: FnOnce(Self::Inner),
+            {
+                let _ = self.inner.as_ref().map(|&x| f(x.into()));
+            }
+        }
+    };
+}
+
+override_flag_arg!(
+    SquishOffsetsArg,
+    tc::SquishOffsets,
+    ta::SQUISH_OFFSETS,
+    formatcp!(
+        "If {DATA_SEG}/{ANALYSIS_SEG} end in 0, use 0 for start as well. \
+             Should not be used for FCS 2.0 files."
+    )
+);
+
+override_flag_arg!(
+    AllowPseudoEmptyArg,
+    tc::AllowPseudoempty,
+    ta::ALLOW_PSEUDOEMPTY,
+    "Treat offsets like '0,-1' or '1000,999' as '0,0'."
+);
+
+override_flag_arg!(
+    DedupMeasNamesArg,
+    tc::DedupMeasNames,
+    ta::DEDUP_MEAS_NAMES,
+    formatcp!(
+        "Force all {PN_N} to be unique by appending '{}X' \
+         to each duplicate and appending 'X' (starting at 0)",
+        tc::DEDUP_PNN_SEP,
+    )
+);
+
+override_flag_arg!(
+    TrimIntraValueWhitespaceArg,
+    tc::TrimIntraValueWhitespace,
+    ta::TRIM_INTRA_VALUE_WHITESPACE,
+    "Remove spaces between comma-separated values."
+);
+
+override_flag_arg!(
+    AllowOtherFeatureArg,
+    tc::AllowOtherFeature,
+    ta::ALLOW_OTHER_FEATURE,
+    formatcp!("Allow {PNFEATURE} to be a value other than \"Area\", \"Width\", or \"Height\"")
+);
+
+override_flag_arg!(
+    FixLogScaleOffsetArg,
+    tc::FixLogScaleOffsets,
+    ta::FIX_LOG_SCALE_OFFSETS,
+    formatcp!(
+        "Fix {PN_E} keys that have log scaling with zero offset. \
+         Specifically, this will replace values like 'X,0.0' with 'X,1.0' \
+         where 'X' is a positive decimal number. Having '0.0' for log offset \
+         is mathematical nonsense.",
+    )
+);
+
+override_flag_arg!(
+    DisallowLocaltimeArg,
+    tc::DisallowLocaltime,
+    ta::DISALLOW_LOCALTIME,
+    formatcp!(
+        "Require that {BEGINDATETIME} and {ENDDATETIME} have a timezone if \
+         provided. This is not required by the standard, but not having a \
+         timezone is ambiguous since the absolute value of the timestamp is \
+         dependent on localtime and therefore is location-dependent. Only \
+         affects FCS 3.2.",
+    )
+);
+
+override_flag_arg!(
+    IgnoreTextDataOffsetsArg,
+    tc::IgnoreTEXTDataOffsets,
+    ta::IGNORE_TEXT_DATA_OFFSETS,
+    formatcp!("Ignore offsets for {DATA_SEG} from {TEXT_SEG}.")
+);
+
+override_flag_arg!(
+    IgnoreTextAnalysisOffsetsArg,
+    tc::IgnoreTEXTAnalysisOffsets,
+    ta::IGNORE_TEXT_ANALYSIS_OFFSETS,
+    formatcp!("Ignore offsets for {ANALYSIS_SEG} from {TEXT_SEG}.")
+);
+
+// Implement runtime code
+
+impl Cli {
+    fn run() -> AppResult<()> {
+        let stdout = io::BufWriter::new(io::stdout().lock());
+        let stderr = io::BufWriter::new(io::stderr().lock());
+
+        // NOTE this will call exit if arg parsing fails; it is the "simple" way
+        // to return colored output. Using try_parse() requires manually rendering
+        // the string to get color.
+        match Self::parse() {
+            Self::Version => {
+                let vi = api::build_info();
+                to_writer(stdout, &vi)?;
+            }
+
+            Self::Header(sargs) => sargs.run(stdout, stderr)?,
+
+            Self::Flat(sargs) => sargs.run(stdout, stderr)?,
+
+            Self::Std(sargs) => sargs.run(stdout, stderr)?,
+
+            Self::Measurements(sargs) => sargs.run_meas(stdout, stderr)?,
+
+            Self::Spillover(sargs) => sargs.run_spillover(stdout, stderr)?,
+
+            Self::Data(sargs) => sargs.run(stdout, stderr)?,
+
+            Self::Summarize(sargs) => sargs.run(stdout, stderr)?,
+
+            Self::Repair(sargs) => sargs.run(stdout, stderr)?,
+
+            Self::Scan(sargs) => {
+                #[derive(Serialize)]
+                struct Bounds {
+                    version: tk::Version,
+                    offset: DatasetOffset,
+                }
+                let filepath = sargs.input.inner;
+                let mmap = sargs.mmap.inner;
+                let bounds = api::fcs_scan_dataset_boundaries(&filepath, mmap)?;
+                let arr: Vec<_> = bounds
+                    .into_iter()
+                    .map(|(version, offset)| Bounds { version, offset })
+                    .collect();
+                to_writer(stdout, &arr)?;
+            }
+
+            Self::Strategies(sargs) => {
+                let strat = sargs.inner.unwrap_or_default();
+                let conf = cfg::ReadStdDatasetConfig::new_with_strategy(strat);
+                to_writer(stdout, &conf)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl HeaderCmdArgs {
+    fn run<Wout: Write, Werr: Write>(&self, stdout: Wout, mut stderr: Werr) -> AppResult<()> {
+        let conf = self.config();
+        let filepath = &self.input.inner;
+        let (ws, res) = api::fcs_read_header(filepath, DatasetOffset(0), &conf)
+            .resolve_commutative(|ws| ws, |s| s);
+        print_warnings(ws, &mut stderr)?;
+        to_writer(stdout, &res?)?;
+        Ok(())
+    }
+
+    fn config(&self) -> cfg::ReadHeaderConfig {
+        let strat = self.strategy.inner.unwrap_or_default();
+        cfg::ReadHeaderConfig {
+            header: self.header.config(strat),
+            offset: self.offset.config(strat),
+        }
+    }
+}
+
+impl FlatCmdArgs {
+    fn run<Wout: Write, Werr: Write>(&self, stdout: Wout, mut stderr: Werr) -> AppResult<()> {
+        let conf = self.config();
+        let filepath = &self.input.inner;
+        let skip = self.dataset_index.inner;
+        let mmap = self.mmap.inner;
+        let (ws, res) = api::fcs_read_flat_texts(filepath, skip, Some(1), false, mmap, &conf)
+            .resolve_commutative(|ws| ws, |s| s);
+        print_warnings(ws, &mut stderr)?;
+        to_writer(stdout, &res?.first())?;
+        Ok(())
+    }
+
+    fn config(&self) -> cfg::ReadFlatTEXTConfig {
+        let strat = self.strategy.inner.unwrap_or_default();
+        self.flat.config(strat)
+    }
+}
+
+impl StdCmdArgs {
+    fn run<Wout: Write, Werr: Write>(&self, stdout: Wout, mut stderr: Werr) -> AppResult<()> {
+        let conf = self.config();
+        let filepath = &self.input.inner;
+        let skip = self.dataset_index.inner;
+        let mmap = self.mmap.inner;
+        let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, mmap, &conf)
+            .resolve_commutative(|ws| ws, |s| s);
+        print_warnings(ws, &mut stderr)?;
+        if let Some((core, uncore)) = res?.first() {
+            let obj = json!({"core": core, "uncore": uncore});
+            to_writer(stdout, &obj)?;
+        } else {
+            to_writer(stdout, &Value::Null)?;
+        }
+        Ok(())
+    }
+
+    fn config(&self) -> cfg::ReadStdTEXTConfig {
+        let strat = self.strategy.inner.unwrap_or_default();
+        self.std.config(strat)
+    }
+}
+
+impl TabularCmdArgs {
+    fn run_meas<Wout: Write, Werr: Write>(&self, stdout: Wout, stderr: Werr) -> AppResult<()> {
+        self.run_inner(stdout, stderr, |core, out, delim| {
+            Ok(core.print_meas_table(out, delim.0)?)
+        })
+    }
+
+    fn run_spillover<Wout: Write, Werr: Write>(&self, stdout: Wout, stderr: Werr) -> AppResult<()> {
+        self.run_inner(stdout, stderr, |core, out, delim| {
+            Ok(core.print_comp_or_spillover_table(out, delim.0)?)
+        })
+    }
+
+    fn run_inner<F, Wout: Write, Werr: Write>(
+        &self,
+        mut stdout: Wout,
+        mut stderr: Werr,
+        f: F,
+    ) -> AppResult<()>
+    where
+        F: FnOnce(&AnyCoreTEXT, &mut Wout, CliDelim) -> AppResult<()>,
+    {
+        let conf = self.config();
+        let delim = self.delim.inner.unwrap_or_default();
+        let filepath = &self.input.inner;
+        let skip = self.dataset_index.inner;
+        let mmap = self.mmap.inner;
+        let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, mmap, &conf)
+            .resolve_commutative(|ws| ws, |s| s);
+        print_warnings(ws, &mut stderr)?;
+        if let Some((core, _)) = res?.first() {
+            f(core, &mut stdout, delim)?;
+        } else {
+            to_writer(stdout, &Value::Null)?;
+        }
+        Ok(())
+    }
+
+    fn config(&self) -> cfg::ReadStdTEXTConfig {
+        let strat = self.strategy.inner.unwrap_or_default();
+        self.std.config(strat)
+    }
+}
+
+impl DatasetCmdArgs {
+    fn run<Wout: Write, Werr: Write>(&self, mut stdout: Wout, mut stderr: Werr) -> AppResult<()> {
+        let conf = self.config();
+        let delim = self.delim.inner.unwrap_or_default();
+        let filepath = &self.input.inner;
+        let skip = self.dataset_index.inner;
+        let mmap = self.mmap.inner;
+        let (ws, res) = api::fcs_read_std_datasets(filepath, skip, Some(1), false, mmap, &conf)
+            .resolve_commutative(|ws| ws, |s| s);
+        print_warnings(ws, &mut stderr)?;
+        if let Some((core, _)) = res?.first() {
+            Self::print_parsed_data(&mut stdout, core, delim.0)?;
+        } else {
+            to_writer(stdout, &Value::Null)?;
+        }
+        Ok(())
+    }
+
+    fn print_parsed_data<W: Write>(w: &mut W, core: &AnyCoreDataset, delim: u8) -> io::Result<()> {
+        // 32k / 8 bytes since we are storing everything as u64
+        const BUF_SIZE: usize = 1 << 12;
+
+        let mut ibuf = IBuf::new();
+        let mut fbuf = FBuf::new();
+
+        let df = core.as_data();
+        let nrows = df.nrows();
+        let cols: Vec<_> = df.iter().collect();
+        let ncols = cols.len();
+        let dtypes = core.datatypes();
+        assert_eq!(dtypes.len(), ncols, "datatypes are wrong length");
+
+        if ncols == 0 {
+            return Ok(());
+        }
+
+        let mut first = true;
+        for n in core.shortnames() {
+            if !first {
+                w.write_all(&[delim])?;
+            }
+            first = false;
+            w.write_all(AsRef::<str>::as_ref(&n).as_bytes())?;
+        }
+        writeln!(w)?;
+
+        // Max to always ensure there is one row, which only matters if we ever
+        // encounter a machine with more than 4096 parameters.
+        let rows_per_buf = (BUF_SIZE / ncols).max(1);
+        let real_buf_size = ncols * rows_per_buf;
+        let buf_reads = nrows.div_ceil(rows_per_buf);
+        let buf_tail_rows = nrows % rows_per_buf;
+
+        let mut buf = Vec::with_capacity(real_buf_size);
+
+        for b in 0..buf_reads {
+            buf.clear();
+            let next_rows = if b + 1 == buf_reads && buf_tail_rows > 0 {
+                buf_tail_rows
+            } else {
+                rows_per_buf
+            };
+            for col in &cols {
+                for r in 0..next_rows {
+                    buf.push(col.as_u64(r + rows_per_buf * b));
+                }
+            }
+            for r in 0..next_rows {
+                first = true;
+                for (c, d) in dtypes.iter().enumerate() {
+                    let i = r + c * next_rows;
+                    let v = buf[i];
+                    let bs = match d {
+                        AlphaNumType::Float => {
+                            let vv = u32::try_from(v).expect("f32 should be encoded as u32");
+                            fbuf.format(f32::from_bits(vv)).as_bytes()
+                        }
+                        AlphaNumType::Double => fbuf.format(f64::from_bits(v)).as_bytes(),
+                        _ => ibuf.format(v).as_bytes(),
+                    };
+                    if !first {
+                        w.write_all(&[delim])?;
+                    }
+                    first = false;
+                    w.write_all(bs)?;
+                }
+                writeln!(w)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn config(&self) -> cfg::ReadStdDatasetConfig {
+        let strat = self.strategy.inner.unwrap_or_default();
+        self.dataset.config(strat)
+    }
+}
+
+impl RepairCmdArgs {
+    fn run<Wout: Write, Werr: Write>(&self, stdout: Wout, mut stderr: Werr) -> AppResult<()> {
+        let read_conf = self.config();
+        let write_conf = self.write.config();
+        let ipath = &self.input.inner;
+        let opath = &self.output.inner;
+        let skip = self.multi.skip;
+        let limit = self.multi.limit;
+        let scan = self.multi.scan.unwrap_or_default();
+        let mmap = self.mmap.inner;
+        let (read_ws, read_res) =
+            api::fcs_read_std_datasets(ipath, skip, limit, scan, mmap, &read_conf)
+                .resolve_commutative(|ws| ws, |s| s);
+        // order matters, print warnings before unpacking the result which
+        // will short-circuit on error
+        print_warnings(read_ws, &mut stderr)?;
+        let (cores, outs): (Vec<_>, Vec<_>) = read_res?.into_iter().unzip();
+        let (write_ws, write_res) = api::fcs_write_datasets(opath, &cores[..], &write_conf)
+            .resolve_commutative(|ws| ws, |e| e);
+        print_warnings(write_ws, &mut stderr)?;
+        let _ = write_res?;
+        to_writer(stdout, &outs[..])?;
+        Ok(())
+    }
+
+    fn config(&self) -> cfg::ReadStdDatasetConfig {
+        let strat = self.strategy.inner.unwrap_or_default();
+        self.dataset.config(strat)
+    }
+}
+
+impl SummarizeCmdArgs {
+    fn run<Wout: Write, Werr: Write>(&self, stdout: Wout, mut stderr: Werr) -> AppResult<()> {
+        let conf = self.config();
+        let filepath = &self.input.inner;
+        let skip = self.multi.skip;
+        let limit = self.multi.limit;
+        let scan = self.multi.scan.unwrap_or_default();
+        let mmap = self.mmap.inner;
+        let (ws, res) = api::fcs_summarize(filepath, skip, limit, scan, mmap, &conf)
+            .resolve_commutative(|ws| ws, |s| s);
+        print_warnings(ws, &mut stderr)?;
+        to_writer(stdout, &res?)?;
+        Ok(())
+    }
+
+    fn config(&self) -> cfg::ReadFlatDatasetConfig {
+        let strat = self.strategy.inner.unwrap_or_default();
+        cfg::ReadFlatDatasetConfig {
+            header: self.flat.header.config(strat),
+            flat: self.flat.flat.config(strat),
+            offset: self.flat.offset.config(strat),
+            repair: self.repair.config(strat),
+            layout: self.data.config(strat),
+            data: self.dataset.config(strat),
+            shared: self.flat.shared.config(),
+        }
+    }
+}
+
+impl AllReadFlatKwsConfigArgs {
+    fn config(&self, strat: tc::ReadStrategy) -> cfg::ReadFlatTEXTConfig {
+        cfg::ReadFlatTEXTConfig {
+            header: self.header.config(strat),
+            flat: self.flat.config(strat),
+            offset: self.offset.config(strat),
+            shared: self.shared.config(),
+        }
+    }
+}
+
+impl AllReadStdKwsConfigArgs {
+    fn config(&self, strat: tc::ReadStrategy) -> cfg::ReadStdTEXTConfig {
+        cfg::ReadStdTEXTConfig {
+            header: self.flat.header.config(strat),
+            flat: self.flat.flat.config(strat),
+            offset: self.flat.offset.config(strat),
+            standard: self.std.config(strat),
+            repair: self.repair.config(strat),
+            layout: self.data.config(strat),
+            shared: self.flat.shared.config(),
+        }
+    }
+}
+
+impl AllReadStdDatasetConfigArgs {
+    fn config(&self, strat: tc::ReadStrategy) -> cfg::ReadStdDatasetConfig {
+        cfg::ReadStdDatasetConfig {
+            header: self.std.flat.header.config(strat),
+            flat: self.std.flat.flat.config(strat),
+            offset: self.std.flat.offset.config(strat),
+            standard: self.std.std.config(strat),
+            repair: self.std.repair.config(strat),
+            layout: self.std.data.config(strat),
+            data: self.dataset.config(strat),
+            shared: self.std.flat.shared.config(),
+        }
+    }
+}
+
+// Implement arg->config value transfer.
+//
+// This is really boring and repetitive since we are mapping values 1-1 in
+// almost all cases. Use a trait and macro to help with this. Also by
+// convention, each field between the arg parsing structs and the config structs
+// are the same, which makes the macro simpler.
+
+/// Type which might be assigned to a configuration using a function.
+///
+/// (Almost) all types in the config structs are optional arguments on the CLI.
+/// Since we have strategies that can select preset values for each config
+/// struct, we only want to override a given value if it is supplied on the CLI
+/// explicitly by the user. The type should be constructed to encode whether or
+/// or not a value was explicitly supplied.
+///
+/// Therefore, impls of this trait should only call the assignment function if
+/// the explicit value is present.
+trait MapConfig {
+    type Inner;
+
+    fn cmap<F>(&self, f: F)
+    where
+        F: FnOnce(Self::Inner);
+}
+
+impl<T: Clone> MapConfig for Option<T> {
+    type Inner = T;
+
+    fn cmap<F>(&self, f: F)
+    where
+        F: FnOnce(Self::Inner),
+    {
+        let _ = self.as_ref().map(|x| f(x.clone()));
+    }
+}
+
+/// Macro to assign config value from arg value given a field name.
+macro_rules! assign_conf {
+    ($this:expr, $conf:expr, $($field:ident),*) => {
+        $(
+            $this.$field.cmap(|x| $conf.$field = x.into());
+        )*
+    };
+}
+
+impl ReadHeaderInnerConfigArgs {
+    fn config(&self, strat: tc::ReadStrategy) -> tc::ReadHeaderInnerConfig {
+        let mut conf = tc::ReadHeaderInnerConfig::new_with_strategy(strat);
+
+        assign_conf!(
+            self,
+            conf,
+            text_correction,
+            data_correction,
+            analysis_correction,
+            other_corrections,
+            max_other,
+            other_width,
+            guess_other_width,
+            squish_offsets
+        );
+
+        conf
+    }
+}
+
+impl ReadOffsetConfigArgs {
+    fn config(&self, strat: tc::ReadStrategy) -> tc::ReadOffsetConfig {
+        let mut conf = tc::ReadOffsetConfig::new_with_strategy(strat);
+
+        assign_conf!(
+            self,
+            conf,
+            allow_pseudoempty,
+            dataset_overflow_limit,
+            overlap_correction_limit
+        );
+
+        conf
+    }
+}
+
+impl ReadFlatTEXTInnerConfigArgs {
+    fn config(&self, strat: tc::ReadStrategy) -> tc::ReadFlatTEXTInnerConfig {
+        let mut conf = tc::ReadFlatTEXTInnerConfig::new_with_strategy(strat);
+
+        assign_conf!(
+            self,
+            conf,
+            version_override,
+            supp_text_correction,
+            nextdata_correction,
+            allow_duplicated_supp_text,
+            process_supp_text,
+            delim_escape_mode,
+            allow_non_ascii_delim,
+            allow_even_delims,
+            allow_nonunique,
+            allow_odd_tokens,
+            allow_empty_keys,
+            allow_delim_at_boundary,
+            use_encoding,
+            allow_non_ascii_keys,
+            allow_non_utf8_values,
+            allow_missing_supp_text,
+            allow_supp_text_own_delim,
+            allow_missing_nextdata,
+            trim_value_whitespace
+        );
+
+        conf
+    }
+}
+
+impl ReadStdKeywordsConfigArgs {
+    fn config(&self, strat: tc::ReadStrategy) -> cfg::ReadStdKeywordsConfig {
+        let mut conf = cfg::ReadStdKeywordsConfig::new_with_strategy(strat);
+
+        assign_conf!(
+            self,
+            conf,
+            dedup_measurement_names,
+            trim_intra_value_whitespace,
+            force_linear_scale,
+            ignore_optical_only_keys,
+            process_optical_only_keys,
+            allow_missing_time,
+            add_missing_timestep,
+            spillover_measurement_mode,
+            allow_other_feature,
+            process_pseudostandard,
+            process_hyper_par,
+            process_other_version,
+            process_extra_timestep,
+            fix_log_scale_offsets,
+            disallow_localtime
+        );
+
+        self.time_meas_pattern
+            .cmap(|x| conf.time_meas_pattern = Selector::Root(x));
+
+        self.date_pattern
+            .cmap(|x| conf.date_pattern = Selector::Root(x));
+
+        self.time_pattern
+            .cmap(|x| conf.time_pattern = Selector::Root(x));
+
+        self.datetime_pattern
+            .cmap(|x| conf.datetime_pattern = Selector::Root(x));
+
+        self.last_modified_pattern
+            .cmap(|x| conf.last_modified_pattern = Selector::Root(x));
+
+        conf
+    }
+}
+
+impl ReadRepairKeywordsConfigArgs {
+    fn config(&self, strat: tc::ReadStrategy) -> cfg::ReadRepairKeywordsConfig {
+        let mut c = cfg::ReadRepairKeywordsConfig::new_with_strategy(strat);
+
+        self.ignore_std_keys
+            .cmap(|x| c.ignore_standard_keys = AppendableSelector::root(x));
+
+        self.promote_nonstandard_keys
+            .cmap(|x| c.promote_nonstandard_keys = AppendableSelector::root(x));
+
+        self.demote_standard_keys
+            .cmap(|x| c.demote_standard_keys = AppendableSelector::root(x));
+
+        self.rename_standard_keys
+            .cmap(|x| c.rename_standard_keys = AppendableSelector::root(x.0));
+
+        self.replace_std_key_vals
+            .cmap(|x| c.replace_standard_key_values = AppendableSelector::root(x.0));
+
+        self.append_std_keywords
+            .cmap(|x| c.append_standard_keywords = AppendableSelector::root(x.0));
+
+        self.substitute_standard_key_vals
+            .cmap(|x| c.substitute_standard_key_values = AppendableSelector::root(x.0));
+
+        self.promote_all_nonstandard_keys
+            .cmap(|x| c.promote_all_nonstandard_keys = x.into());
+
+        self.allow_repair_non_unique
+            .cmap(|x| c.allow_repair_non_unique = x);
+
+        c
+    }
+}
+
+impl ReadDataKeywordsConfigArgs {
+    fn config(&self, strat: tc::ReadStrategy) -> tc::ReadDataKeywordsConfig {
+        let mut conf = tc::ReadDataKeywordsConfig::new_with_strategy(strat);
+
+        assign_conf!(
+            self,
+            conf,
+            text_data_correction,
+            text_analysis_correction,
+            ignore_text_data_offsets,
+            ignore_text_analysis_offsets,
+            allow_header_text_offset_mismatch,
+            allow_missing_required_offsets,
+            process_optional_failure,
+            int_width_override,
+            byteord_override,
+            disallow_range_truncation
+        );
+
+        conf
+    }
+}
+
+impl ReadDatasetConfigArgs {
+    fn config(&self, strat: tc::ReadStrategy) -> tc::ReadDatasetConfig {
+        let mut conf = tc::ReadDatasetConfig::new_with_strategy(strat);
+
+        assign_conf!(
+            self,
+            conf,
+            data_remainder_limit,
+            allow_tot_mismatch,
+            allow_uneven_event_width,
+            over_bitmask_action,
+            over_range_action,
+            allow_missing_crc,
+            allow_mismatch_crc,
+            compute_crc,
+            row_buffer_size
+        );
+
+        conf
+    }
+}
+
+impl ReadSharedConfigArgs {
+    fn config(&self) -> tc::ReadSharedConfig {
+        tc::ReadSharedConfig {
+            warnings_are_errors: self.warnings_are_errors,
+            hide_warnings: self.hide_warnings,
+        }
+    }
+}
+
+impl WriteDatasetInnerConfigArgs {
+    fn config(&self) -> tc::WriteDatasetInnerConfig {
+        let mut conf = tc::WriteDatasetInnerConfig::default();
+
+        self.write_delim.cmap(|x| conf.text.delim = x);
+        self.big_other.cmap(|x| conf.text.big_other = x.into());
+
+        conf
+    }
+}
+
+// misc functions/aliases
+
 fn print_warnings<W: Write, Warn: Display>(
     ws: impl IntoIterator<Item = Warn>,
     w: &mut W,
@@ -2722,7 +2787,24 @@ const FLAT_LONG_HELP: &str = joincp!(DELIM_SECTION, SUB_SECTION);
 
 const STD_LONG_HELP: &str = joincp!(DELIM_SECTION, SUB_SECTION, DATE_SECTION, TIME_SECTION);
 
-// formatting primitives
+// misc help strings
+
+const OVER_LIMIT_HELP_COMMON: &str = formatcp!(
+    "Pass {error} to emit error, {warn} to emit warning, {silent} to do \
+     nothing, {trunc_warn} to truncate and emit warning, and \
+     {trunc_silent} to truncate with no warning.",
+    error = fmt_config_val!(OVER_LIMIT_ACTION_ERROR_LEVEL),
+    warn = fmt_config_val!(OVER_LIMIT_ACTION_WARN_LEVEL),
+    silent = fmt_config_val!(OVER_LIMIT_ACTION_SILENT_LEVEL),
+    trunc_warn = fmt_config_val!(OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL),
+    trunc_silent = fmt_config_val!(OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL)
+);
+
+// Formatting primitives
+//
+// There are packages to do this but they more or less insert these sequences in
+// the correct places and not much else. There are only a few we care about so
+// we can avoid the extra dependency.
 
 pub static BOLD: &str = "\x1B[1m";
 

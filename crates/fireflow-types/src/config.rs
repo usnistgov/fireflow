@@ -1291,11 +1291,11 @@ impl FromStr for ByteordOverride {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if BYTEORD_OVERRIDE_ENDIAN_LEVEL == s {
-            Ok(ByteordOverride::Endian)
+            Ok(Self::Endian)
         } else if BYTEORD_OVERRIDE_NONE_LEVEL == s {
-            Ok(ByteordOverride::None)
+            Ok(Self::None)
         } else if let Ok(x) = s.parse::<ConfigByteOrd>() {
-            Ok(ByteordOverride::Explicit(x))
+            Ok(Self::Explicit(x))
         } else {
             Err(ParseByteordOverrideError)
         }

@@ -1660,9 +1660,83 @@ impl ReadDatasetArgs {
             .resolve_commutative(|ws| ws, |s| s);
         print_warnings(ws, &mut stderr)?;
         if let Some((core, _)) = res?.first() {
-            print_parsed_data(&mut stdout, core, delim.0)?;
+            Self::print_parsed_data(&mut stdout, core, delim.0)?;
         } else {
             to_writer(stdout, &Value::Null)?;
+        }
+        Ok(())
+    }
+
+    fn print_parsed_data<W: Write>(w: &mut W, core: &AnyCoreDataset, delim: u8) -> io::Result<()> {
+        // 32k / 8 bytes since we are storing everything as u64
+        const BUF_SIZE: usize = 1 << 12;
+
+        let mut ibuf = IBuf::new();
+        let mut fbuf = FBuf::new();
+
+        let df = core.as_data();
+        let nrows = df.nrows();
+        let cols: Vec<_> = df.iter().collect();
+        let ncols = cols.len();
+        let dtypes = core.datatypes();
+        assert_eq!(dtypes.len(), ncols, "datatypes are wrong length");
+
+        if ncols == 0 {
+            return Ok(());
+        }
+
+        let mut first = true;
+        for n in core.shortnames() {
+            if !first {
+                w.write_all(&[delim])?;
+            }
+            first = false;
+            w.write_all(AsRef::<str>::as_ref(&n).as_bytes())?;
+        }
+        writeln!(w)?;
+
+        // Max to always ensure there is one row, which only matters if we ever
+        // encounter a machine with more than 4096 parameters.
+        let rows_per_buf = (BUF_SIZE / ncols).max(1);
+        let real_buf_size = ncols * rows_per_buf;
+        let buf_reads = nrows.div_ceil(rows_per_buf);
+        let buf_tail_rows = nrows % rows_per_buf;
+
+        let mut buf = Vec::with_capacity(real_buf_size);
+
+        for b in 0..buf_reads {
+            buf.clear();
+            let next_rows = if b + 1 == buf_reads && buf_tail_rows > 0 {
+                buf_tail_rows
+            } else {
+                rows_per_buf
+            };
+            for col in &cols {
+                for r in 0..next_rows {
+                    buf.push(col.as_u64(r + rows_per_buf * b));
+                }
+            }
+            for r in 0..next_rows {
+                first = true;
+                for (c, d) in dtypes.iter().enumerate() {
+                    let i = r + c * next_rows;
+                    let v = buf[i];
+                    let bs = match d {
+                        AlphaNumType::Float => {
+                            let vv = u32::try_from(v).expect("f32 should be encoded as u32");
+                            fbuf.format(f32::from_bits(vv)).as_bytes()
+                        }
+                        AlphaNumType::Double => fbuf.format(f64::from_bits(v)).as_bytes(),
+                        _ => ibuf.format(v).as_bytes(),
+                    };
+                    if !first {
+                        w.write_all(&[delim])?;
+                    }
+                    first = false;
+                    w.write_all(bs)?;
+                }
+                writeln!(w)?;
+            }
         }
         Ok(())
     }
@@ -2332,13 +2406,42 @@ impl FromStr for CliSubPatterns {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let go_k = |x: &str| {
-            x.parse::<StdKeyOrPattern<true>>()
+        let go_k = |k: &str| {
+            k.parse::<StdKeyOrPattern<true>>()
                 .map_err(|e| e.to_string())
         };
-        let go_v = |x: &str| parse_sub_pattern_inner(x).map_err(|e| e.to_string());
+
+        let go_v = |v: &str| {
+            let (op, r0) = v
+                .split_at_checked(1)
+                .ok_or("sub pattern must not be empty")?;
+            if op != "s" {
+                return Err(format!("sub pattern must start with 's', got {op}"));
+            }
+            if r0.is_empty() {
+                return Err("no delimiter found".into());
+            }
+            let (delim, r1) = r0
+                .split_at_checked(1)
+                .ok_or("sub pattern delimiter is not a valid UTF-8 byte")?;
+            let parts: Vec<_> = r1.split(delim).collect();
+            let (from, to, global) = match &parts[..] {
+                [x, y] | [x, y, ""] => (*x, *y, false),
+                [x, y, "g"] => (*x, *y, true),
+                _ => {
+                    let msg = "sub pattern string must be like 's<D><FROM><D><TO>[<D>g]' \
+                       where 'D' is a delimiter (any character), FROM is a \
+                       regular expression and TO is a replacement pattern";
+                    return Err(msg.into());
+                }
+            };
+            let r = Regex::new(from).map_err(|e| e.to_string())?;
+            SubPattern::try_new(r, to.to_owned(), global).map_err(|e| e.to_string())
+        };
+
         let xs = parse_pairs(s, go_k, go_v)?;
         let ret = xs.iter().cloned().collect::<HashMap<_, _>>();
+
         Ok(Self(StdKeysOrPatterns(ret)))
     }
 }
@@ -2370,108 +2473,6 @@ where
     } else {
         Ok(vec![])
     }
-}
-
-fn parse_sub_pattern_inner(s: &str) -> AppResult<SubPattern> {
-    let (op, r0) = s
-        .split_at_checked(1)
-        .ok_or("sub pattern must not be empty")?;
-    if op != "s" {
-        return Err(format!("sub pattern must start with 's', got {op}").into());
-    }
-    if r0.is_empty() {
-        return Err("no delimiter found".into());
-    }
-    let (delim, r1) = r0
-        .split_at_checked(1)
-        .ok_or("sub pattern delimiter is not a valid UTF-8 byte")?;
-    let parts: Vec<_> = r1.split(delim).collect();
-    let (from, to, global) = match &parts[..] {
-        [x, y] | [x, y, ""] => (*x, *y, false),
-        [x, y, "g"] => (*x, *y, true),
-        _ => {
-            let msg = "sub pattern string must be like 's<D><FROM><D><TO>[<D>g]' \
-                       where 'D' is a delimiter (any character), FROM is a \
-                       regular expression and TO is a replacement pattern";
-            return Err(msg.into());
-        }
-    };
-    let r = Regex::new(from)?;
-    Ok(SubPattern::try_new(r, to.to_owned(), global)?)
-}
-
-pub fn print_parsed_data<W: Write>(w: &mut W, core: &AnyCoreDataset, delim: u8) -> io::Result<()> {
-    // 32k / 8 bytes since we are storing everything as u64
-    const BUF_SIZE: usize = 1 << 12;
-
-    let mut ibuf = IBuf::new();
-    let mut fbuf = FBuf::new();
-
-    let df = core.as_data();
-    let nrows = df.nrows();
-    let cols: Vec<_> = df.iter().collect();
-    let ncols = cols.len();
-    let dtypes = core.datatypes();
-    assert_eq!(dtypes.len(), ncols, "datatypes are wrong length");
-
-    if ncols == 0 {
-        return Ok(());
-    }
-
-    let mut first = true;
-    for n in core.shortnames() {
-        if !first {
-            w.write_all(&[delim])?;
-        }
-        first = false;
-        w.write_all(AsRef::<str>::as_ref(&n).as_bytes())?;
-    }
-    writeln!(w)?;
-
-    // Max to always ensure there is one row, which only matters if we ever
-    // encounter a machine with more than 4096 parameters.
-    let rows_per_buf = (BUF_SIZE / ncols).max(1);
-    let real_buf_size = ncols * rows_per_buf;
-    let buf_reads = nrows.div_ceil(rows_per_buf);
-    let buf_tail_rows = nrows % rows_per_buf;
-
-    let mut buf = Vec::with_capacity(real_buf_size);
-
-    for b in 0..buf_reads {
-        buf.clear();
-        let next_rows = if b + 1 == buf_reads && buf_tail_rows > 0 {
-            buf_tail_rows
-        } else {
-            rows_per_buf
-        };
-        for col in &cols {
-            for r in 0..next_rows {
-                buf.push(col.as_u64(r + rows_per_buf * b));
-            }
-        }
-        for r in 0..next_rows {
-            first = true;
-            for (c, d) in dtypes.iter().enumerate() {
-                let i = r + c * next_rows;
-                let v = buf[i];
-                let bs = match d {
-                    AlphaNumType::Float => {
-                        let vv = u32::try_from(v).expect("f32 should be encoded as u32");
-                        fbuf.format(f32::from_bits(vv)).as_bytes()
-                    }
-                    AlphaNumType::Double => fbuf.format(f64::from_bits(v)).as_bytes(),
-                    _ => ibuf.format(v).as_bytes(),
-                };
-                if !first {
-                    w.write_all(&[delim])?;
-                }
-                first = false;
-                w.write_all(bs)?;
-            }
-            writeln!(w)?;
-        }
-    }
-    Ok(())
 }
 
 fn print_warnings<W: Write, Warn: Display>(

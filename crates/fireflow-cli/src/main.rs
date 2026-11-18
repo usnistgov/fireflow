@@ -1,6 +1,6 @@
 use fireflow_core::api;
 use fireflow_core::config::{self as cfg, StdKeyValues};
-use fireflow_core::core::AnyCoreDataset;
+use fireflow_core::core::{AnyCoreDataset, AnyCoreTEXT};
 use fireflow_core::selector::{AppendableSelector, Selector};
 use fireflow_core::text::keywords::AlphaNumType;
 use fireflow_core::validated::read_state::DatasetOffset;
@@ -51,7 +51,7 @@ use std::process::ExitCode;
 use std::str::FromStr;
 
 fn main() -> ExitCode {
-    match run() {
+    match Cli::run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("{e}");
@@ -126,6 +126,62 @@ enum Cli {
     Scan(ScanArgs),
 }
 
+impl Cli {
+    fn run() -> AppResult<()> {
+        let stdout = io::BufWriter::new(io::stdout().lock());
+        let stderr = io::BufWriter::new(io::stderr().lock());
+
+        // NOTE this will call exit if arg parsing fails; it is the "simple" way
+        // to return colored output. Using try_parse() requires manually rendering
+        // the string to get color.
+        match Self::parse() {
+            Self::Version => {
+                let vi = api::build_info();
+                to_writer(stdout, &vi)?;
+            }
+
+            Self::Header(sargs) => sargs.run(stdout, stderr)?,
+
+            Self::Flat(sargs) => sargs.run(stdout, stderr)?,
+
+            Self::Std(sargs) => sargs.run(stdout, stderr)?,
+
+            Self::Measurements(sargs) => sargs.run_meas(stdout, stderr)?,
+
+            Self::Spillover(sargs) => sargs.run_spillover(stdout, stderr)?,
+
+            Self::Data(sargs) => sargs.run(stdout, stderr)?,
+
+            Self::Summarize(sargs) => sargs.run(stdout, stderr)?,
+
+            Self::Repair(sargs) => sargs.run(stdout, stderr)?,
+
+            Self::Scan(sargs) => {
+                #[derive(Serialize)]
+                struct Bounds {
+                    version: tk::Version,
+                    offset: DatasetOffset,
+                }
+                let filepath = sargs.input.inner;
+                let mmap = sargs.mmap.inner;
+                let bounds = api::fcs_scan_dataset_boundaries(&filepath, mmap)?;
+                let arr: Vec<_> = bounds
+                    .into_iter()
+                    .map(|(version, offset)| Bounds { version, offset })
+                    .collect();
+                to_writer(stdout, &arr)?;
+            }
+
+            Self::Strategies(sargs) => {
+                let strat = sargs.inner.unwrap_or_default();
+                let conf = cfg::ReadStdDatasetConfig::new_with_strategy(strat);
+                to_writer(stdout, &conf)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Args)]
 struct ReadHeaderArgs {
     #[command(flatten)]
@@ -156,16 +212,7 @@ struct ReadFlatArgs {
     mmap: MmapArg,
 
     #[command(flatten)]
-    header: ReadHeaderArgs_,
-
-    #[command(flatten)]
-    offset: ReadOffsetArgs_,
-
-    #[command(flatten)]
     flat: ReadFlatKwsArgs_,
-
-    #[command(flatten)]
-    shared: ReadSharedArgs_,
 }
 
 #[derive(Args)]
@@ -186,25 +233,7 @@ struct ReadStdArgs {
     mmap: MmapArg,
 
     #[command(flatten)]
-    header: ReadHeaderArgs_,
-
-    #[command(flatten)]
-    offset: ReadOffsetArgs_,
-
-    #[command(flatten)]
-    flat: ReadFlatKwsArgs_,
-
-    #[command(flatten)]
     std: ReadStdKwsArgs_,
-
-    #[command(flatten)]
-    repair: ReadRepairKwsArgs_,
-
-    #[command(flatten)]
-    data: ReadDataKwsArgs_,
-
-    #[command(flatten)]
-    shared: ReadSharedArgs_,
 }
 
 #[derive(Args)]
@@ -228,25 +257,7 @@ struct ReadStdTabularArgs {
     mmap: MmapArg,
 
     #[command(flatten)]
-    header: ReadHeaderArgs_,
-
-    #[command(flatten)]
-    offset: ReadOffsetArgs_,
-
-    #[command(flatten)]
-    flat: ReadFlatKwsArgs_,
-
-    #[command(flatten)]
     std: ReadStdKwsArgs_,
-
-    #[command(flatten)]
-    repair: ReadRepairKwsArgs_,
-
-    #[command(flatten)]
-    data: ReadDataKwsArgs_,
-
-    #[command(flatten)]
-    shared: ReadSharedArgs_,
 }
 
 #[derive(Args)]
@@ -270,28 +281,7 @@ struct ReadDatasetArgs {
     mmap: MmapArg,
 
     #[command(flatten)]
-    header: ReadHeaderArgs_,
-
-    #[command(flatten)]
-    offset: ReadOffsetArgs_,
-
-    #[command(flatten)]
-    flat: ReadFlatKwsArgs_,
-
-    #[command(flatten)]
-    std: ReadStdKwsArgs_,
-
-    #[command(flatten)]
-    repair: ReadRepairKwsArgs_,
-
-    #[command(flatten)]
-    data: ReadDataKwsArgs_,
-
-    #[command(flatten)]
-    dataset: ReadDatasetArgs_,
-
-    #[command(flatten)]
-    shared: ReadSharedArgs_,
+    dataset: ReadStdDatasetArgs_,
 }
 
 #[derive(Args)]
@@ -318,28 +308,7 @@ struct RepairFileArgs {
     write: WriteArgs,
 
     #[command(flatten)]
-    header: ReadHeaderArgs_,
-
-    #[command(flatten)]
-    offset: ReadOffsetArgs_,
-
-    #[command(flatten)]
-    flat: ReadFlatKwsArgs_,
-
-    #[command(flatten)]
-    std: ReadStdKwsArgs_,
-
-    #[command(flatten)]
-    repair: ReadRepairKwsArgs_,
-
-    #[command(flatten)]
-    data: ReadDataKwsArgs_,
-
-    #[command(flatten)]
-    dataset: ReadDatasetArgs_,
-
-    #[command(flatten)]
-    shared: ReadSharedArgs_,
+    dataset: ReadStdDatasetArgs_,
 }
 
 #[derive(Args)]
@@ -357,12 +326,6 @@ struct SummarizeArgs {
     multi: MultiDatasetArgs,
 
     #[command(flatten)]
-    header: ReadHeaderArgs_,
-
-    #[command(flatten)]
-    offset: ReadOffsetArgs_,
-
-    #[command(flatten)]
     flat: ReadFlatKwsArgs_,
 
     #[command(flatten)]
@@ -372,10 +335,7 @@ struct SummarizeArgs {
     data: ReadDataKwsArgs_,
 
     #[command(flatten)]
-    dataset: ReadDatasetArgs_,
-
-    #[command(flatten)]
-    shared: ReadSharedArgs_,
+    dataset: ReadDatasetArgsInner_,
 }
 
 #[derive(Args)]
@@ -385,6 +345,45 @@ struct ScanArgs {
 
     #[command(flatten)]
     mmap: MmapArg,
+}
+
+#[derive(Args)]
+struct ReadFlatKwsArgs_ {
+    #[command(flatten)]
+    header: ReadHeaderArgs_,
+
+    #[command(flatten)]
+    offset: ReadOffsetArgs_,
+
+    #[command(flatten)]
+    flat: ReadFlatKwsArgsInner_,
+
+    #[command(flatten)]
+    shared: ReadSharedArgs_,
+}
+
+#[derive(Args)]
+struct ReadStdKwsArgs_ {
+    #[command(flatten)]
+    flat: ReadFlatKwsArgs_,
+
+    #[command(flatten)]
+    std: ReadStdKwsArgsInner_,
+
+    #[command(flatten)]
+    repair: ReadRepairKwsArgs_,
+
+    #[command(flatten)]
+    data: ReadDataKwsArgs_,
+}
+
+#[derive(Args)]
+struct ReadStdDatasetArgs_ {
+    #[command(flatten)]
+    std: ReadStdKwsArgs_,
+
+    #[command(flatten)]
+    dataset: ReadDatasetArgsInner_,
 }
 
 #[derive(Args)]
@@ -456,7 +455,7 @@ struct ReadOffsetArgs_ {
 }
 
 #[derive(Args)]
-struct ReadFlatKwsArgs_ {
+struct ReadFlatKwsArgsInner_ {
     #[command(flatten)]
     version_override: VersionOverrideArg,
 
@@ -554,7 +553,7 @@ struct ReadFlatKwsArgs_ {
 }
 
 #[derive(Args)]
-struct ReadStdKwsArgs_ {
+struct ReadStdKwsArgsInner_ {
     #[command(flatten)]
     dedup_meas_names: DedupMeasNamesArg,
 
@@ -798,7 +797,7 @@ const OVER_LIMIT_HELP_COMMON: &str = formatcp!(
 );
 
 #[derive(Args)]
-struct ReadDatasetArgs_ {
+struct ReadDatasetArgsInner_ {
     #[arg(long = ta::DATA_REMAINDER_LIMIT)]
     #[arg(value_name = "LIMIT")]
     #[arg(help = formatcp!(
@@ -1520,165 +1519,6 @@ override_flag_arg!(
     formatcp!("Ignore offsets for {ANALYSIS_SEG} from {TEXT_SEG}.")
 );
 
-fn run() -> AppResult<()> {
-    let mut stdout = io::BufWriter::new(io::stdout().lock());
-    let mut stderr = io::BufWriter::new(io::stderr().lock());
-
-    // NOTE this will call exit if arg parsing fails; it is the "simple" way
-    // to return colored output. Using try_parse() requires manually rendering
-    // the string to get color.
-    match Cli::parse() {
-        Cli::Version => {
-            let vi = api::build_info();
-            to_writer(stdout, &vi)?;
-        }
-
-        Cli::Header(sargs) => {
-            let conf = get_header_config(&sargs);
-            let filepath = &sargs.input.inner;
-            let (ws, res) = api::fcs_read_header(filepath, DatasetOffset(0), &conf)
-                .resolve_commutative(|ws| ws, |s| s);
-            print_warnings(ws, &mut stderr)?;
-            to_writer(stdout, &res?)?;
-        }
-
-        Cli::Flat(sargs) => {
-            let conf = get_read_flat_text_config(&sargs);
-            let filepath = sargs.input.inner;
-            let skip = sargs.dataset_index.inner;
-            let mmap = sargs.mmap.inner;
-            let (ws, res) = api::fcs_read_flat_texts(&filepath, skip, Some(1), false, mmap, &conf)
-                .resolve_commutative(|ws| ws, |s| s);
-            print_warnings(ws, &mut stderr)?;
-            to_writer(stdout, &res?.first())?;
-        }
-
-        Cli::Std(sargs) => {
-            let conf = get_read_std_text_config(&sargs);
-            let filepath = sargs.input.inner;
-            let skip = sargs.dataset_index.inner;
-            let mmap = sargs.mmap.inner;
-            let (ws, res) = api::fcs_read_std_texts(&filepath, skip, Some(1), false, mmap, &conf)
-                .resolve_commutative(|ws| ws, |s| s);
-            print_warnings(ws, &mut stderr)?;
-            if let Some((core, uncore)) = res?.first() {
-                let obj = json!({"core": core, "uncore": uncore});
-                to_writer(stdout, &obj)?;
-            } else {
-                to_writer(stdout, &Value::Null)?;
-            }
-        }
-
-        Cli::Measurements(sargs) => {
-            let conf = get_read_tabular_config(&sargs);
-            let delim = sargs.delim.inner.unwrap_or_default();
-            let filepath = sargs.input.inner;
-            let skip = sargs.dataset_index.inner;
-            let mmap = sargs.mmap.inner;
-            let (ws, res) = api::fcs_read_std_texts(&filepath, skip, Some(1), false, mmap, &conf)
-                .resolve_commutative(|ws| ws, |s| s);
-            print_warnings(ws, &mut stderr)?;
-            if let Some((core, _)) = res?.first() {
-                core.print_meas_table(&mut stdout, delim.0)?;
-            } else {
-                to_writer(stdout, &Value::Null)?;
-            }
-        }
-
-        Cli::Spillover(sargs) => {
-            let conf = get_read_tabular_config(&sargs);
-            let delim = sargs.delim.inner.unwrap_or_default();
-            let filepath = sargs.input.inner;
-            let skip = sargs.dataset_index.inner;
-            let mmap = sargs.mmap.inner;
-            let (ws, res) = api::fcs_read_std_texts(&filepath, skip, Some(1), false, mmap, &conf)
-                .resolve_commutative(|ws| ws, |s| s);
-            print_warnings(ws, &mut stderr)?;
-            if let Some((core, _)) = res?.first() {
-                core.print_comp_or_spillover_table(&mut stdout, delim.0)?;
-            } else {
-                to_writer(stdout, &Value::Null)?;
-            }
-        }
-
-        Cli::Data(sargs) => {
-            let conf = get_read_std_dataset_config(&sargs);
-            let delim = sargs.delim.inner.unwrap_or_default();
-            let filepath = sargs.input.inner;
-            let skip = sargs.dataset_index.inner;
-            let mmap = sargs.mmap.inner;
-            let (ws, res) =
-                api::fcs_read_std_datasets(&filepath, skip, Some(1), false, mmap, &conf)
-                    .resolve_commutative(|ws| ws, |s| s);
-            print_warnings(ws, &mut stderr)?;
-            if let Some((core, _)) = res?.first() {
-                print_parsed_data(&mut stdout, core, delim.0)?;
-            } else {
-                to_writer(stdout, &Value::Null)?;
-            }
-        }
-
-        Cli::Summarize(sargs) => {
-            let conf = get_read_flat_dataset_config(&sargs);
-            let filepath = sargs.input.inner;
-            let skip = sargs.multi.skip;
-            let limit = sargs.multi.limit;
-            let scan = sargs.multi.scan.unwrap_or_default();
-            let mmap = sargs.mmap.inner;
-            let (ws, res) = api::fcs_summarize(&filepath, skip, limit, scan, mmap, &conf)
-                .resolve_commutative(|ws| ws, |s| s);
-            print_warnings(ws, &mut stderr)?;
-            to_writer(stdout, &res?)?;
-        }
-
-        Cli::Repair(sargs) => {
-            let read_conf = get_read_repair_config(&sargs);
-            let write_conf = get_write_std_dataset_config(&sargs.write);
-            let ipath = sargs.input.inner;
-            let opath = sargs.output.inner;
-            let skip = sargs.multi.skip;
-            let limit = sargs.multi.limit;
-            let scan = sargs.multi.scan.unwrap_or_default();
-            let mmap = sargs.mmap.inner;
-            let (read_ws, read_res) =
-                api::fcs_read_std_datasets(&ipath, skip, limit, scan, mmap, &read_conf)
-                    .resolve_commutative(|ws| ws, |s| s);
-            // order matters, print warnings before unpacking the result which
-            // will short-circuit on error
-            print_warnings(read_ws, &mut stderr)?;
-            let (cores, outs): (Vec<_>, Vec<_>) = read_res?.into_iter().unzip();
-            let (write_ws, write_res) = api::fcs_write_datasets(&opath, &cores[..], &write_conf)
-                .resolve_commutative(|ws| ws, |e| e);
-            print_warnings(write_ws, &mut stderr)?;
-            let _ = write_res?;
-            to_writer(stdout, &outs[..])?;
-        }
-
-        Cli::Scan(sargs) => {
-            #[derive(Serialize)]
-            struct Bounds {
-                version: tk::Version,
-                offset: DatasetOffset,
-            }
-            let filepath = sargs.input.inner;
-            let mmap = sargs.mmap.inner;
-            let bounds = api::fcs_scan_dataset_boundaries(&filepath, mmap)?;
-            let arr: Vec<_> = bounds
-                .into_iter()
-                .map(|(version, offset)| Bounds { version, offset })
-                .collect();
-            to_writer(stdout, &arr)?;
-        }
-
-        Cli::Strategies(sargs) => {
-            let strat = sargs.inner.unwrap_or_default();
-            let conf = cfg::ReadStdDatasetConfig::new_with_strategy(strat);
-            to_writer(stdout, &conf)?;
-        }
-    }
-    Ok(())
-}
-
 fn tri_flag_help<T>(help_front: impl Display) -> String
 where
     T: tc::TriErrorFlag,
@@ -1697,420 +1537,575 @@ where
     )
 }
 
-fn get_header_config(args: &ReadHeaderArgs) -> cfg::ReadHeaderConfig {
-    let strat = args.strategy.inner.unwrap_or_default();
-    cfg::ReadHeaderConfig {
-        header: get_header_inner_config(&args.header, strat),
-        offset: get_offsets_config(&args.offset, strat),
+impl ReadHeaderArgs {
+    fn run<Wout: Write, Werr: Write>(&self, stdout: Wout, mut stderr: Werr) -> AppResult<()> {
+        let conf = self.config();
+        let filepath = &self.input.inner;
+        let (ws, res) = api::fcs_read_header(filepath, DatasetOffset(0), &conf)
+            .resolve_commutative(|ws| ws, |s| s);
+        print_warnings(ws, &mut stderr)?;
+        to_writer(stdout, &res?)?;
+        Ok(())
+    }
+
+    fn config(&self) -> cfg::ReadHeaderConfig {
+        let strat = self.strategy.inner.unwrap_or_default();
+        cfg::ReadHeaderConfig {
+            header: self.header.config(strat),
+            offset: self.offset.config(strat),
+        }
     }
 }
 
-fn get_header_inner_config(
-    args: &ReadHeaderArgs_,
-    strat: tc::ReadStrategy,
-) -> tc::ReadHeaderInnerConfig {
-    let mut conf = tc::ReadHeaderInnerConfig::new_with_strategy(strat);
-
-    let _ = args.text_corr.inner.map(|x| conf.text_correction = x.0);
-    let _ = args.data_corr.inner.map(|x| conf.data_correction = x.0);
-    let _ = args.anal_corr.inner.map(|x| conf.analysis_correction = x.0);
-
-    let _ = args
-        .other_correction
-        .as_ref()
-        .map(|xs| conf.other_corrections.clone_from(&xs.0));
-
-    let _ = args.max_other.inner.map(|x| conf.max_other = x.0);
-    let _ = args.other_width.map(|x| conf.other_width = x);
-    let _ = args.guess_other_width.map(|x| conf.guess_other_width = x);
-    let _ = args
-        .squish_offsets
-        .inner
-        .map(|x| conf.squish_offsets = x.into());
-
-    conf
-}
-
-fn get_offsets_config(args: &ReadOffsetArgs_, strat: tc::ReadStrategy) -> tc::ReadOffsetConfig {
-    let mut conf = tc::ReadOffsetConfig::new_with_strategy(strat);
-
-    let _ = args
-        .allow_pseudoempty
-        .inner
-        .map(|x| conf.allow_pseudoempty = x.into());
-    let _ = args
-        .dataset_overflow_limit
-        .map(|x| conf.dataset_overflow_limit = x);
-    let _ = args
-        .overlap_correction_limit
-        .map(|x| conf.overlap_correction_limit = x);
-
-    conf
-}
-
-fn get_header_and_text_config(
-    s: &ReadFlatKwsArgs_,
-    strat: tc::ReadStrategy,
-) -> tc::ReadHeaderAndTEXTConfig {
-    let mut c = tc::ReadHeaderAndTEXTConfig::new_with_strategy(strat);
-
-    macro_rules! assign_opt {
-        ($($field:ident),*) => {
-            $(
-                let _ = s.$field.inner.map(|x| c.$field = x.0);
-            )*
-        };
+impl ReadFlatArgs {
+    fn run<Wout: Write, Werr: Write>(&self, stdout: Wout, mut stderr: Werr) -> AppResult<()> {
+        let conf = self.config();
+        let filepath = &self.input.inner;
+        let skip = self.dataset_index.inner;
+        let mmap = self.mmap.inner;
+        let (ws, res) = api::fcs_read_flat_texts(filepath, skip, Some(1), false, mmap, &conf)
+            .resolve_commutative(|ws| ws, |s| s);
+        print_warnings(ws, &mut stderr)?;
+        to_writer(stdout, &res?.first())?;
+        Ok(())
     }
 
-    assign_opt!(
-        version_override,
-        supp_text_correction,
-        allow_duplicated_supp_text,
-        allow_non_ascii_delim,
-        allow_even_delims,
-        allow_nonunique,
-        allow_odd_tokens,
-        allow_empty_keys,
-        allow_delim_at_boundary,
-        allow_non_ascii_keys,
-        allow_non_utf8_values,
-        allow_missing_supp_text,
-        allow_supp_text_own_delim,
-        allow_missing_nextdata
-    );
-
-    let _ = s.nextdata_correction.map(|x| c.nextdata_correction = x);
-    let _ = s.process_supp_text.map(|x| c.process_supp_text = x);
-    let _ = s.delim_escape_mode.map(|x| c.delim_escape_mode = x);
-    let _ = s.use_encoding.map(|x| c.use_encoding = x);
-    let _ = s.trim_value_whitespace.map(|x| c.trim_value_whitespace = x);
-
-    c
-}
-
-fn get_std_kws_config(s: &ReadStdKwsArgs_, strat: tc::ReadStrategy) -> cfg::ReadStdKeywordsConfig {
-    let mut c = cfg::ReadStdKeywordsConfig::new_with_strategy(strat);
-
-    let _ = s
-        .dedup_meas_names
-        .inner
-        .map(|x| c.dedup_measurement_names = x.into());
-    let _ = s
-        .trim_intra_value_whitespace
-        .inner
-        .map(|x| c.trim_intra_value_whitespace = x.into());
-
-    let _ = s
-        .time_meas_pattern
-        .as_ref()
-        .map(|x| c.time_meas_pattern = Selector::Root(x.clone()));
-
-    let _ = s.force_linear_scale.map(|x| c.force_linear_scale = x);
-
-    let _ = s
-        .ignore_time_optical_keys
-        .as_ref()
-        .map(|ks| c.ignore_optical_only_keys = ks.0.clone());
-
-    let _ = s
-        .process_optical_only_keys
-        .map(|x| c.process_optical_only_keys = x);
-    let _ = s
-        .allow_missing_time
-        .inner
-        .map(|x| c.allow_missing_time = x.0);
-    let _ = s
-        .add_missing_timestep
-        .inner
-        .map(|x| c.add_missing_timestep = x.0);
-
-    let _ = s
-        .spillover_measurement_mode
-        .map(|x| c.spillover_measurement_mode = x);
-
-    let _ = s
-        .date_pattern
-        .inner
-        .as_ref()
-        .map(|x| c.date_pattern = Selector::Root(x.0.clone()));
-
-    let _ = s
-        .time_pattern
-        .inner
-        .as_ref()
-        .map(|x| c.time_pattern = Selector::Root(x.0.clone()));
-
-    let _ = s
-        .datetime_pattern
-        .inner
-        .as_ref()
-        .map(|x| c.datetime_pattern = Selector::Root(x.0.clone()));
-
-    let _ = s
-        .last_modified_pattern
-        .inner
-        .as_ref()
-        .map(|x| c.last_modified_pattern = Selector::Root(x.0.clone()));
-
-    let _ = s
-        .allow_other_feature
-        .inner
-        .map(|x| c.allow_other_feature = x.into());
-
-    let _ = s
-        .process_pseudostandard
-        .inner
-        .map(|x| c.process_pseudostandard = x);
-
-    let _ = s.process_hyper_par.inner.map(|x| c.process_hyper_par = x);
-    let _ = s
-        .process_other_version
-        .inner
-        .map(|x| c.process_other_version = x);
-    let _ = s
-        .process_extra_timestep
-        .inner
-        .map(|x| c.process_extra_timestep = x);
-
-    let _ = s
-        .fix_log_scale_offset
-        .inner
-        .map(|x| c.fix_log_scale_offsets = x.into());
-
-    let _ = s
-        .disallow_localtime
-        .inner
-        .map(|x| c.disallow_localtime = x.into());
-
-    c
-}
-
-fn get_repair_config(
-    s: &ReadRepairKwsArgs_,
-    strat: tc::ReadStrategy,
-) -> cfg::ReadRepairKeywordsConfig {
-    let mut c = cfg::ReadRepairKeywordsConfig::new_with_strategy(strat);
-
-    let _ = s
-        .ignore_std_keys
-        .inner
-        .as_ref()
-        .map(|x| c.ignore_standard_keys = AppendableSelector::root(x.0.clone()));
-
-    let _ = s
-        .promote_nonstandard_keys
-        .inner
-        .as_ref()
-        .map(|x| c.promote_nonstandard_keys = AppendableSelector::root(x.0.clone()));
-
-    let _ = s
-        .demote_standard_keys
-        .inner
-        .as_ref()
-        .map(|x| c.demote_standard_keys = AppendableSelector::root(x.0.clone()));
-
-    let _ = s
-        .rename_standard_keys
-        .as_ref()
-        .map(|x| c.rename_standard_keys = AppendableSelector::root(x.0.clone()));
-
-    let _ = s
-        .replace_std_key_vals
-        .as_ref()
-        .map(|x| c.replace_standard_key_values = AppendableSelector::root(x.0.clone()));
-
-    let _ = s
-        .append_std_keywords
-        .as_ref()
-        .map(|x| c.append_standard_keywords = AppendableSelector::root(x.0.clone()));
-
-    let _ = s
-        .substitute_standard_key_vals
-        .as_ref()
-        .map(|x| c.substitute_standard_key_values = AppendableSelector::root(x.0.clone()));
-
-    let _ = s
-        .promote_all_nonstandard_keys
-        .map(|x| c.promote_all_nonstandard_keys = x.into());
-
-    let _ = s
-        .allow_repair_non_unique
-        .inner
-        .map(|x| c.allow_repair_non_unique = x.0);
-
-    c
-}
-
-fn get_data_kws_config(
-    s: &ReadDataKwsArgs_,
-    strat: tc::ReadStrategy,
-) -> tc::ReadDataKeywordsConfig {
-    let mut c = tc::ReadDataKeywordsConfig::new_with_strategy(strat);
-
-    let _ = s
-        .text_data_correction
-        .inner
-        .map(|x| c.text_data_correction = x.0);
-    let _ = s
-        .text_analysis_correction
-        .inner
-        .map(|x| c.text_analysis_correction = x.0);
-
-    let _ = s
-        .ignore_text_data_offsets
-        .inner
-        .map(|x| c.ignore_text_data_offsets = x.into());
-    let _ = s
-        .ignore_text_analysis_offsets
-        .inner
-        .map(|x| c.ignore_text_analysis_offsets = x.into());
-
-    let _ = s
-        .allow_header_text_offset_mismatch
-        .map(|x| c.allow_header_text_offset_mismatch = x);
-
-    let _ = s
-        .allow_missing_required_offsets
-        .inner
-        .map(|x| c.allow_missing_required_offsets = x.0);
-
-    let _ = s
-        .process_optional_failure
-        .inner
-        .map(|x| c.process_optional_failure = x);
-
-    let _ = s.int_width_override.map(|x| c.int_width_override = x);
-    let _ = s
-        .byteord_override
-        .as_ref()
-        .map(|x| c.byteord_override = x.clone());
-    let _ = s
-        .disallow_range_truncation
-        .inner
-        .map(|x| c.disallow_range_truncation = x.0);
-
-    c
-}
-
-fn get_dataset_config(s: &ReadDatasetArgs_, strat: tc::ReadStrategy) -> tc::ReadDatasetConfig {
-    let mut c = tc::ReadDatasetConfig::new_with_strategy(strat);
-
-    let _ = s.data_remainder_limit.map(|x| c.data_remainder_limit = x);
-    let _ = s
-        .allow_tot_mismatch
-        .inner
-        .map(|x| c.allow_tot_mismatch = x.0);
-    let _ = s
-        .allow_uneven_event_width
-        .inner
-        .map(|x| c.allow_uneven_event_width = x.0);
-
-    let _ = s.over_bitmask_action.map(|x| c.over_bitmask_action = x);
-    let _ = s.over_range_action.map(|x| c.over_range_action = x);
-
-    let _ = s.allow_missing_crc.inner.map(|x| c.allow_missing_crc = x.0);
-    let _ = s
-        .allow_mismatch_crc
-        .inner
-        .map(|x| c.allow_mismatch_crc = x.0);
-    let _ = s.compute_crc.map(|x| c.compute_crc = x);
-    let _ = s.row_buffer_size.map(|x| c.row_buffer_size = x);
-
-    c
-}
-
-fn get_read_shared_config(sargs: &ReadSharedArgs_) -> tc::ReadSharedConfig {
-    tc::ReadSharedConfig {
-        warnings_are_errors: sargs.warnings_are_errors,
-        hide_warnings: sargs.hide_warnings,
+    fn config(&self) -> cfg::ReadFlatTEXTConfig {
+        let strat = self.strategy.inner.unwrap_or_default();
+        cfg::ReadFlatTEXTConfig {
+            header: self.flat.header.config(strat),
+            flat: self.flat.flat.config(strat),
+            offset: self.flat.offset.config(strat),
+            shared: self.flat.shared.config(),
+        }
     }
 }
 
-fn get_read_flat_text_config(sargs: &ReadFlatArgs) -> cfg::ReadFlatTEXTConfig {
-    let strat = sargs.strategy.inner.unwrap_or_default();
-    cfg::ReadFlatTEXTConfig {
-        header: get_header_inner_config(&sargs.header, strat),
-        flat: get_header_and_text_config(&sargs.flat, strat),
-        offset: get_offsets_config(&sargs.offset, strat),
-        shared: get_read_shared_config(&sargs.shared),
+impl ReadStdArgs {
+    fn run<Wout: Write, Werr: Write>(&self, stdout: Wout, mut stderr: Werr) -> AppResult<()> {
+        let conf = self.config();
+        let filepath = &self.input.inner;
+        let skip = self.dataset_index.inner;
+        let mmap = self.mmap.inner;
+        let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, mmap, &conf)
+            .resolve_commutative(|ws| ws, |s| s);
+        print_warnings(ws, &mut stderr)?;
+        if let Some((core, uncore)) = res?.first() {
+            let obj = json!({"core": core, "uncore": uncore});
+            to_writer(stdout, &obj)?;
+        } else {
+            to_writer(stdout, &Value::Null)?;
+        }
+        Ok(())
+    }
+
+    fn config(&self) -> cfg::ReadStdTEXTConfig {
+        let strat = self.strategy.inner.unwrap_or_default();
+        self.std.config(strat)
     }
 }
 
-fn get_read_std_text_config(sargs: &ReadStdArgs) -> cfg::ReadStdTEXTConfig {
-    let strat = sargs.strategy.inner.unwrap_or_default();
-    cfg::ReadStdTEXTConfig {
-        header: get_header_inner_config(&sargs.header, strat),
-        flat: get_header_and_text_config(&sargs.flat, strat),
-        offset: get_offsets_config(&sargs.offset, strat),
-        standard: get_std_kws_config(&sargs.std, strat),
-        repair: get_repair_config(&sargs.repair, strat),
-        layout: get_data_kws_config(&sargs.data, strat),
-        shared: get_read_shared_config(&sargs.shared),
+impl ReadStdTabularArgs {
+    fn run_meas<Wout: Write, Werr: Write>(&self, stdout: Wout, stderr: Werr) -> AppResult<()> {
+        self.run_inner(stdout, stderr, |core, out, delim| {
+            Ok(core.print_meas_table(out, delim.0)?)
+        })
+    }
+
+    fn run_spillover<Wout: Write, Werr: Write>(&self, stdout: Wout, stderr: Werr) -> AppResult<()> {
+        self.run_inner(stdout, stderr, |core, out, delim| {
+            Ok(core.print_comp_or_spillover_table(out, delim.0)?)
+        })
+    }
+
+    fn run_inner<F, Wout: Write, Werr: Write>(
+        &self,
+        mut stdout: Wout,
+        mut stderr: Werr,
+        f: F,
+    ) -> AppResult<()>
+    where
+        F: FnOnce(&AnyCoreTEXT, &mut Wout, CliDelim) -> AppResult<()>,
+    {
+        let conf = self.config();
+        let delim = self.delim.inner.unwrap_or_default();
+        let filepath = &self.input.inner;
+        let skip = self.dataset_index.inner;
+        let mmap = self.mmap.inner;
+        let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, mmap, &conf)
+            .resolve_commutative(|ws| ws, |s| s);
+        print_warnings(ws, &mut stderr)?;
+        if let Some((core, _)) = res?.first() {
+            f(core, &mut stdout, delim)?;
+        } else {
+            to_writer(stdout, &Value::Null)?;
+        }
+        Ok(())
+    }
+
+    fn config(&self) -> cfg::ReadStdTEXTConfig {
+        let strat = self.strategy.inner.unwrap_or_default();
+        self.std.config(strat)
     }
 }
 
-// TODO not DRY
-fn get_read_tabular_config(sargs: &ReadStdTabularArgs) -> cfg::ReadStdTEXTConfig {
-    let strat = sargs.strategy.inner.unwrap_or_default();
-    cfg::ReadStdTEXTConfig {
-        header: get_header_inner_config(&sargs.header, strat),
-        flat: get_header_and_text_config(&sargs.flat, strat),
-        offset: get_offsets_config(&sargs.offset, strat),
-        standard: get_std_kws_config(&sargs.std, strat),
-        repair: get_repair_config(&sargs.repair, strat),
-        layout: get_data_kws_config(&sargs.data, strat),
-        shared: get_read_shared_config(&sargs.shared),
+impl ReadDatasetArgs {
+    fn run<Wout: Write, Werr: Write>(&self, mut stdout: Wout, mut stderr: Werr) -> AppResult<()> {
+        let conf = self.config();
+        let delim = self.delim.inner.unwrap_or_default();
+        let filepath = &self.input.inner;
+        let skip = self.dataset_index.inner;
+        let mmap = self.mmap.inner;
+        let (ws, res) = api::fcs_read_std_datasets(filepath, skip, Some(1), false, mmap, &conf)
+            .resolve_commutative(|ws| ws, |s| s);
+        print_warnings(ws, &mut stderr)?;
+        if let Some((core, _)) = res?.first() {
+            print_parsed_data(&mut stdout, core, delim.0)?;
+        } else {
+            to_writer(stdout, &Value::Null)?;
+        }
+        Ok(())
+    }
+
+    fn config(&self) -> cfg::ReadStdDatasetConfig {
+        let strat = self.strategy.inner.unwrap_or_default();
+        self.dataset.config(strat)
     }
 }
 
-fn get_read_flat_dataset_config(sargs: &SummarizeArgs) -> cfg::ReadFlatDatasetConfig {
-    let strat = sargs.strategy.inner.unwrap_or_default();
-    cfg::ReadFlatDatasetConfig {
-        header: get_header_inner_config(&sargs.header, strat),
-        flat: get_header_and_text_config(&sargs.flat, strat),
-        offset: get_offsets_config(&sargs.offset, strat),
-        repair: get_repair_config(&sargs.repair, strat),
-        layout: get_data_kws_config(&sargs.data, strat),
-        data: get_dataset_config(&sargs.dataset, strat),
-        shared: get_read_shared_config(&sargs.shared),
+impl RepairFileArgs {
+    fn run<Wout: Write, Werr: Write>(&self, stdout: Wout, mut stderr: Werr) -> AppResult<()> {
+        let read_conf = self.config();
+        let write_conf = self.write.config();
+        let ipath = &self.input.inner;
+        let opath = &self.output.inner;
+        let skip = self.multi.skip;
+        let limit = self.multi.limit;
+        let scan = self.multi.scan.unwrap_or_default();
+        let mmap = self.mmap.inner;
+        let (read_ws, read_res) =
+            api::fcs_read_std_datasets(ipath, skip, limit, scan, mmap, &read_conf)
+                .resolve_commutative(|ws| ws, |s| s);
+        // order matters, print warnings before unpacking the result which
+        // will short-circuit on error
+        print_warnings(read_ws, &mut stderr)?;
+        let (cores, outs): (Vec<_>, Vec<_>) = read_res?.into_iter().unzip();
+        let (write_ws, write_res) = api::fcs_write_datasets(opath, &cores[..], &write_conf)
+            .resolve_commutative(|ws| ws, |e| e);
+        print_warnings(write_ws, &mut stderr)?;
+        let _ = write_res?;
+        to_writer(stdout, &outs[..])?;
+        Ok(())
+    }
+
+    fn config(&self) -> cfg::ReadStdDatasetConfig {
+        let strat = self.strategy.inner.unwrap_or_default();
+        self.dataset.config(strat)
     }
 }
 
-fn get_read_std_dataset_config(sargs: &ReadDatasetArgs) -> cfg::ReadStdDatasetConfig {
-    let strat = sargs.strategy.inner.unwrap_or_default();
-    cfg::ReadStdDatasetConfig {
-        header: get_header_inner_config(&sargs.header, strat),
-        flat: get_header_and_text_config(&sargs.flat, strat),
-        offset: get_offsets_config(&sargs.offset, strat),
-        standard: get_std_kws_config(&sargs.std, strat),
-        repair: get_repair_config(&sargs.repair, strat),
-        layout: get_data_kws_config(&sargs.data, strat),
-        data: get_dataset_config(&sargs.dataset, strat),
-        shared: get_read_shared_config(&sargs.shared),
+impl SummarizeArgs {
+    fn run<Wout: Write, Werr: Write>(&self, stdout: Wout, mut stderr: Werr) -> AppResult<()> {
+        let conf = self.config();
+        let filepath = &self.input.inner;
+        let skip = self.multi.skip;
+        let limit = self.multi.limit;
+        let scan = self.multi.scan.unwrap_or_default();
+        let mmap = self.mmap.inner;
+        let (ws, res) = api::fcs_summarize(filepath, skip, limit, scan, mmap, &conf)
+            .resolve_commutative(|ws| ws, |s| s);
+        print_warnings(ws, &mut stderr)?;
+        to_writer(stdout, &res?)?;
+        Ok(())
+    }
+
+    fn config(&self) -> cfg::ReadFlatDatasetConfig {
+        let strat = self.strategy.inner.unwrap_or_default();
+        cfg::ReadFlatDatasetConfig {
+            header: self.flat.header.config(strat),
+            flat: self.flat.flat.config(strat),
+            offset: self.flat.offset.config(strat),
+            repair: self.repair.config(strat),
+            layout: self.data.config(strat),
+            data: self.dataset.config(strat),
+            shared: self.flat.shared.config(),
+        }
     }
 }
 
-fn get_read_repair_config(sargs: &RepairFileArgs) -> cfg::ReadStdDatasetConfig {
-    let strat = sargs.strategy.inner.unwrap_or_default();
-    cfg::ReadStdDatasetConfig {
-        header: get_header_inner_config(&sargs.header, strat),
-        flat: get_header_and_text_config(&sargs.flat, strat),
-        offset: get_offsets_config(&sargs.offset, strat),
-        standard: get_std_kws_config(&sargs.std, strat),
-        repair: get_repair_config(&sargs.repair, strat),
-        layout: get_data_kws_config(&sargs.data, strat),
-        data: get_dataset_config(&sargs.dataset, strat),
-        shared: get_read_shared_config(&sargs.shared),
+impl ReadHeaderArgs_ {
+    fn config(&self, strat: tc::ReadStrategy) -> tc::ReadHeaderInnerConfig {
+        let mut conf = tc::ReadHeaderInnerConfig::new_with_strategy(strat);
+
+        let _ = self.text_corr.inner.map(|x| conf.text_correction = x.0);
+        let _ = self.data_corr.inner.map(|x| conf.data_correction = x.0);
+        let _ = self.anal_corr.inner.map(|x| conf.analysis_correction = x.0);
+
+        let _ = self
+            .other_correction
+            .as_ref()
+            .map(|xs| conf.other_corrections.clone_from(&xs.0));
+
+        let _ = self.max_other.inner.map(|x| conf.max_other = x.0);
+        let _ = self.other_width.map(|x| conf.other_width = x);
+        let _ = self.guess_other_width.map(|x| conf.guess_other_width = x);
+        let _ = self
+            .squish_offsets
+            .inner
+            .map(|x| conf.squish_offsets = x.into());
+
+        conf
     }
 }
 
-fn get_write_std_dataset_config(sargs: &WriteArgs) -> tc::WriteDatasetInnerConfig {
-    let mut conf = tc::WriteDatasetInnerConfig::default();
+impl ReadOffsetArgs_ {
+    fn config(&self, strat: tc::ReadStrategy) -> tc::ReadOffsetConfig {
+        let mut conf = tc::ReadOffsetConfig::new_with_strategy(strat);
 
-    let _ = sargs.write_delim.map(|x| conf.text.delim = x);
-    let _ = sargs.big_other.map(|x| conf.text.big_other = x.into());
+        let _ = self
+            .allow_pseudoempty
+            .inner
+            .map(|x| conf.allow_pseudoempty = x.into());
+        let _ = self
+            .dataset_overflow_limit
+            .map(|x| conf.dataset_overflow_limit = x);
+        let _ = self
+            .overlap_correction_limit
+            .map(|x| conf.overlap_correction_limit = x);
 
-    conf
+        conf
+    }
+}
+
+impl ReadFlatKwsArgsInner_ {
+    fn config(&self, strat: tc::ReadStrategy) -> tc::ReadHeaderAndTEXTConfig {
+        let mut c = tc::ReadHeaderAndTEXTConfig::new_with_strategy(strat);
+
+        macro_rules! assign_opt {
+            ($($field:ident),*) => {
+                $(
+                    let _ = self.$field.inner.map(|x| c.$field = x.0);
+                )*
+            };
+        }
+
+        assign_opt!(
+            version_override,
+            supp_text_correction,
+            allow_duplicated_supp_text,
+            allow_non_ascii_delim,
+            allow_even_delims,
+            allow_nonunique,
+            allow_odd_tokens,
+            allow_empty_keys,
+            allow_delim_at_boundary,
+            allow_non_ascii_keys,
+            allow_non_utf8_values,
+            allow_missing_supp_text,
+            allow_supp_text_own_delim,
+            allow_missing_nextdata
+        );
+
+        let _ = self.nextdata_correction.map(|x| c.nextdata_correction = x);
+        let _ = self.process_supp_text.map(|x| c.process_supp_text = x);
+        let _ = self.delim_escape_mode.map(|x| c.delim_escape_mode = x);
+        let _ = self.use_encoding.map(|x| c.use_encoding = x);
+        let _ = self
+            .trim_value_whitespace
+            .map(|x| c.trim_value_whitespace = x);
+
+        c
+    }
+}
+
+impl ReadStdKwsArgsInner_ {
+    fn config(&self, strat: tc::ReadStrategy) -> cfg::ReadStdKeywordsConfig {
+        let mut c = cfg::ReadStdKeywordsConfig::new_with_strategy(strat);
+
+        let _ = self
+            .dedup_meas_names
+            .inner
+            .map(|x| c.dedup_measurement_names = x.into());
+        let _ = self
+            .trim_intra_value_whitespace
+            .inner
+            .map(|x| c.trim_intra_value_whitespace = x.into());
+
+        let _ = self
+            .time_meas_pattern
+            .as_ref()
+            .map(|x| c.time_meas_pattern = Selector::Root(x.clone()));
+
+        let _ = self.force_linear_scale.map(|x| c.force_linear_scale = x);
+
+        let _ = self
+            .ignore_time_optical_keys
+            .as_ref()
+            .map(|ks| c.ignore_optical_only_keys = ks.0.clone());
+
+        let _ = self
+            .process_optical_only_keys
+            .map(|x| c.process_optical_only_keys = x);
+        let _ = self
+            .allow_missing_time
+            .inner
+            .map(|x| c.allow_missing_time = x.0);
+        let _ = self
+            .add_missing_timestep
+            .inner
+            .map(|x| c.add_missing_timestep = x.0);
+
+        let _ = self
+            .spillover_measurement_mode
+            .map(|x| c.spillover_measurement_mode = x);
+
+        let _ = self
+            .date_pattern
+            .inner
+            .as_ref()
+            .map(|x| c.date_pattern = Selector::Root(x.0.clone()));
+
+        let _ = self
+            .time_pattern
+            .inner
+            .as_ref()
+            .map(|x| c.time_pattern = Selector::Root(x.0.clone()));
+
+        let _ = self
+            .datetime_pattern
+            .inner
+            .as_ref()
+            .map(|x| c.datetime_pattern = Selector::Root(x.0.clone()));
+
+        let _ = self
+            .last_modified_pattern
+            .inner
+            .as_ref()
+            .map(|x| c.last_modified_pattern = Selector::Root(x.0.clone()));
+
+        let _ = self
+            .allow_other_feature
+            .inner
+            .map(|x| c.allow_other_feature = x.into());
+
+        let _ = self
+            .process_pseudostandard
+            .inner
+            .map(|x| c.process_pseudostandard = x);
+
+        let _ = self
+            .process_hyper_par
+            .inner
+            .map(|x| c.process_hyper_par = x);
+        let _ = self
+            .process_other_version
+            .inner
+            .map(|x| c.process_other_version = x);
+        let _ = self
+            .process_extra_timestep
+            .inner
+            .map(|x| c.process_extra_timestep = x);
+
+        let _ = self
+            .fix_log_scale_offset
+            .inner
+            .map(|x| c.fix_log_scale_offsets = x.into());
+
+        let _ = self
+            .disallow_localtime
+            .inner
+            .map(|x| c.disallow_localtime = x.into());
+
+        c
+    }
+}
+
+impl ReadRepairKwsArgs_ {
+    fn config(&self, strat: tc::ReadStrategy) -> cfg::ReadRepairKeywordsConfig {
+        let mut c = cfg::ReadRepairKeywordsConfig::new_with_strategy(strat);
+
+        let _ = self
+            .ignore_std_keys
+            .inner
+            .as_ref()
+            .map(|x| c.ignore_standard_keys = AppendableSelector::root(x.0.clone()));
+
+        let _ = self
+            .promote_nonstandard_keys
+            .inner
+            .as_ref()
+            .map(|x| c.promote_nonstandard_keys = AppendableSelector::root(x.0.clone()));
+
+        let _ = self
+            .demote_standard_keys
+            .inner
+            .as_ref()
+            .map(|x| c.demote_standard_keys = AppendableSelector::root(x.0.clone()));
+
+        let _ = self
+            .rename_standard_keys
+            .as_ref()
+            .map(|x| c.rename_standard_keys = AppendableSelector::root(x.0.clone()));
+
+        let _ = self
+            .replace_std_key_vals
+            .as_ref()
+            .map(|x| c.replace_standard_key_values = AppendableSelector::root(x.0.clone()));
+
+        let _ = self
+            .append_std_keywords
+            .as_ref()
+            .map(|x| c.append_standard_keywords = AppendableSelector::root(x.0.clone()));
+
+        let _ = self
+            .substitute_standard_key_vals
+            .as_ref()
+            .map(|x| c.substitute_standard_key_values = AppendableSelector::root(x.0.clone()));
+
+        let _ = self
+            .promote_all_nonstandard_keys
+            .map(|x| c.promote_all_nonstandard_keys = x.into());
+
+        let _ = self
+            .allow_repair_non_unique
+            .inner
+            .map(|x| c.allow_repair_non_unique = x.0);
+
+        c
+    }
+}
+
+impl ReadDataKwsArgs_ {
+    fn config(&self, strat: tc::ReadStrategy) -> tc::ReadDataKeywordsConfig {
+        let mut c = tc::ReadDataKeywordsConfig::new_with_strategy(strat);
+
+        let _ = self
+            .text_data_correction
+            .inner
+            .map(|x| c.text_data_correction = x.0);
+        let _ = self
+            .text_analysis_correction
+            .inner
+            .map(|x| c.text_analysis_correction = x.0);
+
+        let _ = self
+            .ignore_text_data_offsets
+            .inner
+            .map(|x| c.ignore_text_data_offsets = x.into());
+        let _ = self
+            .ignore_text_analysis_offsets
+            .inner
+            .map(|x| c.ignore_text_analysis_offsets = x.into());
+
+        let _ = self
+            .allow_header_text_offset_mismatch
+            .map(|x| c.allow_header_text_offset_mismatch = x);
+
+        let _ = self
+            .allow_missing_required_offsets
+            .inner
+            .map(|x| c.allow_missing_required_offsets = x.0);
+
+        let _ = self
+            .process_optional_failure
+            .inner
+            .map(|x| c.process_optional_failure = x);
+
+        let _ = self.int_width_override.map(|x| c.int_width_override = x);
+        let _ = self
+            .byteord_override
+            .as_ref()
+            .map(|x| c.byteord_override = x.clone());
+        let _ = self
+            .disallow_range_truncation
+            .inner
+            .map(|x| c.disallow_range_truncation = x.0);
+
+        c
+    }
+}
+
+impl ReadDatasetArgsInner_ {
+    fn config(&self, strat: tc::ReadStrategy) -> tc::ReadDatasetConfig {
+        let mut c = tc::ReadDatasetConfig::new_with_strategy(strat);
+
+        let _ = self
+            .data_remainder_limit
+            .map(|x| c.data_remainder_limit = x);
+        let _ = self
+            .allow_tot_mismatch
+            .inner
+            .map(|x| c.allow_tot_mismatch = x.0);
+        let _ = self
+            .allow_uneven_event_width
+            .inner
+            .map(|x| c.allow_uneven_event_width = x.0);
+
+        let _ = self.over_bitmask_action.map(|x| c.over_bitmask_action = x);
+        let _ = self.over_range_action.map(|x| c.over_range_action = x);
+
+        let _ = self
+            .allow_missing_crc
+            .inner
+            .map(|x| c.allow_missing_crc = x.0);
+        let _ = self
+            .allow_mismatch_crc
+            .inner
+            .map(|x| c.allow_mismatch_crc = x.0);
+        let _ = self.compute_crc.map(|x| c.compute_crc = x);
+        let _ = self.row_buffer_size.map(|x| c.row_buffer_size = x);
+
+        c
+    }
+}
+
+impl ReadSharedArgs_ {
+    fn config(&self) -> tc::ReadSharedConfig {
+        tc::ReadSharedConfig {
+            warnings_are_errors: self.warnings_are_errors,
+            hide_warnings: self.hide_warnings,
+        }
+    }
+}
+
+impl ReadStdKwsArgs_ {
+    fn config(&self, strat: tc::ReadStrategy) -> cfg::ReadStdTEXTConfig {
+        cfg::ReadStdTEXTConfig {
+            header: self.flat.header.config(strat),
+            flat: self.flat.flat.config(strat),
+            offset: self.flat.offset.config(strat),
+            standard: self.std.config(strat),
+            repair: self.repair.config(strat),
+            layout: self.data.config(strat),
+            shared: self.flat.shared.config(),
+        }
+    }
+}
+
+impl ReadStdDatasetArgs_ {
+    fn config(&self, strat: tc::ReadStrategy) -> cfg::ReadStdDatasetConfig {
+        cfg::ReadStdDatasetConfig {
+            header: self.std.flat.header.config(strat),
+            flat: self.std.flat.flat.config(strat),
+            offset: self.std.flat.offset.config(strat),
+            standard: self.std.std.config(strat),
+            repair: self.std.repair.config(strat),
+            layout: self.std.data.config(strat),
+            data: self.dataset.config(strat),
+            shared: self.std.flat.shared.config(),
+        }
+    }
+}
+
+impl WriteArgs {
+    fn config(&self) -> tc::WriteDatasetInnerConfig {
+        let mut conf = tc::WriteDatasetInnerConfig::default();
+
+        let _ = self.write_delim.map(|x| conf.text.delim = x);
+        let _ = self.big_other.map(|x| conf.text.big_other = x.into());
+
+        conf
+    }
 }
 
 #[derive(Clone, Copy)]

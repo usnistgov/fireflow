@@ -1,41 +1,34 @@
-use fireflow_core::{
-    api,
-    config::{self as cfg, StdKeyValues},
-    core::AnyCoreDataset,
-    selector::{AppendableSelector, Selector},
-    text::keywords::AlphaNumType,
-    validated::read_state::DatasetOffset,
-};
+use fireflow_core::api;
+use fireflow_core::config::{self as cfg, StdKeyValues};
+use fireflow_core::core::AnyCoreDataset;
+use fireflow_core::selector::{AppendableSelector, Selector};
+use fireflow_core::text::keywords::AlphaNumType;
+use fireflow_core::validated::read_state::DatasetOffset;
 
 use fireflow_core::segment::read::{HasRegion, HasSource};
 
+use fireflow_types::config::{
+    self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, ParseOpticalOnlyKeysError,
+};
+use fireflow_types::keys::{AnyKey, StdKey};
 use fireflow_types::other_width::{OTHER_WIDTH_DEFAULT, OtherWidth};
 use fireflow_types::ranged_float::PositiveFloat;
 use fireflow_types::segment as ts;
 use fireflow_types::segment::OffsetsCorrection;
-use fireflow_types::std_pattern::PATTERN_DELIMITER;
-use fireflow_types::std_pattern::StdKeyOrPattern;
+use fireflow_types::segment::{HeaderCorrection, OtherSegmentId};
+use fireflow_types::std_pattern::{PATTERN_DELIMITER, StdKeyOrPattern, StdKeyPatterns};
 use fireflow_types::sub_pattern::SubPattern;
 use fireflow_types::textdelim::TEXTDelim;
 use fireflow_types::timepattern::TimePattern;
 use fireflow_types::{args::dash as ta, config::OpticalOnlyKeys};
 use fireflow_types::{config::TriFlag, keywords as tk};
 use fireflow_types::{
-    config::{
-        self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, ParseOpticalOnlyKeysError,
-    },
-    segment::{HeaderCorrection, OtherSegmentId},
-};
-use fireflow_types::{
     config::{PartialTriErrorFlagError, TriErrorFlag},
     keystring_pairs::KeyPairs,
 };
 use fireflow_types::{datepattern::DatePattern, std_pattern::SubPatterns};
 use fireflow_types::{keys::raw_std as sk, std_pattern::StdKeysOrPatterns};
-use fireflow_types::{
-    keys::{AnyKey, StdKey},
-    std_pattern::StdKeyPatterns,
-};
+
 use nonempty::NEString;
 
 use clap::{ArgAction, Args, Parser};
@@ -108,11 +101,11 @@ enum Cli {
 
     #[command(about = "Show a table of standardized measurement values.")]
     #[command(after_long_help(STD_LONG_HELP))]
-    Meas(ReadStdTabularArgs),
+    Measurements(ReadStdTabularArgs),
 
     #[command(about = "Dump the spillover matrix if present.")]
     #[command(after_long_help(STD_LONG_HELP))]
-    Spill(ReadStdTabularArgs),
+    Spillover(ReadStdTabularArgs),
 
     #[command(about = formatcp!("Show a table of the {DATA_SEG} segment."))]
     #[command(after_long_help(STD_LONG_HELP))]
@@ -1576,7 +1569,7 @@ fn run() -> AppResult<()> {
             }
         }
 
-        Cli::Meas(sargs) => {
+        Cli::Measurements(sargs) => {
             let conf = get_read_tabular_config(&sargs);
             let delim = sargs.delim.inner.unwrap_or_default();
             let filepath = sargs.input.inner;
@@ -1592,7 +1585,7 @@ fn run() -> AppResult<()> {
             }
         }
 
-        Cli::Spill(sargs) => {
+        Cli::Spillover(sargs) => {
             let conf = get_read_tabular_config(&sargs);
             let delim = sargs.delim.inner.unwrap_or_default();
             let filepath = sargs.input.inner;

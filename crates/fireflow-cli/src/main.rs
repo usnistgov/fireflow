@@ -1,6 +1,6 @@
 use fireflow_core::api;
 use fireflow_core::config::{self as cfg, StdKeyValues};
-use fireflow_core::core::{AnyCoreDataset, AnyCoreTEXT};
+use fireflow_core::core::{AnyCoreDataset, AnyCoreTEXT, TableDelim};
 use fireflow_core::selector::{AppendableSelector, Selector};
 use fireflow_core::text::keywords::AlphaNumType;
 use fireflow_core::validated::read_state::DatasetOffset;
@@ -964,7 +964,7 @@ struct DelimArg {
     #[arg(long = "delim")]
     #[arg(value_name = "DELIM")]
     #[arg(help = "Delimiter to use for tabular output. If not provided, defaults to tab.")]
-    inner: Option<CliDelim>,
+    inner: Option<TableDelim>,
 }
 
 /// A single argument for selecting memory mapping.
@@ -1321,29 +1321,6 @@ where
         }
     } else {
         Ok(vec![])
-    }
-}
-
-/// CLI value for a delimiter for use in printing tables.
-///
-/// This must be a single ASCII character when supplied on the CLI.
-#[derive(Clone, Copy)]
-struct CliDelim(u8);
-
-impl Default for CliDelim {
-    fn default() -> Self {
-        Self(b'\t')
-    }
-}
-
-impl FromStr for CliDelim {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let c = s.parse::<char>().map_err(|e| e.to_string())?;
-        c.try_into()
-            .map_err(|_| "must be a single ASCII character".into())
-            .map(Self)
     }
 }
 
@@ -2171,13 +2148,13 @@ impl StdCmdArgs {
 impl TabularCmdArgs {
     fn run_meas<Wout: Write, Werr: Write>(&self, stdout: Wout, stderr: Werr) -> AppResult<()> {
         self.run_inner(stdout, stderr, |core, out, delim| {
-            Ok(core.print_meas_table(out, delim.0)?)
+            Ok(core.print_meas_table(out, delim)?)
         })
     }
 
     fn run_spillover<Wout: Write, Werr: Write>(&self, stdout: Wout, stderr: Werr) -> AppResult<()> {
         self.run_inner(stdout, stderr, |core, out, delim| {
-            Ok(core.print_comp_or_spillover_table(out, delim.0)?)
+            Ok(core.print_comp_or_spillover_table(out, delim)?)
         })
     }
 
@@ -2188,7 +2165,7 @@ impl TabularCmdArgs {
         f: F,
     ) -> AppResult<()>
     where
-        F: FnOnce(&AnyCoreTEXT, &mut Wout, CliDelim) -> AppResult<()>,
+        F: FnOnce(&AnyCoreTEXT, &mut Wout, TableDelim) -> AppResult<()>,
     {
         let conf = self.config();
         let delim = self.delim.inner.unwrap_or_default();
@@ -2223,14 +2200,18 @@ impl DatasetCmdArgs {
             .resolve_commutative(|ws| ws, |s| s);
         print_warnings(ws, &mut stderr)?;
         if let Some((core, _)) = res?.first() {
-            Self::print_parsed_data(&mut stdout, core, delim.0)?;
+            Self::print_parsed_data(&mut stdout, core, delim)?;
         } else {
             to_writer(stdout, &Value::Null)?;
         }
         Ok(())
     }
 
-    fn print_parsed_data<W: Write>(w: &mut W, core: &AnyCoreDataset, delim: u8) -> io::Result<()> {
+    fn print_parsed_data<W: Write>(
+        w: &mut W,
+        core: &AnyCoreDataset,
+        delim: TableDelim,
+    ) -> io::Result<()> {
         // 32k / 8 bytes since we are storing everything as u64
         const BUF_SIZE: usize = 1 << 12;
 
@@ -2251,10 +2232,11 @@ impl DatasetCmdArgs {
         let mut first = true;
         for n in core.shortnames() {
             if !first {
-                w.write_all(&[delim])?;
+                delim.write_delim(w)?;
             }
             first = false;
-            w.write_all(AsRef::<str>::as_ref(&n).as_bytes())?;
+            let nn: &str = n.as_ref();
+            delim.write_escaped(w, nn.as_bytes())?;
         }
         writeln!(w)?;
 
@@ -2293,9 +2275,11 @@ impl DatasetCmdArgs {
                         _ => ibuf.format(v).as_bytes(),
                     };
                     if !first {
-                        w.write_all(&[delim])?;
+                        delim.write_delim(w)?;
                     }
                     first = false;
+                    // ASSUME we don't need to escape here since we are writing
+                    // numbers
                     w.write_all(bs)?;
                 }
                 writeln!(w)?;

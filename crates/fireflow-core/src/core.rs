@@ -1029,6 +1029,25 @@ pub enum FlankingSegmentName {
     Analysis,
 }
 
+/// Delimiter to use when printing tables from core structs.
+///
+/// Only a limited range is allowed because of escaping rules.
+#[derive(Clone, Copy, Default)]
+#[repr(u8)]
+#[cfg(feature = "serde")]
+pub enum TableDelim {
+    #[default]
+    Tab,
+    Comma,
+    Record,
+}
+
+/// Error when parsing [`TableDelim`] from string.
+#[derive(Error, Debug)]
+#[error("must be tab, comma, or record separator")]
+#[cfg(feature = "serde")]
+pub struct ParseTableDelimError;
+
 /// Internal configuration options used when writing HEADER+TEXT
 pub(crate) struct WriteHeaderAndTextConfig<'a> {
     pub(crate) delim: TEXTDelim,
@@ -5471,7 +5490,7 @@ where
 
     #[cfg(feature = "serde")]
     #[allow(clippy::too_many_lines)]
-    fn print_meas_table<'a, W: Write>(&'a self, w: &mut W, delim: u8) -> io::Result<()>
+    fn print_meas_table<'a, W: Write>(&'a self, w: &mut W, delim: TableDelim) -> io::Result<()>
     where
         V::Temporal: Clone,
         V::Optical: OpticalFromTemporal<V::Temporal> + Clone,
@@ -5613,10 +5632,10 @@ where
 
             for s in &header {
                 if !first {
-                    w.write_all(&[delim])?;
+                    delim.write_delim(w)?;
                 }
                 first = false;
-                write!(w, "{s}")?;
+                delim.write_escaped(w, s.as_str().as_bytes())?;
             }
             writeln!(w)?;
 
@@ -5661,10 +5680,10 @@ where
                 first = true;
                 for r in &row {
                     if !first {
-                        w.write_all(&[delim])?;
+                        delim.write_delim(w)?;
                     }
                     if let Some(x) = r {
-                        write!(w, "{x}")?;
+                        delim.write_escaped(w, x.as_str().as_bytes())?;
                     } else {
                         write!(w, "NA")?;
                     }
@@ -6966,7 +6985,7 @@ impl<A, L2_0, L3_0, L3_1, L3_2, O> AnyCore<A, L2_0, L3_0, L3_1, L3_2, O> {
     }
 
     #[cfg(feature = "serde")]
-    pub fn print_meas_table<W: io::Write>(&self, w: &mut W, delim: u8) -> io::Result<()>
+    pub fn print_meas_table<W: io::Write>(&self, w: &mut W, delim: TableDelim) -> io::Result<()>
     where
         L2_0: LayoutKeywords + LayoutOptMeasKeywords,
         L3_0: LayoutKeywords + LayoutOptMeasKeywords,
@@ -6980,24 +6999,26 @@ impl<A, L2_0, L3_0, L3_1, L3_2, O> AnyCore<A, L2_0, L3_0, L3_1, L3_2, O> {
     pub fn print_comp_or_spillover_table<W: io::Write>(
         &self,
         w: &mut W,
-        delim: u8,
+        delim: TableDelim,
     ) -> io::Result<()> {
         if let Some((names, matrix)) = self.spillover_or_comp_table() {
             let mut first = true;
             for s in once("[-]").chain(names.iter().map(AsRef::as_ref)) {
                 if !first {
-                    w.write_all(&[delim])?;
+                    delim.write_delim(w)?;
                 }
                 first = false;
-                write!(w, "{s}")?;
+                delim.write_escaped(w, s.as_bytes())?;
             }
             writeln!(w)?;
 
             // NDArrays are row-major so this should print row-by-row
             for (row, n) in matrix.outer_iter().zip(&names[..]) {
-                write!(w, "{n}")?;
+                let nn: &str = n.as_ref();
+                delim.write_escaped(w, nn.as_bytes())?;
                 for x in row {
-                    w.write_all(&[delim])?;
+                    delim.write_delim(w)?;
+                    // ASSUME we don't need to escape here since we are writing floats
                     write!(w, "{x}")?;
                 }
                 writeln!(w)?;
@@ -7921,8 +7942,13 @@ mod tests {
 
 #[cfg(feature = "serde")]
 mod serialize {
-    use crate::core::AnyCore;
+    use crate::core::{AnyCore, ParseTableDelimError, TableDelim};
     use serde::{Serialize, ser::SerializeStruct as _};
+
+    use memchr::{memchr_iter, memchr2_iter, memchr3_iter};
+
+    use std::io::{self, Write};
+    use std::str::FromStr;
 
     impl<A, L2_0, L3_0, L3_1, L3_2, O> Serialize for AnyCore<A, L2_0, L3_0, L3_1, L3_2, O>
     where
@@ -7957,6 +7983,140 @@ mod serialize {
                 }
             }
             state.end()
+        }
+    }
+
+    impl FromStr for TableDelim {
+        type Err = ParseTableDelimError;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            s.parse::<char>()
+                .ok()
+                .and_then(|c| match c {
+                    '\t' => Some(Self::Tab),
+                    ',' => Some(Self::Comma),
+                    '\x30' => Some(Self::Record),
+                    _ => None,
+                })
+                .ok_or(ParseTableDelimError)
+        }
+    }
+
+    impl TableDelim {
+        #[must_use]
+        pub fn value(self) -> u8 {
+            match self {
+                Self::Tab => b'\t',
+                Self::Comma => b',',
+                Self::Record => 30,
+            }
+        }
+
+        pub fn write_delim<W: Write>(self, w: &mut W) -> io::Result<()> {
+            w.write_all(&[self.value()])
+        }
+
+        pub fn write_escaped<W: Write>(self, w: &mut W, bytes: &[u8]) -> io::Result<()> {
+            let mut start = 0;
+            match self {
+                // Write tab, newline, carriage return, and backslash as '\t',
+                // '\n', '\r', and '\' respectively. There is no standard for
+                // TSV so this is the somewhat arbitrary convention to use.
+                Self::Tab => {
+                    #[cfg(windows)]
+                    while let Some(end) = bytes
+                        .iter()
+                        .position(|&x| x == b'\t' | b'\n' | b'\r' | b'\\')
+                    {
+                        let delim = match bytes[end] {
+                            b'\t' => b't',
+                            b'\n' => b'n',
+                            b'\r' => b'r',
+                            _ => b'\\',
+                        };
+                        w.write_all(&bytes[start..end])?;
+                        w.write_all(&[b'\\', delim])?;
+                        start = end + 1;
+                    }
+
+                    #[cfg(not(windows))]
+                    for end in memchr3_iter(b'\t', b'\n', b'\\', bytes) {
+                        let delim = match bytes[end] {
+                            b'\t' => b't',
+                            b'\n' => b'n',
+                            _ => b'\\',
+                        };
+                        w.write_all(&bytes[start..end])?;
+                        w.write_all(&[b'\\', delim])?;
+                        start = end + 1;
+                    }
+
+                    w.write_all(&bytes[start..])?;
+                    Ok(())
+                }
+
+                // Double-escape record separator (rare) and literally print
+                // '\n' and '\r' for newline and carriage return. This is a
+                // made-up convention since nobody uses record separator (which
+                // makes me very sad).
+                Self::Record => {
+                    #[cfg(windows)]
+                    for end in memchr3_iter(b'\x30', b'\n', b'\r', bytes) {
+                        w.write_all(&bytes[start..end])?;
+                        if bytes[end] == b'\x30' {
+                            w.write_all(b"\x30\x30")?;
+                        } else if bytes[end] == b'r' {
+                            w.write_all(b"\\r")?;
+                        } else {
+                            w.write_all(b"\\n")?;
+                        }
+                        start = end + 1;
+                    }
+
+                    #[cfg(not(windows))]
+                    for end in memchr2_iter(b'\x30', b'\n', bytes) {
+                        w.write_all(&bytes[start..end])?;
+                        if bytes[end] == b'\x30' {
+                            w.write_all(b"\x30\x30")?;
+                        } else {
+                            w.write_all(b"\\n")?;
+                        }
+                        start = end + 1;
+                    }
+
+                    w.write_all(&bytes[start..])?;
+                    Ok(())
+                }
+
+                // CSV is easy, just quote the string if it has anything
+                // newline/CR/comma and escape any quotes inside.
+                Self::Comma => {
+                    #[cfg(windows)]
+                    let has_forbidden =
+                        || bytes.contains(&b'\n') || bytes.contains(&b',') || bytes.contains(&b'"');
+
+                    #[cfg(not(windows))]
+                    let has_forbidden = || {
+                        bytes.contains(&b'\n')
+                            || bytes.contains(&b'\r')
+                            || bytes.contains(&b',')
+                            || bytes.contains(&b'"')
+                    };
+                    if has_forbidden() {
+                        w.write_all(b"\"")?;
+                        for end in memchr_iter(b'"', bytes) {
+                            w.write_all(&bytes[start..end])?;
+                            w.write_all(b"\"\"")?;
+                            start = end + 1;
+                        }
+                        w.write_all(&bytes[start..])?;
+                        w.write_all(b"\"")?;
+                        Ok(())
+                    } else {
+                        w.write_all(bytes)
+                    }
+                }
+            }
         }
     }
 }

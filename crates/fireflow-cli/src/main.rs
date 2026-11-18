@@ -461,12 +461,12 @@ struct ReadFlatKwsArgs_ {
     version_override: VersionOverrideArg,
 
     #[command(flatten)]
-    supp_text_corr: SuppTextCorrArg,
+    supp_text_correction: SuppTextCorrArg,
 
     #[arg(long = ta::NEXTDATA_COR)]
     #[arg(value_name = "INT")]
     #[arg(help = formatcp!("Correction for {NEXTDATA}"))]
-    nextdata_corr: Option<i32>,
+    nextdata_correction: Option<i32>,
 
     #[command(flatten)]
     allow_duplicated_supp_text: AllowDuplicatedSuppTextArg,
@@ -1754,56 +1754,35 @@ fn get_header_and_text_config(
 ) -> tc::ReadHeaderAndTEXTConfig {
     let mut c = tc::ReadHeaderAndTEXTConfig::new_with_strategy(strat);
 
-    let _ = s.version_override.inner.map(|x| c.version_override = x.0);
-    let _ = s.supp_text_corr.inner.map(|x| c.supp_text_correction = x.0);
-    let _ = s.nextdata_corr.map(|x| c.nextdata_correction = x);
+    macro_rules! assign_opt {
+        ($($field:ident),*) => {
+            $(
+                let _ = s.$field.inner.map(|x| c.$field = x.0);
+            )*
+        };
+    }
 
-    let _ = s
-        .allow_duplicated_supp_text
-        .inner
-        .map(|x| c.allow_duplicated_supp_text = x.0);
+    assign_opt!(
+        version_override,
+        supp_text_correction,
+        allow_duplicated_supp_text,
+        allow_non_ascii_delim,
+        allow_even_delims,
+        allow_nonunique,
+        allow_odd_tokens,
+        allow_empty_keys,
+        allow_delim_at_boundary,
+        allow_non_ascii_keys,
+        allow_non_utf8_values,
+        allow_missing_supp_text,
+        allow_supp_text_own_delim,
+        allow_missing_nextdata
+    );
 
+    let _ = s.nextdata_correction.map(|x| c.nextdata_correction = x);
     let _ = s.process_supp_text.map(|x| c.process_supp_text = x);
     let _ = s.delim_escape_mode.map(|x| c.delim_escape_mode = x);
-    let _ = s
-        .allow_non_ascii_delim
-        .inner
-        .map(|x| c.allow_non_ascii_delim = x.0);
-
-    let _ = s.allow_even_delims.inner.map(|x| c.allow_even_delims = x.0);
-    let _ = s.allow_nonunique.inner.map(|x| c.allow_nonunique = x.0);
-    let _ = s.allow_odd_tokens.inner.map(|x| c.allow_odd_tokens = x.0);
-    let _ = s.allow_empty_keys.inner.map(|x| c.allow_empty_keys = x.0);
-    let _ = s
-        .allow_delim_at_boundary
-        .inner
-        .map(|x| c.allow_delim_at_boundary = x.0);
-
     let _ = s.use_encoding.map(|x| c.use_encoding = x);
-    let _ = s
-        .allow_non_ascii_keys
-        .inner
-        .map(|x| c.allow_non_ascii_keys = x.0);
-    let _ = s
-        .allow_non_utf8_values
-        .inner
-        .map(|x| c.allow_non_utf8_values = x.0);
-
-    let _ = s
-        .allow_missing_supp_text
-        .inner
-        .map(|x| c.allow_missing_supp_text = x.0);
-
-    let _ = s
-        .allow_supp_text_own_delim
-        .inner
-        .map(|x| c.allow_supp_text_own_delim = x.0);
-
-    let _ = s
-        .allow_missing_nextdata
-        .inner
-        .map(|x| c.allow_missing_nextdata = x.0);
-
     let _ = s.trim_value_whitespace.map(|x| c.trim_value_whitespace = x);
 
     c

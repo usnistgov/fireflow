@@ -54,7 +54,7 @@ use crate::validated::read_state::{
 
 use fireflow_types::config::{
     AppendFlag, AppendableFlag, ConfigFlag as _, DelimEscapeMode, Encoding, OverlapCorrectionLimit,
-    ProcessSuppText, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
+    ProcessSuppText, ReadDataKeywordsConfig, ReadDatasetConfig, ReadFlatTEXTInnerConfig,
     ReadHeaderInnerConfig, ReadOffsetConfig, TriErrorFlag as _, VersionOverride,
     WriteDatasetInnerConfig, WriteMultiConfig,
 };
@@ -1593,7 +1593,7 @@ impl FlatTEXTOutput {
         IOErrorGroup<HeaderOrFlatTextError, ()>,
     >
     where
-        C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadFlatTEXTInnerConfig> + AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
         Header::read(&mut reader, conf)
             .map_commutative_warnings(HeaderOrFlatTEXTWarning::from)
@@ -1619,9 +1619,9 @@ impl FlatTEXTOutput {
         (),
     >
     where
-        C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadFlatTEXTInnerConfig> + AsRef<ReadOffsetConfig>,
     {
-        let hconf: &ReadHeaderAndTEXTConfig = conf.as_ref();
+        let hconf: &ReadFlatTEXTInnerConfig = conf.as_ref();
         // Clip the primary TEXT offsets if they exceed EOF.
         let ptext_overflow = match header
             .final_offsets
@@ -1763,7 +1763,7 @@ impl FlatTEXTOutput {
         AnyStdTEXTFromKeywordsError,
     >
     where
-        C: AsRef<ReadHeaderAndTEXTConfig>
+        C: AsRef<ReadFlatTEXTInnerConfig>
             + AsRef<ReadRepairKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadStdKeywordsConfig>
@@ -1800,7 +1800,7 @@ impl FlatTEXTOutput {
         (),
     >
     where
-        C: AsRef<ReadHeaderAndTEXTConfig>
+        C: AsRef<ReadFlatTEXTInnerConfig>
             + AsRef<ReadRepairKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadStdKeywordsConfig>
@@ -1860,7 +1860,7 @@ impl SplitTEXTDiagnostics {
         delim: u8,
         offsets: &NonEmptyOffsets<SupplementalTextSegmentId, OffsetsFromTEXT>,
         nonstd: &mut ParsedNonStdKeywords,
-        conf: &ReadHeaderAndTEXTConfig,
+        conf: &ReadFlatTEXTInnerConfig,
     ) -> WarningsAndIOGroupResult<
         (ParsedStdKeywords, Self),
         ParseSupplementalTEXTWarning,
@@ -1885,7 +1885,7 @@ impl SplitTEXTDiagnostics {
     fn primary_from_bytes(
         delim: u8,
         bytes: &[u8],
-        conf: &ReadHeaderAndTEXTConfig,
+        conf: &ReadFlatTEXTInnerConfig,
     ) -> WarningsAndErrorsResult<
         (ParsedStdKeywords, ParsedNonStdKeywords, Self),
         (),
@@ -1913,7 +1913,7 @@ impl SplitTEXTDiagnostics {
         delim: u8,
         bytes: &NESlice<u8>,
         enc: Option<Encoding>,
-        conf: &ReadHeaderAndTEXTConfig,
+        conf: &ReadFlatTEXTInnerConfig,
     ) -> WarningsAndErrorsResult<
         (ParsedStdKeywords, Self),
         (),
@@ -1954,7 +1954,7 @@ impl SplitTEXTDiagnostics {
         delim: u8,
         raw_tokens: &NESlice<&'_ [u8]>,
         enc: Option<Encoding>,
-        conf: &ReadHeaderAndTEXTConfig,
+        conf: &ReadFlatTEXTInnerConfig,
     ) -> WarningsAndErrorsResult<
         (ParsedStdKeywords, Self),
         (),
@@ -1984,7 +1984,7 @@ impl SplitTEXTDiagnostics {
     fn as_errors(
         &self,
         tk: TEXTKind,
-        conf: &ReadHeaderAndTEXTConfig,
+        conf: &ReadFlatTEXTInnerConfig,
     ) -> WarningsAndErrorsResult<(), (), ParseKeywordsIssue, ParseKeywordsIssue> {
         let mut n_errors = 0;
         let mut n_warnings = 0;
@@ -2523,7 +2523,7 @@ impl SuppTEXTOffsetsOutput {
         conf: &C,
     ) -> WarningsAndErrorsResult<Self, (), STextOffsetsWarning, STextOffsetsError>
     where
-        C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadFlatTEXTInnerConfig> + AsRef<ReadOffsetConfig>,
     {
         enum OffsetResult {
             Empty,
@@ -2559,7 +2559,7 @@ impl SuppTEXTOffsetsOutput {
                 .transpose()
         }
 
-        let hconf: &ReadHeaderAndTEXTConfig = conf.as_ref();
+        let hconf: &ReadFlatTEXTInnerConfig = conf.as_ref();
         let oconf: &ReadOffsetConfig = conf.as_ref();
         let config_corr = hconf.supp_text_correction;
 
@@ -4212,7 +4212,7 @@ fn trunc_str(s: &str) -> String {
 
 fn split_first_delim<'a>(
     bytes: &'a NESlice<u8>,
-    conf: &ReadHeaderAndTEXTConfig,
+    conf: &ReadFlatTEXTInnerConfig,
 ) -> WarningAndErrorResult<(u8, &'a [u8]), (), DelimCharError, DelimCharError> {
     let (delim, rest) = bytes.split_first();
     let is_ok = is_valid_delim(*delim);

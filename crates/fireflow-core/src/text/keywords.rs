@@ -36,7 +36,7 @@ use crate::validated::unaligned::{U24, U40, U48, U56};
 use fireflow_types::byteord::ConfigByteOrd;
 use fireflow_types::config::{
     ConfigFlag as _, ForceLinearScale, NumericByteWidth, ProcessOptionalFailure,
-    ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, TrimIntraValueWhitespace,
+    ReadDataKeywordsConfig, ReadFlatTEXTInnerConfig, TrimIntraValueWhitespace,
 };
 use fireflow_types::impl_str_enum_kw;
 use fireflow_types::index::{
@@ -141,7 +141,7 @@ impl Nextdata {
         conf: &C,
     ) -> WarningAndErrorResult<(Option<Self>, TEXTReader), (), ReadNextdataError, LookupNextdataError>
     where
-        C: AsRef<ReadHeaderAndTEXTConfig>,
+        C: AsRef<ReadFlatTEXTInnerConfig>,
     {
         let dso = reader.dataset_offset().0;
         Self::lookup_ro_inner(index, conf.as_ref())
@@ -184,7 +184,7 @@ impl Nextdata {
 
     pub(crate) fn lookup_ro_inner(
         index: &StdKeywords,
-        conf: &ReadHeaderAndTEXTConfig,
+        conf: &ReadFlatTEXTInnerConfig,
     ) -> WarningAndErrorResult<Option<Self>, (), ReadNextdataError, ReadNextdataError> {
         let res = if let Some(s) = index.get(&RootKey::Nextdata.to_std0()) {
             match Self::parse(s, conf) {
@@ -202,7 +202,7 @@ impl Nextdata {
             .set_err_value(())
     }
 
-    fn parse(s: &NEStr, conf: &ReadHeaderAndTEXTConfig) -> Result<Self, ParseNextdataError> {
+    fn parse(s: &NEStr, conf: &ReadFlatTEXTInnerConfig) -> Result<Self, ParseNextdataError> {
         let corr = i128::from(conf.nextdata_correction);
         let x = s.parse::<i128>()?;
         let y = x.saturating_add(corr);

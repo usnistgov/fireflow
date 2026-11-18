@@ -48,6 +48,7 @@ rs-test: rs-test-nonempty rs-test-types rs-test-core
 
 .PHONY: rs-docs
 rs-docs:
+	RUSTDOCFLAGS="-D warnings" cargo doc -p fireflow-cli --no-deps
 	RUSTDOCFLAGS="-D warnings" cargo doc -p fireflow-core --no-deps
 	RUSTDOCFLAGS="-D warnings" cargo doc -p fireflow-types --no-deps
 

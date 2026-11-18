@@ -22,7 +22,7 @@ use crate::validated::buf_file::{BufFileReader, BufFileReader_};
 use crate::validated::read_state::{DatasetOffset, HeaderReader, TEXTReader};
 
 use fireflow_types::config::{
-    ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadHeaderInnerConfig,
+    ReadDataKeywordsConfig, ReadDatasetConfig, ReadFlatTEXTInnerConfig, ReadHeaderInnerConfig,
     ReadOffsetConfig, ReadSharedConfig,
 };
 use fireflow_types::keywords::Version;
@@ -307,7 +307,7 @@ impl AnyReader {
         let abs_limit = limit.map(|x| skip.unwrap_or_default() + x);
         let rconf = ReadFlatTEXTConfig {
             header: AsRef::<ReadHeaderInnerConfig>::as_ref(conf).clone(),
-            flat: AsRef::<ReadHeaderAndTEXTConfig>::as_ref(conf).clone(),
+            flat: AsRef::<ReadFlatTEXTInnerConfig>::as_ref(conf).clone(),
             offset: *conf.as_ref(),
             shared: *conf.as_ref(),
         };
@@ -430,7 +430,7 @@ impl AnyReader {
         (),
     >
     where
-        C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadFlatTEXTInnerConfig> + AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
         HeaderReader::try_new(self, dataset_offset, start_time)
             .map_err(HeaderOrFlatTextError::from)
@@ -463,7 +463,7 @@ impl AnyReader {
         E: From<HeaderOrFlatTextError> + From<Ei>,
         W: From<HeaderOrFlatTEXTWarning> + From<Wi>,
         C: AsRef<ReadHeaderInnerConfig>
-            + AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<ReadFlatTEXTInnerConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadSharedConfig>,
         G: Copy,
@@ -476,7 +476,7 @@ impl AnyReader {
         let abs_limit = limit.map(|x| skip.unwrap_or_default() + x);
         let rconf = ReadFlatTEXTConfig {
             header: AsRef::<ReadHeaderInnerConfig>::as_ref(conf).clone(),
-            flat: AsRef::<ReadHeaderAndTEXTConfig>::as_ref(conf).clone(),
+            flat: AsRef::<ReadFlatTEXTInnerConfig>::as_ref(conf).clone(),
             offset: *conf.as_ref(),
             shared: *conf.as_ref(),
         };

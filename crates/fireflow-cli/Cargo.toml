@@ -12,6 +12,7 @@ path = "src/main.rs"
 name = "fireflow"
 
 [dependencies]
+derive_more = { workspace = true, features = ["into"] }
 clap = { workspace = true, features = ["wrap_help", "derive"] }
 fireflow-core = { path = "../fireflow-core", features = ["serde"] }
 fireflow-types = { path = "../fireflow-types", features = ["dash_args"] }

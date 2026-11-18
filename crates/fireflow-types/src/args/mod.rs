@@ -45,7 +45,7 @@ macro_rules! make_args {
 
         macro_rules! header_text_arg {
             ($field:ident) => {
-                string_arg!($crate::config::ReadHeaderAndTEXTConfig, $field)
+                string_arg!($crate::config::ReadFlatTEXTInnerConfig, $field)
             };
         }
 

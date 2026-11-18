@@ -122,7 +122,7 @@ use crate::validated::shortname::Shortname;
 use fireflow_types::config::{
     AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, IncludeReqOrOpt,
     IncludeRootOrMeas, OverBitmaskAction, OverRangeAction, OverlapCorrectionLimit,
-    ProcessOptionalFailure, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
+    ProcessOptionalFailure, ReadDataKeywordsConfig, ReadDatasetConfig, ReadFlatTEXTInnerConfig,
     ReadOffsetConfig, ReadSharedConfig, TemporalHasOpticalKeyError, TriErrorFlag as _,
     WriteDatasetInnerConfig, WriteMultiConfig, WriteTEXTInnerConfig,
 };
@@ -7035,7 +7035,7 @@ impl AnyCoreTEXT {
         AnyStdTEXTFromKeywordsError,
     >
     where
-        C: AsRef<ReadHeaderAndTEXTConfig>
+        C: AsRef<ReadFlatTEXTInnerConfig>
             + AsRef<ReadRepairKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadStdKeywordsConfig>
@@ -7081,7 +7081,7 @@ impl AnyCoreTEXT {
             }};
         }
 
-        let sconf: &ReadHeaderAndTEXTConfig = conf.as_ref();
+        let sconf: &ReadFlatTEXTInnerConfig = conf.as_ref();
 
         eval_repair_conf(conf.as_ref(), &kws)
             .map_ok_value(|repair| {
@@ -7154,7 +7154,7 @@ impl AnyCoreDataset {
         (),
     >
     where
-        C: AsRef<ReadHeaderAndTEXTConfig>
+        C: AsRef<ReadFlatTEXTInnerConfig>
             + AsRef<ReadRepairKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadStdKeywordsConfig>
@@ -7199,7 +7199,7 @@ impl AnyCoreDataset {
             }};
         }
 
-        let sconf: &ReadHeaderAndTEXTConfig = conf.as_ref();
+        let sconf: &ReadFlatTEXTInnerConfig = conf.as_ref();
 
         eval_repair_conf(conf.as_ref(), &kws)
             .map_ok_value(|repair| {

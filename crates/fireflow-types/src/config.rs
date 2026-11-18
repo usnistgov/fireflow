@@ -211,7 +211,7 @@ pub struct ReadOffsetConfig {
 #[derive(Default, Clone, AsRef)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct ReadHeaderAndTEXTConfig {
+pub struct ReadFlatTEXTInnerConfig {
     // NOTE the only reason this is here and not in the Keywords configs is
     // because this is needed to read the supplemental TEXT offsets
     /// Use a different version than what is given in the HEADER.
@@ -2390,7 +2390,7 @@ impl HasStrategy for ReadOffsetConfig {
     }
 }
 
-impl HasStrategy for ReadHeaderAndTEXTConfig {
+impl HasStrategy for ReadFlatTEXTInnerConfig {
     fn with_scalpel(&mut self) {
         let strat = VersionOverride::AutoDetect {
             strategy: SelectVersionStrategy::Loose,

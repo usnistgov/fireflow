@@ -10982,7 +10982,7 @@ impl DocArgParam {
     }
 
     fn new_read_flat_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let conf = types_config_path("ReadHeaderAndTEXTConfig");
+        let conf = types_config_path("ReadFlatTEXTInnerConfig");
         let ps = vec![
             Self::new_version_override(),
             Self::new_supp_text_correction(),

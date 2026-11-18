@@ -15,7 +15,7 @@ use crate::logging::{ErrorsResult, ResultExt as _};
 use crate::selector::{AppendableSelector, Selector};
 
 use fireflow_types::config::{
-    HasStrategy, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
+    HasStrategy, ReadDataKeywordsConfig, ReadDatasetConfig, ReadFlatTEXTInnerConfig,
     ReadHeaderInnerConfig, ReadOffsetConfig, ReadRepairKeywordsConfig_, ReadSharedConfig,
     ReadStdKeywordsConfig_, TimeMeasNamePattern, WriteDatasetInnerConfig, WriteMultiConfig,
     WriteTEXTInnerConfig,
@@ -56,8 +56,8 @@ pub struct ReadFlatTEXTConfig {
     #[as_ref(ReadHeaderInnerConfig)]
     pub header: ReadHeaderInnerConfig,
 
-    #[as_ref(ReadHeaderAndTEXTConfig)]
-    pub flat: ReadHeaderAndTEXTConfig,
+    #[as_ref(ReadFlatTEXTInnerConfig)]
+    pub flat: ReadFlatTEXTInnerConfig,
 
     #[as_ref(ReadOffsetConfig)]
     pub offset: ReadOffsetConfig,
@@ -72,8 +72,8 @@ pub struct ReadStdTEXTConfig {
     #[as_ref(ReadHeaderInnerConfig)]
     pub header: ReadHeaderInnerConfig,
 
-    #[as_ref(ReadHeaderAndTEXTConfig)]
-    pub flat: ReadHeaderAndTEXTConfig,
+    #[as_ref(ReadFlatTEXTInnerConfig)]
+    pub flat: ReadFlatTEXTInnerConfig,
 
     #[as_ref(ReadOffsetConfig)]
     pub offset: ReadOffsetConfig,
@@ -98,8 +98,8 @@ pub struct ReadFlatDatasetConfig {
     #[as_ref(ReadHeaderInnerConfig)]
     pub header: ReadHeaderInnerConfig,
 
-    #[as_ref(ReadHeaderAndTEXTConfig)]
-    pub flat: ReadHeaderAndTEXTConfig,
+    #[as_ref(ReadFlatTEXTInnerConfig)]
+    pub flat: ReadFlatTEXTInnerConfig,
 
     #[as_ref(ReadOffsetConfig)]
     pub offset: ReadOffsetConfig,
@@ -125,8 +125,8 @@ pub struct ReadStdDatasetConfig {
     #[as_ref(ReadHeaderInnerConfig)]
     pub header: ReadHeaderInnerConfig,
 
-    #[as_ref(ReadHeaderAndTEXTConfig)]
-    pub flat: ReadHeaderAndTEXTConfig,
+    #[as_ref(ReadFlatTEXTInnerConfig)]
+    pub flat: ReadFlatTEXTInnerConfig,
 
     #[as_ref(ReadOffsetConfig)]
     pub offset: ReadOffsetConfig,

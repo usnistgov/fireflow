@@ -3097,12 +3097,7 @@ impl<L, T, O, X, N, V> CoreMeasurements<L, T, O, X, N, V> {
         let center_scale_not_identity = || {
             self.meta
                 .center_index()
-                .map(|i| {
-                    scales.get(usize::from(i)).expect(
-                        "scale length should be same as measurement \
-                         length, so index should be valid",
-                    )
-                })
+                .and_then(|i| scales.get(usize::from(i)))
                 .is_some_and(|s| !s.is_identity())
                 .then_some(SetNonIdentityScaleToTemporalError.into())
         };

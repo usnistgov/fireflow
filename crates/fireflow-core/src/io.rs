@@ -4,7 +4,7 @@ use crate::api::{
     MultiFlatDatasetWarning, MultiStdDatasetError, MultiStdDatasetWarning, MultiStdTEXTError,
     MultiStdTEXTWarning, ReadFlatDatasetError, ReadFlatDatasetWarning, StdDatasetError,
     StdDatasetOutput, StdDatasetSummary, StdDatasetWarning, StdTEXTError, StdTEXTOutput,
-    StdTEXTSummary, StdTEXTWarning, StringOrBytes, ValidKeywords,
+    StdTEXTSummary, StdTEXTWarning, ValidKeywords,
 };
 use crate::config::{
     EvaledReadRepairKeywordsConfig, ReadFlatDatasetConfig, ReadFlatTEXTConfig,
@@ -20,6 +20,7 @@ use crate::logging::{
 use crate::segment::read::AnyAnalysisOffsets;
 use crate::types::buf_file::{BufFileReader, BufFileReader_};
 use crate::types::read_state::{DatasetOffset, HeaderReader, TEXTReader};
+use crate::types::string_or_bytes::StringOrBytes;
 
 use fireflow_types::config::{
     ReadDataKeywordsConfig, ReadDatasetConfig, ReadFlatTEXTInnerConfig, ReadHeaderInnerConfig,

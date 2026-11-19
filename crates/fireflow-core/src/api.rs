@@ -51,6 +51,7 @@ use crate::types::read_state::{
     CRCError, DatasetLen, DatasetOffset, DatasetOffsetError, HeaderReader, NewTEXTReaderError,
     TEXTReader,
 };
+use crate::types::string_or_bytes::{NEStringOrBytes, StringOrBytes};
 
 use fireflow_types::config::{
     AppendFlag, AppendableFlag, ConfigFlag as _, DelimEscapeMode, Encoding, OverlapCorrectionLimit,
@@ -849,10 +850,9 @@ pub struct RepairDiagnostics {
     pub appended_non_unique: Vec<(StdKey, TruncatedNEString)>,
 }
 
-// TODO some of these types would be clearer if they were sealed off. The
-// KeyOrBytes::Bytes should only be non-utf8 sequences. (NE)StringOrBytes::Bytes
-// should also only be non-utf8.
-
+// TODO seal off this type. The Bytes variant simply means "any byte sequence
+// that is not a key", but there is nothing stopping anyone now from making
+// something that violates this.
 /// Either a valid key (with '$' for standard keys) or a non-ASCII byte sequence.
 #[derive(Clone, Display, PartialEq, Debug, From)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
@@ -860,54 +860,6 @@ pub struct RepairDiagnostics {
 pub enum KeyOrBytes {
     Ascii(AnyKey),
     Bytes(TruncatedNEBytes),
-}
-
-/// A either a UTF-8 string or a non-UTF-8 byte sequence.
-#[derive(Clone, Display, Debug, From)]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum StringOrBytes {
-    Utf8(TruncatedString),
-    Bytes(TruncatedBytes),
-}
-
-impl AsRef<[u8]> for StringOrBytes {
-    fn as_ref(&self) -> &[u8] {
-        match self {
-            Self::Utf8(x) => x.as_ref(),
-            Self::Bytes(x) => x.as_ref(),
-        }
-    }
-}
-
-impl PartialEq<Self> for StringOrBytes {
-    fn eq(&self, other: &Self) -> bool {
-        self.as_ref() == other.as_ref()
-    }
-}
-
-/// A either a UTF-8 string or a non-UTF-8 byte sequence (both non-empty).
-#[derive(Clone, Display, Debug, From)]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum NEStringOrBytes {
-    Utf8(TruncatedNEString),
-    Bytes(TruncatedNEBytes),
-}
-
-impl AsRef<[u8]> for NEStringOrBytes {
-    fn as_ref(&self) -> &[u8] {
-        match self {
-            Self::Utf8(x) => x.as_ref(),
-            Self::Bytes(x) => x.as_ref(),
-        }
-    }
-}
-
-impl PartialEq<Self> for NEStringOrBytes {
-    fn eq(&self, other: &Self) -> bool {
-        self.as_ref() == other.as_ref()
-    }
 }
 
 /// A [`Vec<u8>`] optimized for displaying in errors.
@@ -3280,45 +3232,6 @@ impl ValidKeywords {
 
 // Implement conversion methods for string wrappers
 
-impl Default for StringOrBytes {
-    fn default() -> Self {
-        Self::Utf8(TruncatedString::default())
-    }
-}
-
-impl From<Vec<u8>> for StringOrBytes {
-    fn from(value: Vec<u8>) -> Self {
-        match String::from_utf8(value) {
-            Ok(s) => Self::Utf8(TruncatedString(s)),
-            Err(e) => Self::Bytes(TruncatedBytes(e.into_bytes())),
-        }
-    }
-}
-
-impl From<NEStringOrBytes> for StringOrBytes {
-    fn from(value: NEStringOrBytes) -> Self {
-        match value {
-            NEStringOrBytes::Bytes(x) => Self::Bytes(x.into()),
-            NEStringOrBytes::Utf8(x) => Self::Utf8(x.into()),
-        }
-    }
-}
-
-impl<'a> From<&'a NESlice<u8>> for NEStringOrBytes {
-    fn from(value: &'a NESlice<u8>) -> Self {
-        Self::from(value.to_ne_vec())
-    }
-}
-
-impl From<NEVec<u8>> for NEStringOrBytes {
-    fn from(value: NEVec<u8>) -> Self {
-        match NEString::from_utf8(value) {
-            Ok(s) => Self::Utf8(TruncatedNEString(s)),
-            Err(e) => Self::Bytes(TruncatedNEBytes::from(e.into_bytes())),
-        }
-    }
-}
-
 impl From<TruncatedNEBytes> for TruncatedBytes {
     fn from(value: TruncatedNEBytes) -> Self {
         Self::from(Vec::from(value))
@@ -3334,26 +3247,6 @@ impl<'a> From<&'a NESlice<u8>> for TruncatedNEBytes {
 impl From<TruncatedNEString> for TruncatedString {
     fn from(value: TruncatedNEString) -> Self {
         Self::from(String::from(value))
-    }
-}
-
-impl StringOrBytes {
-    pub(crate) fn as_bytes(&self) -> &[u8] {
-        match self {
-            Self::Bytes(x) => &x.0[..],
-            Self::Utf8(x) => x.0.as_bytes(),
-        }
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.as_bytes().len()
-    }
-
-    pub(crate) fn into_ne(self) -> Option<NEStringOrBytes> {
-        match self {
-            Self::Bytes(x) => x.into_ne().map(NEStringOrBytes::Bytes),
-            Self::Utf8(x) => x.into_ne().map(NEStringOrBytes::Utf8),
-        }
     }
 }
 

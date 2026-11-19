@@ -9124,7 +9124,7 @@ impl<E: From<PyException>> PyUnion<E> {
     }
 
     fn new_string_or_bytes() -> Self {
-        let path = parse_quote!(fireflow_core::api::StringOrBytes);
+        let path = parse_quote!(fireflow_core::types::string_or_bytes::StringOrBytes);
         Self::new2(PyStr::default(), PyBytes::default()).rstype(path)
     }
 }
@@ -9735,7 +9735,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_ne_string_or_bytes() -> Self {
-        let path = parse_quote!(fireflow_core::api::NEStringOrBytes);
+        let path = parse_quote!(fireflow_core::types::string_or_bytes::NEStringOrBytes);
         Self::new_py(["typing"], "NEStrOrBytes").rstype(path)
     }
 

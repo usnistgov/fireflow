@@ -2,7 +2,7 @@
 
 use super::KeyedOffsets;
 
-use crate::api::{HeaderAndSuppOffsets, NEStringOrBytes};
+use crate::api::HeaderAndSuppOffsets;
 use crate::convert::U64Ext as _;
 use crate::core::{DarkBytes, MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
 use crate::fixed_vec::OneOrTwo;
@@ -23,6 +23,7 @@ use crate::text::lookup::{
 use crate::types::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_str_from_bytes};
 use crate::types::buf_file::read_exact_owned;
 use crate::types::read_state::{DatasetOffset, DatasetReader, HeaderReader, TEXTReader};
+use crate::types::string_or_bytes::NEStringOrBytes;
 
 use fireflow_types::config::{
     AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,

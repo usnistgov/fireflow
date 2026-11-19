@@ -1,4 +1,3 @@
-use crate::api::StringOrBytes;
 use crate::convert::{InstantExt as _, U64Ext as _};
 use crate::core::CRCOutput;
 use crate::io::AnyReader;
@@ -6,6 +5,7 @@ use crate::logging::{
     IOErrorGroup, LogResult, SwitchableErrorResult, WarningAndIOGroupResult, io_to_log,
 };
 use crate::text::keywords::Nextdata;
+use crate::types::string_or_bytes::StringOrBytes;
 
 use fireflow_types::{
     config::{ComputeCRC, ComputeWriteCRC, ConfigFlag as _, ReadDatasetConfig},

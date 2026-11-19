@@ -2,7 +2,7 @@
 
 use crate::api::{
     HeaderAndSuppOffsets, NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords,
-    RepairDiagnostics, RepairError, StdKeywords, StringOrBytes, TruncatedNEString, ValidKeywords,
+    RepairDiagnostics, RepairError, StdKeywords, TruncatedNEString, ValidKeywords,
 };
 use crate::config::{
     AppendRepairFlagError, EvaledReadRepairKeywordsConfig, EvaledReadStdKeywordsConfig,
@@ -118,6 +118,7 @@ use crate::types::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetOffset, NewTEXTReaderError, TEXTReader, WriteFCSDigest,
 };
 use crate::types::shortname::Shortname;
+use crate::types::string_or_bytes::StringOrBytes;
 
 use fireflow_types::config::{
     AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, IncludeReqOrOpt,
@@ -8125,7 +8126,6 @@ mod serialize {
 mod python {
     use super::{CRCOutput, DarkBytes, FlankingSegmentName};
 
-    use crate::api::StringOrBytes;
     use crate::data::{
         AnyDatatype, AnyUint, FullRange, MaybeTypedMixedRange, MaybeTypedRange,
         MaybeTypedVariableBitmask,
@@ -8135,6 +8135,7 @@ mod python {
     };
     use crate::text::byteord::ArgBytes;
     use crate::text::named_vec::Element;
+    use crate::types::string_or_bytes::StringOrBytes;
 
     use fireflow_types::python::{self as py, ColumnType, ConfigError};
 

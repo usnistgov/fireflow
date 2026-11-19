@@ -11,6 +11,7 @@ pub mod other_width;
 #[cfg(feature = "python")]
 pub mod python;
 pub mod ranged_float;
+pub mod row_buffer_size;
 pub mod segment;
 pub mod std_pattern;
 pub mod sub_pattern;

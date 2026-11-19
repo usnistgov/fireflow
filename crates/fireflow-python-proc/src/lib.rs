@@ -3,6 +3,7 @@ extern crate proc_macro;
 use fireflow_types::args::underscore as ta;
 use fireflow_types::config::{self as tc, EnumStrIter as _};
 use fireflow_types::keys::raw_std as sk;
+use fireflow_types::row_buffer_size::RowBufferSize;
 use fireflow_types::std_pattern::PATTERN_DELIMITER;
 use fireflow_types::{keywords as tk, python as tp};
 
@@ -11951,9 +11952,9 @@ impl DocArgParam {
              and cache misses (too high). It should generally be 90% of the CPU's \
              L1D cache size."
         );
-        let path = parse_quote!(fireflow_types::config::RowBufferSize);
+        let path = parse_quote!(fireflow_types::row_buffer_size::RowBufferSize);
         let pt = PyInt::new_int(RsInt::Usize).rstype(path);
-        let def = tc::RowBufferSize::default().into();
+        let def = RowBufferSize::default().into();
         Self::new_param(n, pt, d).def(DocDefault::Int(def))
     }
 

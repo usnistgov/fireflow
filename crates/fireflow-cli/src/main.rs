@@ -14,6 +14,7 @@ use fireflow_types::keys::{AnyKey, AnyKeyError, StdKey, StdKeyError};
 use fireflow_types::keystring_pairs::KeyPairsError;
 use fireflow_types::other_width::{OTHER_WIDTH_DEFAULT, OtherWidth};
 use fireflow_types::ranged_float::PositiveFloat;
+use fireflow_types::row_buffer_size::{DEFAULT_ROW_BUFFER_SIZE, RowBufferSize};
 use fireflow_types::segment as ts;
 use fireflow_types::segment::OffsetsCorrection;
 use fireflow_types::segment::{HeaderCorrection, OtherSegmentId};
@@ -850,9 +851,9 @@ struct ReadDatasetConfigArgs {
          This is a performance parameter that balances read syscalls (too low) \
          and cache misses (too high). It should generally be 90% of the CPU's \
          L1D cache size. Defaults to {}.",
-        fmt_val!(tc::DEFAULT_ROW_BUFFER_SIZE)
+        fmt_val!(DEFAULT_ROW_BUFFER_SIZE)
     ))]
-    row_buffer_size: Option<tc::RowBufferSize>,
+    row_buffer_size: Option<RowBufferSize>,
 }
 
 /// Arguments which map onto [`tc::ReadSharedConfig`].

@@ -160,11 +160,11 @@ use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
 use fireflow_types::config::{
     AllowOverBitmask, AllowTotMismatch, ByteordOverride, DisallowOverRange, DummyTriFlag,
     IntWidthOverride, NumericByteWidth, OverBitmaskAction, OverLimitMode, OverRangeAction,
-    ReadDataKeywordsConfig, ReadDatasetConfig, RowBufferSize, TriErrorFlag as _, TriFlag,
-    WriteDatasetInnerConfig,
+    ReadDataKeywordsConfig, ReadDatasetConfig, TriErrorFlag as _, TriFlag, WriteDatasetInnerConfig,
 };
 use fireflow_types::index::MeasIndex;
 use fireflow_types::keys::raw_std::{MeasKeyId, ToStd as _};
+use fireflow_types::row_buffer_size::RowBufferSize;
 use memmap2::Mmap;
 use nonempty::{DisplayableNE as _, IntoIteratorExt as _, NESlice, NEVec, NonEmptyIterator as _};
 use type_families::{

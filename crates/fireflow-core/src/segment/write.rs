@@ -2,7 +2,7 @@
 
 use super::KeyedOffsets;
 use crate::text::keyword_enum::{Keyword0FromValue as _, OffsetKeyword, SplitKeyword};
-use crate::validated::ascii_uint::{UintSpacePad8, UintZeroPad20};
+use crate::types::ascii_uint::{UintSpacePad8, UintZeroPad20};
 
 use fireflow_types::segment::{
     AnalysisSegmentId, DataSegmentId, OffsetsFromHeader, OffsetsFromTEXT, OtherSegmentId,

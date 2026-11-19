@@ -15,4 +15,4 @@ pub mod std_index;
 #[cfg(test)]
 mod test;
 pub mod text;
-pub mod validated;
+pub mod types;

@@ -109,15 +109,15 @@ use crate::text::timestamps::{
     Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime60Error, FCSTime100, FCSTime100Error,
     FCSTimeError, LookupTimestampsError, Timestamps, TimestampsDiagnostics, Xtim,
 };
-use crate::validated::ascii_uint::{
+use crate::types::ascii_uint::{
     HeaderString, Uint8DigitOverflowError, UintSpacePad8, UintSpacePad20,
 };
-use crate::validated::compensation::Compensation;
-use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
-use crate::validated::read_state::{
+use crate::types::compensation::Compensation;
+use crate::types::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
+use crate::types::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetOffset, NewTEXTReaderError, TEXTReader, WriteFCSDigest,
 };
-use crate::validated::shortname::Shortname;
+use crate::types::shortname::Shortname;
 
 use fireflow_types::config::{
     AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, IncludeReqOrOpt,

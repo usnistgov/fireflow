@@ -18,8 +18,8 @@ use crate::logging::{
     WarningsAndIOGroupResult, io_to_log, split_log,
 };
 use crate::segment::read::AnyAnalysisOffsets;
-use crate::validated::buf_file::{BufFileReader, BufFileReader_};
-use crate::validated::read_state::{DatasetOffset, HeaderReader, TEXTReader};
+use crate::types::buf_file::{BufFileReader, BufFileReader_};
+use crate::types::read_state::{DatasetOffset, HeaderReader, TEXTReader};
 
 use fireflow_types::config::{
     ReadDataKeywordsConfig, ReadDatasetConfig, ReadFlatTEXTInnerConfig, ReadHeaderInnerConfig,

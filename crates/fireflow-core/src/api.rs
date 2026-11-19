@@ -46,8 +46,8 @@ use crate::text::keywords::{
     ValueToStdKey,
 };
 use crate::text::lookup::{MissingKeyError, ParseKeyError, ReqKeyErrorInner_};
-use crate::validated::dataframe::PrimitiveDataFrame;
-use crate::validated::read_state::{
+use crate::types::dataframe::PrimitiveDataFrame;
+use crate::types::read_state::{
     CRCError, DatasetLen, DatasetOffset, DatasetOffsetError, HeaderReader, NewTEXTReaderError,
     TEXTReader,
 };

@@ -1,5 +1,5 @@
 use crate::std_index::nested_string::{Iter, NestedEnumString, NestedString, NestedVariableString};
-use crate::validated::dataframe::HasLen;
+use crate::types::dataframe::HasLen;
 
 use fireflow_types::keys::raw_std::{EnumIndex, NumericEnum};
 use nonempty::NEStr;

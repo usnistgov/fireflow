@@ -3,7 +3,7 @@ use fireflow_core::config::{self as cfg, StdKeyValues};
 use fireflow_core::core::{AnyCoreDataset, AnyCoreTEXT, TableDelim};
 use fireflow_core::selector::{AppendableSelector, Selector};
 use fireflow_core::text::keywords::AlphaNumType;
-use fireflow_core::validated::read_state::DatasetOffset;
+use fireflow_core::types::read_state::DatasetOffset;
 
 use fireflow_core::segment::read::{HasRegion, HasSource};
 

@@ -45,8 +45,8 @@ use crate::text::named_vec::{
     RenameError, SetCenterError, SetElementsError, SetKeysError, SetNamesError, SetValuesError,
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
-use crate::validated::dataframe::PrimitiveDataFrame;
-use crate::validated::shortname::Shortname;
+use crate::types::dataframe::PrimitiveDataFrame;
+use crate::types::shortname::Shortname;
 
 use fireflow_types::config::{
     AllowLoss, OpticalOnlyKey, OverBitmaskAction, OverRangeAction, ReadDataKeywordsConfig,

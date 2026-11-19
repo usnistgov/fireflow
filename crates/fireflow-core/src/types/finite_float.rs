@@ -1,5 +1,5 @@
 use crate::text::keywords::TextRange;
-use crate::validated::dataframe::FromValue;
+use crate::types::dataframe::FromValue;
 
 use bigdecimal::BigDecimal;
 use bigdecimal::num_bigint::Sign;

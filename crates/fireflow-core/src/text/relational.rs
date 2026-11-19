@@ -37,7 +37,7 @@ use crate::text::keywords::{
     RegionWindow, Trigger, UnstainedCenters, ValueToStdKey,
 };
 use crate::text::spillover::Spillover;
-use crate::validated::shortname::Shortname;
+use crate::types::shortname::Shortname;
 
 use fireflow_types::config::ProcessOptionalFailure;
 use fireflow_types::index::{MeasIndex, RegionIndex};

@@ -67,7 +67,7 @@ use fireflow_core::text::byteord::{ArrayByteOrd, Endian};
 use fireflow_core::text::gating::{self, Region};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::Element;
-use fireflow_core::validated::{
+use fireflow_core::types::{
     dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame, PrimitiveSeries},
     shortname as sn,
 };

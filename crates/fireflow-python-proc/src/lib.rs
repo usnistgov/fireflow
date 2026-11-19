@@ -8563,12 +8563,12 @@ impl<E: From<PyException>> PyInt<E> {
     }
 
     fn new_dataset_offset() -> Self {
-        let p = parse_quote!(fireflow_core::validated::read_state::DatasetOffset);
+        let p = parse_quote!(fireflow_core::types::read_state::DatasetOffset);
         Self::new_int(RsInt::U64).rstype(p).no_exc()
     }
 
     fn new_dataset_len() -> Self {
-        let p = parse_quote!(fireflow_core::validated::read_state::DatasetLen);
+        let p = parse_quote!(fireflow_core::types::read_state::DatasetLen);
         Self::new_int(RsInt::U64).rstype(p).no_exc()
     }
 
@@ -9459,12 +9459,12 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_ascii_range_value() -> Self {
-        let path = parse_quote!(fireflow_core::validated::ascii_range::AsciiRangeValue);
+        let path = parse_quote!(fireflow_core::types::ascii_range::AsciiRangeValue);
         Self::new_py(["typing"], "IntRange").rstype(path)
     }
 
     fn new_delim_ascii_range() -> Self {
-        let path = parse_quote!(fireflow_core::validated::ascii_range::DelimAsciiRange);
+        let path = parse_quote!(fireflow_core::types::ascii_range::DelimAsciiRange);
         Self::new_py(["typing"], "IntRange").rstype(path)
     }
 
@@ -9474,7 +9474,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_shortname() -> Self {
-        let path = parse_quote!(fireflow_core::validated::shortname::Shortname);
+        let path = parse_quote!(fireflow_core::types::shortname::Shortname);
         let d = format!(
             "if {ARG_TOKEN} is {blank} or contains commas",
             blank = code_str("")
@@ -9857,7 +9857,7 @@ impl<E: From<PyException>> PyType<E> {
         if version < Version::FCS3_1 {
             PyOpt::new1(PyAlias::new_shortname()).into()
         } else {
-            let inner = quote!(fireflow_core::validated::shortname::Shortname);
+            let inner = quote!(fireflow_core::types::shortname::Shortname);
             let outer = parse_quote!(fireflow_core::text::optional::Identity<#inner>);
             PyAlias::new_shortname().rstype(outer).into()
         }
@@ -10191,7 +10191,7 @@ impl DocArgRWIvar {
     }
 
     fn new_comp_ivar(is_2_0: bool) -> Self {
-        let rstype: Path = parse_quote!(fireflow_core::validated::compensation::Compensation);
+        let rstype: Path = parse_quote!(fireflow_core::types::compensation::Compensation);
         let desc = if is_2_0 {
             format!(
                 "The compensation matrix. Must be a square array with number of \

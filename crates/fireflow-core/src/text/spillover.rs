@@ -7,7 +7,7 @@ use crate::text::named_vec::{NameMapping, NamedSet};
 use crate::text::relational::{
     ExistingNamedLinkError, HasLink, KeyToIndexLinkError, KeyToNameLinkError, RemovedNamedLink,
 };
-use crate::validated::shortname::Shortname;
+use crate::types::shortname::Shortname;
 
 use fireflow_types::config::{ConfigFlag as _, SpilloverMeasurementMode, TrimIntraValueWhitespace};
 use fireflow_types::index::MeasIndex;
@@ -588,7 +588,7 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::validated::shortname::Shortname;
+    use crate::types::shortname::Shortname;
 
     use super::Spillover;
 

@@ -9,7 +9,7 @@ use crate::text::keywords as kws;
 use crate::text::keywords::ValueToStdKey;
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::FCSDate;
-use crate::validated::shortname::Shortname;
+use crate::types::shortname::Shortname;
 
 use fireflow_types::index::{BiMeasIndex, MeasIndex, RegionIndex};
 use fireflow_types::keys::nonstd::{DollarWrap, NonStdKey};

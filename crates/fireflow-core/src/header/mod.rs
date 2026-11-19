@@ -28,8 +28,8 @@ use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
     KeywordVersionScore, Nextdata, Par, ValueToStdKey as _,
 };
-use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};
-use crate::validated::read_state::{DatasetOffset, HeaderReader, WriteFCSDigest};
+use crate::types::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};
+use crate::types::read_state::{DatasetOffset, HeaderReader, WriteFCSDigest};
 
 use fireflow_types::config::{
     AppendableFlag, ConfigFlag as _, EnumStrIter as _, ReadHeaderInnerConfig, ReadOffsetConfig,

@@ -11,7 +11,7 @@ use crate::segment::read::{
     OverlapResult, PrimaryTextOffsets, SuppTextOffsetsName, SuppToHeaderOffsetsOverlap,
     SupplementalTextOffsets, TEXTOffsets, TextOffsetsName, TextToHeaderOffsetsOverlap,
 };
-use crate::validated::read_state::{DatasetOffset, HeaderReader, TEXTReader};
+use crate::types::read_state::{DatasetOffset, HeaderReader, TEXTReader};
 
 use fireflow_types::config::{OverlapCorrectionLimit, ReadOffsetConfig};
 use fireflow_types::other_width::OtherWidth;

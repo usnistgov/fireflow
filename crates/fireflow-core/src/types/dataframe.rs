@@ -6,7 +6,7 @@
 use crate::data::{CheckRange, EventOverRangeError, OverrangeColumn};
 use crate::logging::{LogResult, WarningsAndErrorsResult};
 use crate::match_many_to_one;
-use crate::validated::unaligned::{U24, U40, U48, U56};
+use crate::types::unaligned::{U24, U40, U48, U56};
 
 use fireflow_types::config::{
     AllowOverBitmask, DisallowOverRange, OverBitmaskAction, OverRangeAction,

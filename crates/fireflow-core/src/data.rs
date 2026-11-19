@@ -137,24 +137,24 @@ use crate::text::keywords::{
 use crate::text::lookup::{OptKeyError, OptValue as _, ReqKeyError, ReqValue as _};
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, MightHave, Nothing};
-use crate::validated::ascii_range::{
+use crate::types::ascii_range::{
     AsciiRangeFromKeywordsError, AsciiRangeValue, Chars, DelimAsciiRange, FixedAsciiRange,
 };
-use crate::validated::bitmask::{
+use crate::types::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
     Bitmask64, BitmaskValue, NewBitmaskError,
 };
-use crate::validated::dataframe::{
+use crate::types::dataframe::{
     AnyPrimitiveSeries, CastSeriesError, DataFrame, DataFrameFamily, FromSeries, FromValue,
     HasFCSType, HasLen, HasWidth, InternalSeries, PrimitiveDataFrame, PrimitiveSeries,
     SeriesLengthError, TruncateTestResult, ambassador_impl_HasLen,
 };
-use crate::validated::finite_float::{
+use crate::types::finite_float::{
     DecimalToFloatError, FiniteF32, FiniteF64, FiniteF64toF32Error, FiniteFloat,
     U64ToFiniteFloatError,
 };
-use crate::validated::read_state::WriteFCSDigest;
-use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
+use crate::types::read_state::WriteFCSDigest;
+use crate::types::unaligned::{FCSRepr, U24, U40, U48, U56};
 
 use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
 use fireflow_types::config::{
@@ -10297,7 +10297,7 @@ mod python {
     use super::{AnyUint, FloatRange, MixedRange, OverrangeColumnResult, VariableBitmask};
 
     use crate::text::byteord::ArgBytes;
-    use crate::validated::finite_float::FiniteFloat;
+    use crate::types::finite_float::FiniteFloat;
 
     use fireflow_types::config::NumericByteWidth;
     use fireflow_types::python::ColumnType;

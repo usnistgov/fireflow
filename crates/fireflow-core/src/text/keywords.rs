@@ -24,14 +24,14 @@ use crate::text::relational::{
 };
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100};
-use crate::validated::ascii_range::AsciiRangeValue;
-use crate::validated::ascii_uint::UintZeroPad20;
-use crate::validated::bitmask::BitmaskValue;
-use crate::validated::compensation::{Compensation, NewCompError};
-use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
-use crate::validated::read_state::{HeaderReader, TEXTReader};
-use crate::validated::shortname::{NoCommaNEString, Shortname};
-use crate::validated::unaligned::{U24, U40, U48, U56};
+use crate::types::ascii_range::AsciiRangeValue;
+use crate::types::ascii_uint::UintZeroPad20;
+use crate::types::bitmask::BitmaskValue;
+use crate::types::compensation::{Compensation, NewCompError};
+use crate::types::finite_float::{DecimalToFloatError, FiniteFloat};
+use crate::types::read_state::{HeaderReader, TEXTReader};
+use crate::types::shortname::{NoCommaNEString, Shortname};
+use crate::types::unaligned::{U24, U40, U48, U56};
 
 use fireflow_types::byteord::ConfigByteOrd;
 use fireflow_types::config::{
@@ -5030,7 +5030,7 @@ mod tests {
 mod python {
     use crate::text::display::LinearDisplay;
     use crate::text::keywords::ScaleFix;
-    use crate::validated::shortname::{NoCommaNEString, Shortname};
+    use crate::types::shortname::{NoCommaNEString, Shortname};
 
     use super::{
         ByteOrd2_0, Calibration3_1, Calibration3_2, Display, IndexPair, OpticalScaleFix, Scale,

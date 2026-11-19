@@ -20,9 +20,9 @@ use crate::text::lookup::{
     MissingKeyError, OptValue, ParseKeyError, ParseKeyError_, ReqKeyErrorInner, ReqKeyErrorInner_,
     ReqValue,
 };
-use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_str_from_bytes};
-use crate::validated::buf_file::read_exact_owned;
-use crate::validated::read_state::{DatasetOffset, DatasetReader, HeaderReader, TEXTReader};
+use crate::types::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_str_from_bytes};
+use crate::types::buf_file::read_exact_owned;
+use crate::types::read_state::{DatasetOffset, DatasetReader, HeaderReader, TEXTReader};
 
 use fireflow_types::config::{
     AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
@@ -2646,7 +2646,7 @@ mod python {
         SuppTextOffsetsName, TextOffsetsName,
     };
 
-    use crate::validated::read_state::DatasetOffset;
+    use crate::types::read_state::DatasetOffset;
 
     use fireflow_types::python as py;
 

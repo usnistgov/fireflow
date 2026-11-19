@@ -2,8 +2,8 @@
 
 use crate::convert::U32Ext as _;
 use crate::text::keywords::TextRange;
-use crate::validated::unaligned::FCSRepr;
-use crate::validated::unaligned::{U24, U40, U48, U56};
+use crate::types::unaligned::FCSRepr;
+use crate::types::unaligned::{U24, U40, U48, U56};
 
 use fireflow_types::config::NumericByteWidth;
 
@@ -224,7 +224,7 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::validated::unaligned::FCSRepr;
+    use crate::types::unaligned::FCSRepr;
 
     use super::{Bitmask, BitmaskValue};
 

@@ -1,4 +1,4 @@
-use crate::validated::dataframe::HasLen;
+use crate::types::dataframe::HasLen;
 
 use fireflow_types::keys::raw_std::{EnumIndex, RawStdKey};
 use itertools::{EitherOrBoth, Itertools as _};

@@ -1,7 +1,7 @@
 use crate::match_many_to_one;
 use crate::text::keywords::{ByteOrd2_0, ByteOrd3_1, Width};
 use crate::text::lookup::ReqValue;
-use crate::validated::ascii_range::{Chars, CharsError};
+use crate::types::ascii_range::{Chars, CharsError};
 
 use fireflow_types::config::NumericByteWidth;
 use nonempty::{

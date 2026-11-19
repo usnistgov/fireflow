@@ -10,7 +10,7 @@ use crate::text::relational::OpticalNamesToRemove;
 use crate::text::relational::{
     KeyToNameLinkError, LinkName, OpticalNamedLinkError, TemporalNamedLinkError,
 };
-use crate::validated::shortname::Shortname;
+use crate::types::shortname::Shortname;
 
 use fireflow_types::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 use nonempty::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
@@ -2215,7 +2215,7 @@ mod test {
     };
     use crate::text::keywords::Longname;
     use crate::text::optional::Identity;
-    use crate::validated::shortname::Shortname;
+    use crate::types::shortname::Shortname;
 
     use fireflow_types::keywords::Version3_1;
 

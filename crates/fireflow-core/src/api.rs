@@ -67,7 +67,7 @@ use nonempty::{HasNELen as _, NESlice, NEStr, NEString, NEVec};
 
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
 
-use derive_more::{Display, From, Into};
+use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
 use hashbrown::HashMap;
 use hashbrown::hash_map::Entry;
@@ -849,6 +849,10 @@ pub struct RepairDiagnostics {
     pub appended_non_unique: Vec<(StdKey, TruncatedNEString)>,
 }
 
+// TODO some of these types would be clearer if they were sealed off. The
+// KeyOrBytes::Bytes should only be non-utf8 sequences. (NE)StringOrBytes::Bytes
+// should also only be non-utf8.
+
 /// Either a valid key (with '$' for standard keys) or a non-ASCII byte sequence.
 #[derive(Clone, Display, PartialEq, Debug, From)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
@@ -859,7 +863,7 @@ pub enum KeyOrBytes {
 }
 
 /// A either a UTF-8 string or a non-UTF-8 byte sequence.
-#[derive(Clone, Display, PartialEq, Debug, From)]
+#[derive(Clone, Display, Debug, From)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum StringOrBytes {
@@ -867,8 +871,23 @@ pub enum StringOrBytes {
     Bytes(TruncatedBytes),
 }
 
+impl AsRef<[u8]> for StringOrBytes {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::Utf8(x) => x.as_ref(),
+            Self::Bytes(x) => x.as_ref(),
+        }
+    }
+}
+
+impl PartialEq<Self> for StringOrBytes {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ref() == other.as_ref()
+    }
+}
+
 /// A either a UTF-8 string or a non-UTF-8 byte sequence (both non-empty).
-#[derive(Clone, Display, PartialEq, Debug, From)]
+#[derive(Clone, Display, Debug, From)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum NEStringOrBytes {
@@ -876,26 +895,44 @@ pub enum NEStringOrBytes {
     Bytes(TruncatedNEBytes),
 }
 
+impl AsRef<[u8]> for NEStringOrBytes {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::Utf8(x) => x.as_ref(),
+            Self::Bytes(x) => x.as_ref(),
+        }
+    }
+}
+
+impl PartialEq<Self> for NEStringOrBytes {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ref() == other.as_ref()
+    }
+}
+
 /// A [`Vec<u8>`] optimized for displaying in errors.
-#[derive(Clone, From, PartialEq, Debug, Display)]
+#[derive(Clone, From, PartialEq, Debug, AsRef, Display)]
 #[display("{}", trunc_bytes(self.0.as_ref()))]
+#[as_ref([u8])]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TruncatedBytes(pub Vec<u8>);
 
 /// A [`NEVec<u8>`] optimized for displaying in errors.
-#[derive(Clone, From, PartialEq, Debug, Display, Into)]
+#[derive(Clone, From, PartialEq, Debug, Display, AsRef, Into)]
 #[display("{}", trunc_bytes(self.0.as_ref()))]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-#[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(NEVec<u8>)]
 #[into(Vec<u8>, NEVec<u8>)]
+#[as_ref([u8])]
 #[repr(transparent)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TruncatedNEBytes(pub NEVec<u8>);
 
 /// A normal [`String`] that will be shortened when displaying if too long.
-#[derive(Clone, From, PartialEq, Debug, Display, Default)]
+#[derive(Clone, From, PartialEq, Debug, Display, Default, AsRef)]
 #[display("{}", trunc_str(self.0.as_ref()))]
+#[as_ref([u8], str)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TruncatedString(pub String);
@@ -903,10 +940,22 @@ pub struct TruncatedString(pub String);
 /// A normal [`NEString`] that will be shortened when displaying if too long.
 #[derive(Clone, From, PartialEq, Debug, Display, Into)]
 #[display("{}", trunc_str(self.0.as_ref()))]
+#[into(String, NEString)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[into(String, NEString)]
 pub struct TruncatedNEString(pub NEString);
+
+impl AsRef<[u8]> for TruncatedNEString {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ne_bytes().as_ref()
+    }
+}
+
+impl AsRef<str> for TruncatedNEString {
+    fn as_ref(&self) -> &str {
+        self.0.as_str()
+    }
+}
 
 /// Warning when parsing [`Header`]
 #[derive(From, Display, Error, Debug, PartialEq, Clone)]

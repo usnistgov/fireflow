@@ -5891,7 +5891,11 @@ where
                     // when normalization is used as the first step in
                     // conversion from multi->single, where a multi result
                     // indicates failure.
-                    Self::Single(AnyUint::Uint32(Layout::default()))
+                    let empty = Layout {
+                        byteord: x.byteord,
+                        ..Default::default()
+                    };
+                    Self::Single(AnyUint::Uint32(empty))
                 }
             }
         };
@@ -5987,7 +5991,11 @@ where
                     // when normalization is used as the first step in
                     // conversion from multi->single, where a multi result
                     // indicates failure.
-                    Self::NonMixed(AnyDatatype::F32(Layout::default()))
+                    let empty = Layout {
+                        byteord: x.byteord,
+                        ..Default::default()
+                    };
+                    Self::NonMixed(AnyDatatype::F32(empty))
                 }
             }
         };

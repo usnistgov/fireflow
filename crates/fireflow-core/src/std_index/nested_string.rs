@@ -4,7 +4,6 @@ use fireflow_types::keys::raw_std::{EnumIndex, RawStdKey};
 use itertools::{EitherOrBoth, Itertools as _};
 use nonempty::NEStr;
 
-use derive_new::new;
 use derive_where::derive_where;
 
 use std::array::from_fn;
@@ -12,22 +11,19 @@ use std::iter;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
-pub type NestedEnumString<const LEN: usize, K> = NestedString<[Range<usize>; LEN], (), K>;
+pub type NestedEnumString<const LEN: usize, K> = NestedString<[Range<usize>; LEN], K>;
 
-pub type NestedVariableString<K, S> = NestedString<Vec<Range<usize>>, S, K>;
-
-#[derive_where(Default, Clone, Debug; I, S)]
-pub struct NestedString<I, S, K> {
+#[derive_where(Default, Clone, Debug; I)]
+pub struct NestedString<I, K> {
     inner: Vec<u8>,
     offsets: I,
-    sub_dimension: S,
     _key: PhantomData<K>,
 }
 
-impl<I, S, K> PartialEq for NestedString<I, S, K>
+impl<I, K> PartialEq for NestedString<I, K>
 where
     I: HasLen + Index<usize, Output = Range<usize>>,
-    K: EnumIndex<SubDimension = S> + PartialEq,
+    K: EnumIndex + PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
         self.iter().zip_longest(other.iter()).all(|e| {
@@ -40,26 +36,9 @@ where
     }
 }
 
-#[derive(new, Clone, Copy, Default)]
-pub struct NestedStringSize {
-    /// The number of bytes to allocate to the inner buffer.
-    ///
-    /// This is intended for performance.
-    pub n_bytes: usize,
-
-    /// The number of offsets to include.
-    ///
-    /// This must exactly match the indices that will be used. Otherwise
-    /// populating with data will panic.
-    ///
-    /// This is probably more than the number of strings which is equal to the
-    /// number of non-empty offsets.
-    pub n_offsets: usize,
-}
-
 pub(crate) struct Iter<'a, I, K: EnumIndex> {
     keys: K::Generator,
-    inner: &'a NestedString<I, K::SubDimension, K>,
+    inner: &'a NestedString<I, K>,
     index: usize,
 }
 
@@ -72,7 +51,6 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
         Self {
             inner: Vec::with_capacity(n_bytes),
             offsets,
-            sub_dimension: (),
             _key: PhantomData,
         }
     }
@@ -84,9 +62,9 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
     pub(crate) fn try_insert_array<V>(&mut self, k: &K, v: V) -> Option<V>
     where
         V: AsRef<NEStr>,
-        K: EnumIndex<SubDimension = ()>,
+        K: EnumIndex,
     {
-        let i = k.offset0();
+        let i = k.offset();
         if self.get_index(i).is_some_and(str::is_empty) {
             self.push_ne(i, v.as_ref());
             None
@@ -96,50 +74,7 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
     }
 }
 
-impl<K, S> NestedVariableString<K, S> {
-    pub fn init_var(size: &NestedStringSize, sub_dimension: S) -> Self {
-        let mut offsets = vec![];
-        offsets.resize_with(size.n_offsets, || 0..0);
-        Self {
-            inner: Vec::with_capacity(size.n_bytes),
-            offsets,
-            sub_dimension,
-            _key: PhantomData,
-        }
-    }
-
-    /// Insert new value into index.
-    ///
-    /// If index already has value, return new value and leave old unchanged.
-    ///
-    /// Will never panic. If the index points outside the range of the
-    /// existing index entries, the index is extended to accommodate.
-    pub(crate) fn try_insert_var<V>(&mut self, k: &K, v: V) -> Option<V>
-    where
-        V: AsRef<NEStr>,
-        K: EnumIndex<SubDimension = S>,
-    {
-        let i = k.offset(&self.sub_dimension);
-        if let Some(cur_val) = self.get_index(i) {
-            if cur_val.is_empty() {
-                self.push_ne(i, v.as_ref());
-                None
-            } else {
-                Some(v)
-            }
-        } else {
-            self.offsets.resize(i + 1, 0..0);
-            self.push_ne(i, v.as_ref());
-            None
-        }
-    }
-}
-
-impl<I, S, K> NestedString<I, S, K> {
-    // pub(crate) fn n_bytes(&self) -> usize {
-    //     self.inner.len()
-    // }
-
+impl<I, K> NestedString<I, K> {
     pub(crate) fn n_offsets(&self) -> usize
     where
         I: HasLen,
@@ -147,22 +82,18 @@ impl<I, S, K> NestedString<I, S, K> {
         self.offsets.len()
     }
 
-    pub(crate) fn sub_dimension(&self) -> &S {
-        &self.sub_dimension
-    }
-
     pub(crate) fn get(&self, k: &K) -> Option<&str>
     where
         I: HasLen + Index<usize, Output = Range<usize>>,
-        K: EnumIndex<SubDimension = S>,
+        K: EnumIndex,
     {
-        self.get_index(k.offset(&self.sub_dimension))
+        self.get_index(k.offset())
     }
 
     pub(crate) fn occupied(&self, k: &K) -> Option<bool>
     where
         I: HasLen + Index<usize, Output = Range<usize>>,
-        K: EnumIndex<SubDimension = S>,
+        K: EnumIndex,
     {
         self.get(k).map(|v| !v.is_empty())
     }
@@ -192,7 +123,7 @@ impl<I, S, K> NestedString<I, S, K> {
     pub(crate) fn iter_std(&self) -> IterStd<'_, I, K>
     where
         I: HasLen + Index<usize, Output = Range<usize>>,
-        K: EnumIndex<SubDimension = S> + Into<RawStdKey>,
+        K: EnumIndex + Into<RawStdKey>,
     {
         self.iter()
             .filter_map(|(k, v)| NEStr::try_new(v).map(|ne| (k.into(), ne)))
@@ -201,10 +132,10 @@ impl<I, S, K> NestedString<I, S, K> {
     pub(crate) fn iter(&self) -> Iter<'_, I, K>
     where
         I: HasLen + Index<usize, Output = Range<usize>>,
-        K: EnumIndex<SubDimension = S>,
+        K: EnumIndex,
     {
         Iter {
-            keys: K::generate(&self.sub_dimension),
+            keys: K::generate(),
             inner: self,
             index: 0,
         }
@@ -214,17 +145,16 @@ impl<I, S, K> NestedString<I, S, K> {
     where
         V: AsRef<NEStr>,
         I: HasLen + IndexMut<usize, Output = Range<usize>>,
-        K: EnumIndex<SubDimension = S>,
+        K: EnumIndex,
         Fwhen: FnMut(&K) -> Option<T>,
         Fwith: FnMut(&K, &NEStr, T) -> Option<V>,
     {
-        let s = &self.sub_dimension;
-        for k in K::generate(s).take(self.offsets.len()) {
+        for k in K::generate().take(self.offsets.len()) {
             if let Some(flag) = fwhen(&k)
                 && let Some(v) = self.delete(&k)
                 && let Some(new) = fwith(&k, v, flag)
             {
-                let i = k.offset(&self.sub_dimension);
+                let i = k.offset();
                 self.push_ne(i, new.as_ref());
             }
         }
@@ -233,11 +163,10 @@ impl<I, S, K> NestedString<I, S, K> {
     pub(crate) fn retain<F>(&mut self, mut f: F)
     where
         I: HasLen + IndexMut<usize, Output = Range<usize>>,
-        K: EnumIndex<SubDimension = S>,
+        K: EnumIndex,
         F: FnMut(&K, &NEStr) -> bool,
     {
-        let s = &self.sub_dimension;
-        for k in K::generate(s).take(self.offsets.len()) {
+        for k in K::generate().take(self.offsets.len()) {
             if let Some(v) = self.get(&k).and_then(NEStr::try_new)
                 && !f(&k, v)
             {
@@ -254,10 +183,10 @@ impl<I, S, K> NestedString<I, S, K> {
     /// Return old data if available. Return none if nothing was deleted.
     pub(crate) fn delete(&mut self, k: &K) -> Option<&NEStr>
     where
-        K: EnumIndex<SubDimension = S>,
+        K: EnumIndex,
         I: HasLen + IndexMut<usize, Output = Range<usize>>,
     {
-        let i = k.offset(&self.sub_dimension);
+        let i = k.offset();
         let n = self.offsets.len();
         if i < n {
             let rng = self.offsets[i].clone();
@@ -282,10 +211,10 @@ impl<I, S, K> NestedString<I, S, K> {
     pub(crate) fn push_dedup<V>(&mut self, k: &K, v: V) -> Option<V>
     where
         V: AsRef<NEStr>,
-        K: EnumIndex<SubDimension = S>,
+        K: EnumIndex,
         I: IndexMut<usize, Output = Range<usize>>,
     {
-        let i = k.offset(&self.sub_dimension);
+        let i = k.offset();
         let rng = &self.offsets[i];
         if rng.is_empty() {
             self.push_ne(i, v.as_ref());
@@ -309,12 +238,12 @@ impl<I, S, K> NestedString<I, S, K> {
     pub(crate) fn extend_dedup<V>(&mut self, pairs: impl IntoIterator<Item = (K, V)>) -> Vec<(K, V)>
     where
         V: AsRef<NEStr>,
-        K: EnumIndex<SubDimension = S>,
+        K: EnumIndex,
         I: HasLen + Index<usize, Output = Range<usize>> + IndexMut<usize, Output = Range<usize>>,
     {
         let mut duplicates = vec![];
         for (k, v) in pairs {
-            let i = k.offset(&self.sub_dimension);
+            let i = k.offset();
             let rng = &self.offsets[i];
             if rng.is_empty() {
                 self.push_ne(i, v.as_ref());

@@ -1,8 +1,9 @@
 use crate::api::{NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords, TruncatedNEString};
 use crate::config::EvaledReadStdKeywordsConfig;
 use crate::logging::{LogResult, WarningsAndErrorsResult};
-use crate::std_index::masked::{LookupMask, MaskedEnumString, MaskedString, MaskedVariableString};
-use crate::std_index::nested_string::{NestedEnumString, NestedStringSize, NestedVariableString};
+use crate::std_index::masked::{LookupMask, MaskedEnumString, MaskedString};
+use crate::std_index::nested_string::NestedEnumString;
+use crate::std_index::sparse_string::{MaskedSparseString, SparseStringSize, SparseString};
 use crate::text::keywords::{
     Gain, Gate, LookupTemporalGainError, Par, TemporalGainError, ValueToStdKey,
 };
@@ -15,8 +16,8 @@ use fireflow_types::config::{
 use fireflow_types::index::MeasIndex;
 use fireflow_types::keys::nonstd::{DollarWrap, NonStdKey};
 use fireflow_types::keys::raw_std::{
-    CsvFlagKey, DfcKey, EnumIndex as _, GateKey, MeasKey, MeasKeyId, N_GATE, N_MEAS, N_REGION,
-    N_ROOT, RawStdKey, RegionKey, RootKey, ToStd as _,
+    CsvFlagKey, DfcKey, GateKey, MeasKey, MeasKeyId, N_ROOT, RawStdKey, RegionKey, RootKey,
+    ToStd as _,
 };
 use fireflow_types::keys::{DollarStdKey, PseudoStdKey, StdKey};
 use fireflow_types::keywords::Version;
@@ -138,43 +139,6 @@ pub struct PseudoStdKeyError {
     pub value: TruncatedNEString,
 }
 
-/// Error when pseudostandard keywords are encountered.
-#[derive(new, Debug, Error, PartialEq, Clone)]
-#[error("found {which} key with index {index} which exceeded cutoff of {cutoff}")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
-pub struct LargeIndexError {
-    index: usize,
-    cutoff: usize,
-    which: IndexType,
-}
-
-impl LargeIndexError {
-    fn check_cutoff(index: usize, cutoff: usize, which: IndexType) -> Result<(), Self> {
-        (index > cutoff)
-            .then_some(Self {
-                index,
-                cutoff,
-                which,
-            })
-            .map_or(Ok(()), Err)
-    }
-}
-
-#[derive(Debug, Display, PartialEq, Clone)]
-enum IndexType {
-    #[display("measurement")]
-    Meas,
-    #[display("gating")]
-    Gate,
-    #[display("region")]
-    Region,
-    #[display("subset")]
-    Subset,
-    #[display("dfc matrix")]
-    Dfc,
-}
-
 #[derive(Clone, Copy, Debug)]
 pub enum LookupAction {
     None,
@@ -195,32 +159,20 @@ impl LookupAction {
 #[derive(Clone, PartialEq, Debug)]
 pub struct RawStdKeyIndex<const HAS_PRE: bool> {
     root: NestedRoot,
-    // TODO it might make sense to break this up into several sub-strings. As is
-    // this will have many empty entries, which will make the index vector very
-    // long. In practice, most files will have $PnB, $PnR, $PnE, and $PnN, so
-    // this index will be efficiently populated. All the others might be sparse.
-    // This could be solved by having a double-index that first indexes on the
-    // measurement and returns 'none' if there are no keywords for that index.
-    // From there it directs to the real index that points to the strings.
-    meas: NestedVariableString<MeasKey, ()>,
-    // TODO this might also be sparse, see dfc below.
-    gate: NestedVariableString<GateKey, ()>,
-    region: NestedVariableString<RegionKey, ()>,
-    csv_flag: NestedVariableString<CsvFlagKey, ()>,
-    // TODO this is the only part of the data structure that is relatively
-    // inefficient. The comp matrix might be sparse (identity) which means most
-    // of the offsets in this will point to nothing. Consider using a different
-    // structure here.
-    dfc: NestedVariableString<DfcKey, usize>,
+    meas: SparseString<MeasKey>,
+    gate: SparseString<GateKey>,
+    region: SparseString<RegionKey>,
+    csv_flag: SparseString<CsvFlagKey>,
+    dfc: SparseString<DfcKey>,
 }
 
 pub struct StdTransaction<'a, M> {
     root: MaskedEnumString<'a, N_ROOT, RootKey, M>,
-    meas: MaskedVariableString<'a, MeasKey, (), M>,
-    gate: MaskedVariableString<'a, GateKey, (), M>,
-    region: MaskedVariableString<'a, RegionKey, (), M>,
-    csv_flag: MaskedVariableString<'a, CsvFlagKey, (), M>,
-    dfc: MaskedVariableString<'a, DfcKey, usize, M>,
+    meas: MaskedSparseString<'a, MeasKey, M>,
+    gate: MaskedSparseString<'a, GateKey, M>,
+    region: MaskedSparseString<'a, RegionKey, M>,
+    csv_flag: MaskedSparseString<'a, CsvFlagKey, M>,
+    dfc: MaskedSparseString<'a, DfcKey, M>,
 }
 
 pub type StdLookupTx<'a> = StdTransaction<'a, LookupMask>;
@@ -230,23 +182,23 @@ type NestedRoot = NestedEnumString<N_ROOT, RootKey>;
 #[derive(Default)]
 struct IndexSizes {
     root_n_bytes: usize,
-    meas_size: NestedStringSize,
-    gate_size: NestedStringSize,
-    region_size: NestedStringSize,
-    csv_flag_size: NestedStringSize,
+    meas_size: SparseStringSize,
+    gate_size: SparseStringSize,
+    region_size: SparseStringSize,
+    csv_flag_size: SparseStringSize,
     dfc_n_bytes: usize,
-    dfc_matrix_size: usize,
+    dfc_size: usize,
 }
 
 impl<const HAS_PRE: bool> Default for RawStdKeyIndex<HAS_PRE> {
     fn default() -> Self {
         Self {
             root: NestedRoot::init_array(0),
-            meas: NestedVariableString::default(),
-            gate: NestedVariableString::default(),
-            region: NestedVariableString::default(),
-            csv_flag: NestedVariableString::default(),
-            dfc: NestedVariableString::default(),
+            meas: SparseString::default(),
+            gate: SparseString::default(),
+            region: SparseString::default(),
+            csv_flag: SparseString::default(),
+            dfc: SparseString::default(),
         }
     }
 }
@@ -289,18 +241,8 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
         self.iter_raw_keywords().map(|(k, _)| k)
     }
 
+    #[must_use]
     pub fn from_vec<V>(
-        pairs: Vec<(DollarStdKey<HAS_PRE>, V)>,
-    ) -> Result<(Self, Vec<(DollarStdKey<HAS_PRE>, TruncatedNEString)>), LargeIndexError>
-    where
-        V: AsRef<NEStr>,
-    {
-        let sizes = IndexSizes::from_vec(&pairs[..]);
-        sizes.check_cutoff(build_config::INDEX_CUTOFF)?;
-        Ok(Self::from_vec_inner(&sizes, pairs))
-    }
-
-    fn from_vec_unchecked<V>(
         pairs: Vec<(DollarStdKey<HAS_PRE>, V)>,
     ) -> (Self, Vec<(DollarStdKey<HAS_PRE>, TruncatedNEString)>)
     where
@@ -317,14 +259,14 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
     where
         V: AsRef<NEStr>,
     {
-        let dfc_size = NestedStringSize::new(sizes.dfc_n_bytes, sizes.dfc_matrix_size.pow(2));
+        let dfc_size = SparseStringSize::new(sizes.dfc_n_bytes, sizes.dfc_size);
 
         let mut root = NestedRoot::init_array(sizes.root_n_bytes);
-        let mut meas = NestedVariableString::init_var(&sizes.meas_size, ());
-        let mut gate = NestedVariableString::init_var(&sizes.gate_size, ());
-        let mut region = NestedVariableString::init_var(&sizes.region_size, ());
-        let mut csv_flag = NestedVariableString::init_var(&sizes.csv_flag_size, ());
-        let mut dfc = NestedVariableString::init_var(&dfc_size, sizes.dfc_matrix_size);
+        let mut meas = SparseString::init_sparse(&sizes.meas_size);
+        let mut gate = SparseString::init_sparse(&sizes.gate_size);
+        let mut region = SparseString::init_sparse(&sizes.region_size);
+        let mut csv_flag = SparseString::init_sparse(&sizes.csv_flag_size);
+        let mut dfc = SparseString::init_sparse(&dfc_size);
 
         let mut duplicates = vec![];
 
@@ -354,15 +296,14 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
 
     #[must_use]
     pub fn get(&self, k: &DollarStdKey<HAS_PRE>) -> Option<&NEStr> {
-        let s = match &k.0 {
-            RawStdKey::Root(rk) => self.root.get(rk),
+        match &k.0 {
+            RawStdKey::Root(rk) => self.root.get(rk).and_then(NEStr::try_new),
             RawStdKey::Meas(mk) => self.meas.get(mk),
             RawStdKey::Gate(gk) => self.gate.get(gk),
             RawStdKey::Region(rk) => self.region.get(rk),
             RawStdKey::CsvFlag(ck) => self.csv_flag.get(ck),
             RawStdKey::Dfc(dk) => self.dfc.get(dk),
-        }?;
-        NEStr::try_new(s)
+        }
     }
 
     /// Try to insert new value into index.
@@ -376,11 +317,11 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
     ) -> Option<&'a NEStr> {
         match &k.0 {
             RawStdKey::Root(rk) => self.root.try_insert_array(rk, v),
-            RawStdKey::Meas(mk) => self.meas.try_insert_var(mk, v),
-            RawStdKey::Gate(gk) => self.gate.try_insert_var(gk, v),
-            RawStdKey::Region(rk) => self.region.try_insert_var(rk, v),
-            RawStdKey::CsvFlag(ck) => self.csv_flag.try_insert_var(ck, v),
-            RawStdKey::Dfc(dk) => self.dfc.try_insert_var(dk, v),
+            RawStdKey::Meas(mk) => self.meas.try_insert_sparse(mk, v),
+            RawStdKey::Gate(gk) => self.gate.try_insert_sparse(gk, v),
+            RawStdKey::Region(rk) => self.region.try_insert_sparse(rk, v),
+            RawStdKey::CsvFlag(ck) => self.csv_flag.try_insert_sparse(ck, v),
+            RawStdKey::Dfc(dk) => self.dfc.try_insert_sparse(dk, v),
         }
     }
 
@@ -465,11 +406,11 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
 
     pub(crate) fn n_offsets(&self) -> usize {
         self.root.n_offsets()
-            + self.meas.n_offsets()
-            + self.gate.n_offsets()
-            + self.region.n_offsets()
-            + self.csv_flag.n_offsets()
-            + self.dfc.n_offsets()
+            + self.meas.len()
+            + self.gate.len()
+            + self.region.len()
+            + self.csv_flag.len()
+            + self.dfc.len()
     }
 
     pub(crate) fn concat(
@@ -485,34 +426,30 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
             // that store standard keys in STEXT (of where there are basically
             // none)
             let tmp = self.iter_keywords().chain(other.iter_keywords()).collect();
-            // Use unchecked here because we can assume both inputs were
-            // screened for indices that exceed the cutoff and thus we won't
-            // melt our (currently very expensive) RAM.
-            Self::from_vec_unchecked(tmp)
+            Self::from_vec(tmp)
         }
     }
 
     pub(crate) fn as_transaction<M: Default>(&self) -> StdTransaction<'_, M> {
         StdTransaction {
             root: MaskedString::init_array(&self.root),
-            meas: MaskedString::init_var(&self.meas),
-            gate: MaskedString::init_var(&self.gate),
-            region: MaskedString::init_var(&self.region),
-            csv_flag: MaskedString::init_var(&self.csv_flag),
-            dfc: MaskedString::init_var(&self.dfc),
+            meas: self.meas.as_masked(),
+            gate: self.gate.as_masked(),
+            region: self.region.as_masked(),
+            csv_flag: self.csv_flag.as_masked(),
+            dfc: self.dfc.as_masked(),
         }
     }
 
     pub(crate) fn key_has_value(&self, k: &DollarStdKey<HAS_PRE>) -> bool {
-        let res = match &k.0 {
-            RawStdKey::Root(rk) => self.root.occupied(rk),
-            RawStdKey::Meas(mk) => self.meas.occupied(mk),
-            RawStdKey::Gate(gk) => self.gate.occupied(gk),
-            RawStdKey::Region(rk) => self.region.occupied(rk),
-            RawStdKey::CsvFlag(ck) => self.csv_flag.occupied(ck),
-            RawStdKey::Dfc(dk) => self.dfc.occupied(dk),
-        };
-        res == Some(true)
+        match &k.0 {
+            RawStdKey::Root(rk) => self.root.occupied(rk) == Some(true),
+            RawStdKey::Meas(mk) => self.meas.get(mk).is_some(),
+            RawStdKey::Gate(gk) => self.gate.get(gk).is_some(),
+            RawStdKey::Region(rk) => self.region.get(rk).is_some(),
+            RawStdKey::CsvFlag(ck) => self.csv_flag.get(ck).is_some(),
+            RawStdKey::Dfc(dk) => self.dfc.get(dk).is_some(),
+        }
     }
 }
 
@@ -520,11 +457,11 @@ impl StdLookupTx<'_> {
     pub(crate) fn commit(self) -> RawStdKeyIndex<true> {
         RawStdKeyIndex {
             root: self.root.commit_array(),
-            meas: self.meas.commit_var(),
-            gate: self.gate.commit_var(),
-            region: self.region.commit_var(),
-            csv_flag: self.csv_flag.commit_var(),
-            dfc: self.dfc.commit_var(),
+            meas: self.meas.commit_sparse(),
+            gate: self.gate.commit_sparse(),
+            region: self.region.commit_sparse(),
+            csv_flag: self.csv_flag.commit_sparse(),
+            dfc: self.dfc.commit_sparse(),
         }
     }
 
@@ -584,25 +521,21 @@ impl StdLookupTx<'_> {
             }
         }
 
-        let mut meas_it = self.meas.iter_masked();
-
-        for (k, v, m) in meas_it.by_ref() {
+        for (k, v, m) in self.meas.iter_masked() {
             let dk = DollarWrap(k.into());
             if usize::from(k.index) >= usize::from(par) {
                 hyper_par_.push((dk, v.to_owned()));
-                break;
-            }
-            match m {
-                LookupMask::Unseen => other_version_.push((dk, v.to_owned())),
-                LookupMask::Seen(a) => match a {
-                    LookupAction::None => (),
-                    LookupAction::Demote => go_demote(&dk, v),
-                    LookupAction::Drop => go_drop(dk, v),
-                },
+            } else {
+                match m {
+                    LookupMask::Unseen => other_version_.push((dk, v.to_owned())),
+                    LookupMask::Seen(a) => match a {
+                        LookupAction::None => (),
+                        LookupAction::Demote => go_demote(&dk, v),
+                        LookupAction::Drop => go_drop(dk, v),
+                    },
+                }
             }
         }
-
-        hyper_par_.extend(meas_it.map(|(k, v, _)| (DollarWrap(k.into()), v.to_owned())));
 
         let mut gate_it = self.gate.iter_masked();
 
@@ -935,11 +868,11 @@ impl StdLookupTx<'_> {
     }
 
     pub(crate) fn n_nonempty_meas(&self) -> usize {
-        self.meas.iter().filter(|(_, v)| !v.is_empty()).count()
+        self.meas.len()
     }
 
     pub(crate) fn iter_region_keys(&self) -> impl Iterator<Item = RegionKey> {
-        self.region.iter().map(|(k, _)| k)
+        self.region.iter().map(|(k, _)| *k)
     }
 }
 
@@ -972,51 +905,29 @@ impl IndexSizes {
                 RawStdKey::Root(_) => {
                     sizes.root_n_bytes += n_bytes;
                 }
-                RawStdKey::Meas(i) => {
-                    sizes.meas_size.n_offsets = sizes.meas_size.n_offsets.max(i.offset0() + 1);
+                RawStdKey::Meas(_) => {
+                    sizes.meas_size.n_offsets += 1;
                     sizes.meas_size.n_bytes += n_bytes;
                 }
-                RawStdKey::Gate(i) => {
-                    sizes.gate_size.n_offsets = sizes.gate_size.n_offsets.max(i.offset0() + 1);
+                RawStdKey::Gate(_) => {
+                    sizes.gate_size.n_offsets += 1;
                     sizes.gate_size.n_bytes += n_bytes;
                 }
-                RawStdKey::Region(i) => {
-                    sizes.region_size.n_offsets = sizes.region_size.n_offsets.max(i.offset0() + 1);
+                RawStdKey::Region(_) => {
+                    sizes.region_size.n_offsets += 1;
                     sizes.region_size.n_bytes += n_bytes;
                 }
-                RawStdKey::CsvFlag(i) => {
-                    sizes.csv_flag_size.n_offsets =
-                        sizes.csv_flag_size.n_offsets.max(i.offset0() + 1);
+                RawStdKey::CsvFlag(_) => {
+                    sizes.csv_flag_size.n_offsets += 1;
                     sizes.csv_flag_size.n_bytes += n_bytes;
                 }
-                RawStdKey::Dfc(dk) => {
+                RawStdKey::Dfc(_) => {
                     sizes.dfc_n_bytes += n_bytes;
-                    let i0 = usize::from(dk.index.i0) + 1;
-                    let i1 = usize::from(dk.index.i1) + 1;
-                    sizes.dfc_matrix_size = sizes.dfc_matrix_size.max(i0.max(i1));
+                    sizes.dfc_size += 1;
                 }
             }
         }
         sizes
-    }
-
-    fn check_cutoff(&self, index_cutoff: usize) -> Result<(), LargeIndexError> {
-        // Once all indices are counted, sanity check them to see if they are
-        // less than our cutoff values. This will prevent any super-screwed up
-        // files with large indices from eating all memory when the indices are
-        // allocated below.
-        let max_meas = self.meas_size.n_offsets.div_ceil(N_MEAS);
-        let max_gate = self.gate_size.n_offsets.div_ceil(N_GATE);
-        let max_region = self.region_size.n_offsets.div_ceil(N_REGION);
-        let max_subset = self.csv_flag_size.n_offsets;
-        let max_dfc = self.dfc_matrix_size;
-
-        LargeIndexError::check_cutoff(max_meas, index_cutoff, IndexType::Meas)?;
-        LargeIndexError::check_cutoff(max_gate, index_cutoff, IndexType::Gate)?;
-        LargeIndexError::check_cutoff(max_region, index_cutoff, IndexType::Region)?;
-        LargeIndexError::check_cutoff(max_subset, index_cutoff, IndexType::Subset)?;
-        LargeIndexError::check_cutoff(max_dfc, index_cutoff, IndexType::Dfc)?;
-        Ok(())
     }
 }
 
@@ -1033,10 +944,6 @@ impl<const HAS_PRE: bool> Serialize for RawStdKeyIndex<HAS_PRE> {
         }
         map.end()
     }
-}
-
-mod build_config {
-    include!(concat!(env!("OUT_DIR"), "/build_config.rs"));
 }
 
 // misc functions
@@ -1089,7 +996,7 @@ mod python {
                 })
                 .collect::<Result<Vec<_>, PyErr>>()?;
             // Ignore duplicates since the input dict should not have any
-            Ok(Self::from_vec(tmp).map(|x| x.0)?)
+            Ok(Self::from_vec(tmp).0)
         }
     }
 

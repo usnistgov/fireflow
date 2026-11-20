@@ -18,8 +18,6 @@ use strum_macros::{EnumCount as EnumCount_, VariantArray};
 use thiserror::Error;
 
 use std::iter;
-use std::marker::PhantomData;
-use std::ops;
 use std::slice::Iter;
 
 #[cfg(feature = "python")]
@@ -114,18 +112,18 @@ pub enum RootKey {
 }
 
 /// A $Pn* key.
-pub type MeasKey = IndexedKey<N_MEAS, MeasIndex, MeasKeyId>;
+pub type MeasKey = IndexedKey<MeasIndex, MeasKeyId>;
 
 /// A $Gn* key.
-pub type GateKey = IndexedKey<N_GATE, GateIndex, GateKeyId>;
+pub type GateKey = IndexedKey<GateIndex, GateKeyId>;
 
 /// A $Rn* key.
-pub type RegionKey = IndexedKey<N_REGION, RegionIndex, RegionKeyId>;
+pub type RegionKey = IndexedKey<RegionIndex, RegionKeyId>;
 
 /// An FCS keyword with an index.
 #[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "testutil", derive(Arbitrary))]
-pub struct IndexedKey<const LEN: usize, I, K> {
+pub struct IndexedKey<I, K> {
     pub index: I,
     pub id: K,
 }
@@ -257,37 +255,8 @@ pub type NumericEnumIter<T> = iter::Copied<Iter<'static, T>>;
 /// Index generator for root keys.
 pub type RootKeyGenerator = NumericEnumIter<RootKey>;
 
-/// Index generator for indexed keys.
-pub struct IndexedKeyGenerator<const LEN: usize, I, K: 'static> {
-    key_orig: NumericEnumIter<K>,
-    key: NumericEnumIter<K>,
-    index: usize,
-    _index: PhantomData<I>,
-}
-
-/// Index generator for $CSVnFLAG keys.
-pub type CsvFlagGenerator = iter::Map<ops::RangeFrom<usize>, fn(usize) -> CsvFlagKey>;
-
-/// Index generator for $DFCmTOn keys.
-pub type DfcKeyGenerator = iter::Map<
-    iter::Zip<
-        iter::Zip<iter::Cycle<ops::Range<usize>>, ops::RangeFrom<usize>>,
-        iter::Repeat<usize>,
-    >,
-    fn(((usize, usize), usize)) -> DfcKey,
->;
-
 /// The number of root keys.
 pub const N_ROOT: usize = 54;
-
-/// The number of $Pn* keys (suffixes or prefixes).
-pub const N_MEAS: usize = 22;
-
-/// The number of $Gn* keys (suffixes)
-pub const N_GATE: usize = 8;
-
-/// The number of $Rn* keys (suffixes)
-pub const N_REGION: usize = 2;
 
 /// The unindexed name for the $PKn key
 pub const PKN: &NEStr = ne_str!("$PKn");
@@ -355,119 +324,30 @@ pub trait NumericEnum<const LEN: usize>: VariantArray + EnumCount + NoUninit {
 }
 
 impl NumericEnum<N_ROOT> for RootKey {}
-impl NumericEnum<N_MEAS> for MeasKeyId {}
-impl NumericEnum<N_GATE> for GateKeyId {}
-impl NumericEnum<N_REGION> for RegionKeyId {}
 
 // Implement enum index properties for key types
 
 /// An enum which can be used to index into an array.
 pub trait EnumIndex {
-    /// Additional data used to describe the bounds of the index.
-    ///
-    /// This is currently only used for $DFCmTOn keys since these have two
-    /// dimensions; this holds the length of each dimension (they are the same).
-    type SubDimension;
-
     /// Type to generate the full sequence of offsets for array indexing.
     ///
     /// This may be infinite depending on [`Self`].
     type Generator: Iterator<Item = Self>;
 
-    fn generate(sub: &Self::SubDimension) -> Self::Generator;
+    fn generate() -> Self::Generator;
 
-    fn offset(&self, sub: &Self::SubDimension) -> usize;
-
-    fn offset0(&self) -> usize
-    where
-        Self: EnumIndex<SubDimension = ()>,
-    {
-        self.offset(&())
-    }
+    fn offset(&self) -> usize;
 }
 
 impl EnumIndex for RootKey {
-    type SubDimension = ();
     type Generator = RootKeyGenerator;
 
-    fn generate((): &Self::SubDimension) -> Self::Generator {
+    fn generate() -> Self::Generator {
         Self::iter()
     }
 
-    fn offset(&self, (): &Self::SubDimension) -> usize {
+    fn offset(&self) -> usize {
         self.index()
-    }
-}
-
-impl<const LEN: usize, I, K> Iterator for IndexedKeyGenerator<LEN, I, K>
-where
-    usize: Into<I>,
-    K: Copy + NumericEnum<LEN>,
-{
-    type Item = IndexedKey<LEN, I, K>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let k = if let Some(k) = self.key.next() {
-            k
-        } else {
-            self.index += 1;
-            self.key = self.key_orig.clone();
-            self.key.next().unwrap()
-        };
-        Some(IndexedKey::new(self.index.into(), k))
-    }
-}
-
-impl<const LEN: usize, I, K> EnumIndex for IndexedKey<LEN, I, K>
-where
-    K: NumericEnum<LEN>,
-    I: From<usize> + Into<usize> + Copy,
-{
-    type SubDimension = ();
-    type Generator = IndexedKeyGenerator<LEN, I, K>;
-
-    fn generate((): &Self::SubDimension) -> Self::Generator {
-        IndexedKeyGenerator {
-            key_orig: K::iter(),
-            key: K::iter(),
-            index: 0,
-            _index: PhantomData,
-        }
-    }
-
-    fn offset(&self, (): &Self::SubDimension) -> usize {
-        self.index.into() * K::COUNT + self.id.index()
-    }
-}
-
-impl EnumIndex for CsvFlagKey {
-    type SubDimension = ();
-    type Generator = CsvFlagGenerator;
-
-    fn generate((): &Self::SubDimension) -> Self::Generator {
-        (0_usize..).map(|i| Self::new(i.into()))
-    }
-
-    fn offset(&self, (): &Self::SubDimension) -> usize {
-        self.index.into()
-    }
-}
-
-impl EnumIndex for DfcKey {
-    type SubDimension = usize;
-    type Generator = DfcKeyGenerator;
-
-    fn generate(sub: &Self::SubDimension) -> Self::Generator {
-        // TODO get rid of division with custom iterator
-        (0_usize..*sub)
-            .cycle()
-            .zip(0_usize..)
-            .zip(iter::repeat(*sub))
-            .map(|((col, i), len)| Self::new(BiMeasIndex::new((i / len).into(), col.into())))
-    }
-
-    fn offset(&self, sub: &Self::SubDimension) -> usize {
-        usize::from(self.index.i0) * sub + usize::from(self.index.i1)
     }
 }
 

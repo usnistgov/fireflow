@@ -3,7 +3,7 @@ use crate::config::EvaledReadStdKeywordsConfig;
 use crate::logging::{LogResult, WarningsAndErrorsResult};
 use crate::std_index::masked::{LookupMask, MaskedEnumString, MaskedString};
 use crate::std_index::nested_string::NestedEnumString;
-use crate::std_index::sparse_string::{MaskedSparseString, SparseStringSize, SparseString};
+use crate::std_index::sparse_string::{MaskedSparseString, SparseString, SparseStringSize};
 use crate::text::keywords::{
     Gain, Gate, LookupTemporalGainError, Par, TemporalGainError, ValueToStdKey,
 };
@@ -537,25 +537,21 @@ impl StdLookupTx<'_> {
             }
         }
 
-        let mut gate_it = self.gate.iter_masked();
-
-        for (k, v, m) in gate_it.by_ref() {
+        for (k, v, m) in self.gate.iter_masked() {
             let dk = DollarWrap(k.into());
             if usize::from(k.index) >= usize::from(gate) {
                 hyper_gate_.push((dk, v.to_owned()));
-                break;
-            }
-            match m {
-                LookupMask::Unseen => other_version_.push((dk, v.to_owned())),
-                LookupMask::Seen(a) => match a {
-                    LookupAction::None => (),
-                    LookupAction::Demote => go_demote(&dk, v),
-                    LookupAction::Drop => go_drop(dk, v),
-                },
+            } else {
+                match m {
+                    LookupMask::Unseen => other_version_.push((dk, v.to_owned())),
+                    LookupMask::Seen(a) => match a {
+                        LookupAction::None => (),
+                        LookupAction::Demote => go_demote(&dk, v),
+                        LookupAction::Drop => go_drop(dk, v),
+                    },
+                }
             }
         }
-
-        hyper_gate_.extend(gate_it.map(|(k, v, _)| (DollarWrap(k.into()), v.to_owned())));
 
         // TODO we could also do something like hyper_par/gate with these but
         // they are hardly used anyways and doing so would be complex

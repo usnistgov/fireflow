@@ -1,8 +1,6 @@
 use crate::api::{NonStdKeywords, PseudoNonStdKeywords, PseudoStdKeywords, TruncatedNEString};
 use crate::config::EvaledReadStdKeywordsConfig;
 use crate::logging::{LogResult, WarningsAndErrorsResult};
-use crate::std_index::masked::{LookupMask, MaskedEnumString, MaskedString};
-use crate::std_index::nested_string::NestedEnumString;
 use crate::std_index::sparse_string::{MaskedSparseString, SparseString, SparseStringSize};
 use crate::text::keywords::{
     Gain, Gate, LookupTemporalGainError, Par, TemporalGainError, ValueToStdKey,
@@ -29,6 +27,7 @@ use itertools::Itertools as _;
 use num_traits::One as _;
 use thiserror::Error;
 
+use std::fmt;
 use std::iter;
 
 #[cfg(feature = "serde")]
@@ -139,6 +138,24 @@ pub struct PseudoStdKeyError {
     pub value: TruncatedNEString,
 }
 
+#[derive(Clone, Copy, Default, Debug)]
+pub enum LookupMask {
+    #[default]
+    Unseen,
+    Seen(LookupAction),
+}
+
+impl LookupMask {
+    pub(crate) fn with_unseen<'a, K: fmt::Debug>(self, k: &K, v: &'a NEStr) -> &'a NEStr {
+        match self {
+            Self::Unseen => v,
+            Self::Seen(_) => {
+                panic!("tried to look up key {k:?} with value '{v}' which was already seen")
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum LookupAction {
     None,
@@ -158,7 +175,7 @@ impl LookupAction {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct RawStdKeyIndex<const HAS_PRE: bool> {
-    root: NestedRoot,
+    root: SparseString<RootKey>,
     meas: SparseString<MeasKey>,
     gate: SparseString<GateKey>,
     region: SparseString<RegionKey>,
@@ -167,7 +184,7 @@ pub struct RawStdKeyIndex<const HAS_PRE: bool> {
 }
 
 pub struct StdTransaction<'a, M> {
-    root: MaskedEnumString<'a, N_ROOT, RootKey, M>,
+    root: MaskedSparseString<'a, RootKey, M>,
     meas: MaskedSparseString<'a, MeasKey, M>,
     gate: MaskedSparseString<'a, GateKey, M>,
     region: MaskedSparseString<'a, RegionKey, M>,
@@ -176,8 +193,6 @@ pub struct StdTransaction<'a, M> {
 }
 
 pub type StdLookupTx<'a> = StdTransaction<'a, LookupMask>;
-
-type NestedRoot = NestedEnumString<N_ROOT, RootKey>;
 
 #[derive(Default)]
 struct IndexSizes {
@@ -193,7 +208,7 @@ struct IndexSizes {
 impl<const HAS_PRE: bool> Default for RawStdKeyIndex<HAS_PRE> {
     fn default() -> Self {
         Self {
-            root: NestedRoot::init_array(0),
+            root: SparseString::default(),
             meas: SparseString::default(),
             gate: SparseString::default(),
             region: SparseString::default(),
@@ -261,7 +276,9 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
     {
         let dfc_size = SparseStringSize::new(sizes.dfc_n_bytes, sizes.dfc_size);
 
-        let mut root = NestedRoot::init_array(sizes.root_n_bytes);
+        let root_size = SparseStringSize::new(sizes.root_n_bytes, N_ROOT);
+
+        let mut root = SparseString::init_sparse(&root_size);
         let mut meas = SparseString::init_sparse(&sizes.meas_size);
         let mut gate = SparseString::init_sparse(&sizes.gate_size);
         let mut region = SparseString::init_sparse(&sizes.region_size);
@@ -297,7 +314,7 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
     #[must_use]
     pub fn get(&self, k: &DollarStdKey<HAS_PRE>) -> Option<&NEStr> {
         match &k.0 {
-            RawStdKey::Root(rk) => self.root.get(rk).and_then(NEStr::try_new),
+            RawStdKey::Root(rk) => self.root.get(rk),
             RawStdKey::Meas(mk) => self.meas.get(mk),
             RawStdKey::Gate(gk) => self.gate.get(gk),
             RawStdKey::Region(rk) => self.region.get(rk),
@@ -316,7 +333,7 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
         v: &'a NEStr,
     ) -> Option<&'a NEStr> {
         match &k.0 {
-            RawStdKey::Root(rk) => self.root.try_insert_array(rk, v),
+            RawStdKey::Root(rk) => self.root.try_insert_sparse(rk, v),
             RawStdKey::Meas(mk) => self.meas.try_insert_sparse(mk, v),
             RawStdKey::Gate(gk) => self.gate.try_insert_sparse(gk, v),
             RawStdKey::Region(rk) => self.region.try_insert_sparse(rk, v),
@@ -405,7 +422,7 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
     }
 
     pub(crate) fn n_offsets(&self) -> usize {
-        self.root.n_offsets()
+        self.root.len()
             + self.meas.len()
             + self.gate.len()
             + self.region.len()
@@ -432,7 +449,7 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
 
     pub(crate) fn as_transaction<M: Default>(&self) -> StdTransaction<'_, M> {
         StdTransaction {
-            root: MaskedString::init_array(&self.root),
+            root: self.root.as_masked(),
             meas: self.meas.as_masked(),
             gate: self.gate.as_masked(),
             region: self.region.as_masked(),
@@ -443,7 +460,7 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
 
     pub(crate) fn key_has_value(&self, k: &DollarStdKey<HAS_PRE>) -> bool {
         match &k.0 {
-            RawStdKey::Root(rk) => self.root.occupied(rk) == Some(true),
+            RawStdKey::Root(rk) => self.root.get(rk).is_some(),
             RawStdKey::Meas(mk) => self.meas.get(mk).is_some(),
             RawStdKey::Gate(gk) => self.gate.get(gk).is_some(),
             RawStdKey::Region(rk) => self.region.get(rk).is_some(),
@@ -456,7 +473,7 @@ impl<const HAS_PRE: bool> RawStdKeyIndex<HAS_PRE> {
 impl StdLookupTx<'_> {
     pub(crate) fn commit(self) -> RawStdKeyIndex<true> {
         RawStdKeyIndex {
-            root: self.root.commit_array(),
+            root: self.root.commit_sparse(),
             meas: self.meas.commit_sparse(),
             gate: self.gate.commit_sparse(),
             region: self.region.commit_sparse(),

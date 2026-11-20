@@ -10,8 +10,7 @@ use std::hash::Hash;
 use std::iter;
 use std::ops::Range;
 
-use super::index::LookupAction;
-use super::masked::LookupMask;
+use super::index::{LookupAction, LookupMask};
 
 pub type SparseString<K> = SparseString_<K, Vec<u8>, ()>;
 

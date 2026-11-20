@@ -10,15 +10,9 @@ use nonempty::{
     ToDisplayNE, ToNE, ne_str,
 };
 
-use bytemuck::{NoUninit, must_cast_ref};
 use derive_more::{Display, From, TryInto};
 use derive_new::new;
-use strum::{EnumCount, VariantArray};
-use strum_macros::{EnumCount as EnumCount_, VariantArray};
 use thiserror::Error;
-
-use std::iter;
-use std::slice::Iter;
 
 #[cfg(feature = "python")]
 use {crate::python as py, fireflow_core_proc::DisplayAsPyErr};
@@ -41,9 +35,7 @@ pub enum RawStdKey {
 }
 
 /// An FCS key which does not use any indices.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(usize)]
 #[cfg_attr(feature = "testutil", derive(Arbitrary))]
 pub enum RootKey {
@@ -151,9 +143,7 @@ pub struct DfcKeyMarker;
 /// An identifier corresponding to a $Pn* keyword.
 ///
 /// Note that these can either be prefixes or suffixes depending on the key.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(usize)]
 #[cfg_attr(feature = "testutil", derive(Arbitrary))]
 pub enum MeasKeyId {
@@ -216,9 +206,7 @@ pub enum PeakMeasKeyId {
 }
 
 /// An identifier corresponding to a $Gn* keyword.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(usize)]
 #[cfg_attr(feature = "testutil", derive(Arbitrary))]
 pub enum GateKeyId {
@@ -233,9 +221,7 @@ pub enum GateKeyId {
 }
 
 /// An identifier corresponding to a $Rn* keyword.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(usize)]
 #[cfg_attr(feature = "testutil", derive(Arbitrary))]
 pub enum RegionKeyId {
@@ -248,12 +234,6 @@ pub enum RegionKeyId {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct KeyNotStdError(NEString);
-
-/// Iterator for enums which map to numbers starting at 0
-pub type NumericEnumIter<T> = iter::Copied<Iter<'static, T>>;
-
-/// Index generator for root keys.
-pub type RootKeyGenerator = NumericEnumIter<RootKey>;
 
 /// The number of root keys.
 pub const N_ROOT: usize = 54;
@@ -284,72 +264,6 @@ pub const REGION_W_KW_SUFFIX: &NEStr = ne_str!("W");
 
 // Include list of all keyword names/suffixes defined in build script
 include!(concat!(env!("OUT_DIR"), "/kw_strs.rs"));
-
-// Implement numeric mapping for key id enums
-
-/// An enum which exactly maps to a sequence of numbers starting at 0.
-///
-/// The following properties must hold:
-///
-/// * Enum must be repr(usize).
-/// * Enum must have no fields.
-/// * Enum variants must map to 0-N in order.
-/// * The supplied constant must match the number of variants.
-///
-/// The constant parameter is meant to be used to enforce array lengths since
-/// Rust does not allow using associated constants in const/type definitions
-/// (yet).
-pub trait NumericEnum<const LEN: usize>: VariantArray + EnumCount + NoUninit {
-    const _CHECK: () = {
-        assert!(LEN == Self::COUNT, "const does not match var count");
-        assert!(
-            is_zero_to_n_usize(Self::VARIANTS),
-            "all variants must be monotonically increasing usize starting from 0",
-        );
-    };
-
-    #[allow(path_statements)]
-    fn iter_ref() -> Iter<'static, Self> {
-        Self::_CHECK;
-        Self::VARIANTS.iter()
-    }
-
-    fn iter() -> NumericEnumIter<Self> {
-        Self::iter_ref().copied()
-    }
-
-    fn index(&self) -> usize {
-        *must_cast_ref(self)
-    }
-}
-
-impl NumericEnum<N_ROOT> for RootKey {}
-
-// Implement enum index properties for key types
-
-/// An enum which can be used to index into an array.
-pub trait EnumIndex {
-    /// Type to generate the full sequence of offsets for array indexing.
-    ///
-    /// This may be infinite depending on [`Self`].
-    type Generator: Iterator<Item = Self>;
-
-    fn generate() -> Self::Generator;
-
-    fn offset(&self) -> usize;
-}
-
-impl EnumIndex for RootKey {
-    type Generator = RootKeyGenerator;
-
-    fn generate() -> Self::Generator {
-        Self::iter()
-    }
-
-    fn offset(&self) -> usize {
-        self.index()
-    }
-}
 
 // Implement key id -> std key mappings
 
@@ -1226,20 +1140,6 @@ fn split_index_and_suffix(bytes: &[u8]) -> Option<(usize, &[u8])> {
     } else {
         None
     }
-}
-
-const fn is_zero_to_n_usize<X: NoUninit>(xs: &[X]) -> bool {
-    let mut i = 0_usize;
-
-    while i < xs.len() {
-        let x: &usize = must_cast_ref(&xs[i]);
-        if *x != i {
-            return false;
-        }
-        i += 1;
-    }
-
-    true
 }
 
 #[cfg(test)]

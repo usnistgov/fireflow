@@ -32,9 +32,7 @@ use std::str::FromStr;
 #[cfg(feature = "python")]
 use {
     crate::python as py,
-    fireflow_core_proc::{
-        DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString, TryFromPyObject,
-    },
+    fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString},
     pyo3::prelude::*,
 };
 

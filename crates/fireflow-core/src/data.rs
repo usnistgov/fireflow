@@ -1247,6 +1247,7 @@ pub enum ReadDataframeWarning {
 #[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct EventOverRangeError {
     row: usize,
+    #[new(into)]
     column: MeasIndex,
     trunc_type: ExceededRange,
 }
@@ -1279,6 +1280,16 @@ impl fmt::Display for EventOverRangeError {
                 write!(f, "{preamble} could not be expressed in {chars} characters")
             }
         }
+    }
+}
+
+impl ExceededRange {
+    fn from_bitmask<T>(bitmask: &Bitmask<T>) -> Self
+    where
+        T: Copy + Into<u64>,
+        Bitmask<T>: Into<TextRange>,
+    {
+        Self::Bitmask(bitmask.bitmask().into(), bitmask.into())
     }
 }
 
@@ -7530,46 +7541,75 @@ where
         range_flag: DisallowOverRange,
     ) -> CheckRangeResult
     where
-        T: Copy + Into<T::Prim>,
-        T::Prim: Copy + PartialOrd + Bounded + Into<u64>,
+        T: Copy + Into<T::Prim> + Into<u64>,
+        T::Prim: Copy + PartialOrd + Bounded,
         Bitmask<T>: Into<TextRange>,
     {
         let bitmask = self.column_schema.bitmask().into();
         let int_upper = self.column_schema.value().into();
-        let range: TextRange = self.column_schema.into();
         let bf = bitmask_flag.is_error();
         let rf = range_flag.is_error();
 
+        let range = || self.column_schema.into();
+        let er = || ExceededRange::Range(range());
+        let eb = || ExceededRange::from_bitmask(&self.column_schema);
+
         match (bf, rf) {
             (Some(b_is_error), Some(r_is_error)) => {
-                // Check both bitmask and upper range. Return error if either of
-                // these is set to error (vs warning). We only need to check the
-                // bitmask first since if anything exceeds the bitmask then the
-                // range doesn't matter. If the bitmask isn't exceeded, check
-                // the range but only if it is not equal to the bitmask (ASSUME
-                // it will always be higher).
-                let is_error = b_is_error | r_is_error;
-                let er = ExceededRange::Range(range);
                 if self.series.any_gt(&bitmask) {
-                    self.check_overrange1(i, &bitmask, er, is_error)
-                } else if bitmask > int_upper && self.series.any_gt(&int_upper) {
-                    self.check_overrange1(i, &int_upper, er, r_is_error)
+                    // At least one value greater than bitmask. Do any number
+                    // of things depending on if range == bitmask and the flag
+                    // values.
+                    if bitmask == int_upper {
+                        // Range and bitmask are the same, therefore this
+                        // this reduces to throwing an error/warning based on
+                        // the boolean OR of the flags.
+                        let is_error = b_is_error | r_is_error;
+                        self.check_overrange1(i, &bitmask, eb(), is_error)
+                    } else if b_is_error == r_is_error {
+                        // Range and bitmask not the same, but both flags are
+                        // the same which means neither limit takes priority
+                        // over the other. Find the first value that exceeds the
+                        // range (not bitmask) and then test if it also exceeds
+                        // bitmask. Format error accordingly.
+                        let e = self.find_overrange(&int_upper).map(|(rowi, x)| {
+                            let exc = if x > &bitmask { eb() } else { er() };
+                            EventOverRangeError::new(rowi, i, exc)
+                        });
+                        LogResult::new_non_commutative_if(!b_is_error, (), (), e)
+                    } else if b_is_error {
+                        // Range/bitmask not the same, bitmask is an error, and
+                        // range is a warning. Find the first value that exceeds
+                        // bitmask and ignore any earlier values that exceeded
+                        // range only since these will only result in warnings.
+                        self.check_overrange1(i, &bitmask, eb(), true)
+                    } else if r_is_error {
+                        // Range/bitmask not the same, range is an error, and
+                        // bitmask is a warning. Find the first value that
+                        // exceeds range. This may/may not also exceed the
+                        // bitmask but it does not matter since bitmask is only
+                        // a warning and range takes priority as an error.
+                        self.check_overrange1(i, &int_upper, er(), true)
+                    } else {
+                        LogResult::new_ok(())
+                    }
+                } else if self.series.any_gt(&int_upper) {
+                    // Nothing exceeds bitmask. Check if anything exceeds range
+                    // and return first violating row if found.
+                    self.check_overrange1(i, &int_upper, er(), r_is_error)
                 } else {
                     LogResult::new_ok(())
                 }
             }
-            (Some(is_error), None) => {
-                let eb = ExceededRange::Bitmask(bitmask.into(), range);
-                self.check_overrange0(i, bitmask, eb, is_error)
-            }
-            (None, Some(is_error)) => {
-                let er = ExceededRange::Range(range);
-                self.check_overrange0(i, int_upper, er, is_error)
-            }
+            (Some(is_error), None) => self.check_overrange0(i, bitmask, eb(), is_error),
+            (None, Some(is_error)) => self.check_overrange0(i, int_upper, er(), is_error),
             (None, None) => LogResult::new_ok(()),
         }
     }
 
+    // TODO it is possible to apply a bitmask to a value that exceeds the
+    // bitmask that is then less than the range. This makes some of the paths
+    // below incorrect.
     fn check_range_int_mut(
         &mut self,
         i: MeasIndex,
@@ -7608,6 +7648,9 @@ where
                     // Range check is a hard error. Truncation doesn't matter
                     // since any truncated value will also exceed range and thus
                     // should trigger an error.
+                    //
+                    // TODO this is wrong. Need to mask each value first and
+                    // then check the range.
                     None => self.check_overrange2(i, &int_upper, er, flag),
                     // Range checks are a warning. Find the first overrange
                     // position. If it is over the bitmask, return position and
@@ -7620,6 +7663,8 @@ where
                                 // this much easier since there is only one
                                 // limit. Return warning if either level has a
                                 // warning flag set.
+                                //
+                                // TODO mask instead of clamp here.
                                 let any_warn = bitmask_is_warn | range_is_warn;
                                 LogResult::Succ(self.truncate_warn(i, &bitmask, er, any_warn))
                             } else {
@@ -7630,6 +7675,13 @@ where
                                 // was exceeded first (in which case the range
                                 // was also exceeded) or the range but not the
                                 // bitmask was exceeded first.
+                                //
+                                // TODO this is also wrong. First, we need to
+                                // mask rather than clamp if over bitmask.
+                                // Second, we need to test if the masked value
+                                // is less than the range limit, rather than
+                                // blindly assuming that anything above bitmask
+                                // is also above range.
                                 let pos_res = self.series.truncate_and_test(bitmask, int_upper);
                                 let (col, warn) = match pos_res {
                                     // Bitmask was exceeded first. This mirrors
@@ -7689,6 +7741,7 @@ where
             // repeat the non-int code block but only check the bitmask and
             // pretend range does not exist.
             (OverLimitMode::None, OverLimitMode::None) => LogResult::new_ok(None),
+            // TODO this needs to mask and not clamp.
             (OverLimitMode::Truncate(is_warn), OverLimitMode::None) => {
                 LogResult::Succ(self.truncate_warn(i, &bitmask, eb, is_warn))
             }
@@ -7751,7 +7804,10 @@ where
     C: ColumnHasNativeType,
     C::Native: FCSRepr,
 {
-    fn find_overrange(&self, limit: &<C::Native as FCSRepr>::Prim) -> Option<usize>
+    fn find_overrange(
+        &self,
+        limit: &<C::Native as FCSRepr>::Prim,
+    ) -> Option<(usize, &<C::Native as FCSRepr>::Prim)>
     where
         <C::Native as FCSRepr>::Prim: PartialOrd,
     {
@@ -7759,7 +7815,7 @@ where
             .as_ref()
             .iter()
             .enumerate()
-            .find_map(|(rowi, x)| (x > limit).then_some(rowi))
+            .find_map(|(rowi, x)| (x > limit).then_some((rowi, x)))
     }
 
     fn find_overrange2(&self, limit: &<C::Native as FCSRepr>::Prim) -> OverrangeColumn
@@ -7767,7 +7823,7 @@ where
         <C::Native as FCSRepr>::Prim: PartialOrd,
     {
         self.find_overrange(limit)
-            .map(|rowi| OverrangeColumnResult::new(rowi, false))
+            .map(|(rowi, _)| OverrangeColumnResult::new(rowi, false))
     }
 
     fn check_overrange0(
@@ -7799,7 +7855,7 @@ where
     {
         let e = self
             .find_overrange(limit)
-            .map(|rowi| EventOverRangeError::new(rowi, i, exceed));
+            .map(|(rowi, _)| EventOverRangeError::new(rowi, i, exceed));
         LogResult::new_non_commutative_if(!is_error, (), (), e)
     }
 
@@ -10047,7 +10103,10 @@ mod private {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{io::AnyReader_, segment::read::Offsets};
+    use crate::io::AnyReader_;
+    use crate::segment::read::Offsets;
+    use crate::types::bitmask::Bitmask16;
+    use crate::types::dataframe::InternalSeries;
 
     use fireflow_types::config::TriFlag;
     use proptest::prelude::*;
@@ -10298,6 +10357,148 @@ mod tests {
             assert!(df.is_empty());
         }
     }
+
+    // check ranges
+
+    fn _check_range_int<T>(
+        ser: &NativeSeries<Bitmask<T>>,
+        i: usize,
+        bitmask_flag: TriFlag,
+        range_flag: TriFlag,
+    ) -> Result<Option<EventOverRangeError>, EventOverRangeError>
+    where
+        NativeSeries<Bitmask<T>>: CheckRange,
+        Bitmask<T>: ColumnHasNativeType<Native = T>,
+        T: FCSRepr,
+    {
+        ser.check_range(i.into(), bitmask_flag.into(), range_flag.into())
+            .resolve_non_commutative(|w| w, |e| e)
+            .map(|((), w)| w)
+    }
+
+    proptest! {
+        #[test]
+        fn check_int_range(
+            bitmask_flag in any::<TriFlag>(),
+            range_flag in any::<TriFlag>(),
+        ) {
+            let rng = Bitmask16::try_from(1023_u64).unwrap();
+            let iser = InternalSeries::<u16, u16>::from(vec![100, 1000, 1023]);
+            let ser = Series::new(rng, iser);
+            let res = _check_range_int(&ser, 0, bitmask_flag, range_flag);
+            assert_eq!(res, Ok(None))
+        }
+    }
+
+    #[test]
+    fn check_int_range_overrange() {
+        let rng = Bitmask16::try_from(1023_u64).unwrap();
+        let iser = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1024, 1025]);
+        let ser = Series::new(rng, iser);
+        let i = 0;
+        // Bitmask and range are the same, so should error if at least one flag
+        // is an error.
+        let res0 = _check_range_int(&ser, i, TriFlag::False, TriFlag::True);
+        let res1 = _check_range_int(&ser, i, TriFlag::False, TriFlag::False);
+        let res2 = _check_range_int(&ser, i, TriFlag::False, TriFlag::Silent);
+        let res3 = _check_range_int(&ser, i, TriFlag::True, TriFlag::True);
+        let res4 = _check_range_int(&ser, i, TriFlag::Silent.into(), TriFlag::True.into());
+        let err0 = EventOverRangeError::new(2, i, ExceededRange::from_bitmask(&rng));
+        let err1 = EventOverRangeError::new(2, i, ExceededRange::Range(rng.into()));
+        assert_eq!(res0, Err(err0.clone()));
+        assert_eq!(res1, Err(err0.clone()));
+        assert_eq!(res2, Err(err0.clone()));
+        assert_eq!(res3, Err(err0));
+        assert_eq!(res4, Err(err1));
+    }
+
+    #[test]
+    fn check_int_range_overrange_warn() {
+        let rng = Bitmask16::try_from(1023_u64).unwrap();
+        let iser = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1024, 1025]);
+        let ser = Series::new(rng, iser);
+        let i = 0;
+        // Should warn if at least one flag is set to warning.
+        let res0 = _check_range_int(&ser, i, TriFlag::True, TriFlag::False);
+        let res1 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::False);
+        let res2 = _check_range_int(&ser, i, TriFlag::True, TriFlag::Silent);
+        let err0 = EventOverRangeError::new(2, i, ExceededRange::from_bitmask(&rng));
+        let err1 = EventOverRangeError::new(2, i, ExceededRange::Range(rng.into()));
+        assert_eq!(res0, Ok(Some(err0.clone())));
+        assert_eq!(res1, Ok(Some(err1)));
+        assert_eq!(res2, Ok(Some(err0)));
+    }
+
+    #[test]
+    fn check_int_range_overrange_silent() {
+        let rng = Bitmask16::try_from(1023_u64).unwrap();
+        let iser = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1024, 1025]);
+        let ser = Series::new(rng, iser);
+        let res = _check_range_int(&ser, 0, TriFlag::Silent, TriFlag::Silent);
+        assert_eq!(res, Ok(None));
+    }
+
+    #[test]
+    fn check_int_range_overrange_split() {
+        let rng = Bitmask16::try_from(1022_u64).unwrap();
+        let iser = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1024, 1025]);
+        let ser = Series::new(rng, iser);
+        let i = 0;
+        let res0 = _check_range_int(&ser, i, TriFlag::False, TriFlag::True);
+        let res1 = _check_range_int(&ser, i, TriFlag::False, TriFlag::False);
+        let res2 = _check_range_int(&ser, i, TriFlag::False, TriFlag::Silent);
+        let res3 = _check_range_int(&ser, i, TriFlag::True, TriFlag::True);
+        let res4 = _check_range_int(&ser, i, TriFlag::True, TriFlag::False);
+        let res5 = _check_range_int(&ser, i, TriFlag::True, TriFlag::Silent);
+        let res6 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::True);
+        let res7 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::False);
+        let res8 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::Silent);
+        let err0 = EventOverRangeError::new(2, i, ExceededRange::from_bitmask(&rng));
+        let err1 = EventOverRangeError::new(1, i, ExceededRange::Range(rng.into()));
+        assert_eq!(res0, Err(err1.clone()));
+        assert_eq!(res1, Err(err0.clone()));
+        assert_eq!(res2, Err(err0.clone()));
+        assert_eq!(res3, Err(err1.clone()));
+        assert_eq!(res4, Ok(Some(err1.clone())));
+        assert_eq!(res5, Ok(Some(err0.clone())));
+        assert_eq!(res6, Err(err1.clone()));
+        assert_eq!(res7, Ok(Some(err1.clone())));
+        assert_eq!(res8, Ok(None));
+    }
+
+    // #[test]
+    // fn check_int_range_overrange_warn() {
+    //     let rng = Bitmask16::try_from(1023_u64).unwrap();
+    //     let iser = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1024, 1025]);
+    //     let ser = Series::new(rng, iser);
+    //     let i = 0.into();
+    //     // Should warn if at least one flag is set to warning.
+    //     let res0 = ser
+    //         .check_range(i, TriFlag::True.into(), TriFlag::False.into())
+    //         .resolve_non_commutative(|w| w, |e| e);
+    //     let res1 = ser
+    //         .check_range(i, TriFlag::Silent.into(), TriFlag::False.into())
+    //         .resolve_non_commutative(|w| w, |e| e);
+    //     let res2 = ser
+    //         .check_range(i, TriFlag::True.into(), TriFlag::Silent.into())
+    //         .resolve_non_commutative(|w| w, |e| e);
+    //     let err0 = EventOverRangeError::new(2, i, ExceededRange::Bitmask(rng.into(), rng.into()));
+    //     let err1 = EventOverRangeError::new(2, i, ExceededRange::Range(rng.into()));
+    //     assert_eq!(res0, Ok(((), Some(err0.clone()))));
+    //     assert_eq!(res1, Ok(((), Some(err1))));
+    //     assert_eq!(res2, Ok(((), Some(err0))));
+    // }
+
+    // #[test]
+    // fn check_int_range_overrange_silent() {
+    //     let rng = Bitmask16::try_from(1023_u64).unwrap();
+    //     let iser = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1024, 1025]);
+    //     let ser = Series::new(rng, iser);
+    //     let res = ser
+    //         .check_range(0.into(), TriFlag::Silent.into(), TriFlag::Silent.into())
+    //         .resolve_non_commutative(|w| w, |e| e);
+    //     assert_eq!(res, Ok(((), None)));
+    // }
 }
 
 #[cfg(feature = "python")]

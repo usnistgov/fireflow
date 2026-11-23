@@ -830,11 +830,27 @@ impl PreEventsDiagnostics {
 pub type OverrangeColumn = Option<OverrangeColumnResult>;
 
 /// A column which was found to exceed $PnR.
-#[derive(new, Clone, Copy, PartialEq)]
+#[derive(new, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OverrangeColumnResult {
     /// Index of the first overrange value.
     pub first_overrange: usize,
+
+    /// The original value of $PnR that was exceeded (if applicable).
+    ///
+    /// Will be included in all situations except ASCII layouts in which
+    /// the offending value exceeded the character limit set by $PnB.
+    pub range: Option<TextRange>,
+
+    /// The value of $PnB if applicable.
+    ///
+    /// If schema is integer and a bitmask was exceeded, this will be the value
+    /// of the bitmask.
+    ///
+    /// If schema is ASCII and char limit was exceeded, this will be the char
+    /// limit.
+    pub width: Option<u64>,
+
     /// `true` if indexed value was truncated.
     pub was_truncated: bool,
 }
@@ -1252,6 +1268,13 @@ pub struct EventOverRangeError {
     trunc_type: ExceededRange,
 }
 
+impl EventOverRangeError {
+    fn as_overrange_result(&self, truncated: bool) -> OverrangeColumnResult {
+        let t = &self.trunc_type;
+        OverrangeColumnResult::new(self.row, t.range(), t.width(), truncated)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum ExceededRange {
     Bitmask(u64, TextRange),
@@ -1290,6 +1313,21 @@ impl ExceededRange {
         Bitmask<T>: Into<TextRange>,
     {
         Self::Bitmask(bitmask.bitmask().into(), bitmask.into())
+    }
+
+    fn range(&self) -> Option<TextRange> {
+        match self {
+            Self::Bitmask(_, r) | Self::Range(r) => Some(r.clone()),
+            Self::Characters(_) => None,
+        }
+    }
+
+    fn width(&self) -> Option<u64> {
+        match self {
+            Self::Bitmask(b, _) => Some(*b),
+            Self::Range(_) => None,
+            Self::Characters(c) => Some(u64::from(u8::from(*c))),
+        }
     }
 }
 
@@ -7689,8 +7727,8 @@ where
                                     // are the same.
                                     TruncateTestResult::FirstOverUpper(bitmask_pos) => {
                                         let any_warn = bitmask_is_warn | range_is_warn;
-                                        let col = OverrangeColumnResult::new(bitmask_pos, true);
                                         let w = EventOverRangeError::new(bitmask_pos, i, er);
+                                        let col = w.as_overrange_result(true);
                                         (col, any_warn.then_some(w))
                                     }
                                     TruncateTestResult::FirstUnderUpper {
@@ -7703,7 +7741,12 @@ where
                                         // has priority since it occurred first.
                                         // Return range position for diagnostics
                                         // regardless of warning flag.
-                                        let col = OverrangeColumnResult::new(range_pos, false);
+                                        let col = OverrangeColumnResult::new(
+                                            range_pos,
+                                            Some(self.column_schema.into()),
+                                            None,
+                                            false,
+                                        );
                                         let w = if range_is_warn {
                                             Some(EventOverRangeError::new(range_pos, i, er))
                                         } else if bitmask_is_warn {
@@ -7818,12 +7861,17 @@ where
             .find_map(|(rowi, x)| (x > limit).then_some((rowi, x)))
     }
 
-    fn find_overrange2(&self, limit: &<C::Native as FCSRepr>::Prim) -> OverrangeColumn
+    fn find_overrange2(
+        &self,
+        limit: &<C::Native as FCSRepr>::Prim,
+        exceed: &ExceededRange,
+    ) -> OverrangeColumn
     where
         <C::Native as FCSRepr>::Prim: PartialOrd,
     {
-        self.find_overrange(limit)
-            .map(|(rowi, _)| OverrangeColumnResult::new(rowi, false))
+        self.find_overrange(limit).map(|(rowi, _)| {
+            OverrangeColumnResult::new(rowi, exceed.range(), exceed.width(), false)
+        })
     }
 
     fn check_overrange0(
@@ -7869,15 +7917,18 @@ where
     where
         <C::Native as FCSRepr>::Prim: PartialOrd,
     {
-        let col = self.find_overrange2(limit);
-        let err = col.map(|c| EventOverRangeError::new(c.first_overrange, i, exceed));
-        match flag.is_error() {
-            Some(true) => err.map_or(LogResult::new_ok(col), LogResult::new_err),
-            Some(false) => {
-                let succ = Success::new_non_switchable(col).set_warnings(err);
-                LogResult::Succ(succ)
+        if let Some(col) = self.find_overrange2(limit, &exceed) {
+            let err = EventOverRangeError::new(col.first_overrange, i, exceed);
+            match flag.is_error() {
+                Some(true) => LogResult::new_err(err),
+                Some(false) => {
+                    let succ = Success::new_non_switchable(Some(col)).set_warnings(Some(err));
+                    LogResult::Succ(succ)
+                }
+                None => LogResult::new_ok(Some(col)),
             }
-            None => LogResult::new_ok(col),
+        } else {
+            LogResult::new_ok(None)
         }
     }
 
@@ -7903,12 +7954,13 @@ where
         <C::Native as FCSRepr>::Prim: PartialOrd + Copy,
     {
         let pos = self.truncate(limit);
+        let col =
+            pos.map(|rowi| OverrangeColumnResult::new(rowi, exceed.range(), exceed.width(), true));
         let w = if is_warn {
             pos.map(|rowi| EventOverRangeError::new(rowi, i, exceed))
         } else {
             None
         };
-        let col = pos.map(|rowi| OverrangeColumnResult::new(rowi, true));
         Success::new_non_switchable(col).set_warnings(w)
     }
 }
@@ -10360,7 +10412,7 @@ mod tests {
 
     // check ranges
 
-    fn _check_range_int<T>(
+    fn check_range_int_<T>(
         ser: &NativeSeries<Bitmask<T>>,
         i: usize,
         bitmask_flag: TriFlag,
@@ -10385,8 +10437,8 @@ mod tests {
             let rng = Bitmask16::try_from(1023_u64).unwrap();
             let iser = InternalSeries::<u16, u16>::from(vec![100, 1000, 1023]);
             let ser = Series::new(rng, iser);
-            let res = _check_range_int(&ser, 0, bitmask_flag, range_flag);
-            assert_eq!(res, Ok(None))
+            let res = check_range_int_(&ser, 0, bitmask_flag, range_flag);
+            assert_eq!(res, Ok(None));
         }
     }
 
@@ -10398,11 +10450,11 @@ mod tests {
         let i = 0;
         // Bitmask and range are the same, so should error if at least one flag
         // is an error.
-        let res0 = _check_range_int(&ser, i, TriFlag::False, TriFlag::True);
-        let res1 = _check_range_int(&ser, i, TriFlag::False, TriFlag::False);
-        let res2 = _check_range_int(&ser, i, TriFlag::False, TriFlag::Silent);
-        let res3 = _check_range_int(&ser, i, TriFlag::True, TriFlag::True);
-        let res4 = _check_range_int(&ser, i, TriFlag::Silent.into(), TriFlag::True.into());
+        let res0 = check_range_int_(&ser, i, TriFlag::False, TriFlag::True);
+        let res1 = check_range_int_(&ser, i, TriFlag::False, TriFlag::False);
+        let res2 = check_range_int_(&ser, i, TriFlag::False, TriFlag::Silent);
+        let res3 = check_range_int_(&ser, i, TriFlag::True, TriFlag::True);
+        let res4 = check_range_int_(&ser, i, TriFlag::Silent, TriFlag::True);
         let err0 = EventOverRangeError::new(2, i, ExceededRange::from_bitmask(&rng));
         let err1 = EventOverRangeError::new(2, i, ExceededRange::Range(rng.into()));
         assert_eq!(res0, Err(err0.clone()));
@@ -10419,9 +10471,9 @@ mod tests {
         let ser = Series::new(rng, iser);
         let i = 0;
         // Should warn if at least one flag is set to warning.
-        let res0 = _check_range_int(&ser, i, TriFlag::True, TriFlag::False);
-        let res1 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::False);
-        let res2 = _check_range_int(&ser, i, TriFlag::True, TriFlag::Silent);
+        let res0 = check_range_int_(&ser, i, TriFlag::True, TriFlag::False);
+        let res1 = check_range_int_(&ser, i, TriFlag::Silent, TriFlag::False);
+        let res2 = check_range_int_(&ser, i, TriFlag::True, TriFlag::Silent);
         let err0 = EventOverRangeError::new(2, i, ExceededRange::from_bitmask(&rng));
         let err1 = EventOverRangeError::new(2, i, ExceededRange::Range(rng.into()));
         assert_eq!(res0, Ok(Some(err0.clone())));
@@ -10434,7 +10486,7 @@ mod tests {
         let rng = Bitmask16::try_from(1023_u64).unwrap();
         let iser = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1024, 1025]);
         let ser = Series::new(rng, iser);
-        let res = _check_range_int(&ser, 0, TriFlag::Silent, TriFlag::Silent);
+        let res = check_range_int_(&ser, 0, TriFlag::Silent, TriFlag::Silent);
         assert_eq!(res, Ok(None));
     }
 
@@ -10444,15 +10496,15 @@ mod tests {
         let iser = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1024, 1025]);
         let ser = Series::new(rng, iser);
         let i = 0;
-        let res0 = _check_range_int(&ser, i, TriFlag::False, TriFlag::True);
-        let res1 = _check_range_int(&ser, i, TriFlag::False, TriFlag::False);
-        let res2 = _check_range_int(&ser, i, TriFlag::False, TriFlag::Silent);
-        let res3 = _check_range_int(&ser, i, TriFlag::True, TriFlag::True);
-        let res4 = _check_range_int(&ser, i, TriFlag::True, TriFlag::False);
-        let res5 = _check_range_int(&ser, i, TriFlag::True, TriFlag::Silent);
-        let res6 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::True);
-        let res7 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::False);
-        let res8 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::Silent);
+        let res0 = check_range_int_(&ser, i, TriFlag::False, TriFlag::True);
+        let res1 = check_range_int_(&ser, i, TriFlag::False, TriFlag::False);
+        let res2 = check_range_int_(&ser, i, TriFlag::False, TriFlag::Silent);
+        let res3 = check_range_int_(&ser, i, TriFlag::True, TriFlag::True);
+        let res4 = check_range_int_(&ser, i, TriFlag::True, TriFlag::False);
+        let res5 = check_range_int_(&ser, i, TriFlag::True, TriFlag::Silent);
+        let res6 = check_range_int_(&ser, i, TriFlag::Silent, TriFlag::True);
+        let res7 = check_range_int_(&ser, i, TriFlag::Silent, TriFlag::False);
+        let res8 = check_range_int_(&ser, i, TriFlag::Silent, TriFlag::Silent);
         let err0 = EventOverRangeError::new(2, i, ExceededRange::from_bitmask(&rng));
         let err1 = EventOverRangeError::new(1, i, ExceededRange::Range(rng.into()));
         assert_eq!(res0, Err(err1.clone()));
@@ -10460,9 +10512,9 @@ mod tests {
         assert_eq!(res2, Err(err0.clone()));
         assert_eq!(res3, Err(err1.clone()));
         assert_eq!(res4, Ok(Some(err1.clone())));
-        assert_eq!(res5, Ok(Some(err0.clone())));
+        assert_eq!(res5, Ok(Some(err0)));
         assert_eq!(res6, Err(err1.clone()));
-        assert_eq!(res7, Ok(Some(err1.clone())));
+        assert_eq!(res7, Ok(Some(err1)));
         assert_eq!(res8, Ok(None));
     }
 
@@ -10472,15 +10524,15 @@ mod tests {
         let iser = InternalSeries::<u16, u16>::from(vec![1025, 1024, 1023, 1022]);
         let ser = Series::new(rng, iser);
         let i = 0;
-        let res0 = _check_range_int(&ser, i, TriFlag::False, TriFlag::True);
-        let res1 = _check_range_int(&ser, i, TriFlag::False, TriFlag::False);
-        let res2 = _check_range_int(&ser, i, TriFlag::False, TriFlag::Silent);
-        let res3 = _check_range_int(&ser, i, TriFlag::True, TriFlag::True);
-        let res4 = _check_range_int(&ser, i, TriFlag::True, TriFlag::False);
-        let res5 = _check_range_int(&ser, i, TriFlag::True, TriFlag::Silent);
-        let res6 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::True);
-        let res7 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::False);
-        let res8 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::Silent);
+        let res0 = check_range_int_(&ser, i, TriFlag::False, TriFlag::True);
+        let res1 = check_range_int_(&ser, i, TriFlag::False, TriFlag::False);
+        let res2 = check_range_int_(&ser, i, TriFlag::False, TriFlag::Silent);
+        let res3 = check_range_int_(&ser, i, TriFlag::True, TriFlag::True);
+        let res4 = check_range_int_(&ser, i, TriFlag::True, TriFlag::False);
+        let res5 = check_range_int_(&ser, i, TriFlag::True, TriFlag::Silent);
+        let res6 = check_range_int_(&ser, i, TriFlag::Silent, TriFlag::True);
+        let res7 = check_range_int_(&ser, i, TriFlag::Silent, TriFlag::False);
+        let res8 = check_range_int_(&ser, i, TriFlag::Silent, TriFlag::Silent);
         let err0 = EventOverRangeError::new(0, i, ExceededRange::from_bitmask(&rng));
         let err1 = EventOverRangeError::new(0, i, ExceededRange::Range(rng.into()));
         assert_eq!(res0, Err(err0.clone()));
@@ -10488,9 +10540,9 @@ mod tests {
         assert_eq!(res2, Err(err0.clone()));
         assert_eq!(res3, Err(err1.clone()));
         assert_eq!(res4, Ok(Some(err0.clone())));
-        assert_eq!(res5, Ok(Some(err0.clone())));
+        assert_eq!(res5, Ok(Some(err0)));
         assert_eq!(res6, Err(err1.clone()));
-        assert_eq!(res7, Ok(Some(err1.clone())));
+        assert_eq!(res7, Ok(Some(err1)));
         assert_eq!(res8, Ok(None));
     }
 
@@ -10500,15 +10552,15 @@ mod tests {
         let iser = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1022, 1021]);
         let ser = Series::new(rng, iser);
         let i = 0;
-        let res0 = _check_range_int(&ser, i, TriFlag::False, TriFlag::True);
-        let res1 = _check_range_int(&ser, i, TriFlag::False, TriFlag::False);
-        let res2 = _check_range_int(&ser, i, TriFlag::False, TriFlag::Silent);
-        let res3 = _check_range_int(&ser, i, TriFlag::True, TriFlag::True);
-        let res4 = _check_range_int(&ser, i, TriFlag::True, TriFlag::False);
-        let res5 = _check_range_int(&ser, i, TriFlag::True, TriFlag::Silent);
-        let res6 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::True);
-        let res7 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::False);
-        let res8 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::Silent);
+        let res0 = check_range_int_(&ser, i, TriFlag::False, TriFlag::True);
+        let res1 = check_range_int_(&ser, i, TriFlag::False, TriFlag::False);
+        let res2 = check_range_int_(&ser, i, TriFlag::False, TriFlag::Silent);
+        let res3 = check_range_int_(&ser, i, TriFlag::True, TriFlag::True);
+        let res4 = check_range_int_(&ser, i, TriFlag::True, TriFlag::False);
+        let res5 = check_range_int_(&ser, i, TriFlag::True, TriFlag::Silent);
+        let res6 = check_range_int_(&ser, i, TriFlag::Silent, TriFlag::True);
+        let res7 = check_range_int_(&ser, i, TriFlag::Silent, TriFlag::False);
+        let res8 = check_range_int_(&ser, i, TriFlag::Silent, TriFlag::Silent);
         let err = EventOverRangeError::new(1, i, ExceededRange::Range(rng.into()));
         assert_eq!(res0, Err(err.clone()));
         assert_eq!(res1, Ok(Some(err.clone())));
@@ -10517,7 +10569,7 @@ mod tests {
         assert_eq!(res4, Ok(Some(err.clone())));
         assert_eq!(res5, Ok(None));
         assert_eq!(res6, Err(err.clone()));
-        assert_eq!(res7, Ok(Some(err.clone())));
+        assert_eq!(res7, Ok(Some(err)));
         assert_eq!(res8, Ok(None));
     }
 }
@@ -10628,8 +10680,8 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for OverrangeColumnResult {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let (i, t) = obj.extract()?;
-            Ok(Self::new(i, t))
+            let (i, r, w, t) = obj.extract()?;
+            Ok(Self::new(i, r, w, t))
         }
     }
 
@@ -10639,7 +10691,13 @@ mod python {
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            (self.first_overrange, self.was_truncated).into_pyobject(py)
+            (
+                self.first_overrange,
+                self.range,
+                self.width,
+                self.was_truncated,
+            )
+                .into_pyobject(py)
         }
     }
 }

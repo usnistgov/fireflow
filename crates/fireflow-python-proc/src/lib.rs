@@ -8829,6 +8829,8 @@ impl<E: From<PyException>> PyList<E> {
         let path = parse_quote!(fireflow_core::data::OverrangeColumnResult);
         Self::new1(PyOpt::new1(
             PyTuple::new1(RsInt::Usize)
+                .add(PyOpt::new1(PyDecimal::default()))
+                .add(PyOpt::new1(RsInt::U64))
                 .add(PyBool::default())
                 .rstype(path),
         ))

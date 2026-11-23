@@ -3987,7 +3987,7 @@ class DatasetDiagnostics:
         event_width: int | None,
         event_data_remainder: int | None,
         tot_event_mismatch: bool | None,
-        overrange_columns: list[tuple[int, bool] | None],
+        overrange_columns: list[tuple[int, Decimal | None, int | None, bool] | None],
         intra_segment_dark_bytes: list[IntraSegmentDarkBytes],
         post_dataset_dark_bytes: pft.DarkBytes | None,
         file_crc: pft.CRCOutput,
@@ -4010,7 +4010,9 @@ class DatasetDiagnostics:
     @property
     def tot_event_mismatch(self) -> bool | None: ...
     @property
-    def overrange_columns(self) -> list[tuple[int, bool] | None]: ...
+    def overrange_columns(
+        self,
+    ) -> list[tuple[int, Decimal | None, int | None, bool] | None]: ...
     @property
     def intra_segment_dark_bytes(self) -> list[IntraSegmentDarkBytes]: ...
     @property

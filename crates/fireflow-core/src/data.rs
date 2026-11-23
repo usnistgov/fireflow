@@ -10466,39 +10466,60 @@ mod tests {
         assert_eq!(res8, Ok(None));
     }
 
-    // #[test]
-    // fn check_int_range_overrange_warn() {
-    //     let rng = Bitmask16::try_from(1023_u64).unwrap();
-    //     let iser = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1024, 1025]);
-    //     let ser = Series::new(rng, iser);
-    //     let i = 0.into();
-    //     // Should warn if at least one flag is set to warning.
-    //     let res0 = ser
-    //         .check_range(i, TriFlag::True.into(), TriFlag::False.into())
-    //         .resolve_non_commutative(|w| w, |e| e);
-    //     let res1 = ser
-    //         .check_range(i, TriFlag::Silent.into(), TriFlag::False.into())
-    //         .resolve_non_commutative(|w| w, |e| e);
-    //     let res2 = ser
-    //         .check_range(i, TriFlag::True.into(), TriFlag::Silent.into())
-    //         .resolve_non_commutative(|w| w, |e| e);
-    //     let err0 = EventOverRangeError::new(2, i, ExceededRange::Bitmask(rng.into(), rng.into()));
-    //     let err1 = EventOverRangeError::new(2, i, ExceededRange::Range(rng.into()));
-    //     assert_eq!(res0, Ok(((), Some(err0.clone()))));
-    //     assert_eq!(res1, Ok(((), Some(err1))));
-    //     assert_eq!(res2, Ok(((), Some(err0))));
-    // }
+    #[test]
+    fn check_int_range_overrange_split_rev() {
+        let rng = Bitmask16::try_from(1022_u64).unwrap();
+        let iser = InternalSeries::<u16, u16>::from(vec![1025, 1024, 1023, 1022]);
+        let ser = Series::new(rng, iser);
+        let i = 0;
+        let res0 = _check_range_int(&ser, i, TriFlag::False, TriFlag::True);
+        let res1 = _check_range_int(&ser, i, TriFlag::False, TriFlag::False);
+        let res2 = _check_range_int(&ser, i, TriFlag::False, TriFlag::Silent);
+        let res3 = _check_range_int(&ser, i, TriFlag::True, TriFlag::True);
+        let res4 = _check_range_int(&ser, i, TriFlag::True, TriFlag::False);
+        let res5 = _check_range_int(&ser, i, TriFlag::True, TriFlag::Silent);
+        let res6 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::True);
+        let res7 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::False);
+        let res8 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::Silent);
+        let err0 = EventOverRangeError::new(0, i, ExceededRange::from_bitmask(&rng));
+        let err1 = EventOverRangeError::new(0, i, ExceededRange::Range(rng.into()));
+        assert_eq!(res0, Err(err0.clone()));
+        assert_eq!(res1, Err(err0.clone()));
+        assert_eq!(res2, Err(err0.clone()));
+        assert_eq!(res3, Err(err1.clone()));
+        assert_eq!(res4, Ok(Some(err0.clone())));
+        assert_eq!(res5, Ok(Some(err0.clone())));
+        assert_eq!(res6, Err(err1.clone()));
+        assert_eq!(res7, Ok(Some(err1.clone())));
+        assert_eq!(res8, Ok(None));
+    }
 
-    // #[test]
-    // fn check_int_range_overrange_silent() {
-    //     let rng = Bitmask16::try_from(1023_u64).unwrap();
-    //     let iser = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1024, 1025]);
-    //     let ser = Series::new(rng, iser);
-    //     let res = ser
-    //         .check_range(0.into(), TriFlag::Silent.into(), TriFlag::Silent.into())
-    //         .resolve_non_commutative(|w| w, |e| e);
-    //     assert_eq!(res, Ok(((), None)));
-    // }
+    #[test]
+    fn check_int_range_overrange_split_nobitmask() {
+        let rng = Bitmask16::try_from(1022_u64).unwrap();
+        let iser = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1022, 1021]);
+        let ser = Series::new(rng, iser);
+        let i = 0;
+        let res0 = _check_range_int(&ser, i, TriFlag::False, TriFlag::True);
+        let res1 = _check_range_int(&ser, i, TriFlag::False, TriFlag::False);
+        let res2 = _check_range_int(&ser, i, TriFlag::False, TriFlag::Silent);
+        let res3 = _check_range_int(&ser, i, TriFlag::True, TriFlag::True);
+        let res4 = _check_range_int(&ser, i, TriFlag::True, TriFlag::False);
+        let res5 = _check_range_int(&ser, i, TriFlag::True, TriFlag::Silent);
+        let res6 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::True);
+        let res7 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::False);
+        let res8 = _check_range_int(&ser, i, TriFlag::Silent, TriFlag::Silent);
+        let err = EventOverRangeError::new(1, i, ExceededRange::Range(rng.into()));
+        assert_eq!(res0, Err(err.clone()));
+        assert_eq!(res1, Ok(Some(err.clone())));
+        assert_eq!(res2, Ok(None));
+        assert_eq!(res3, Err(err.clone()));
+        assert_eq!(res4, Ok(Some(err.clone())));
+        assert_eq!(res5, Ok(None));
+        assert_eq!(res6, Err(err.clone()));
+        assert_eq!(res7, Ok(Some(err.clone())));
+        assert_eq!(res8, Ok(None));
+    }
 }
 
 #[cfg(feature = "python")]

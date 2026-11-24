@@ -3,7 +3,7 @@
 //! Here we only need to worry about 6 external types (u8-64, f32, f64) and 10
 //! internal types, (f32, f64, all unsigned int widths 1-8 bytes).
 
-use crate::data::{CheckRange, EventOverRangeError, OverrangeColumn};
+use crate::data::{CheckRange, EventOverRangeError, OverrangeColumn, TruncateRangeOk};
 use crate::logging::{LogResult, WarningsAndErrorsResult};
 use crate::match_many_to_one;
 use crate::types::unaligned::{U24, U40, U48, U56};
@@ -1183,9 +1183,8 @@ impl<C> DataFrame<C> {
         let mut warnings = vec![];
         let mut errors = vec![];
         for (i, c) in self.series.iter().enumerate() {
-            let res = c.check_range(i.into(), bitmask_flag, range_flag);
-            match res.resolve_non_commutative(|w| w, |e| e) {
-                Ok(((), w)) => {
+            match c.check_range(i.into(), bitmask_flag, range_flag) {
+                Ok(w) => {
                     warnings.extend(w);
                 }
                 Err(e) => errors.push(e),
@@ -1206,12 +1205,15 @@ impl<C> DataFrame<C> {
         let mut warnings = vec![];
         let mut errors = vec![];
         for (i, c) in self.series.iter_mut().enumerate() {
-            let res = c.check_range_mut(i.into(), bitmask_action, range_action);
-            match res.resolve_non_commutative(|w| w, |e| e) {
-                Ok((col, w)) => {
-                    cols.push(col);
-                    warnings.extend(w);
-                }
+            match c.check_range_mut(i.into(), bitmask_action, range_action) {
+                Ok(res) => match res {
+                    TruncateRangeOk::Nothing => cols.push(None),
+                    TruncateRangeOk::Diagnostic(col) => cols.push(Some(col)),
+                    TruncateRangeOk::Warning(col, w) => {
+                        cols.push(Some(col));
+                        warnings.push(w);
+                    }
+                },
                 Err(e) => errors.push(e),
             }
         }

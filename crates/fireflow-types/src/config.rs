@@ -900,6 +900,23 @@ pub trait ErrorFlag {
 pub trait TriErrorFlag {
     const FALSE_IS_ERROR: bool;
 
+    fn as_generic(&self) -> GenericTriFlag
+    where
+        Self: Into<TriFlag> + Copy,
+    {
+        let f = match self.is_error() {
+            Some(is_error) => {
+                if is_error == GenericTriFlag::FALSE_IS_ERROR {
+                    TriFlag::False
+                } else {
+                    TriFlag::True
+                }
+            }
+            None => TriFlag::Silent,
+        };
+        GenericTriFlag(f)
+    }
+
     fn is_error(&self) -> Option<bool>
     where
         Self: Into<TriFlag> + Copy,
@@ -994,11 +1011,11 @@ impl_tri_error_flag!(true_is_error DisallowOverRange);
 impl_tri_error_flag!(false_is_error AllowMissingCRC);
 impl_tri_error_flag!(false_is_error AllowMismatchCRC);
 
-/// Fake 3-way flag to use for non-public switchable errors
+/// Generic 3-way flag which doesn't correspond to a particular config flag.
 #[derive(From, Into, Clone, Copy, Debug)]
-pub struct DummyTriFlag(pub(crate) TriFlag);
+pub struct GenericTriFlag(pub(crate) TriFlag);
 
-impl DummyTriFlag {
+impl GenericTriFlag {
     /// Emit a flag for handling blank values after trimming.
     ///
     /// Will be `None` if trimming is not set.
@@ -1045,7 +1062,7 @@ impl DummyTriFlag {
     }
 }
 
-impl TriErrorFlag for DummyTriFlag {
+impl TriErrorFlag for GenericTriFlag {
     const FALSE_IS_ERROR: bool = true;
 }
 
@@ -1792,7 +1809,7 @@ impl_config_flag!(
 );
 
 impl TrimValueWhitespace {
-    pub fn into_flag(&self) -> Option<DummyTriFlag> {
+    pub fn into_flag(&self) -> Option<GenericTriFlag> {
         let f = match self {
             Self::Notrim => None,
             Self::Trim => Some(TriFlag::False),
@@ -1945,12 +1962,12 @@ impl Default for OverBitmaskAction {
 /// The action that will be used to deal with values that exceed a range.
 #[derive(Debug, Clone, Copy)]
 pub enum OverLimitMode {
-    /// Do nothing.
-    None,
+    /// Only scan for diagnostic purposes.
+    DiagnoseOnly,
     /// Truncate values that are over limit and possibly warn.
     Truncate(bool),
     /// Scan for values that are over limit and emit error/warning or do nothing.
-    Check(DummyTriFlag),
+    Check(GenericTriFlag),
 }
 
 impl OverLimitAction {
@@ -1959,10 +1976,10 @@ impl OverLimitAction {
         match self {
             Self::Error => OverLimitMode::Check(TriFlag::False.into()),
             Self::Warn => OverLimitMode::Check(TriFlag::True.into()),
-            Self::Silent => OverLimitMode::Check(TriFlag::Silent.into()),
+            Self::None => OverLimitMode::Check(TriFlag::Silent.into()),
             Self::TruncateWarn => OverLimitMode::Truncate(true),
             Self::TruncateSilent => OverLimitMode::Truncate(false),
-            Self::None => OverLimitMode::None,
+            Self::Silent => OverLimitMode::DiagnoseOnly,
         }
     }
 }

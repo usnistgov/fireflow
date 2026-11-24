@@ -26,7 +26,7 @@ use crate::types::read_state::{DatasetOffset, DatasetReader, HeaderReader, TEXTR
 use crate::types::string_or_bytes::NEStringOrBytes;
 
 use fireflow_types::config::{
-    AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
+    AllowPseudoempty, ConfigFlag, GenericTriFlag, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
     MAX_U64_CHARS, ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig,
     TriErrorFlag as _,
 };
@@ -2235,7 +2235,7 @@ impl OtherOffsets20 {
         let valid_chartypes = NESlice::try_from_slice(&chartypes[..=last_digit_pos]).unwrap();
 
         // Guess offset width if desired.
-        let guess_maybe = DummyTriFlag::from_guess_other_width(hconf.guess_other_width);
+        let guess_maybe = GenericTriFlag::from_guess_other_width(hconf.guess_other_width);
         let width_res = if let Some(guess) = guess_maybe {
             match Self::guess_other_width(valid_chartypes, max_other) {
                 Ok(w) => WarningsAndErrorsResult::new_ok(w),

@@ -2672,28 +2672,28 @@ impl<V, P, LWC, E, EC> NonCommutativeResult<V, P, LWC, E, EC> {
         self.map(|s| s.map_warnings(f))
     }
 
-    pub(crate) fn new_non_commutative_if(
-        is_ok: bool,
-        value: V,
-        default: P,
-        error: Option<E>,
-    ) -> Self
-    where
-        LWC: Default,
-        Option<E>: IntoNewCardinality<LWC>,
-        EC: Default,
-    {
-        if let Some(e) = error {
-            if is_ok {
-                let ws = Some(e).into_new_cardinality();
-                Succ(Success::new_non_switchable(value).set_warnings(ws))
-            } else {
-                Fail(Failure::new_from_one(e, default))
-            }
-        } else {
-            Succ(Success::new_non_switchable(value))
-        }
-    }
+    // pub(crate) fn new_non_commutative_if(
+    //     is_ok: bool,
+    //     value: V,
+    //     default: P,
+    //     error: Option<E>,
+    // ) -> Self
+    // where
+    //     LWC: Default,
+    //     Option<E>: IntoNewCardinality<LWC>,
+    //     EC: Default,
+    // {
+    //     if let Some(e) = error {
+    //         if is_ok {
+    //             let ws = Some(e).into_new_cardinality();
+    //             Succ(Success::new_non_switchable(value).set_warnings(ws))
+    //         } else {
+    //             Fail(Failure::new_from_one(e, default))
+    //         }
+    //     } else {
+    //         Succ(Success::new_non_switchable(value))
+    //     }
+    // }
 }
 
 //
@@ -2704,6 +2704,7 @@ impl<V, LWC, E> NonCommutativeResult<V, (), LWC, E, Nothing<E>> {
     ///
     /// Warnings will be given on the Succ side since non-commutative Result's
     /// by definition cannot have warnings in the Fail branch.
+    #[cfg(feature = "python")]
     pub(crate) fn resolve_non_commutative<Fwarn, Ferr, WarnRes, FailRes>(
         self,
         f_warnings: Fwarn,

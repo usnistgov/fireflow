@@ -25,6 +25,7 @@ use thiserror::Error;
 use std::marker::PhantomData;
 use std::mem;
 use std::num::NonZeroUsize;
+use std::ops::BitAndAssign;
 use std::slice::{Iter, from_raw_parts};
 
 #[cfg(feature = "python")]
@@ -267,11 +268,16 @@ pub(crate) enum FCSType {
 }
 
 /// Positions of rows in series that exceed one or two limits.
-pub(crate) enum TruncateTestResult {
-    /// First index was over the upper limit (and thus also over the lower).
-    FirstOverUpper(usize),
-    /// First index was over the lower limit, and another was over the upper.
-    FirstUnderUpper { upper_pos: usize, lower_pos: usize },
+pub(crate) enum MaskedRangeResult {
+    /// No values were over range; this is the first masked position.
+    ///
+    /// Note that the only way this can happen is if the original value is
+    /// greater than the mask but less than the limit after the mask is applied.
+    MaskOnly(usize),
+    /// No values were over bitmask; this is the first over range position.
+    RangeOnly(usize),
+    /// Both the mask and range were exceeded.
+    Both { mask_pos: usize, range_pos: usize },
 }
 
 // Implement as vec -> internal series
@@ -1367,7 +1373,7 @@ impl<Prim, Wrapped> InternalSeries<Prim, Wrapped> {
         self.as_ref().iter().fold(false, |hit, x| hit | (x > limit))
     }
 
-    pub(crate) fn truncate(&mut self, limit: &Prim) -> Option<usize>
+    pub(crate) fn truncate(&mut self, mask: &Prim) -> Option<usize>
     where
         Prim: Copy + PartialOrd,
     {
@@ -1376,8 +1382,8 @@ impl<Prim, Wrapped> InternalSeries<Prim, Wrapped> {
             .right_or_else(Buffer::to_vec);
         let mut ret = None;
         for (rowi, x) in xs.iter_mut().enumerate() {
-            if *x > *limit {
-                *x = *limit;
+            if *x > *mask {
+                *x = *mask;
                 if ret.is_none() {
                     ret = Some(rowi);
                 }
@@ -1387,45 +1393,129 @@ impl<Prim, Wrapped> InternalSeries<Prim, Wrapped> {
         ret
     }
 
-    /// Truncate integers above `upper` and return first position over either limit.
-    ///
-    /// ASSUME at least one value is above upper. Otherwise this will return
-    /// `(0,0)`.
-    pub(crate) fn truncate_and_test(&mut self, upper: Prim, lower: Prim) -> TruncateTestResult
+    pub(crate) fn mask_no_pos(&mut self, mask: &Prim)
     where
-        Prim: Copy + PartialOrd,
+        Prim: Copy + PartialOrd + BitAndAssign,
     {
         let mut xs = mem::take(&mut self.inner)
             .into_mut()
             .right_or_else(Buffer::to_vec);
-        let mut found_lower = false;
-        let mut upper_pos = 0;
-        let mut lower_pos = 0;
+        for x in xs.iter_mut() {
+            *x &= *mask;
+        }
+        self.inner = Buffer::from(xs);
+    }
+
+    pub(crate) fn mask(&mut self, mask: &Prim) -> Option<usize>
+    where
+        Prim: Copy + PartialOrd + BitAndAssign,
+    {
+        let mut xs = mem::take(&mut self.inner)
+            .into_mut()
+            .right_or_else(Buffer::to_vec);
+        let mut ret = None;
         for (rowi, x) in xs.iter_mut().enumerate() {
-            if *x <= lower {
-                continue;
-            }
-            if *x > upper {
-                *x = upper;
-                if !found_lower {
-                    lower_pos = rowi;
+            if *x > *mask {
+                *x &= *mask;
+                if ret.is_none() {
+                    ret = Some(rowi);
                 }
-                upper_pos = rowi;
-                break;
-            } else if !found_lower {
-                lower_pos = rowi;
-                found_lower = true;
             }
         }
         self.inner = Buffer::from(xs);
-        if upper_pos == lower_pos {
-            TruncateTestResult::FirstOverUpper(upper_pos)
-        } else {
-            TruncateTestResult::FirstUnderUpper {
-                upper_pos,
-                lower_pos,
+        ret
+    }
+
+    /// Mask integers above `mask` and return first position over either limit.
+    ///
+    /// ASSUME at least one value is above `mask`; the returned value is
+    /// meaningless otherwise. Also ASSUME that `range` is expressible within
+    /// the bits in `mask` and is also less than `mask`. If the latter is not
+    /// true this function is unnecessarily complex.
+    pub(crate) fn mask_and_cmp(&mut self, mask: Prim, range: Prim) -> MaskedRangeResult
+    where
+        Prim: Copy + PartialOrd + BitAndAssign,
+    {
+        let mut xs = mem::take(&mut self.inner)
+            .into_mut()
+            .right_or_else(Buffer::to_vec);
+        let mut found_range = false;
+        let mut found_mask = false;
+        let mut mask_pos = 0;
+        let mut range_pos = 0;
+        for (rowi, x) in xs.iter_mut().enumerate() {
+            if *x <= range {
+                continue;
+            }
+            if *x > mask {
+                *x &= mask;
+                // Store position of first masked value
+                if !found_mask {
+                    mask_pos = rowi;
+                    found_mask = true;
+                }
+                // If value is masked, test again to see if it is over the other
+                // limit. Note that masking is different from truncation;
+                // masking 10000001 with 01111111 results in 00000001.
+                if !found_range && *x > range {
+                    range_pos = rowi;
+                    found_range = true;
+                }
+            } else if !found_range {
+                // Store position of first over-limit value.
+                range_pos = rowi;
+                found_range = true;
             }
         }
+        self.inner = Buffer::from(xs);
+        if mask_pos == 0 {
+            MaskedRangeResult::RangeOnly(range_pos)
+        } else if range_pos == 0 {
+            MaskedRangeResult::RangeOnly(range_pos)
+        } else {
+            MaskedRangeResult::Both {
+                mask_pos,
+                range_pos,
+            }
+        }
+    }
+
+    pub(crate) fn mask_and_cmp_error(
+        &mut self,
+        mask: Prim,
+        range: Prim,
+    ) -> Result<Option<usize>, usize>
+    where
+        Prim: Copy + PartialOrd + BitAndAssign,
+    {
+        let mut xs = mem::take(&mut self.inner)
+            .into_mut()
+            .right_or_else(Buffer::to_vec);
+        let mut found_mask = false;
+        let mut mask_pos = 0;
+        for (rowi, x) in xs.iter_mut().enumerate() {
+            if *x <= range {
+                continue;
+            }
+            if *x > mask {
+                *x &= mask;
+                // Store position of first masked value
+                if !found_mask {
+                    mask_pos = rowi;
+                    found_mask = true;
+                }
+                // If value is masked, test again to see if it is over the other
+                // limit. Note that masking is different from truncation;
+                // masking 10000001 with 01111111 results in 00000001.
+                if *x > range {
+                    return Err(rowi);
+                }
+            } else {
+                return Err(rowi);
+            }
+        }
+        self.inner = Buffer::from(xs);
+        Ok(found_mask.then_some(mask_pos))
     }
 
     fn truncate_from_samesize_int(buf: Buffer<Prim>) -> CastSeriesResult<Self>

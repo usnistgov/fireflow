@@ -22,6 +22,7 @@ use num_traits::{AsPrimitive, Bounded, Float};
 use polars_buffer::buffer::Buffer;
 use thiserror::Error;
 
+use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::mem;
 use std::num::NonZeroUsize;
@@ -276,8 +277,18 @@ pub(crate) enum MaskedRangeResult {
     MaskOnly(usize),
     /// No values were over bitmask; this is the first over range position.
     RangeOnly(usize),
-    /// Both the mask and range were exceeded.
-    Both { mask_pos: usize, range_pos: usize },
+    /// Mask then range was exceeded at different positions.
+    MaskThenRange {
+        bitmask_pos: usize,
+        range_pos: usize,
+    },
+    /// Range than mask was exceeded at different positions.
+    RangeThenMask {
+        bitmask_pos: usize,
+        range_pos: usize,
+    },
+    /// Both the mask and range were exceeded at the same position.
+    Both(usize),
 }
 
 // Implement as vec -> internal series
@@ -1373,6 +1384,7 @@ impl<Prim, Wrapped> InternalSeries<Prim, Wrapped> {
         self.as_ref().iter().fold(false, |hit, x| hit | (x > limit))
     }
 
+    // TODO this could be optimized (probably) by removing branches
     pub(crate) fn truncate(&mut self, mask: &Prim) -> Option<usize>
     where
         Prim: Copy + PartialOrd,
@@ -1391,19 +1403,6 @@ impl<Prim, Wrapped> InternalSeries<Prim, Wrapped> {
         }
         self.inner = Buffer::from(xs);
         ret
-    }
-
-    pub(crate) fn mask_no_pos(&mut self, mask: &Prim)
-    where
-        Prim: Copy + PartialOrd + BitAndAssign,
-    {
-        let mut xs = mem::take(&mut self.inner)
-            .into_mut()
-            .right_or_else(Buffer::to_vec);
-        for x in xs.iter_mut() {
-            *x &= *mask;
-        }
-        self.inner = Buffer::from(xs);
     }
 
     pub(crate) fn mask(&mut self, mask: &Prim) -> Option<usize>
@@ -1468,23 +1467,32 @@ impl<Prim, Wrapped> InternalSeries<Prim, Wrapped> {
             }
         }
         self.inner = Buffer::from(xs);
-        if mask_pos == 0 {
-            MaskedRangeResult::RangeOnly(range_pos)
-        } else if range_pos == 0 {
-            MaskedRangeResult::RangeOnly(range_pos)
-        } else {
-            MaskedRangeResult::Both {
-                mask_pos,
-                range_pos,
+        if found_mask && found_range {
+            match range_pos.cmp(&mask_pos) {
+                Ordering::Less => MaskedRangeResult::RangeThenMask {
+                    bitmask_pos: mask_pos,
+                    range_pos,
+                },
+                Ordering::Equal => MaskedRangeResult::Both(mask_pos),
+                Ordering::Greater => MaskedRangeResult::MaskThenRange {
+                    bitmask_pos: mask_pos,
+                    range_pos,
+                },
             }
+        } else if found_mask {
+            MaskedRangeResult::MaskOnly(mask_pos)
+        } else {
+            MaskedRangeResult::RangeOnly(range_pos)
         }
     }
 
-    pub(crate) fn mask_and_cmp_error(
-        &mut self,
-        mask: Prim,
-        range: Prim,
-    ) -> Result<Option<usize>, usize>
+    /// Mask integers above `mask` and return first position exceeding 'range'.
+    ///
+    /// ASSUME at least one value is above `mask`; the returned value is
+    /// meaningless otherwise. Also ASSUME that `range` is expressible within
+    /// the bits in `mask` and is also less than `mask`. If the latter is not
+    /// true this function is unnecessarily complex.
+    pub(crate) fn mask_and_cmp_error(&mut self, mask: Prim, range: Prim) -> Result<usize, usize>
     where
         Prim: Copy + PartialOrd + BitAndAssign,
     {
@@ -1515,7 +1523,7 @@ impl<Prim, Wrapped> InternalSeries<Prim, Wrapped> {
             }
         }
         self.inner = Buffer::from(xs);
-        Ok(found_mask.then_some(mask_pos))
+        Ok(mask_pos)
     }
 
     fn truncate_from_samesize_int(buf: Buffer<Prim>) -> CastSeriesResult<Self>

@@ -1272,7 +1272,7 @@ impl EventOverRangeError {
         self.trunc_type.as_overrange_column(self.row, truncated)
     }
 
-    fn into_ok_diagnostic(self, truncated: bool) -> TruncateRangeOk {
+    fn as_ok_diagnostic(&self, truncated: bool) -> TruncateRangeOk {
         TruncateRangeOk::Diagnostic(self.as_overrange_result(truncated))
     }
 
@@ -1280,8 +1280,8 @@ impl EventOverRangeError {
         TruncateRangeOk::Warning(self.as_overrange_result(truncated), self)
     }
 
-    fn into_ok_diagnostic_notrunc(self) -> TruncateRangeOk {
-        self.into_ok_diagnostic(false)
+    fn as_ok_diagnostic_notrunc(&self) -> TruncateRangeOk {
+        self.as_ok_diagnostic(false)
     }
 
     fn into_ok_warning_notrunc(self) -> TruncateRangeOk {
@@ -1356,9 +1356,9 @@ impl ExceededRange {
         self.into_overrange_error(pos, i).into_ok_warning(truncated)
     }
 
-    fn into_ok_diag(self, pos: usize, i: MeasIndex, truncated: bool) -> TruncateRangeOk {
-        self.into_overrange_error(pos, i)
-            .into_ok_diagnostic(truncated)
+    fn as_ok_diag(&self, pos: usize, truncated: bool) -> TruncateRangeOk {
+        let col = self.as_overrange_column(pos, truncated);
+        TruncateRangeOk::Diagnostic(col)
     }
 
     fn into_warn_or_diag(
@@ -1372,7 +1372,7 @@ impl ExceededRange {
         if is_warn {
             w.into_ok_warning(truncated)
         } else {
-            w.into_ok_diagnostic(truncated)
+            w.as_ok_diagnostic(truncated)
         }
     }
 }
@@ -7503,7 +7503,7 @@ impl CheckRange for NativeSeries<FixedAsciiRange> {
             // but only check for warning and convert to diagnostic if found
             OverLimitMode::DiagnoseOnly => self
                 .check_range_fixed_ascii_inner(i, TriFlag::True.into())
-                .map(|x| x.map_or_default(EventOverRangeError::into_ok_diagnostic_notrunc)),
+                .map(|x| x.map_or_default(|w| w.as_ok_diagnostic_notrunc())),
         }
     }
 }
@@ -7536,7 +7536,7 @@ impl CheckRange for NativeSeries<DelimAsciiRange> {
                 .map(|x| x.map_or_default(EventOverRangeError::into_ok_warning_notrunc)),
             OverLimitMode::DiagnoseOnly => self
                 .check_range_delim_ascii_inner(i, TriFlag::True.into())
-                .map(|x| x.map_or_default(EventOverRangeError::into_ok_diagnostic_notrunc)),
+                .map(|x| x.map_or_default(|w| w.as_ok_diagnostic_notrunc())),
         }
     }
 }
@@ -7600,15 +7600,15 @@ impl NativeSeries<FixedAsciiRange> {
         match (range_flag.is_error(), chars.saturated()) {
             (Some(is_error), false) => {
                 if self.series.any_gt(&hard_limit) {
-                    self.check_overrange1(i, &hard_limit, ec, true)
+                    self.find_overrange_result_unchecked(i, &hard_limit, ec, true)
                 } else if soft_limit < hard_limit && self.series.any_gt(&soft_limit) {
-                    self.check_overrange1(i, &soft_limit, er, is_error)
+                    self.find_overrange_result_unchecked(i, &soft_limit, er, is_error)
                 } else {
                     Ok(None)
                 }
             }
-            (None, false) => self.check_overrange0(i, hard_limit, ec, true),
-            (Some(is_error), true) => self.check_overrange0(i, soft_limit, er, is_error),
+            (None, false) => self.find_overrange_result(i, &hard_limit, ec, true),
+            (Some(is_error), true) => self.find_overrange_result(i, &soft_limit, er, is_error),
             (None, true) => Ok(None),
         }
     }
@@ -7626,7 +7626,7 @@ impl NativeSeries<DelimAsciiRange> {
         let er = ExceededRange::Range(trng);
 
         match range_flag.is_error() {
-            Some(is_error) => self.check_overrange1(i, &limit, er, is_error),
+            Some(is_error) => self.find_overrange_result(i, &limit, er, is_error),
             None => Ok(None),
         }
     }
@@ -7651,6 +7651,20 @@ where
         self.check_range_int_inner(i, bitmask_flag.as_generic(), range_flag.as_generic())
     }
 
+    // This method is complete and utter insanity.
+    //
+    // Here is an attempt to help those foolish enough to read it:
+    // 1. A diagnostic is returned at the first position for the first
+    //    violation. The only exception to this is cases where either the mask
+    //    or range does not require a check at all.
+    //
+    // 2. Having two limits means that it is possible to return a different
+    //    position for the diagnostic and the warning. This is only possible if
+    //    one level is diagnostic-only and the other is set to warn.
+    //
+    // 3. It is possible for a value that is over the bitmask to be under the
+    //    range after it is masked, which means each time we apply the mask we
+    //    need to additionally check if any range violations remain.
     #[allow(clippy::too_many_lines)]
     fn check_range_int_mut(
         &mut self,
@@ -7685,22 +7699,6 @@ where
             }
         };
 
-        macro_rules! find_or_diagnose {
-            ($is_error:expr, $limit:expr) => {
-                if $is_error {
-                    let rowi = self.find_overrange(&$limit).unwrap().0;
-                    Err(eb().into_overrange_error(rowi, i))
-                } else {
-                    let (rowi, x) = self.find_overrange(&int_upper).unwrap();
-                    if x > &bitmask {
-                        Ok(eb().into_ok_warn(rowi, i, false))
-                    } else {
-                        Ok(er().into_ok_diag(rowi, i, false))
-                    }
-                }
-            };
-        }
-
         match (bitmask_mode, range_mode) {
             // If truncating to range, bitmask does not matter since range
             // is less than bitmask, and anything less than range will be
@@ -7713,11 +7711,12 @@ where
             // path depends on the error flag for the range check.
             (OverLimitMode::Truncate(bitmask_is_warn), OverLimitMode::Check(flag)) => {
                 match flag.is_error() {
-                    // Range check is a hard error. Truncation doesn't matter
-                    // since any truncated value will also exceed range and thus
-                    // should trigger an error.
+                    // Range check is a hard error.
                     Some(true) => {
                         if self.series.any_gt(&bitmask) {
+                            // Value is above bitmask. Mask all values and
+                            // return first that is above the range after
+                            // applying the mask (if any).
                             self.series
                                 .mask_and_cmp_error(bitmask, int_upper)
                                 .map(|bitmask_pos| {
@@ -7728,7 +7727,8 @@ where
                             // Nothing over bitmask, so only need to check range
                             // and return error if anything over.
                             if self.series.any_gt(&int_upper) {
-                                Err(self.find_overrange1(i, &int_upper, er()).unwrap())
+                                let rowi = self.find_overrange_unchecked(&int_upper).0;
+                                Err(er().into_overrange_error(rowi, i))
                             } else {
                                 Ok(TruncateRangeOk::Nothing)
                             }
@@ -7743,11 +7743,20 @@ where
                                 // limit. Return warning no matter what.
                                 Ok(self.mask_warn(i, &bitmask, er(), true))
                             } else {
+                                // Bitmask and range not the same.
                                 let pos_res = self.series.mask_and_cmp(bitmask, int_upper);
                                 let ok = match pos_res {
+                                    // First masked value also exceeds range.
+                                    // Return bitmask warning if warning flag is
+                                    // set, otherwise range diagnostic.
                                     MaskedRangeResult::Both(pos) => {
                                         trunc_bitmask_or_range_warn(bitmask_is_warn, pos, pos)
                                     }
+                                    // Value was masked and another value later
+                                    // was over-range. Return bitmask warning at
+                                    // fist position if warning flag is set,
+                                    // otherwise range diagnostic at second
+                                    // position.
                                     MaskedRangeResult::MaskThenRange {
                                         bitmask_pos,
                                         range_pos,
@@ -7756,10 +7765,14 @@ where
                                         bitmask_pos,
                                         range_pos,
                                     ),
+                                    // Only range was violated and nothing was
+                                    // masked. Return diagnostic for range.
                                     MaskedRangeResult::RangeOnly(range_pos)
                                     | MaskedRangeResult::RangeThenMask { range_pos, .. } => {
-                                        er().into_ok_diag(range_pos, i, false)
+                                        er().as_ok_diag(range_pos, false)
                                     }
+                                    // Only mask was violated. Return warning or
+                                    // diagnostic depending on flag.
                                     MaskedRangeResult::MaskOnly(bitmask_pos) => {
                                         trunc_bitmask_warn_or_diag(bitmask_pos, bitmask_is_warn)
                                     }
@@ -7769,11 +7782,19 @@ where
                         } else if bitmask > int_upper && self.series.any_gt(&int_upper) {
                             // Nothing exceeds the bitmask and thus nothing will
                             // be masked. This reduces to a simple range check.
-                            self.check_overrange2(i, &int_upper, er(), flag)
+                            let rowi = self.find_overrange_unchecked(&int_upper).0;
+                            let err = er().into_overrange_error(rowi, i);
+                            match flag.is_error() {
+                                Some(true) => Err(err),
+                                Some(false) => Ok(err.into_ok_warning(false)),
+                                None => Ok(err.as_ok_diagnostic(false)),
+                            }
                         } else {
                             Ok(TruncateRangeOk::Nothing)
                         }
                     }
+                    // Range check is non-existent. Mask all values and return
+                    // warning or diagnostic depending on flag.
                     None => Ok(self.mask_warn(i, &bitmask, eb(), bitmask_is_warn)),
                 }
             }
@@ -7781,22 +7802,23 @@ where
             (OverLimitMode::Truncate(bitmask_is_warn), OverLimitMode::DiagnoseOnly) => {
                 let pos_res = self.series.mask_and_cmp(bitmask, int_upper);
                 let ok = match pos_res {
-                    // Only range was exceeded. Track its position and
-                    // return diagnostic.
-                    MaskedRangeResult::RangeOnly(range_pos) => {
-                        er().into_ok_diag(range_pos, i, true)
-                    }
+                    // Only range was exceeded. Track its position and return
+                    // diagnostic.
+                    MaskedRangeResult::RangeOnly(range_pos) => er().as_ok_diag(range_pos, true),
                     // Only bitmask was exceeded and truncating resulted in a
                     // value that was less than range. Note its position and
-                    // warn if needed.
+                    // warn if needed. Note that any range violation that occurs
+                    // after the mask violation does not matter since each of
+                    // these cases have the mask violation occurring first which
+                    // will override the range diagnostic.
                     MaskedRangeResult::MaskOnly(bitmask_pos)
                     | MaskedRangeResult::Both(bitmask_pos)
                     | MaskedRangeResult::MaskThenRange { bitmask_pos, .. } => {
                         trunc_bitmask_warn_or_diag(bitmask_pos, bitmask_is_warn)
                     }
                     // Range was exceeded before bitmask. Return diagnostic
-                    // for range and also attach a warning for bitmask if we
-                    // want.
+                    // for range and also attach a warning for bitmask if flag
+                    // is set.
                     MaskedRangeResult::RangeThenMask {
                         bitmask_pos,
                         range_pos,
@@ -7823,20 +7845,37 @@ where
             // return value out.
             (OverLimitMode::DiagnoseOnly, OverLimitMode::DiagnoseOnly) => self
                 .check_range_int_inner(i, TriFlag::True.into(), TriFlag::True.into())
-                .map(|x| x.map_or_default(EventOverRangeError::into_ok_diagnostic_notrunc)),
+                .map(|x| x.map_or_default(|w| w.as_ok_diagnostic_notrunc())),
 
             (OverLimitMode::DiagnoseOnly, OverLimitMode::Check(flag)) => {
                 match flag.is_error() {
-                    // This reduces to a range only check because anything that
-                    // exceeds bitmask will also exceed range.
+                    // If error, simply scan for the first range violation and
+                    // throw error if found. The diagnostic case does not matter
+                    // since an error makes the diagnostic irrelevant and any
+                    // value that exceeds bitmask will also exceed the range.
+                    //
+                    // If warning, find first position that exceeds range.
+                    // Return warning for the range violation. However, return
+                    // bitmask-specific diagnostic if the value at the violated
+                    // position also exceeds bitmask, and range otherwise.
                     Some(is_error) => {
                         if self.series.any_gt(&int_upper) {
-                            find_or_diagnose!(is_error, int_upper)
+                            let (rowi, x) = self.find_overrange_unchecked(&int_upper);
+                            let e = er().into_overrange_error(rowi, i);
+                            if is_error {
+                                Err(e)
+                            } else if x > &bitmask {
+                                let col = eb().as_overrange_column(rowi, false);
+                                Ok(TruncateRangeOk::Warning(col, e))
+                            } else {
+                                Ok(e.into_ok_warning(false))
+                            }
                         } else {
                             Ok(TruncateRangeOk::Nothing)
                         }
                     }
-                    // Scan for bitmask and return first violation as diagnostic.
+                    // Range doesn't matter. Scan for bitmask and return first
+                    // violation as diagnostic.
                     None => Ok(self.find_diagnostic(&bitmask, &eb())),
                 }
             }
@@ -7845,8 +7884,43 @@ where
                 match flag.is_error() {
                     Some(is_error) => {
                         if self.series.any_gt(&bitmask) {
-                            find_or_diagnose!(is_error, bitmask)
+                            if is_error {
+                                // If error flag is set and we know that at
+                                // least one value is above the bitmask, find
+                                // that position and return as an error. The
+                                // diagnostic case does not matter since an
+                                // error overrides it.
+                                let rowi = self.find_overrange_unchecked(&bitmask).0;
+                                Err(eb().into_overrange_error(rowi, i))
+                            } else {
+                                // If bitmask violation is just a warning, this
+                                // is complicated because the range may have
+                                // been exceeded earlier. First, find the first
+                                // range violation, which we know exists because
+                                // at least one value exceeds bitmask which is
+                                // greater than range. If the value at this
+                                // position also exceeds the bitmask, then
+                                // return a warning/diagnostic for the bitmask
+                                // violation. Otherwise, the bitmask was
+                                // violated at a later position and we need to
+                                // scan a second time to find it. In this case,
+                                // return a diagnostic for the range violation
+                                // at the first position and a warning for the
+                                // bitmask violation at the second position.
+                                let (range_pos, x) = self.find_overrange_unchecked(&int_upper);
+                                if x > &bitmask {
+                                    Ok(eb().into_ok_warn(range_pos, i, false))
+                                } else {
+                                    let bitmask_pos = self.find_overrange_unchecked(&bitmask).0;
+                                    let w = eb().into_overrange_error(bitmask_pos, i);
+                                    let col = er().as_overrange_column(range_pos, false);
+                                    Ok(TruncateRangeOk::Warning(col, w))
+                                }
+                            }
                         } else if bitmask > int_upper && self.series.any_gt(&int_upper) {
+                            // If nothing exceeds bitmask but something exceeds
+                            // range, this is simple because we only need to
+                            // return a diagnostic for the range violation.
                             Ok(self.find_diagnostic(&int_upper, &er()))
                         } else {
                             Ok(TruncateRangeOk::Nothing)
@@ -7890,14 +7964,14 @@ where
                         // this reduces to throwing an error/warning based on
                         // the boolean OR of the flags.
                         let is_error = b_is_error | r_is_error;
-                        self.check_overrange1(i, &bitmask, eb(), is_error)
+                        self.find_overrange_result_unchecked(i, &bitmask, eb(), is_error)
                     } else if b_is_error == r_is_error {
                         // Range and bitmask not the same, but both flags are
                         // the same which means neither limit takes priority
                         // over the other. Find the first value that exceeds the
                         // range (not bitmask) and then test if it also exceeds
                         // bitmask. Format error accordingly.
-                        let (rowi, x) = self.find_overrange(&int_upper).unwrap();
+                        let (rowi, x) = self.find_overrange_unchecked(&int_upper);
                         let exc = if x > &bitmask { eb() } else { er() };
                         let e = exc.into_overrange_error(rowi, i);
                         if b_is_error { Err(e) } else { Ok(Some(e)) }
@@ -7906,27 +7980,27 @@ where
                         // range is a warning. Find the first value that exceeds
                         // bitmask and ignore any earlier values that exceeded
                         // range only since these will only result in warnings.
-                        self.check_overrange1(i, &bitmask, eb(), true)
+                        self.find_overrange_result_unchecked(i, &bitmask, eb(), true)
                     } else if r_is_error {
                         // Range/bitmask not the same, range is an error, and
                         // bitmask is a warning. Find the first value that
                         // exceeds range. This may/may not also exceed the
                         // bitmask but it does not matter since bitmask is only
                         // a warning and range takes priority as an error.
-                        self.check_overrange1(i, &int_upper, er(), true)
+                        self.find_overrange_result_unchecked(i, &int_upper, er(), true)
                     } else {
                         Ok(None)
                     }
                 } else if bitmask > int_upper && self.series.any_gt(&int_upper) {
                     // Nothing exceeds bitmask. Check if anything exceeds range
                     // and return first violating row if found.
-                    self.check_overrange1(i, &int_upper, er(), r_is_error)
+                    self.find_overrange_result_unchecked(i, &int_upper, er(), r_is_error)
                 } else {
                     Ok(None)
                 }
             }
-            (Some(is_error), None) => self.check_overrange0(i, bitmask, eb(), is_error),
-            (None, Some(is_error)) => self.check_overrange0(i, int_upper, er(), is_error),
+            (Some(is_error), None) => self.find_overrange_result(i, &bitmask, eb(), is_error),
+            (None, Some(is_error)) => self.find_overrange_result(i, &int_upper, er(), is_error),
             (None, None) => Ok(None),
         }
     }
@@ -7968,7 +8042,7 @@ where
                 .map(|x| x.map_or_default(EventOverRangeError::into_ok_warning_notrunc)),
             OverLimitMode::DiagnoseOnly => self
                 .check_range_float_inner(i, TriFlag::True.into())
-                .map(|x| x.map_or_default(EventOverRangeError::into_ok_diagnostic_notrunc)),
+                .map(|x| x.map_or_default(|w| w.as_ok_diagnostic_notrunc())),
         }
     }
 
@@ -7984,7 +8058,7 @@ where
         let er = ExceededRange::Range(trng);
 
         match range_flag.is_error() {
-            Some(is_error) => self.check_overrange1(i, &limit, er, is_error),
+            Some(is_error) => self.find_overrange_result(i, &limit, er, is_error),
             None => Ok(None),
         }
     }
@@ -7995,10 +8069,15 @@ where
     C: ColumnHasNativeType,
     C::Native: FCSRepr,
 {
-    fn find_overrange(
+    // This will panic if there are no values to be found that exceed limit. The
+    // reason is because this should only be called after the series in question
+    // is scanned using a high-performance vectorized method. This function is
+    // much slower because it needs to keep track of the position to be returned
+    // in the main loop.
+    fn find_overrange_unchecked(
         &self,
         limit: &<C::Native as FCSRepr>::Prim,
-    ) -> Option<(usize, &<C::Native as FCSRepr>::Prim)>
+    ) -> (usize, &<C::Native as FCSRepr>::Prim)
     where
         <C::Native as FCSRepr>::Prim: PartialOrd,
     {
@@ -8007,84 +8086,38 @@ where
             .iter()
             .enumerate()
             .find_map(|(rowi, x)| (x > limit).then_some((rowi, x)))
+            .expect("limit was checked using vectorized code before calling this")
     }
 
-    fn find_overrange1(
+    fn find_overrange_result_unchecked(
         &self,
         i: MeasIndex,
         limit: &<C::Native as FCSRepr>::Prim,
         exceed: ExceededRange,
-    ) -> Option<EventOverRangeError>
+        is_error: bool,
+    ) -> CheckRangeResult
     where
         <C::Native as FCSRepr>::Prim: PartialOrd,
     {
-        self.find_overrange(limit)
-            .map(|(rowi, _)| exceed.into_overrange_error(rowi, i))
+        let rowi = self.find_overrange_unchecked(limit).0;
+        let e = exceed.into_overrange_error(rowi, i);
+        if is_error { Err(e) } else { Ok(Some(e)) }
     }
 
-    fn find_overrange2(
-        &self,
-        limit: &<C::Native as FCSRepr>::Prim,
-        exceed: &ExceededRange,
-    ) -> OverrangeColumn
-    where
-        <C::Native as FCSRepr>::Prim: PartialOrd,
-    {
-        self.find_overrange(limit)
-            .map(|(rowi, _)| exceed.as_overrange_column(rowi, false))
-    }
-
-    fn check_overrange0(
+    fn find_overrange_result(
         &self,
         i: MeasIndex,
-        limit: <C::Native as FCSRepr>::Prim,
+        limit: &<C::Native as FCSRepr>::Prim,
         exceed: ExceededRange,
         is_error: bool,
     ) -> CheckRangeResult
     where
         <C::Native as FCSRepr>::Prim: PartialOrd + Copy,
     {
-        if self.series.any_gt(&limit) {
-            self.check_overrange1(i, &limit, exceed, is_error)
+        if self.series.any_gt(limit) {
+            self.find_overrange_result_unchecked(i, limit, exceed, is_error)
         } else {
             Ok(None)
-        }
-    }
-
-    fn check_overrange1(
-        &self,
-        i: MeasIndex,
-        limit: &<C::Native as FCSRepr>::Prim,
-        exceed: ExceededRange,
-        is_error: bool,
-    ) -> CheckRangeResult
-    where
-        <C::Native as FCSRepr>::Prim: PartialOrd,
-    {
-        self.find_overrange(limit)
-            .map(|(rowi, _)| exceed.into_overrange_error(rowi, i))
-            .map_or(Ok(None), |e| if is_error { Err(e) } else { Ok(Some(e)) })
-    }
-
-    fn check_overrange2(
-        &self,
-        i: MeasIndex,
-        limit: &<C::Native as FCSRepr>::Prim,
-        exceed: ExceededRange,
-        flag: GenericTriFlag,
-    ) -> TruncateRangeResult
-    where
-        <C::Native as FCSRepr>::Prim: PartialOrd,
-    {
-        if let Some(col) = self.find_overrange2(limit, &exceed) {
-            let err = exceed.into_overrange_error(col.first_overrange, i);
-            match flag.is_error() {
-                Some(true) => Err(err),
-                Some(false) => Ok(TruncateRangeOk::Warning(col, err)),
-                None => Ok(TruncateRangeOk::Diagnostic(col)),
-            }
-        } else {
-            Ok(TruncateRangeOk::Nothing)
         }
     }
 
@@ -8097,8 +8130,8 @@ where
         <C::Native as FCSRepr>::Prim: PartialOrd + Copy,
     {
         if self.series.any_gt(limit) {
-            let col = self.find_overrange2(limit, exceed).unwrap();
-            TruncateRangeOk::Diagnostic(col)
+            let rowi = self.find_overrange_unchecked(limit).0;
+            exceed.as_ok_diag(rowi, false)
         } else {
             TruncateRangeOk::Nothing
         }
@@ -8108,22 +8141,16 @@ where
     where
         <C::Native as FCSRepr>::Prim: PartialOrd + Copy,
     {
-        if self.series.any_gt(limit) {
-            self.series.truncate(limit)
-        } else {
-            None
-        }
+        self.series
+            .any_gt(limit)
+            .then(|| self.series.truncate(limit))
     }
 
     fn mask(&mut self, mask: &<C::Native as FCSRepr>::Prim) -> Option<usize>
     where
         <C::Native as FCSRepr>::Prim: PartialOrd + BitAndAssign + Copy,
     {
-        if self.series.any_gt(mask) {
-            self.series.mask(mask)
-        } else {
-            None
-        }
+        self.series.any_gt(mask).then(|| self.series.mask(mask))
     }
 
     fn truncate_warn(

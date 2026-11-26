@@ -1384,41 +1384,43 @@ impl<Prim, Wrapped> InternalSeries<Prim, Wrapped> {
         self.as_ref().iter().fold(false, |hit, x| hit | (x > limit))
     }
 
+    /// Truncate all values and return position of first truncated value.
+    ///
+    /// This assumes there is at least one value to truncate.
     // TODO this could be optimized (probably) by removing branches
-    pub(crate) fn truncate(&mut self, mask: &Prim) -> Option<usize>
+    pub(crate) fn truncate(&mut self, mask: &Prim) -> usize
     where
         Prim: Copy + PartialOrd,
     {
         let mut xs = mem::take(&mut self.inner)
             .into_mut()
             .right_or_else(Buffer::to_vec);
-        let mut ret = None;
-        for (rowi, x) in xs.iter_mut().enumerate() {
+        let mut ret = 0;
+        for (rowi, x) in xs.iter_mut().enumerate().rev() {
             if *x > *mask {
                 *x = *mask;
-                if ret.is_none() {
-                    ret = Some(rowi);
-                }
+                ret = rowi;
             }
         }
         self.inner = Buffer::from(xs);
         ret
     }
 
-    pub(crate) fn mask(&mut self, mask: &Prim) -> Option<usize>
+    /// Mask all values and return position of first masked value.
+    ///
+    /// This assumes there is at least one value to mask.
+    pub(crate) fn mask(&mut self, mask: &Prim) -> usize
     where
         Prim: Copy + PartialOrd + BitAndAssign,
     {
         let mut xs = mem::take(&mut self.inner)
             .into_mut()
             .right_or_else(Buffer::to_vec);
-        let mut ret = None;
-        for (rowi, x) in xs.iter_mut().enumerate() {
+        let mut ret = 0;
+        for (rowi, x) in xs.iter_mut().enumerate().rev() {
             if *x > *mask {
                 *x &= *mask;
-                if ret.is_none() {
-                    ret = Some(rowi);
-                }
+                ret = rowi;
             }
         }
         self.inner = Buffer::from(xs);

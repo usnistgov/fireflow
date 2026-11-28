@@ -2982,7 +2982,8 @@ class TestCore:
             go("trunc_warn", "silent", [0], 16383)
         with pytest.warns(pf.PyreflowWarning):
             go("trunc_warn", "trunc_warn", [0], 9001)
-        go("trunc_warn", "trunc_silent", [0], 9001)
+        with pytest.warns(pf.PyreflowWarning):
+            go("trunc_warn", "trunc_silent", [0], 9001)
         with pytest.warns(pf.PyreflowWarning):
             go("trunc_warn", "none", [0], 16383)
 
@@ -6638,7 +6639,6 @@ class TestConfig:
             assert go("warn", "silent") == ([(0, rng, bm, False)], 2**32 - 1)
         with pytest.warns(pf.PyreflowWarning):
             assert go("warn", "trunc_warn") == ([(0, rng, None, True)], 98)
-        # no warning for bitmask because range was truncated
         assert go("warn", "trunc_silent") == ([(0, rng, None, True)], 98)
         with pytest.warns(pf.PyreflowWarning):
             assert go("warn", "none") == ([(0, rng, bm, False)], 2**32 - 1)
@@ -6650,9 +6650,9 @@ class TestConfig:
         with pytest.warns(pf.PyreflowWarning):
             assert go("trunc_warn", "silent") == ([(0, rng, bm, True)], 127)
         with pytest.warns(pf.PyreflowWarning):
-            assert go("trunc_warn", "trunc_warn") == ([(0, rng, None, True)], 98)
-        # no warning for bitmask because range was truncated
-        assert go("trunc_warn", "trunc_silent") == ([(0, rng, None, True)], 98)
+            assert go("trunc_warn", "trunc_warn") == ([(0, rng, bm, True)], 98)
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("trunc_warn", "trunc_silent") == ([(0, rng, bm, True)], 98)
         with pytest.warns(pf.PyreflowWarning):
             assert go("trunc_warn", "none") == ([(0, rng, bm, True)], 127)
 
@@ -6662,8 +6662,8 @@ class TestConfig:
             assert go("trunc_silent", "error") == ([(0, rng, None, True)], 127)
         assert go("trunc_silent", "silent") == ([(0, rng, bm, True)], 127)
         with pytest.warns(pf.PyreflowWarning):
-            assert go("trunc_silent", "trunc_warn") == ([(0, rng, None, True)], 98)
-        assert go("trunc_silent", "trunc_silent") == ([(0, rng, None, True)], 98)
+            assert go("trunc_silent", "trunc_warn") == ([(0, rng, bm, True)], 98)
+        assert go("trunc_silent", "trunc_silent") == ([(0, rng, bm, True)], 98)
         assert go("trunc_silent", "none") == ([(0, rng, bm, True)], 127)
 
         with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):

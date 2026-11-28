@@ -1911,11 +1911,12 @@ pub const OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL: &NEStr = ne_str!("trunc_warn");
 pub const OVER_LIMIT_ACTION_NONE_LEVEL: &NEStr = NONE_LEVEL;
 
 impl_str_enum!(
-    #[derive(Display)]
+    #[derive(Display, Debug)]
     #[display("{}", self.as_str())]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
+    #[cfg_attr(feature = "testutil", derive(Arbitrary))]
     pub OverLimitAction,
     /// Error when parsing [`OverLimitAction`] from [`String`]
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1936,7 +1937,7 @@ impl_str_enum!(
 );
 
 /// Choose what to do with values that exceed $PnR.
-#[derive(Display, FromStr, Clone, Copy)]
+#[derive(Display, FromStr, Clone, Copy, From)]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OverRangeAction(pub OverLimitAction);
@@ -1948,7 +1949,7 @@ impl Default for OverRangeAction {
 }
 
 /// Choose what to do with integer values that exceed their bitmask set by $PnR.
-#[derive(Display, FromStr, Clone, Copy)]
+#[derive(Display, FromStr, Clone, Copy, From)]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OverBitmaskAction(pub OverLimitAction);

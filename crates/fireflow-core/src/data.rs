@@ -829,7 +829,7 @@ impl PreEventsDiagnostics {
 pub type OverrangeColumn = Option<OverrangeColumnResult>;
 
 /// A column which was found to exceed $PnR.
-#[derive(new, Clone, PartialEq)]
+#[derive(new, Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OverrangeColumnResult {
     /// Index of the first overrange value.
@@ -7357,7 +7357,7 @@ pub(crate) type CheckRangeResult = Result<Option<EventOverRangeError>, EventOver
 
 pub(crate) type TruncateRangeResult = Result<TruncateRangeOk, EventOverRangeError>;
 
-#[derive(Default)]
+#[derive(Default, Debug, PartialEq, Clone)]
 pub(crate) enum TruncateRangeOk {
     #[default]
     Nothing,
@@ -7530,7 +7530,7 @@ impl CheckRange for NativeSeries<DelimAsciiRange> {
         let er = ExceededRange::Range(trng);
 
         match range_action.0.mode() {
-            OverLimitMode::Truncate(is_warn) => Ok(self.mask_warn(i, &limit, er, is_warn)),
+            OverLimitMode::Truncate(is_warn) => Ok(self.truncate_warn(i, &limit, er, is_warn)),
             OverLimitMode::Check(flag) => self
                 .check_range_delim_ascii_inner(i, flag)
                 .map(|x| x.map_or_default(EventOverRangeError::into_ok_warning_notrunc)),
@@ -7654,13 +7654,13 @@ where
     // This method is complete and utter insanity.
     //
     // Here is an attempt to help those foolish enough to read it:
-    // 1. A diagnostic is returned at the first position for the first
-    //    violation. The only exception to this is cases where either the mask
-    //    or range does not require a check at all.
     //
-    // 2. Having two limits means that it is possible to return a different
+    // 1. Having two limits means that it is possible to return a different
     //    position for the diagnostic and the warning. This is only possible if
     //    one level is diagnostic-only and the other is set to warn.
+    //
+    // 2. If given the choice between two positions, the diagnostic is always
+    //    returned for the earliest.
     //
     // 3. It is possible for a value that is over the bitmask to be under the
     //    range after it is masked, which means each time we apply the mask we
@@ -7700,9 +7700,61 @@ where
         };
 
         match (bitmask_mode, range_mode) {
-            // If truncating to range, bitmask does not matter since range
-            // is less than bitmask, and anything less than range will be
-            // truncated anyways.
+            // If truncating both bitmask and range, this is complicated because
+            // the order of operations matters (ie we can't just ignore the
+            // bitmask and truncate to range because applying the mask before
+            // range truncation might produce a different value).
+            (OverLimitMode::Truncate(bitmask_is_warn), OverLimitMode::Truncate(range_is_warn)) => {
+                let ok = if self.series.any_gt(&bitmask) {
+                    let bitmask_pos = self.series.mask(&bitmask);
+                    if bitmask != int_upper && self.series.any_gt(&int_upper) {
+                        // Bitmask and range are different and at least one
+                        // value exceeds range after masking. Return diagnostic
+                        // at the first position that was masked/truncated
+                        // regardless of flag. Return warning or error depending
+                        // on which flag was set, giving priority to bitmask.
+                        let range_pos = self.series.truncate(&int_upper);
+                        let col = if range_pos < bitmask_pos {
+                            er().as_overrange_column(range_pos, true)
+                        } else {
+                            eb().as_overrange_column(bitmask_pos, true)
+                        };
+                        if bitmask_is_warn {
+                            let w = eb().into_overrange_error(bitmask_pos, i);
+                            TruncateRangeOk::Warning(col, w)
+                        } else if range_is_warn {
+                            let w = er().into_overrange_error(range_pos, i);
+                            TruncateRangeOk::Warning(col, w)
+                        } else {
+                            TruncateRangeOk::Diagnostic(col)
+                        }
+                    } else {
+                        // Bitmask and range are either the same or there are no
+                        // masked values that exceed range. In this case range
+                        // is not relevant; return warning/diagnostic for
+                        // bitmask.
+                        if bitmask_is_warn {
+                            eb().into_ok_warn(bitmask_pos, i, true)
+                        } else {
+                            eb().as_ok_diag(bitmask_pos, true)
+                        }
+                    }
+                } else if bitmask > int_upper && self.series.any_gt(&int_upper) {
+                    let range_pos = self.series.truncate(&int_upper);
+                    if range_is_warn {
+                        er().into_ok_warn(range_pos, i, true)
+                    } else {
+                        er().as_ok_diag(range_pos, true)
+                    }
+                } else {
+                    TruncateRangeOk::Nothing
+                };
+                Ok(ok)
+            }
+
+            // If truncating to range and not applying bitmask, latter does not
+            // matter since range is less than bitmask, and anything less than
+            // range will be truncated anyways.
             (_, OverLimitMode::Truncate(is_warn)) => {
                 Ok(self.truncate_warn(i, &int_upper, er(), is_warn))
             }
@@ -7712,38 +7764,31 @@ where
             (OverLimitMode::Truncate(bitmask_is_warn), OverLimitMode::Check(flag)) => {
                 match flag.is_error() {
                     // Range check is a hard error.
-                    Some(true) => {
-                        if self.series.any_gt(&bitmask) {
-                            // Value is above bitmask. Mask all values and
-                            // return first that is above the range after
-                            // applying the mask (if any).
-                            self.series
-                                .mask_and_cmp_error(bitmask, int_upper)
-                                .map(|bitmask_pos| {
-                                    trunc_bitmask_warn_or_diag(bitmask_pos, bitmask_is_warn)
-                                })
-                                .map_err(|range_pos| er().into_overrange_error(range_pos, i))
-                        } else {
-                            // Nothing over bitmask, so only need to check range
-                            // and return error if anything over.
-                            if self.series.any_gt(&int_upper) {
-                                let rowi = self.find_overrange_unchecked(&int_upper).0;
-                                Err(er().into_overrange_error(rowi, i))
-                            } else {
-                                Ok(TruncateRangeOk::Nothing)
-                            }
-                        }
-                    }
-                    // Range checks are a warning.
-                    Some(false) => {
+                    Some(range_is_error) => {
                         if self.series.any_gt(&bitmask) {
                             if bitmask == int_upper {
-                                // Bitmask and range are the same, which makes
-                                // this much easier since there is only one
-                                // limit. Return warning no matter what.
-                                Ok(self.mask_warn(i, &bitmask, er(), true))
+                                // Bitmask and range are the same, so the range
+                                // check does not matter; anything that needs to
+                                // be masked will automatically be under/at the
+                                // range.
+                                Ok(self.mask_warn_unchecked(i, &bitmask, eb(), bitmask_is_warn))
+                            } else if range_is_error {
+                                // Value is above bitmask but range is different
+                                // from bitmask and range violation is hard
+                                // error. Mask all values and return first that
+                                // is above the range after applying the mask
+                                // (if any).
+                                self.series
+                                    .mask_and_cmp_error(bitmask, int_upper)
+                                    .map(|bitmask_pos| {
+                                        trunc_bitmask_warn_or_diag(bitmask_pos, bitmask_is_warn)
+                                    })
+                                    .map_err(|range_pos| er().into_overrange_error(range_pos, i))
                             } else {
-                                // Bitmask and range not the same.
+                                // Same as previous block except that range
+                                // check is a warning. This is complicated
+                                // because that range and bitmask violation may
+                                // occur at different positions.
                                 let pos_res = self.series.mask_and_cmp(bitmask, int_upper);
                                 let ok = match pos_res {
                                     // First masked value also exceeds range.
@@ -7767,9 +7812,24 @@ where
                                     ),
                                     // Only range was violated and nothing was
                                     // masked. Return diagnostic for range.
-                                    MaskedRangeResult::RangeOnly(range_pos)
-                                    | MaskedRangeResult::RangeThenMask { range_pos, .. } => {
+                                    MaskedRangeResult::RangeOnly(range_pos) => {
                                         er().as_ok_diag(range_pos, false)
+                                    }
+                                    // Range was violated at an earlier position
+                                    // than bitmask. Return range diagnostic.
+                                    // Optionally return bitmask warning if flag
+                                    // is set.
+                                    MaskedRangeResult::RangeThenMask {
+                                        range_pos,
+                                        bitmask_pos,
+                                    } => {
+                                        if bitmask_is_warn {
+                                            let col = er().as_overrange_column(range_pos, false);
+                                            let w = eb().into_overrange_error(bitmask_pos, i);
+                                            TruncateRangeOk::Warning(col, w)
+                                        } else {
+                                            er().into_ok_warn(range_pos, i, false)
+                                        }
                                     }
                                     // Only mask was violated. Return warning or
                                     // diagnostic depending on flag.
@@ -7780,14 +7840,14 @@ where
                                 Ok(ok)
                             }
                         } else if bitmask > int_upper && self.series.any_gt(&int_upper) {
-                            // Nothing exceeds the bitmask and thus nothing will
-                            // be masked. This reduces to a simple range check.
+                            // Nothing over bitmask but at least one value over
+                            // range, find it and return warning or error
                             let rowi = self.find_overrange_unchecked(&int_upper).0;
                             let err = er().into_overrange_error(rowi, i);
-                            match flag.is_error() {
-                                Some(true) => Err(err),
-                                Some(false) => Ok(err.into_ok_warning(false)),
-                                None => Ok(err.as_ok_diagnostic(false)),
+                            if range_is_error {
+                                Err(err)
+                            } else {
+                                Ok(err.into_ok_warning(false))
                             }
                         } else {
                             Ok(TruncateRangeOk::Nothing)
@@ -7800,37 +7860,53 @@ where
             }
 
             (OverLimitMode::Truncate(bitmask_is_warn), OverLimitMode::DiagnoseOnly) => {
-                let pos_res = self.series.mask_and_cmp(bitmask, int_upper);
-                let ok = match pos_res {
-                    // Only range was exceeded. Track its position and return
-                    // diagnostic.
-                    MaskedRangeResult::RangeOnly(range_pos) => er().as_ok_diag(range_pos, true),
-                    // Only bitmask was exceeded and truncating resulted in a
-                    // value that was less than range. Note its position and
-                    // warn if needed. Note that any range violation that occurs
-                    // after the mask violation does not matter since each of
-                    // these cases have the mask violation occurring first which
-                    // will override the range diagnostic.
-                    MaskedRangeResult::MaskOnly(bitmask_pos)
-                    | MaskedRangeResult::Both(bitmask_pos)
-                    | MaskedRangeResult::MaskThenRange { bitmask_pos, .. } => {
-                        trunc_bitmask_warn_or_diag(bitmask_pos, bitmask_is_warn)
-                    }
-                    // Range was exceeded before bitmask. Return diagnostic
-                    // for range and also attach a warning for bitmask if flag
-                    // is set.
-                    MaskedRangeResult::RangeThenMask {
-                        bitmask_pos,
-                        range_pos,
-                    } => {
-                        let col = er().as_overrange_column(range_pos, false);
-                        if bitmask_is_warn {
-                            let w = eb().into_overrange_error(bitmask_pos, i);
-                            TruncateRangeOk::Warning(col, w)
-                        } else {
-                            TruncateRangeOk::Diagnostic(col)
+                let ok = if self.series.any_gt(&bitmask) {
+                    if bitmask == int_upper {
+                        // Bitmask and range are the same, so the range check
+                        // does not matter; anything that needs to be masked
+                        // will automatically be under/at the range.
+                        self.mask_warn_unchecked(i, &bitmask, eb(), bitmask_is_warn)
+                    } else {
+                        let pos_res = self.series.mask_and_cmp(bitmask, int_upper);
+                        match pos_res {
+                            // Only range was exceeded. Track its position and
+                            // return diagnostic.
+                            MaskedRangeResult::RangeOnly(range_pos) => {
+                                er().as_ok_diag(range_pos, true)
+                            }
+                            // Only bitmask was exceeded and truncating resulted
+                            // in a value that was less than range. Note its
+                            // position and warn if needed. Note that any range
+                            // violation that occurs after the mask violation
+                            // does not matter since each of these cases have
+                            // the mask violation occurring first which will
+                            // override the range diagnostic.
+                            MaskedRangeResult::MaskOnly(bitmask_pos)
+                            | MaskedRangeResult::Both(bitmask_pos)
+                            | MaskedRangeResult::MaskThenRange { bitmask_pos, .. } => {
+                                trunc_bitmask_warn_or_diag(bitmask_pos, bitmask_is_warn)
+                            }
+                            // Range was exceeded before bitmask. Return
+                            // diagnostic for range and also attach a warning
+                            // for bitmask if flag is set.
+                            MaskedRangeResult::RangeThenMask {
+                                bitmask_pos,
+                                range_pos,
+                            } => {
+                                let col = er().as_overrange_column(range_pos, false);
+                                if bitmask_is_warn {
+                                    let w = eb().into_overrange_error(bitmask_pos, i);
+                                    TruncateRangeOk::Warning(col, w)
+                                } else {
+                                    TruncateRangeOk::Diagnostic(col)
+                                }
+                            }
                         }
                     }
+                } else if bitmask > int_upper && self.series.any_gt(&int_upper) {
+                    self.find_diagnostic(&int_upper, &er())
+                } else {
+                    TruncateRangeOk::Nothing
                 };
                 Ok(ok)
             }
@@ -7864,7 +7940,7 @@ where
                             let e = er().into_overrange_error(rowi, i);
                             if is_error {
                                 Err(e)
-                            } else if x > &bitmask {
+                            } else if x > &bitmask && bitmask > int_upper {
                                 let col = eb().as_overrange_column(rowi, false);
                                 Ok(TruncateRangeOk::Warning(col, e))
                             } else {
@@ -7964,7 +8040,12 @@ where
                         // this reduces to throwing an error/warning based on
                         // the boolean OR of the flags.
                         let is_error = b_is_error | r_is_error;
-                        self.find_overrange_result_unchecked(i, &bitmask, eb(), is_error)
+                        let exc = if !b_is_error && r_is_error {
+                            er()
+                        } else {
+                            eb()
+                        };
+                        self.find_overrange_result_unchecked(i, &bitmask, exc, is_error)
                     } else if b_is_error == r_is_error {
                         // Range and bitmask not the same, but both flags are
                         // the same which means neither limit takes priority
@@ -8177,6 +8258,24 @@ where
         <C::Native as FCSRepr>::Prim: PartialOrd + BitAndAssign + Copy,
     {
         Self::pos_ok(self.mask(limit), i, exceed, is_warn)
+    }
+
+    fn mask_warn_unchecked(
+        &mut self,
+        i: MeasIndex,
+        bitmask: &<C::Native as FCSRepr>::Prim,
+        exceed: ExceededRange,
+        is_warn: bool,
+    ) -> TruncateRangeOk
+    where
+        <C::Native as FCSRepr>::Prim: PartialOrd + BitAndAssign + Copy,
+    {
+        let rowi = self.series.mask(bitmask);
+        if is_warn {
+            exceed.into_ok_warn(rowi, i, true)
+        } else {
+            exceed.as_ok_diag(rowi, true)
+        }
     }
 
     fn pos_ok(
@@ -10389,12 +10488,13 @@ mod private {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::io::AnyReader_;
     use crate::segment::read::Offsets;
     use crate::types::bitmask::Bitmask16;
     use crate::types::dataframe::InternalSeries;
 
-    use fireflow_types::config::TriFlag;
+    use fireflow_types::config::{OverLimitAction as OLA, TriFlag};
     use proptest::prelude::*;
 
     type AnyAsciiDataSchema2_0<T> = AnyAsciiDataSchema<true, ColumnMarkers<T, Nothing<NumType>>>;
@@ -10660,6 +10760,20 @@ mod tests {
         ser.check_range(i.into(), bitmask_flag.into(), range_flag.into())
     }
 
+    fn check_range_int_mut_<T>(
+        ser: &mut NativeSeries<Bitmask<T>>,
+        i: usize,
+        bitmask: OLA,
+        range: OLA,
+    ) -> TruncateRangeResult
+    where
+        NativeSeries<Bitmask<T>>: CheckRange,
+        Bitmask<T>: ColumnHasNativeType<Native = T>,
+        T: FCSRepr,
+    {
+        ser.check_range_mut(i.into(), bitmask.into(), range.into())
+    }
+
     proptest! {
         #[test]
         fn check_int_range(
@@ -10691,8 +10805,8 @@ mod tests {
         let err1 = EventOverRangeError::new(2, i, ExceededRange::Range(rng.into()));
         assert_eq!(res0, Err(err0.clone()));
         assert_eq!(res1, Err(err0.clone()));
-        assert_eq!(res2, Err(err0.clone()));
-        assert_eq!(res3, Err(err0));
+        assert_eq!(res2, Err(err0));
+        assert_eq!(res3, Err(err1.clone()));
         assert_eq!(res4, Err(err1));
     }
 
@@ -10804,6 +10918,1428 @@ mod tests {
         assert_eq!(res7, Ok(Some(err)));
         assert_eq!(res8, Ok(None));
     }
+
+    proptest! {
+        #[test]
+        fn check_int_range_mut(
+            bitmask_flag in any::<OLA>(),
+            range_flag in any::<OLA>(),
+        ) {
+            let rng = Bitmask16::try_from(1023_u64).unwrap();
+            let iser = InternalSeries::<u16, u16>::from(vec![100, 1000, 1023]);
+            let mut ser = Series::new(rng, iser);
+            let ser_original = ser.clone();
+            let res = check_range_int_mut_(&mut ser, 0, bitmask_flag, range_flag);
+            assert_eq!(res, Ok(TruncateRangeOk::Nothing));
+            assert_eq!(ser, ser_original);
+        }
+    }
+
+    fn check_int_range_mut_overrange_err_<F>(
+        bitmask: u64,
+        xs: impl IntoIterator<Item = u16>,
+        bitmask_flag: OLA,
+        range_flag: OLA,
+        f: F,
+    ) where
+        F: FnOnce(MeasIndex, Bitmask16) -> EventOverRangeError,
+    {
+        let rng = Bitmask16::try_from(bitmask).unwrap();
+        let iser = InternalSeries::<u16, u16>::from(xs.into_iter().collect::<Vec<_>>());
+        let mut ser = Series::new(rng, iser);
+        let i = 0;
+        let res = check_range_int_mut_(&mut ser, i, bitmask_flag, range_flag);
+        assert_eq!(res, Err(f(i.into(), rng)));
+    }
+
+    fn check_int_range_mut_overrange_ok_<F>(
+        bitmask: u64,
+        xs0: impl IntoIterator<Item = u16>,
+        xs1: impl IntoIterator<Item = u16>,
+        bitmask_flag: OLA,
+        range_flag: OLA,
+        f: F,
+    ) where
+        F: FnOnce(MeasIndex, Bitmask16) -> TruncateRangeOk,
+    {
+        let rng = Bitmask16::try_from(bitmask).unwrap();
+        let iser0 = InternalSeries::<u16, u16>::from(xs0.into_iter().collect::<Vec<_>>());
+        let mut ser0 = Series::new(rng, iser0);
+        let iser1 = InternalSeries::<u16, u16>::from(xs1.into_iter().collect::<Vec<_>>());
+        let ser1 = Series::new(rng, iser1);
+        let i = 0;
+
+        let res = check_range_int_mut_(&mut ser0, i, bitmask_flag, range_flag);
+
+        assert_eq!(res, Ok(f(i.into(), rng)));
+        assert_eq!(ser0, ser1);
+    }
+
+    const BITMASK_SAT: u64 = 1023;
+    const BITMASK_SPLIT: u64 = 1022;
+
+    const SERIES_INPUT: [u16; 5] = [1021, 1022, 1023, 1024, 1025];
+    const SERIES_REV_INPUT: [u16; 5] = [1025, 1024, 1023, 1022, 1021];
+
+    const SERIES_TRUNC_OUTPUT: [u16; 5] = [1021, 1022, 1023, 1023, 1023];
+    const SERIES_MASKED_OUTPUT: [u16; 5] = [1021, 1022, 1023, 0, 1];
+
+    const SERIES_SPLIT_TRUNC_OUTPUT: [u16; 5] = [1021, 1022, 1022, 1022, 1022];
+    const SERIES_SPLIT_TRUNC_MASKED_OUTPUT: [u16; 5] = [1021, 1022, 1022, 0, 1];
+
+    const SERIES_SPLIT_REV_TRUNC_OUTPUT: [u16; 5] = [1022, 1022, 1022, 1022, 1021];
+    const SERIES_SPLIT_REV_MASKED_OUTPUT: [u16; 5] = [1, 0, 1023, 1022, 1021];
+    const SERIES_SPLIT_REV_TRUNC_MASKED_OUTPUT: [u16; 5] = [1, 0, 1022, 1022, 1021];
+
+    #[test]
+    fn check_int_range_mut_overrange_error_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            OLA::Error,
+            OLA::Error,
+            |i, r| ExceededRange::from_bitmask(&r).into_overrange_error(3, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_error_warn() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            OLA::Error,
+            OLA::Warn,
+            |i, r| ExceededRange::from_bitmask(&r).into_overrange_error(3, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_error_silent() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            OLA::Error,
+            OLA::Silent,
+            |i, r| ExceededRange::from_bitmask(&r).into_overrange_error(3, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_error_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_TRUNC_OUTPUT,
+            OLA::Error,
+            OLA::TruncateWarn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(3, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_error_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_TRUNC_OUTPUT,
+            OLA::Error,
+            OLA::TruncateSilent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(3, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_error_none() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            OLA::Error,
+            OLA::None,
+            |i, r| ExceededRange::from_bitmask(&r).into_overrange_error(3, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_warn_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            OLA::Warn,
+            OLA::Error,
+            |i, r| ExceededRange::Range(r.into()).into_overrange_error(3, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_warn_warn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::Warn,
+            OLA::Warn,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(3, i, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_warn_silent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::Warn,
+            OLA::Silent,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(3, i, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_warn_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_TRUNC_OUTPUT,
+            OLA::Warn,
+            OLA::TruncateWarn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(3, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_warn_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_TRUNC_OUTPUT,
+            OLA::Warn,
+            OLA::TruncateSilent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(3, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_warn_none() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::Warn,
+            OLA::None,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(3, i, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_silent_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            OLA::Silent,
+            OLA::Error,
+            |i, r| ExceededRange::Range(r.into()).into_overrange_error(3, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_silent_warn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::Silent,
+            OLA::Warn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(3, i, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_silent_silent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::Silent,
+            OLA::Silent,
+            |_, r| ExceededRange::from_bitmask(&r).as_ok_diag(3, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_silent_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_TRUNC_OUTPUT,
+            OLA::Silent,
+            OLA::TruncateWarn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(3, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_silent_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_TRUNC_OUTPUT,
+            OLA::Silent,
+            OLA::TruncateSilent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(3, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_silent_none() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::Silent,
+            OLA::None,
+            |_, r| ExceededRange::from_bitmask(&r).as_ok_diag(3, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_twarn_error() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::Error,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(3, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_twarn_warn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::Warn,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(3, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_twarn_silent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::Silent,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(3, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_twarn_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::TruncateWarn,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(3, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_twarn_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::TruncateSilent,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(3, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_twarn_none() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::None,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(3, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_tsilent_error() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::Error,
+            |_, r| ExceededRange::from_bitmask(&r).as_ok_diag(3, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_tsilent_warn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::Warn,
+            |_, r| ExceededRange::from_bitmask(&r).as_ok_diag(3, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_tsilent_silent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::Silent,
+            |_, r| ExceededRange::from_bitmask(&r).as_ok_diag(3, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_tsilent_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::TruncateWarn,
+            |_, r| ExceededRange::from_bitmask(&r).as_ok_diag(3, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_tsilent_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::TruncateSilent,
+            |_, r| ExceededRange::from_bitmask(&r).as_ok_diag(3, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_tsilent_none() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::None,
+            |_, r| ExceededRange::from_bitmask(&r).as_ok_diag(3, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_none_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            OLA::None,
+            OLA::Error,
+            |i, r| ExceededRange::Range(r.into()).into_overrange_error(3, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_none_warn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::None,
+            OLA::Warn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(3, i, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_none_silent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::None,
+            OLA::Silent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(3, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_none_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_TRUNC_OUTPUT,
+            OLA::None,
+            OLA::TruncateWarn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(3, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_none_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_TRUNC_OUTPUT,
+            OLA::None,
+            OLA::TruncateSilent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(3, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_none_none() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SAT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::None,
+            OLA::None,
+            |_, _| TruncateRangeOk::Nothing,
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_error_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            OLA::Error,
+            OLA::Error,
+            |i, r| ExceededRange::Range(r.into()).into_overrange_error(2, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_error_warn() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            OLA::Error,
+            OLA::Warn,
+            |i, r| ExceededRange::from_bitmask(&r).into_overrange_error(3, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_error_silent() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            OLA::Error,
+            OLA::Silent,
+            |i, r| ExceededRange::from_bitmask(&r).into_overrange_error(3, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_error_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_SPLIT_TRUNC_OUTPUT,
+            OLA::Error,
+            OLA::TruncateWarn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(2, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_error_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_SPLIT_TRUNC_OUTPUT,
+            OLA::Error,
+            OLA::TruncateSilent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(2, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_error_none() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            OLA::Error,
+            OLA::None,
+            |i, r| ExceededRange::from_bitmask(&r).into_overrange_error(3, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_warn_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            OLA::Warn,
+            OLA::Error,
+            |i, r| ExceededRange::Range(r.into()).into_overrange_error(2, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_warn_warn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::Warn,
+            OLA::Warn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(2, i, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_warn_silent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::Warn,
+            OLA::Silent,
+            |i, r| {
+                let col = ExceededRange::Range(r.into()).as_overrange_column(2, false);
+                let w = ExceededRange::from_bitmask(&r).into_overrange_error(3, i);
+                TruncateRangeOk::Warning(col, w)
+            },
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_warn_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_SPLIT_TRUNC_OUTPUT,
+            OLA::Warn,
+            OLA::TruncateWarn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(2, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_warn_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_SPLIT_TRUNC_OUTPUT,
+            OLA::Warn,
+            OLA::TruncateSilent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(2, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_warn_none() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::Warn,
+            OLA::None,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(3, i, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_silent_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            OLA::Silent,
+            OLA::Error,
+            |i, r| ExceededRange::Range(r.into()).into_overrange_error(2, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_silent_warn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::Silent,
+            OLA::Warn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(2, i, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_silent_silent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::Silent,
+            OLA::Silent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(2, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_silent_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_SPLIT_TRUNC_OUTPUT,
+            OLA::Silent,
+            OLA::TruncateWarn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(2, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_silent_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_SPLIT_TRUNC_OUTPUT,
+            OLA::Silent,
+            OLA::TruncateSilent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(2, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_silent_none() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::Silent,
+            OLA::None,
+            |_, r| ExceededRange::from_bitmask(&r).as_ok_diag(3, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_twarn_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            OLA::TruncateWarn,
+            OLA::Error,
+            |i, r| ExceededRange::Range(r.into()).into_overrange_error(2, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_twarn_warn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::Warn,
+            |i, r| {
+                let col = ExceededRange::Range(r.into()).as_overrange_column(2, false);
+                let w = ExceededRange::from_bitmask(&r).into_overrange_error(3, i);
+                TruncateRangeOk::Warning(col, w)
+            },
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_twarn_silent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::Silent,
+            |i, r| {
+                let col = ExceededRange::Range(r.into()).as_overrange_column(2, false);
+                let w = ExceededRange::from_bitmask(&r).into_overrange_error(3, i);
+                TruncateRangeOk::Warning(col, w)
+            },
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_twarn_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_SPLIT_TRUNC_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::TruncateWarn,
+            |i, r| {
+                let col = ExceededRange::Range(r.into()).as_overrange_column(2, true);
+                let w = ExceededRange::from_bitmask(&r).into_overrange_error(3, i);
+                TruncateRangeOk::Warning(col, w)
+            },
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_twarn_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_SPLIT_TRUNC_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::TruncateSilent,
+            |i, r| {
+                let col = ExceededRange::Range(r.into()).as_overrange_column(2, true);
+                let w = ExceededRange::from_bitmask(&r).into_overrange_error(3, i);
+                TruncateRangeOk::Warning(col, w)
+            },
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_twarn_none() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::None,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(3, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_tsilent_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            OLA::TruncateSilent,
+            OLA::Error,
+            |i, r| ExceededRange::Range(r.into()).into_overrange_error(2, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_tsilent_warn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::Warn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(2, i, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_tsilent_silent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::Silent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(2, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_tsilent_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_SPLIT_TRUNC_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::TruncateWarn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(2, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_tsilent_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_SPLIT_TRUNC_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::TruncateSilent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(2, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_tsilent_none() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::None,
+            |_, r| ExceededRange::from_bitmask(&r).as_ok_diag(3, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_none_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            OLA::None,
+            OLA::Error,
+            |i, r| ExceededRange::Range(r.into()).into_overrange_error(2, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_none_warn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::None,
+            OLA::Warn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(2, i, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_none_silent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::None,
+            OLA::Silent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(2, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_none_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_SPLIT_TRUNC_OUTPUT,
+            OLA::None,
+            OLA::TruncateWarn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(2, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_none_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_SPLIT_TRUNC_OUTPUT,
+            OLA::None,
+            OLA::TruncateSilent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(2, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_none_none() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_INPUT,
+            SERIES_INPUT,
+            OLA::None,
+            OLA::None,
+            |_, _| TruncateRangeOk::Nothing,
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_error_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            OLA::Error,
+            OLA::Error,
+            |i, r| ExceededRange::from_bitmask(&r).into_overrange_error(0, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_error_warn() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            OLA::Error,
+            OLA::Warn,
+            |i, r| ExceededRange::from_bitmask(&r).into_overrange_error(0, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_error_silent() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            OLA::Error,
+            OLA::Silent,
+            |i, r| ExceededRange::from_bitmask(&r).into_overrange_error(0, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_error_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_TRUNC_OUTPUT,
+            OLA::Error,
+            OLA::TruncateWarn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(0, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_error_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_TRUNC_OUTPUT,
+            OLA::Error,
+            OLA::TruncateSilent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(0, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_error_none() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            OLA::Error,
+            OLA::None,
+            |i, r| ExceededRange::from_bitmask(&r).into_overrange_error(0, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_warn_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            OLA::Warn,
+            OLA::Error,
+            |i, r| ExceededRange::Range(r.into()).into_overrange_error(0, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_warn_warn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_REV_INPUT,
+            OLA::Warn,
+            OLA::Warn,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(0, i, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_warn_silent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_REV_INPUT,
+            OLA::Warn,
+            OLA::Silent,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(0, i, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_warn_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_TRUNC_OUTPUT,
+            OLA::Warn,
+            OLA::TruncateWarn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(0, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_warn_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_TRUNC_OUTPUT,
+            OLA::Warn,
+            OLA::TruncateSilent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(0, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_warn_none() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_REV_INPUT,
+            OLA::Warn,
+            OLA::None,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(0, i, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_silent_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            OLA::Silent,
+            OLA::Error,
+            |i, r| ExceededRange::Range(r.into()).into_overrange_error(0, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_silent_warn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_REV_INPUT,
+            OLA::Silent,
+            OLA::Warn,
+            |i, r| {
+                let col = ExceededRange::from_bitmask(&r).as_overrange_column(0, false);
+                let w = ExceededRange::Range(r.into()).into_overrange_error(0, i);
+                TruncateRangeOk::Warning(col, w)
+            },
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_silent_silent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_REV_INPUT,
+            OLA::Silent,
+            OLA::Silent,
+            |_, r| ExceededRange::from_bitmask(&r).as_ok_diag(0, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_silent_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_TRUNC_OUTPUT,
+            OLA::Silent,
+            OLA::TruncateWarn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(0, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_silent_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_TRUNC_OUTPUT,
+            OLA::Silent,
+            OLA::TruncateSilent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(0, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_silent_none() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_REV_INPUT,
+            OLA::Silent,
+            OLA::None,
+            |_, r| ExceededRange::from_bitmask(&r).as_ok_diag(0, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_twarn_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            OLA::TruncateWarn,
+            OLA::Error,
+            |i, r| ExceededRange::Range(r.into()).into_overrange_error(2, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_twarn_warn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::Warn,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(0, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_twarn_silent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::Silent,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(0, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_twarn_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_TRUNC_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::TruncateWarn,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(0, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_twarn_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_TRUNC_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::TruncateSilent,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(0, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_twarn_none() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_MASKED_OUTPUT,
+            OLA::TruncateWarn,
+            OLA::None,
+            |i, r| ExceededRange::from_bitmask(&r).into_ok_warn(0, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_tsilent_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            OLA::TruncateSilent,
+            OLA::Error,
+            |i, r| ExceededRange::Range(r.into()).into_overrange_error(2, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_tsilent_warn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::Warn,
+            |i, r| {
+                let col = ExceededRange::from_bitmask(&r).as_overrange_column(0, true);
+                let w = ExceededRange::Range(r.into()).into_overrange_error(2, i);
+                TruncateRangeOk::Warning(col, w)
+            },
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_tsilent_silent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::Silent,
+            |_, r| ExceededRange::from_bitmask(&r).as_ok_diag(0, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_tsilent_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_TRUNC_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::TruncateWarn,
+            |i, r| {
+                let col = ExceededRange::from_bitmask(&r).as_overrange_column(0, true);
+                let w = ExceededRange::Range(r.into()).into_overrange_error(2, i);
+                TruncateRangeOk::Warning(col, w)
+            },
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_tsilent_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_TRUNC_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::TruncateSilent,
+            |_, r| ExceededRange::from_bitmask(&r).as_ok_diag(0, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_tsilent_none() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_MASKED_OUTPUT,
+            OLA::TruncateSilent,
+            OLA::None,
+            |_, r| ExceededRange::from_bitmask(&r).as_ok_diag(0, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_none_error() {
+        check_int_range_mut_overrange_err_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            OLA::None,
+            OLA::Error,
+            |i, r| ExceededRange::Range(r.into()).into_overrange_error(0, i),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_none_warn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_REV_INPUT,
+            OLA::None,
+            OLA::Warn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(0, i, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_none_silent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_REV_INPUT,
+            OLA::None,
+            OLA::Silent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(0, false),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_none_twarn() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_TRUNC_OUTPUT,
+            OLA::None,
+            OLA::TruncateWarn,
+            |i, r| ExceededRange::Range(r.into()).into_ok_warn(0, i, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_none_tsilent() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_SPLIT_REV_TRUNC_OUTPUT,
+            OLA::None,
+            OLA::TruncateSilent,
+            |_, r| ExceededRange::Range(r.into()).as_ok_diag(0, true),
+        );
+    }
+
+    #[test]
+    fn check_int_range_mut_overrange_split_rev_none_none() {
+        check_int_range_mut_overrange_ok_(
+            BITMASK_SPLIT,
+            SERIES_REV_INPUT,
+            SERIES_REV_INPUT,
+            OLA::None,
+            OLA::None,
+            |_, _| TruncateRangeOk::Nothing,
+        );
+    }
+
+    // let rng = Bitmask16::try_from(1023_u64).unwrap();
+    // let iser = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1024, 1025]);
+    // let ser = Series::new(rng, iser);
+    // let iser_final = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1023, 1023]);
+    // let ser_final = Series::new(rng, iser_final);
+    // let i = 0;
+
+    // let err0 = ExceededRange::from_bitmask(&rng).into_overrange_error(2, i.into());
+    // let err1 = ExceededRange::Range(rng.into()).into_overrange_error(2, i.into());
+
+    // let mut ser00 = ser.clone();
+    // let mut ser01 = ser.clone();
+    // let mut ser02 = ser.clone();
+    // let mut ser03 = ser.clone();
+    // let mut ser04 = ser.clone();
+    // let mut ser05 = ser.clone();
+    // let mut ser06 = ser.clone();
+    // let mut ser07 = ser.clone();
+    // let mut ser08 = ser.clone();
+
+    // let res00 = check_range_int_mut_(&mut ser00, i, OLA::Error, OLA::Error);
+    // let res01 = check_range_int_mut_(&mut ser01, i, OLA::Error, OLA::Warn);
+    // let res02 = check_range_int_mut_(&mut ser02, i, OLA::Error, OLA::Silent);
+    // let res03 = check_range_int_mut_(&mut ser03, i, OLA::Error, OLA::TruncateWarn);
+    // let res04 = check_range_int_mut_(&mut ser04, i, OLA::Error, OLA::TruncateSilent);
+    // let res05 = check_range_int_mut_(&mut ser05, i, OLA::Error, OLA::None);
+    // let res06 = check_range_int_mut_(&mut ser06, i, OLA::Warn, OLA::Error);
+    // // let res3 = check_range_int_mut_(&mut ser0, i, OLA::Warn, OLA::Warn);
+    // // let res3 = check_range_int_mut_(&mut ser0, i, OLA::Warn, OLA::Silent);
+    // // let res3 = check_range_int_mut_(&mut ser0, i, OLA::Warn, OLA::TruncWarn);
+    // // let res3 = check_range_int_mut_(&mut ser0, i, OLA::Warn, OLA::TruncSilent);
+    // // let res3 = check_range_int_mut_(&mut ser0, i, OLA::Warn, OLA::None);
+    // let res07 = check_range_int_mut_(&mut ser07, i, OLA::Silent, OLA::Error);
+    // let res08 = check_range_int_mut_(&mut ser08, i, OLA::None, OLA::Error);
+
+    // assert_eq!(res00, Err(err0.clone()));
+    // assert_eq!(res01, Err(err0.clone()));
+    // assert_eq!(res02, Err(err0.clone()));
+    // assert_eq!(res03, Ok(err1.clone().into_ok_warning(true)));
+    // assert_eq!(ser03, ser_final);
+    // assert_eq!(res04, Ok(err1.as_ok_diagnostic(true)));
+    // assert_eq!(ser04, ser_final);
+    // assert_eq!(res05, Err(err0.clone()));
+    // assert_eq!(res06, Err(err0));
+    // assert_eq!(res07, Err(err1.clone()));
+    // assert_eq!(res08, Err(err1));
 }
 
 #[cfg(feature = "python")]

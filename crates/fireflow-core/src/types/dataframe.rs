@@ -1388,7 +1388,7 @@ impl<Prim, Wrapped> InternalSeries<Prim, Wrapped> {
     ///
     /// This assumes there is at least one value to truncate.
     // TODO this could be optimized (probably) by removing branches
-    pub(crate) fn truncate(&mut self, mask: &Prim) -> usize
+    pub(crate) fn truncate(&mut self, limit: &Prim) -> usize
     where
         Prim: Copy + PartialOrd,
     {
@@ -1397,8 +1397,8 @@ impl<Prim, Wrapped> InternalSeries<Prim, Wrapped> {
             .right_or_else(Buffer::to_vec);
         let mut ret = 0;
         for (rowi, x) in xs.iter_mut().enumerate().rev() {
-            if *x > *mask {
-                *x = *mask;
+            if *x > *limit {
+                *x = *limit;
                 ret = rowi;
             }
         }
@@ -1419,9 +1419,9 @@ impl<Prim, Wrapped> InternalSeries<Prim, Wrapped> {
         let mut ret = 0;
         for (rowi, x) in xs.iter_mut().enumerate().rev() {
             if *x > *mask {
-                *x &= *mask;
                 ret = rowi;
             }
+            *x &= *mask;
         }
         self.inner = Buffer::from(xs);
         ret

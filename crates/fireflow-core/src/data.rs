@@ -10744,7 +10744,7 @@ mod tests {
         }
     }
 
-    // check ranges
+    // Test integer range/bitmask check methods (read-only, no mask/truncation)
 
     fn check_range_int_<T>(
         ser: &NativeSeries<Bitmask<T>>,
@@ -10760,7 +10760,7 @@ mod tests {
         ser.check_range(i.into(), bitmask_flag.into(), range_flag.into())
     }
 
-    fn check_range_int_mut_<T>(
+    fn check_range_mut_int_<T>(
         ser: &mut NativeSeries<Bitmask<T>>,
         i: usize,
         bitmask: OLA,
@@ -10919,6 +10919,23 @@ mod tests {
         assert_eq!(res8, Ok(None));
     }
 
+    // Test integer range masking/truncation methods.
+    //
+    // General testing strategy:
+    // - enumerate all possible flag combinations for bitmask and range (36)
+    // - for each flag combination, enumerate each of the following scenarios
+    //   1. ascending numbers with bitmask == range (assume we don't need to
+    //      test the descending case since the bitmask and range warning should
+    //      always show up in the same position.
+    //   2. same as 1 but with range < bitmask, which will allow range and
+    //      bitmask violation to possibly show up in different positions.
+    //   3. same as 2 but with descending data
+    // - for each strategy, check the warning/error and also the resulting data
+    //   which may/may not be mutated in place
+    // - also include a one-off property test for totally valid data with no
+    //   possible range/bitmask violations. This should do the same thing for
+    //   every flag
+
     proptest! {
         #[test]
         fn check_int_range_mut(
@@ -10929,7 +10946,7 @@ mod tests {
             let iser = InternalSeries::<u16, u16>::from(vec![100, 1000, 1023]);
             let mut ser = Series::new(rng, iser);
             let ser_original = ser.clone();
-            let res = check_range_int_mut_(&mut ser, 0, bitmask_flag, range_flag);
+            let res = check_range_mut_int_(&mut ser, 0, bitmask_flag, range_flag);
             assert_eq!(res, Ok(TruncateRangeOk::Nothing));
             assert_eq!(ser, ser_original);
         }
@@ -10948,7 +10965,7 @@ mod tests {
         let iser = InternalSeries::<u16, u16>::from(xs.into_iter().collect::<Vec<_>>());
         let mut ser = Series::new(rng, iser);
         let i = 0;
-        let res = check_range_int_mut_(&mut ser, i, bitmask_flag, range_flag);
+        let res = check_range_mut_int_(&mut ser, i, bitmask_flag, range_flag);
         assert_eq!(res, Err(f(i.into(), rng)));
     }
 
@@ -10969,7 +10986,7 @@ mod tests {
         let ser1 = Series::new(rng, iser1);
         let i = 0;
 
-        let res = check_range_int_mut_(&mut ser0, i, bitmask_flag, range_flag);
+        let res = check_range_mut_int_(&mut ser0, i, bitmask_flag, range_flag);
 
         assert_eq!(res, Ok(f(i.into(), rng)));
         assert_eq!(ser0, ser1);
@@ -12294,52 +12311,203 @@ mod tests {
         );
     }
 
-    // let rng = Bitmask16::try_from(1023_u64).unwrap();
-    // let iser = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1024, 1025]);
-    // let ser = Series::new(rng, iser);
-    // let iser_final = InternalSeries::<u16, u16>::from(vec![1022, 1023, 1023, 1023]);
-    // let ser_final = Series::new(rng, iser_final);
-    // let i = 0;
+    // Test float range check methods
 
-    // let err0 = ExceededRange::from_bitmask(&rng).into_overrange_error(2, i.into());
-    // let err1 = ExceededRange::Range(rng.into()).into_overrange_error(2, i.into());
+    fn check_range_float_<T>(
+        ser: &NativeSeries<FloatRange<T>>,
+        i: usize,
+        bitmask_flag: TriFlag,
+        range_flag: TriFlag,
+    ) -> Result<Option<EventOverRangeError>, EventOverRangeError>
+    where
+        NativeSeries<FloatRange<T>>: CheckRange,
+        FloatRange<T>: ColumnHasNativeType<Native = T>,
+        T: FCSRepr<Prim = T>,
+    {
+        ser.check_range(i.into(), bitmask_flag.into(), range_flag.into())
+    }
 
-    // let mut ser00 = ser.clone();
-    // let mut ser01 = ser.clone();
-    // let mut ser02 = ser.clone();
-    // let mut ser03 = ser.clone();
-    // let mut ser04 = ser.clone();
-    // let mut ser05 = ser.clone();
-    // let mut ser06 = ser.clone();
-    // let mut ser07 = ser.clone();
-    // let mut ser08 = ser.clone();
+    fn check_range_mut_float_<T>(
+        ser: &mut NativeSeries<FloatRange<T>>,
+        i: usize,
+        bitmask: OLA,
+        range: OLA,
+    ) -> TruncateRangeResult
+    where
+        NativeSeries<FloatRange<T>>: CheckRange,
+        FloatRange<T>: ColumnHasNativeType<Native = T>,
+        T: FCSRepr<Prim = T>,
+    {
+        ser.check_range_mut(i.into(), bitmask.into(), range.into())
+    }
 
-    // let res00 = check_range_int_mut_(&mut ser00, i, OLA::Error, OLA::Error);
-    // let res01 = check_range_int_mut_(&mut ser01, i, OLA::Error, OLA::Warn);
-    // let res02 = check_range_int_mut_(&mut ser02, i, OLA::Error, OLA::Silent);
-    // let res03 = check_range_int_mut_(&mut ser03, i, OLA::Error, OLA::TruncateWarn);
-    // let res04 = check_range_int_mut_(&mut ser04, i, OLA::Error, OLA::TruncateSilent);
-    // let res05 = check_range_int_mut_(&mut ser05, i, OLA::Error, OLA::None);
-    // let res06 = check_range_int_mut_(&mut ser06, i, OLA::Warn, OLA::Error);
-    // // let res3 = check_range_int_mut_(&mut ser0, i, OLA::Warn, OLA::Warn);
-    // // let res3 = check_range_int_mut_(&mut ser0, i, OLA::Warn, OLA::Silent);
-    // // let res3 = check_range_int_mut_(&mut ser0, i, OLA::Warn, OLA::TruncWarn);
-    // // let res3 = check_range_int_mut_(&mut ser0, i, OLA::Warn, OLA::TruncSilent);
-    // // let res3 = check_range_int_mut_(&mut ser0, i, OLA::Warn, OLA::None);
-    // let res07 = check_range_int_mut_(&mut ser07, i, OLA::Silent, OLA::Error);
-    // let res08 = check_range_int_mut_(&mut ser08, i, OLA::None, OLA::Error);
+    proptest! {
+        #[test]
+        fn check_float_range(
+            bitmask_flag in any::<TriFlag>(),
+            range_flag in any::<TriFlag>(),
+        ) {
+            let rng = F32Range::new(100.0.try_into().unwrap());
+            let iser = InternalSeries::<f32, f32>::from(vec![1.0, 10.0, 100.0]);
+            let ser = Series::new(rng, iser);
+            let res = check_range_float_(&ser, 0, bitmask_flag, range_flag);
+            assert_eq!(res, Ok(None));
+        }
+    }
 
-    // assert_eq!(res00, Err(err0.clone()));
-    // assert_eq!(res01, Err(err0.clone()));
-    // assert_eq!(res02, Err(err0.clone()));
-    // assert_eq!(res03, Ok(err1.clone().into_ok_warning(true)));
-    // assert_eq!(ser03, ser_final);
-    // assert_eq!(res04, Ok(err1.as_ok_diagnostic(true)));
-    // assert_eq!(ser04, ser_final);
-    // assert_eq!(res05, Err(err0.clone()));
-    // assert_eq!(res06, Err(err0));
-    // assert_eq!(res07, Err(err1.clone()));
-    // assert_eq!(res08, Err(err1));
+    proptest! {
+        #[test]
+        fn check_float_range_error(
+            bitmask_flag in any::<TriFlag>()
+        ) {
+            let rng = F32Range::new(99.0.try_into().unwrap());
+            let iser = InternalSeries::<f32, f32>::from(vec![1.0, 10.0, 100.0]);
+            let ser = Series::new(rng, iser);
+            let res = check_range_float_(&ser, 0, bitmask_flag, TriFlag::True);
+            let err = ExceededRange::Range(rng.into()).into_overrange_error(2, 0.into());
+            assert_eq!(res, Err(err))
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn check_float_range_warn(
+            bitmask_flag in any::<TriFlag>()
+        ) {
+            let rng = F32Range::new(99.0.try_into().unwrap());
+            let iser = InternalSeries::<f32, f32>::from(vec![1.0, 10.0, 100.0]);
+            let ser = Series::new(rng, iser);
+            let res = check_range_float_(&ser, 0, bitmask_flag, TriFlag::False);
+            let err = ExceededRange::Range(rng.into()).into_overrange_error(2, 0.into());
+            assert_eq!(res, Ok(Some(err)))
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn check_float_range_silent(
+            bitmask_flag in any::<TriFlag>()
+        ) {
+            let rng = F32Range::new(99.0.try_into().unwrap());
+            let iser = InternalSeries::<f32, f32>::from(vec![1.0, 10.0, 100.0]);
+            let ser = Series::new(rng, iser);
+            let res = check_range_float_(&ser, 0, bitmask_flag, TriFlag::Silent);
+            assert_eq!(res, Ok(None))
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn check_float_range_mut(
+            bitmask_flag in any::<OLA>(),
+            range_flag in any::<OLA>(),
+        ) {
+            let rng = F32Range::new(100.0.try_into().unwrap());
+            let iser = InternalSeries::<f32, f32>::from(vec![1.0, 10.0, 100.0]);
+            let mut ser = Series::new(rng, iser);
+            let ser_original = ser.clone();
+            let res = check_range_mut_float_(&mut ser, 0, bitmask_flag, range_flag);
+            assert_eq!(res, Ok(TruncateRangeOk::Nothing));
+            assert_eq!(ser, ser_original);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn check_float_range_mut_error(
+            bitmask_flag in any::<OLA>(),
+        ) {
+            let rng = F32Range::new(99.0.try_into().unwrap());
+            let iser = InternalSeries::<f32, f32>::from(vec![1.0, 10.0, 100.0]);
+            let mut ser = Series::new(rng, iser);
+            let ser_original = ser.clone();
+            let res = check_range_mut_float_(&mut ser, 0, bitmask_flag, OLA::Error);
+            let err = ExceededRange::Range(rng.into()).into_overrange_error(2, 0.into());
+            assert_eq!(res, Err(err));
+            assert_eq!(ser, ser_original);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn check_float_range_mut_warn(
+            bitmask_flag in any::<OLA>(),
+        ) {
+            let rng = F32Range::new(99.0.try_into().unwrap());
+            let iser = InternalSeries::<f32, f32>::from(vec![1.0, 10.0, 100.0]);
+            let mut ser = Series::new(rng, iser);
+            let ser_original = ser.clone();
+            let res = check_range_mut_float_(&mut ser, 0, bitmask_flag, OLA::Warn);
+            let ok = ExceededRange::Range(rng.into()).into_ok_warn(2, 0.into(), false);
+            assert_eq!(res, Ok(ok));
+            assert_eq!(ser, ser_original);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn check_float_range_mut_silent(
+            bitmask_flag in any::<OLA>(),
+        ) {
+            let rng = F32Range::new(99.0.try_into().unwrap());
+            let iser = InternalSeries::<f32, f32>::from(vec![1.0, 10.0, 100.0]);
+            let mut ser = Series::new(rng, iser);
+            let ser_original = ser.clone();
+            let res = check_range_mut_float_(&mut ser, 0, bitmask_flag, OLA::Silent);
+            let ok = ExceededRange::Range(rng.into()).as_ok_diag(2, false);
+            assert_eq!(res, Ok(ok));
+            assert_eq!(ser, ser_original);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn check_float_range_mut_twarn(
+            bitmask_flag in any::<OLA>(),
+        ) {
+            let rng = F32Range::new(99.0.try_into().unwrap());
+            let iser = InternalSeries::<f32, f32>::from(vec![1.0, 10.0, 100.0]);
+            let mut ser = Series::new(rng, iser);
+            let iserf = InternalSeries::<f32, f32>::from(vec![1.0, 10.0, 99.0]);
+            let serf = Series::new(rng, iserf);
+            let res = check_range_mut_float_(&mut ser, 0, bitmask_flag, OLA::TruncateWarn);
+            let ok = ExceededRange::Range(rng.into()).into_ok_warn(2, 0.into(), true);
+            assert_eq!(res, Ok(ok));
+            assert_eq!(ser, serf);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn check_float_range_mut_tsilent(
+            bitmask_flag in any::<OLA>(),
+        ) {
+            let rng = F32Range::new(99.0.try_into().unwrap());
+            let iser = InternalSeries::<f32, f32>::from(vec![1.0, 10.0, 100.0]);
+            let mut ser = Series::new(rng, iser);
+            let iserf = InternalSeries::<f32, f32>::from(vec![1.0, 10.0, 99.0]);
+            let serf = Series::new(rng, iserf);
+            let res = check_range_mut_float_(&mut ser, 0, bitmask_flag, OLA::TruncateSilent);
+            let ok = ExceededRange::Range(rng.into()).as_ok_diag(2, true);
+            assert_eq!(res, Ok(ok));
+            assert_eq!(ser, serf);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn check_float_range_mut_none(
+            bitmask_flag in any::<OLA>(),
+        ) {
+            let rng = F32Range::new(99.0.try_into().unwrap());
+            let iser = InternalSeries::<f32, f32>::from(vec![1.0, 10.0, 100.0]);
+            let mut ser = Series::new(rng, iser);
+            let ser_original = ser.clone();
+            let res = check_range_mut_float_(&mut ser, 0, bitmask_flag, OLA::None);
+            assert_eq!(res, Ok(TruncateRangeOk::Nothing));
+            assert_eq!(ser, ser_original);
+        }
+    }
 }
 
 #[cfg(feature = "python")]
